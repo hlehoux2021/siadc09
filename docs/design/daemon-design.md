@@ -1,0 +1,976 @@
+# Daemon Design — Jeedom SIA DC-09 Plugin
+
+**Version:** 0.1 — Architecture & Component Design
+**Date:** 2026-03-02
+**Status:** Draft — in review
+
+---
+
+## Overview
+
+The daemon is a Python asyncio process that bridges Jeedom alarm events to a Central Station Receiver (CSR) using the SIA DC-09 protocol. It runs continuously, managing two parallel responsibilities:
+
+1. **Event relay** — transmit alarm events from Jeedom to the CSR via SIA-DCS messages
+2. **Supervision** — send periodic NULL messages to maintain the connection and detect CSR unreachability
+
+---
+
+## Module Structure
+
+```
+resources/siadc09d/
+├── siadc09d.py          ← Main daemon (SIADaemon class, extends JeedomDaemon)
+├── sia_protocol.py      ← Pure protocol module (encode/decode/CRC) — no Jeedom deps
+├── sia_crypto.py        ← AES encryption module (stubbed initially)
+├── error_handler.py     ← Error classification and message factory (Component 5a)
+tests/
+└── simulator/
+    └── csr_simulator.py ← CSR simulator for development testing
+```
+
+### Dependency rules
+
+- `sia_protocol.py` imports only `sia_crypto.py` — zero Jeedom dependencies
+- `sia_crypto.py` imports only Python stdlib (`cryptography` or `pycryptodome`)
+- `siadc09d.py` imports `sia_protocol`, `sia_crypto`, and `jeedom-daemon-py`
+- `csr_simulator.py` imports `sia_protocol` only — standalone tool, not deployed
+
+---
+
+## Component 0 — `sia_protocol.py` + `sia_crypto.py` + `csr_simulator.py`
+
+### API surface of `sia_protocol.py`
+
+---
+
+#### `compute_crc(data: bytes) -> int`
+
+**Why:** SIA DC-09 mandates CRC-16/MODBUS integrity checking on every frame (section 5.5.1.2). The CSR discards any frame whose CRC does not match — from the daemon's perspective this is indistinguishable from a timeout.
+
+**What:** Computes CRC-16/MODBUS over the `message_string` bytes using polynomial `0xA001` (bit-reversal of `0x8005`), starting with CRC=0.
+
+**Scope (critical):** CRC is computed over the `message_string` only — not the `0x0A` leader, not the CRC field itself, not the 4-byte length field, not the `0x0D` trailer.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `data` | `bytes` | Raw `message_string` bytes to checksum |
+
+**Returns:** `int` — 16-bit CRC value (0–65535).
+
+---
+
+#### `make_timestamp() -> str`
+
+**Why:** Every SIA DC-09 frame must carry a UTC timestamp (section 5.5.1.7). The CSR validates it is within +20/−40 seconds of its own clock. A stale or local-time timestamp causes a NAK, which in v1.0 increments the strike counter.
+
+**What:** Returns the current UTC time formatted per the standard. Must be called fresh immediately before encoding each frame.
+
+**Returns:** `str` — `"HH:MM:SS,MM-DD-YYYY"` (e.g. `"14:32:11,03-06-2026"`). Always UTC — local time will cause systematic NAKs when the system timezone differs from UTC.
+
+---
+
+#### `validate_timestamp(ts: str, tolerance_sec: int = 40) -> bool`
+
+**Why:** Used by the CSR simulator to replicate the CSR's timestamp gate (section 5.5.1.6) — decides whether to ACK or NAK an incoming PE frame.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `ts` | `str` | Timestamp string in `"HH:MM:SS,MM-DD-YYYY"` format |
+| `tolerance_sec` | `int` | Acceptance window in seconds (default 40; standard specifies CSR accepts PE messages within +20/−40s of its own clock — default is conservative) |
+
+**Returns:** `bool` — `True` if timestamp is within the tolerance window of current UTC.
+
+---
+
+#### `detect_crc_format(raw: bytes) -> str`
+
+**Why:** SIA DC-09 frames carry the CRC in either hex-ASCII (4 bytes) or binary (2 bytes) format. Both must be accepted. The daemon detects the format used in CSR responses to encode its own frames in the matching format.
+
+**What:** Inspects fixed byte positions in the raw frame using the standard's layout:
+- Hex format: `raw[5] == ord('0') and raw[9] == ord('"')` → `'hex'`
+- Bin format: `raw[3] == ord('0') and raw[7] == ord('"')` → `'bin'`
+
+| Parameter | Type | Description |
+|---|---|---|
+| `raw` | `bytes` | Complete raw frame bytes (minimum 10 bytes) |
+
+**Returns:** `'hex'` or `'bin'`.
+**Raises:** `ValueError` if neither pattern matches (malformed frame).
+
+---
+
+#### `wrap_frame(message_str: str, crc_format: str = 'hex') -> bytes`
+
+**Why:** Internal helper that encapsulates a `message_string` into the SIA DC-09 frame envelope. Not called directly by the daemon — called internally by `encode_message()`, `encode_ack()`, and `encode_nak()`.
+
+**What:** Computes CRC over `message_str`, encodes it in the requested format, builds the 4-byte ASCII-hex length field, and assembles the complete frame. Uses Windows-1252 encoding for the message string (section 5.5.1.1) — ASCII-only content is unaffected, but media URLs with non-ASCII characters must be pre-validated.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `message_str` | `str` | The message_string (content between header and trailer) |
+| `crc_format` | `str` | `'hex'` (default, 4 bytes ASCII) or `'bin'` (2 bytes binary) |
+
+**Returns:** `bytes` — complete frame: `0x0A + CRC + LENGTH(4 hex ASCII) + message_str.encode('windows-1252') + 0x0D`.
+
+---
+
+#### `encode_message(id_type, account, seq, zone, timestamp, receiver_prefix='', account_prefix='', media_url=None) -> bytes`
+
+**Why:** Primary outbound frame builder. Constructs alarm and supervision frames from semantic parameters, handling the SIA-DCS data block format and optional Verification extended data field.
+
+**`id_type` values (exhaustive):**
+
+| Value | Meaning |
+|---|---|
+| `'NULL'` | Supervision frame — empty data block, no event. Sent periodically to maintain the CSR link. Unencrypted. |
+| `'*NULL'` | Encrypted supervision frame. Used when `encryption_enabled=True`. Timestamp and pad fields are required (section 5.5.2.1). |
+| `'SIA-DCS'` | Standard alarm event frame, unencrypted. |
+| `'*SIA-DCS'` | Alarm event frame, AES-encrypted. The `*` prefix signals encryption to the CSR per section 5.5.1.4.1. |
+
+**Encrypted frame structure (for `'*SIA-DCS'` and `'*NULL'`):**
+
+Per section 5.4.3–5.4.4, only the content inside the data block `[...]` is encrypted. Padding is **pseudo-random** and is prepended inside the block, terminated by `|`. The closing `]` and everything before `[` are never encrypted.
+
+```
+Unencrypted: "SIA-DCS"SSSS...#ACCOUNT[#ACCOUNT|BA zone]_timestamp
+Encrypted:   "*SIA-DCS"SSSS...#ACCOUNT[hex(AES(pad|#ACCOUNT|BA zone_timestamp))]
+                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                                        encrypted region: pad + | + data + _ + timestamp
+```
+
+The pad is pseudo-random bytes prepended so that the total encrypted region length is a multiple of 16 (section 5.4.4). `encode_message()` is responsible for generating the pad and assembling the plaintext before passing it to `sia_crypto.encrypt()`.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id_type` | `str` | Frame identifier token (see table above) |
+| `account` | `str` | Account number, 3–16 hex chars |
+| `seq` | `int` | Sequence number 1–9999; wraps to 1 after 9999. Formatted as 4 zero-padded digits. |
+| `zone` | `str` | Zone name for alarm events; empty string `''` for `'NULL'` supervision frames |
+| `timestamp` | `str` | UTC timestamp from `make_timestamp()` |
+| `receiver_prefix` | `str` | Optional 0–6 hex char receiver prefix. Default `''` → field omitted; CSR interprets as `R0`. **IMA Protect: unconfirmed — verify at integration time.** |
+| `account_prefix` | `str` | Optional 0–6 hex char account prefix. Default `''` → field omitted; CSR interprets as `L0`. **IMA Protect: unconfirmed — verify at integration time.** |
+| `media_url` | `str \| None` | Snapshot URL appended as `[V...]` Verification extended data field per section 5.5.1.8. Appended after event data block, before timestamp. Forbidden chars: `[`, `]`, `|`. Encoding: Windows-1252. `None` → field omitted. |
+
+**Returns:** `bytes` — complete frame ready to transmit.
+
+**Example frame (alarm, unencrypted, with media URL):**
+```
+"SIA-DCS"0007L0#ABC123[#ABC123|BA Salon][Vhttp://192.168.1.50/snap.jpg]_14:32:11,03-06-2026
+```
+
+---
+
+#### `decode_message(raw: bytes) -> dict`
+
+**Why:** Used by the CSR simulator to parse incoming PE frames for validation and scenario-scripted response selection (ACK / NAK / timeout).
+
+| Parameter | Type | Description |
+|---|---|---|
+| `raw` | `bytes` | Complete frame bytes including `0x0A` leader and `0x0D` trailer |
+
+**Returns:** `dict` with keys:
+
+| Key | Type | Description |
+|---|---|---|
+| `id_type` | `str` | e.g. `'SIA-DCS'`, `'*SIA-DCS'`, `'NULL'` |
+| `encrypted` | `bool` | True if `id_type` starts with `*` |
+| `seq` | `int` | Sequence number |
+| `receiver_prefix` | `str \| None` | Receiver prefix, or `None` if absent |
+| `account_prefix` | `str` | Account prefix |
+| `account` | `str` | Account number |
+| `event_data` | `str` | Raw data block content (ciphertext hex if encrypted) |
+| `extended_fields` | `list[tuple[str, str]]` | `[(identifier, content), ...]` e.g. `[('V', 'http://...')]` |
+| `timestamp` | `str \| None` | Timestamp string, or `None` if absent |
+| `crc_format` | `str` | `'hex'` or `'bin'` |
+
+**Raises:** `ValueError` if frame structure is invalid.
+
+---
+
+#### `encode_ack(sia_msg: dict, crc_format: str) -> bytes`
+
+**Why:** Used by the CSR simulator to send a conformant ACK. Per section 5.5.2.1, the ACK **must echo** the `receiver_prefix`, `account_prefix`, and `account` from the original PE message. A mismatched echo causes the daemon to discard the ACK.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `sia_msg` | `dict` | Parsed message dict from `decode_message()` |
+| `crc_format` | `str` | `'hex'` or `'bin'` — **must match** the incoming frame's CRC format |
+
+**Returns:** `bytes` — complete ACK frame.
+
+**Frame format depends on whether the incoming message was encrypted (section 5.5.2.2):**
+
+| Incoming `id_type` | ACK token | ACK format |
+|---|---|---|
+| `'SIA-DCS'` / `'NULL'` (unencrypted) | `"ACK"` | `"ACK"SSSS[Rprefix][Lprefix]#account[]` |
+| `'*SIA-DCS'` / `'*NULL'` (encrypted) | `"*ACK"` | `"*ACK"SSSS[Rprefix][Lprefix]#account[hex(AES(pad_timestamp))]` |
+
+For encrypted ACK, the `*ACK` response is itself encrypted (timestamp + pad in the data block), using the same key as the incoming message. The `sia_msg['encrypted']` flag from `decode_message()` determines which format to use.
+
+---
+
+#### `encode_nak(crc_format: str) -> bytes`
+
+**Why:** Used by the CSR simulator to send a timestamp NAK. Per section 5.5.3.2, the NAK data field carries the CSR's current GMT time to allow the PE to correct its clock.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `crc_format` | `str` | `'hex'` or `'bin'` |
+
+**Returns:** `bytes` — complete NAK frame.
+**Frame format:** `"NAK"0000R0L0A0[]_HH:MM:SS,MM-DD-YYYY` (timestamp = CSR's current UTC at send time).
+
+---
+
+#### `decode_ack_nak(raw: bytes) -> dict`
+
+**Why:** Used by the daemon to parse every CSR response to its outbound frames. The result drives SM1/SM2 transitions — in v1.0 a NAK always stops retrying and triggers `BAD_CSR_RESPONSE`.
+
+**What:** Parses a raw CSR response and classifies it. Never raises — returns `'unknown'` on any parse failure so the daemon can handle it as a `BAD_CSR_RESPONSE` without crashing.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `raw` | `bytes` | Complete raw response bytes from CSR |
+
+**Returns:** `dict` with keys:
+
+| Key | Type | Description |
+|---|---|---|
+| `type` | `str` | `'ACK'`, `'NAK'`, or `'unknown'` (anything unparseable) |
+| `seq` | `int \| None` | Echoed sequence number; `None` for `'unknown'` |
+| `raw_nak` | `bytes \| None` | Full raw NAK frame bytes; populated only when `type='NAK'`. Passed to `parse_nak_timestamp()` to extract CSR clock for v1.1 auto-heal. |
+
+---
+
+#### `decode(raw: bytes, key: bytes | None = None) -> ParsedMessage` *(Task 0.5 — added by Component 5c)*
+
+**Why:** Inspector-oriented full decoder for the debug UI. Richer than `decode_ack_nak()` — validates CRC and length, decrypts if key is provided, exposes every frame field for human display. **Not used in the daemon runtime** — called only by the `decodeFrame` AJAX endpoint via a short-lived subprocess.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `raw` | `bytes` | Complete frame bytes |
+| `key` | `bytes \| None` | AES key for decryption; `None` if unavailable or frame is unencrypted |
+
+**Returns:** `ParsedMessage` dataclass (full field list in `debug-ui-design.md`):
+
+```python
+@dataclass
+class ParsedMessage:
+    raw_hex: str
+    crc_received: str;  crc_computed: str;  crc_valid: bool
+    length_declared: int;  length_actual: int
+    id_token: str              # e.g. "SIA-DCS", "*SIA-DCS", "ACK", "NAK"
+    encrypted: bool;  aes_blocks: int | None
+    sequence: str
+    receiver_prefix: str | None;  account_prefix: str;  account: str
+    data_raw: str              # hex string if encrypted + no key; plaintext otherwise
+    data_decrypted: str | None # populated when encrypted and key provided
+    extended_fields: list[tuple[str, str]]  # [(identifier, content), ...]
+    timestamp: str | None
+```
+
+**Behaviour:** `key=None` + encrypted frame → `data_raw` = hex of ciphertext, `data_decrypted=None`. Key provided → decrypt, set `data_decrypted`; `data_raw` still holds original ciphertext hex.
+
+---
+
+#### `parse_nak_timestamp(nak_data: bytes) -> datetime | None` *(Task 0.5)*
+
+**Why:** Extracts the CSR's current time from a NAK frame data field (section 5.5.3.2). In v1.0 used only to distinguish a standard timestamp-NAK (parseable) from a malformed NAK (anomaly → `BAD_CSR_RESPONSE`). In v1.1, the extracted `datetime` will drive clock auto-heal and a one-shot retry.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `nak_data` | `bytes` | Full raw NAK frame bytes — the `raw_nak` field from `decode_ack_nak()` |
+
+**Returns:** `datetime` (UTC, timezone-aware) if the NAK data field contains a parseable SIA DC-09 timestamp; `None` otherwise.
+
+---
+
+### API surface of `sia_crypto.py`
+
+---
+
+#### `encrypt(data: bytes, key: bytes) -> bytes`
+
+**Phase 1 (stub):** Returns `data` unchanged. Allows full end-to-end protocol testing before AES is implemented.
+
+**Phase 2:** AES-CBC encryption.
+- IV: 16 zero bytes (`b'\x00' * 16`) as specified by section 5.4.6.
+- Key length selects variant: 16 bytes → AES-128, 24 bytes → AES-192, 32 bytes → AES-256.
+- `data` **must already be a multiple of 16 bytes** — `encrypt()` does NOT add padding. Padding is pseudo-random and is prepended by `encode_message()` as part of the message string structure (section 5.4.4). See `encode_message()` encrypted frame structure above.
+- Returns raw ciphertext bytes; caller encodes to hex ASCII for embedding in the frame data block.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `data` | `bytes` | Plaintext encrypted region, already padded to a multiple of 16 bytes by the caller |
+| `key` | `bytes` | AES key — 16, 24, or 32 bytes |
+
+**Returns:** `bytes` — ciphertext, same length as input.
+
+---
+
+#### `decrypt(data: bytes, key: bytes) -> bytes`
+
+**Phase 1 (stub):** Returns `data` unchanged.
+
+**Phase 2:** Reverse of `encrypt`. Returns the full plaintext encrypted region including the pseudo-random pad prefix — the caller is responsible for stripping it (locate the `|` pad terminator and discard everything before it). Used by `decode()` in Task 0.5 (debug inspector only — not in daemon runtime).
+
+| Parameter | Type | Description |
+|---|---|---|
+| `data` | `bytes` | Ciphertext bytes (decoded from hex ASCII frame field) |
+| `key` | `bytes` | AES key — 16, 24, or 32 bytes |
+
+**Returns:** `bytes` — decrypted region including pad prefix; caller strips pad by splitting on first `|`.
+
+---
+
+### Sequence: PHP sends alarm → sia_protocol encodes → CSR responds
+
+```mermaid
+sequenceDiagram
+    participant PHP as PHP (Jeedom)
+    participant D as SIADaemon
+    participant Q as PriorityQueue
+    participant P as sia_protocol.py
+    participant C as sia_crypto.py
+    participant CSR as CSR (IMA Protect)
+
+    PHP->>D: on_message("burglarAlarm", {zone: "Salon"})
+    D->>Q: put(priority=0, EVENT{type=BA, zone=Salon})
+
+    Note over Q: Consumer picks highest priority item
+
+    Q-->>D: get() → EVENT{BA, Salon}
+    D->>P: encode_message("SIA-DCS", account, seq, "Salon", ts)
+    P->>C: encrypt(payload, key)
+    Note over C: Stub: returns payload unchanged (Phase 1)
+    C-->>P: payload
+    P->>P: compute_crc() → wrap_frame()
+    P-->>D: frame: bytes
+
+    D->>CSR: send(frame) [UDP or TCP]
+    CSR-->>D: ACK frame
+
+    D->>P: decode_ack_nak(raw)
+    P-->>D: {type: "ACK", seq: 1}
+
+    D->>PHP: send_to_jeedom({event_label: "Intrusion — Salon — 14:32:11 — Confirmé par la centrale"})
+    D->>PHP: send_to_jeedom({supervision_state: 2, supervision_label: "CONNEXION ÉTABLIE"})
+```
+
+---
+
+### Sequence: CSR simulator receives and responds
+
+```mermaid
+sequenceDiagram
+    participant D as SIADaemon (PE)
+    participant S as csr_simulator.py (CSR)
+    participant P as sia_protocol.py
+
+    D->>S: UDP/TCP frame
+
+    S->>P: detect_crc_format(raw)
+    P-->>S: 'hex'
+    S->>P: decode_message(raw)
+    P-->>S: {id_type, account, seq, zone, timestamp, ...}
+
+    S->>P: validate_timestamp(ts, tolerance=40)
+    P-->>S: True
+
+    alt Mode: always-ack
+        S->>P: encode_ack(sia_msg, crc_format='hex')
+        P-->>S: ack_frame: bytes
+        S->>D: send(ack_frame)
+    else Mode: always-nak
+        S->>P: encode_nak(crc_format='hex')
+        P-->>S: nak_frame: bytes
+        S->>D: send(nak_frame)
+    else Mode: timeout
+        Note over S: No response sent
+    end
+
+    S->>S: log decoded message (human-readable)
+```
+
+---
+
+### Frame format reference
+
+```
+[0x0A][CRC][LEN][message_string][0x0D]
+  1B    2-4B  4B                  1B
+
+CRC format hex : 4 bytes ASCII  → total header: 1+4+4 = 9 bytes before message
+CRC format bin : 2 bytes binary → total header: 1+2+4 = 7 bytes before message
+
+Detection: if raw[5]=='0' and raw[9]=='"' → hex; if raw[3]=='0' and raw[7]=='"' → bin
+
+message_string:
+  "ID_TOKEN"SSSS[Rreceiver][Laccount_prefix]#ACCOUNT[event_data][Vmedia_url]_HH:MM:SS,MM-DD-YYYY
+  └── ID_TOKEN: NULL (supervision, clear) | *NULL (supervision, encrypted)
+               | SIA-DCS (alarm, clear) | *SIA-DCS (alarm, encrypted)
+  └── SSSS: 0001–9999, wraps
+  └── receiver/account prefixes: optional, default R0L0
+  └── [event_data]: e.g. [#1234|BA Salon]
+  └── [Vmedia_url]: optional — SIA DC-09 Verification extended data field (section 5.5.1.8)
+       Appended after [event_data], before timestamp.
+       Forbidden chars in URL: '[', ']', '|'. Encoding: Windows 1252.
+       Example: [Vhttp://192.168.1.50/snap.jpg]
+  └── timestamp: UTC, strict format
+```
+
+---
+
+### NAK handling in `csr_simulator.py`
+
+The simulator supports scenario scripts (JSON) to test all NAK branches:
+
+```json
+[
+  {"action": "ack"},
+  {"action": "ack"},
+  {"action": "nak"},
+  {"action": "timeout"},
+  {"action": "timeout"}
+]
+```
+
+> The simulator supports only the protocol-defined NAK (timestamp validation failure).
+> There are no NAK sub-codes in SIA DC-09 (section 5.5.3.2), so `"code"` is not used.
+> For testing, a NAK always triggers `BAD_CSR_RESPONSE` in the daemon.
+
+---
+
+## Component 1 — `siadc09d.py` (Daemon Core)
+
+### Design decisions
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| Event queue | `asyncio.PriorityQueue` | Single consumer, events prioritized over supervision |
+| Sequence number persistence | **Not persisted** (reset to 1 on start) | Simpler for v1.0; most CSRs tolerate reset. See limitation note below. |
+| Retry on timeout | Yes, up to N times (configurable, default 3) | Transient network errors |
+| Retry on NAK | **No** | Per SIA DC-09 section 5.5.3.2, a NAK signals timestamp validation failure only. Any NAK → BAD_CSR_RESPONSE + stop retrying |
+| Retry on NAK `timestamp_old` | Yes, **once** with auto-corrected timestamp | Auto-heal |
+| Supervision vs event priority | **Event wins** (priority 0 vs 1) | Alarm delivery is safety-critical |
+| Critical notification command | User-selected Jeedom ACTION/message command (configured in wizard) | Reuses existing notification channels (SMS, push, etc.) |
+| TCP reconnection | Auto-reconnect silently; notify user if reconnection fails | Network blip should not wake user; persistent failure should |
+
+> ⚠️ **Known limitation (v1.0):** Sequence number resets to `0001` on daemon restart. Some CSRs may briefly reject messages as potential duplicates until the sequence diverges from the last known value. This will be addressed in v1.1 by persisting the counter in Jeedom plugin config.
+
+---
+
+### Two state machines — independent but coupled at dispatch
+
+The daemon maintains **two state machines** that track different concerns:
+
+**SM1** tracks the CSR link health (driven by supervision results and TCP transport events).
+**SM2** tracks the current alarm event lifecycle (driven by send results).
+
+They are **independent** in that an alarm can be PENDING while the connection is DEGRADED, or CONFIRMED while supervision is lost. They are **coupled at dispatch**: SM1 state determines whether `_queue_consumer()` will attempt to send a queued event, hold it (TCP_RECONNECTING), or fail it immediately (NO_NETWORK). See the SM2 dependency matrix below.
+
+They map to separate INFO commands and can be in any combination.
+
+---
+
+### SM1 — Connection / Supervision State
+
+```mermaid
+stateDiagram-v2
+    [*] --> INITIALIZING
+
+    INITIALIZING --> HEALTHY          : supervision ACK
+    INITIALIZING --> DEGRADED         : supervision timeout (strike=1)
+
+    HEALTHY --> DEGRADED              : supervision timeout (strike=1)
+    DEGRADED --> HEALTHY              : supervision ACK (strike reset to 0)
+    DEGRADED --> DEGRADED             : supervision timeout (strike++)
+
+    HEALTHY      --> TCP_RECONNECTING : TCP drop [TCP only]
+    DEGRADED     --> TCP_RECONNECTING : TCP drop [TCP only]
+
+    TCP_RECONNECTING --> INITIALIZING  : reconnect succeeded
+    TCP_RECONNECTING --> TCP_RECONNECTING : attempt failed (attempts < max)
+    TCP_RECONNECTING --> NO_NETWORK    : all attempts exhausted [TCP only]
+
+    NO_NETWORK --> [*]                 : _notify() + self.stop()
+```
+
+**DEGRADED state — strike counter semantics:**
+
+DEGRADED and the former DISCONNECTED state are collapsed into a single `DEGRADED` state.
+The `strike` counter (1–3) drives all side effects — there is no separate DISCONNECTED state.
+
+| Strike | `supervision_state` | `supervision_label` | Action |
+|---|---|---|---|
+| 1 | `1` | `DÉGRADÉ (1/3)` | WARNING logged |
+| 2 | `1` | `DÉGRADÉ (2/3)` | WARNING logged |
+| 3 | `0` | `PERDUE` | T3 `_notify()` fired once |
+
+Recovery from any strike level: supervision ACK received → HEALTHY, strike=0.
+
+For **UDP**, there is no TCP drop event to detect. Network loss is discovered only via
+supervision timeouts. `TCP_RECONNECTING` and `NO_NETWORK` states do not exist for UDP.
+In DEGRADED (including strike=3), the daemon keeps sending supervision packets indefinitely.
+Recovery happens when the network restores and the CSR responds with ACK → HEALTHY.
+
+**SM1 transitions are driven by:**
+- Supervision NULL ACK received → HEALTHY, strike=0
+- Supervision timeout → strike++; → DEGRADED (all strike levels)
+- At strike=3: T3 `_notify(ErrorCode.SUPERVISION_DISCONNECTED, {...})` fired once; `supervision_state` → 0
+- TCP connection dropped → TCP_RECONNECTING [TCP only]
+- TCP reconnect succeeded → INITIALIZING (supervision must be re-verified)
+- TCP reconnect exhausted → NO_NETWORK → `_notify(ErrorCode.TRANSPORT_PERMANENT, {...})` + `self.stop()`
+
+**SM1 → INFO commands:**
+
+> **Canonical mapping is in `supervision-design.md`** (SM1 state → PHP INFO commands table).
+> Summary reproduced here for readability — supervision-design.md is authoritative.
+
+| SM1 state | `supervision_state` (numeric) | `supervision_label` (string) |
+|---|---|---|
+| INITIALIZING | `1` | `DÉMARRAGE…` |
+| HEALTHY | `2` | `OK` |
+| DEGRADED (strike 1–2) | `1` | `DÉGRADÉ (N/3)` |
+| DEGRADED (strike 3) | `0` | `PERDUE` |
+| TCP_RECONNECTING | `0` | `Reconnexion {transport}…` |
+| NO_NETWORK | `0` | `HORS RÉSEAU — arrêt` |
+| STOPPED | `0` | `ARRÊTÉ` |
+
+> **HEALTHY label is static `"OK"` — not `"OK — HH:MM"`.** Embedding a clock in the
+> label would cause `checkAndUpdateCmd()` to detect a value change every minute
+> (1,440 DB writes/day + 1,440 WebSocket `cmd::update` broadcasts). The "last ACK"
+> timestamp is available via `supervision_state`'s `collectDate`, which
+> `checkAndUpdateCmd()` always updates regardless of value change. The widget reads
+> `collectDate` directly if it needs to display "last seen at HH:MM".
+
+---
+
+### SM1 — Behavior matrix per state and SM2 dependency
+
+Although SM1 and SM2 track independent concerns (CSR link health vs. alarm event
+lifecycle), they are **not fully orthogonal**: SM1 state determines whether the
+`_queue_consumer()` will attempt to send a queued alarm event, or hold/fail it.
+
+> **Critical states note:** TCP_RECONNECTING and NO_NETWORK already generate T3 critical
+> alerts (SUPERVISION_DISCONNECTED and TRANSPORT_PERMANENT respectively) — the operator
+> already knows the system is broken when SM1 enters these states. SM2 behavior in these
+> states must still be explicit: an alarm event must never disappear silently.
+
+#### Phase 1 — Enqueue (on_message → PriorityQueue)
+
+Alarm commands from PHP are **always accepted into the PriorityQueue**, regardless of SM1
+state. The enqueue step never blocks or fails — this guarantees PHP's fire-and-forget call
+returns immediately and SM2 transitions to PENDING at enqueue time.
+SM1 state is evaluated at dequeue time (Phase 2).
+
+#### Phase 2 — Dequeue and send (_queue_consumer dispatch)
+
+`_queue_consumer()` checks `self._sm1_state` before dispatching each EVENT item:
+
+| SM1 state | Transport | SM2 behavior on dequeue | SM2 outcome |
+|---|---|---|---|
+| INITIALIZING | TCP/UDP | `_send_with_retry()` attempted immediately — CSR reachability is **unconfirmed** (no supervision ACK yet). Alarm is too time-critical to hold for confirmation. If CSR unreachable, retries exhaust and SM2 FAILS. | CONFIRMED on ACK; FAILED on timeout×N or NAK |
+| HEALTHY | TCP/UDP | `_send_with_retry()` attempted — CSR **confirmed** reachable (at least one supervision ACK received) | CONFIRMED or FAILED |
+| DEGRADED (strike 1–2) | TCP/UDP | `_send_with_retry()` attempted — socket open, CSR **possibly** still reachable | CONFIRMED or FAILED |
+| DEGRADED (strike 3) | **UDP** | `_send_with_retry()` attempted best-effort. T3 SUPERVISION_DISCONNECTED already fired for supervision loss. If SM2 also FAILS → EVENT_FAILED fires as a second T3 alert. | CONFIRMED or FAILED |
+| DEGRADED (strike 3) | **TCP** | Cannot occur in practice: at strike=3 TCP immediately transitions SM1 → TCP_RECONNECTING and force-closes the socket (supervision-design.md B.1). Event will be re-queued under TCP_RECONNECTING rule below. | — |
+| TCP_RECONNECTING | TCP | Event **re-queued** (put back at same priority). Consumer yields briefly (1 s) to allow `_reconnect_tcp()` to progress before re-checking. On reconnect success (SM1 → INITIALIZING): event processed normally on next dequeue. On reconnect failure (SM1 → NO_NETWORK): event will be failed on next dequeue via the NO_NETWORK rule below. T3 SUPERVISION_DISCONNECTED was already fired; EVENT_FAILED will fire in addition if the event ultimately fails. | CONFIRMED or FAILED |
+| NO_NETWORK | TCP | SM2 → **FAILED immediately**, no send attempt. `_notify(EVENT_FAILED)` fired before daemon calls `self.stop()`. T3 TRANSPORT_PERMANENT was already fired for the transport loss; EVENT_FAILED is an additional T3 alert for the lost alarm event. | FAILED |
+
+**Supervision items in critical states:**
+
+| SM1 state | SUPERVISION item dequeued |
+|---|---|
+| TCP_RECONNECTING | Dropped silently — socket is closed, cannot send |
+| NO_NETWORK | Dropped silently — daemon is stopping |
+
+**When a supervision ACK is received:**
+
+| SM1 state | Behavior |
+|---|---|
+| INITIALIZING | → HEALTHY, strike=0 |
+| HEALTHY | Stay HEALTHY, strike=0, update `supervision_state` timestamp |
+| DEGRADED (any strike) | → HEALTHY, strike=0 — recovery logged |
+| TCP_RECONNECTING | Impossible — TCP is down |
+| NO_NETWORK | Not applicable |
+
+**When a supervision NAK is received:**
+
+> **Canonical NAK dispatch is in `supervision-design.md` Task B.2** (`_handle_supervision_nak()`).
+> Summary: parseable-timestamp NAK → strike++ only (no `_notify`); undecodable NAK → strike++ + `_notify(BAD_CSR_RESPONSE)`.
+> `classify_nak()` does not exist — per SIA DC-09 section 5.5.3.2 there are no NAK sub-codes.
+
+---
+
+### SM2 — Alarm Event State
+
+```mermaid
+stateDiagram-v2
+    [*] --> IDLE
+
+    IDLE --> PENDING : alarm event received from PHP
+
+    PENDING --> CONFIRMED : ACK received
+    PENDING --> PENDING : timeout → retry (retries_left > 0)
+    PENDING --> FAILED : all retries exhausted (retries_left == 0)
+    PENDING --> FAILED : NAK received → _notify(BAD_CSR_RESPONSE) → stop retrying
+    PENDING --> PENDING : NAK timestamp_old → auto-heal, retry once [v1.1]
+    PENDING --> FAILED : SM1 → NO_NETWORK → _notify(EVENT_FAILED) [event still queued]
+
+    CONFIRMED --> IDLE : ready for next event
+    FAILED --> IDLE : ready for next event (after notification sent)
+```
+
+> **Protocol fact (SIA DC-09 section 5.5.3.2):** The only standard NAK is a timestamp
+> validation failure carrying the CSR's current GMT time. There are **no NAK sub-codes**
+> (`bad_acct`, `bad_encryption`, `bad_message` do not exist in the protocol).
+> Any NAK in v1.0 → `_notify(ErrorCode.BAD_CSR_RESPONSE)` → stop retrying → SM2 FAILED.
+> Timestamp auto-heal (parse CSR time from NAK → resync → retry once) is deferred to v1.1.
+
+**SM2 → INFO commands:**
+
+`event_state` (numeric — scenario trigger):
+
+| SM2 state | `event_state` |
+|---|---|
+| IDLE (never fired) | `0` |
+| PENDING | `3` |
+| CONFIRMED | `1` |
+| FAILED (any cause) | `2` |
+
+| Value | Meaning |
+|---|---|
+| `0` | No alarm sent since daemon start |
+| `1` | Last alarm delivery confirmed (ACK from CSR) |
+| `2` | Last alarm delivery failed (timeout, NAK, or NO_NETWORK) |
+| `3` | Alarm transmission in progress (PENDING) |
+
+`event_label` (string — display):
+
+| SM2 state | `event_label` |
+|---|---|
+| IDLE (never fired) | `Aucun événement depuis le démarrage` |
+| IDLE (after event) | _(last result string, unchanged)_ |
+| PENDING | `Intrusion — Salon — envoi en cours (tentative N/3)` |
+| CONFIRMED | `Intrusion — Salon — HH:MM:SS — Confirmé par la centrale` |
+| FAILED (timeout) | `Intrusion — Salon — HH:MM:SS — Échec (3 tentatives)` |
+| FAILED (NAK) | `Intrusion — Salon — HH:MM:SS — Réponse inattendue de la centrale` |
+| FAILED (NO_NETWORK) | `Intrusion — Salon — HH:MM:SS — Échec — réseau inaccessible` |
+
+SIA code → French label mapping: `BA` → `Intrusion`, `FA` → `Incendie`, `PA` → `Panique`.
+Format decided by Component 6 (Widget) to serve the night-time emergency use case.
+
+**On FAILED:** call `_notify(code, context)` → dual-channel dispatch via Component 5a.
+- Timeout exhausted → `_notify(ErrorCode.EVENT_FAILED, {...})`
+- NAK received → `_notify(ErrorCode.BAD_CSR_RESPONSE, {...})`
+- SM1 → NO_NETWORK (event still in queue) → `_notify(ErrorCode.EVENT_FAILED, {...})` — fired by `_queue_consumer()` directly, not by `_send_with_retry()`
+
+---
+
+### Combined state examples
+
+| SM1 (connection) | SM2 (alarm) | Meaning | Alerts fired |
+|---|---|---|---|
+| HEALTHY | IDLE | Normal operation, no alarm | — |
+| HEALTHY | PENDING | Alarm being transmitted, link healthy | — |
+| HEALTHY | CONFIRMED | Alarm acknowledged by CSR | — |
+| DEGRADED (strike 1–2) | PENDING | Alarm attempted despite degraded supervision | T1 SUPERVISION_TIMEOUT |
+| DEGRADED (strike 3) | PENDING | Alarm attempted best-effort; supervision declared lost | T3 SUPERVISION_DISCONNECTED |
+| DEGRADED (strike 3) | FAILED | Alarm failed AND supervision lost (UDP: double failure) | T3 SUPERVISION_DISCONNECTED + T3 EVENT_FAILED |
+| TCP_RECONNECTING | PENDING (queued) | Alarm held in queue; TCP reconnect in progress. T3 already fired. | T3 SUPERVISION_DISCONNECTED (already fired) |
+| TCP_RECONNECTING | CONFIRMED | TCP reconnected, alarm sent and ACK'd after reconnect | T3 SUPERVISION_DISCONNECTED (already fired) |
+| TCP_RECONNECTING | FAILED | TCP reconnected but alarm failed, OR transition to NO_NETWORK | T3 SUPERVISION_DISCONNECTED + T3 EVENT_FAILED |
+| NO_NETWORK | FAILED | Daemon stopping; alarm event in queue failed immediately | T3 TRANSPORT_PERMANENT + T3 EVENT_FAILED |
+
+---
+
+### Priority Queue coordination
+
+```
+asyncio.PriorityQueue items:
+  (0, "EVENT",      {type, zone, media_url, retries_left})  ← from PHP via on_message()
+  (1, "SUPERVISION", {})                                     ← from supervision timer
+
+Single consumer coroutine:
+  loop:
+    item = await queue.get()
+    if EVENT      → send_with_retry(item) → update SM2
+    if SUPERVISION → send_raw(null_frame, timeout=10s, no retry) → update SM1
+    queue.task_done()
+```
+
+The supervision timer never sends directly — it only enqueues. This guarantees:
+- No concurrent sends on the socket
+- An alarm event always jumps ahead of a pending supervision NULL
+- The socket is never shared between two coroutines
+
+---
+
+### Sequence: Event delivery with retry
+
+```mermaid
+sequenceDiagram
+    participant PHP as PHP
+    participant D as Daemon consumer
+    participant P as sia_protocol.py
+    participant CSR as CSR
+
+    PHP->>D: on_message(burglarAlarm, zone)
+    D->>D: queue.put(priority=0, EVENT)
+    D->>D: SM2 → PENDING, update event_label
+
+    loop Up to N retries
+        D->>P: encode_message(seq, zone, ts)
+        P-->>D: frame
+        D->>CSR: send(frame)
+
+        alt ACK received
+            CSR-->>D: ACK
+            D->>D: SM2 → CONFIRMED, update event_label
+        else NAK received
+            CSR-->>D: NAK
+            Note over D: No NAK sub-codes in SIA DC-09 (section 5.5.3.2)
+            D->>D: SM2 → FAILED, stop retrying
+            D->>D: _notify(ErrorCode.BAD_CSR_RESPONSE, context)
+        else Timeout
+            D->>D: retries_left -= 1
+            alt retries_left == 0
+                D->>D: SM2 → FAILED, _notify(ErrorCode.EVENT_FAILED, context)
+            end
+        end
+    end
+```
+
+---
+
+### Sequence: Supervision loop
+
+```mermaid
+sequenceDiagram
+    participant T as Supervision Timer
+    participant Q as PriorityQueue
+    participant D as Daemon consumer
+    participant P as sia_protocol.py
+    participant CSR as CSR
+
+    loop Every N seconds (configurable, default 60s)
+        T->>Q: put(priority=1, SUPERVISION)
+
+        Note over Q: Processed only when no EVENT pending
+
+        Q-->>D: get() → SUPERVISION
+        D->>P: encode_message("NULL", account, seq, ts)
+        P-->>D: null_frame
+        D->>CSR: send(null_frame)
+
+        alt ACK received
+            CSR-->>D: ACK
+            D->>D: SM1: strike=0 → HEALTHY
+            D->>D: last_supervision_ack = now
+        else No response (timeout)
+            D->>D: SM1: strike += 1 → DEGRADED
+            alt strike == 3
+                D->>D: _notify(SUPERVISION_LOST) [fired once]
+            end
+        end
+
+        D->>PHP: send_to_jeedom({supervision_state, supervision_label})
+    end
+```
+
+---
+
+### Task breakdown — Component 1
+
+#### Task 1.1 — `SIADaemon` skeleton
+Extend `JeedomDaemon`. Implement `__init__()` loading config:
+- Reads all CSR parameters (`csr_ip`, `csr_port`, `transport`, `supervision_interval`,
+  `retry_count`, `encryption_enabled`) directly from CLI args — always, regardless of
+  whether the user chose a preset or manual entry. eqLogic is the single source of truth:
+  preset values are resolved into eqLogic by the wizard at step 1 save time.
+- Reads `account_number` from CLI args.
+- Reads `encryption_key` from `os.environ.get('SIA_ENCRYPTION_KEY', '')` — injected by
+  `deamon_start()` as an env var, never passed as a CLI argument (see security note above).
+- Reads `notify_cmd_id` and `retry_count` from CLI args.
+- No `csr_presets.json` dependency at runtime.
+
+Implement `run()` launching two coroutines: `_queue_consumer()` + `_supervision_loop()`.
+Initialize `sm1_state = INITIALIZING`, `sm2_state = IDLE`, `strike_counter = 0`.
+
+> **Security note:** `encryption_key` is NOT passed as a CLI argument (it would be visible
+> in `ps aux`). It is injected by `deamon_start()` as the `SIA_ENCRYPTION_KEY` environment
+> variable and read in `__init__()` via `os.environ.get('SIA_ENCRYPTION_KEY', '')`.
+> All other config values arrive as `--arg` CLI parameters.
+
+#### Task 1.2 — Socket management `_connect()` / `_disconnect()`
+Open UDP socket (`socket.SOCK_DGRAM`) or TCP (`asyncio.open_connection()`).
+
+For **TCP**: on socket drop → SM1 → `TCP_RECONNECTING`. Launch `_tcp_reconnect_loop()` as
+an independent `asyncio.Task` (does not block `_queue_consumer()`):
+
+```
+_tcp_reconnect_loop():
+    for attempt in range(1, 6):          # max 5 attempts
+        try:
+            await asyncio.open_connection(csr_ip, csr_port)  # 10s connect timeout
+            SM1 → INITIALIZING
+            return
+        except (OSError, asyncio.TimeoutError):
+            log DEBUG "TCP reconnect attempt {attempt}/5 failed"
+            if attempt < 5:
+                await _update_info_commands()   # heartbeat: keeps collectDate fresh
+                                                # so widget stale detector stays silent
+                await asyncio.sleep(10)  # fixed 10s between attempts
+    # exhausted
+    SM1 → NO_NETWORK
+    await self._notify(ErrorCode.TRANSPORT_PERMANENT, {...})  # valid: _tcp_reconnect_loop is async def
+    self.stop()
+```
+
+Parameters (not configurable in v1.0):
+- **Max attempts:** 5
+- **Per-attempt connect timeout:** 10 s (via `asyncio.wait_for`)
+- **Delay between attempts:** 10 s fixed
+- **Total window before NO_NETWORK:** ~90 s (5 × 10 s connect + 4 × 10 s delay)
+
+During `TCP_RECONNECTING`: `_queue_consumer()` continues running; EVENT items are re-queued
+(held); SUPERVISION items are dropped silently. PriorityQueue retains alarm events until
+reconnect succeeds or NO_NETWORK is declared.
+
+For **UDP**: stateless, no persistent connection. Network loss is not detectable at the
+transport layer — only discoverable via supervision timeouts driving SM1 → DEGRADED.
+`TCP_RECONNECTING` and `NO_NETWORK` states do not apply.
+
+#### Task 1.3 — `_send_raw(frame, timeout) -> dict`
+Send frame bytes on socket, wait for response up to `timeout` seconds. Return `{status: 'ack'|'nak'|'timeout', raw_nak: bytes|None}`. `raw_nak` holds the full raw NAK frame bytes when status is `'nak'`; `None` otherwise. Passed directly to `_handle_supervision_nak(nak_data: bytes)` for timestamp parsing. Uses `sia_protocol.decode_ack_nak()`.
+
+**OS exception handling:** if `send()` or `recv()` raises an `OSError` (including EAGAIN, ECONNRESET, EPIPE), catch it, log at WARNING with the exception detail, and return `{status: 'timeout', raw_nak: None}`. The caller treats it as a normal timeout — no separate error path. No retry inside `_send_raw()`; retries are the caller's responsibility (supervision: recurring loop; events: `_send_with_retry()`).
+
+#### Task 1.4 — `_send_with_retry(event_item) -> dict`
+Wraps `_send_raw`. Builds frame via `sia_protocol.encode_message()`. Implements NAK dispatch:
+- **ACK** → SM2 CONFIRMED
+- **NAK** (any) → SM2 FAILED, `_notify(ErrorCode.BAD_CSR_RESPONSE, {...})`, stop retrying.
+  Per SIA DC-09 section 5.5.3.2, there are no NAK sub-codes. Any NAK = unexpected CSR behavior.
+  _(v1.1: will parse CSR timestamp from NAK data for auto-heal resync before flagging as failure)_
+- **Timeout** → decrement `retries_left`; at 0 → SM2 FAILED, `_notify(ErrorCode.EVENT_FAILED, {...})`
+- **`ValueError` from `encode_message()`** (forbidden char in media URL: `[`, `]`, `|`) →
+  SM2 FAILED, `_notify(ErrorCode.EVENT_FAILED, {'reason': 'invalid_media_url', ...})`, log at ERROR.
+- **Other unexpected exception** (unexpected socket state, etc.) → SM2 FAILED,
+  `_notify(ErrorCode.EVENT_FAILED, {..., 'error': repr(e)})`, log at ERROR. **Must never propagate.**
+  Returns result dict with `status: 'error'` in this case.
+
+Updates SM2 state and `event_label` at each step. Returns final result dict.
+
+#### Task 1.5 — `_next_sequence() -> int`
+Increment 1–9999 with wrap. In-memory only (v1.0).
+
+#### Task 1.6 — `on_message(cmd, params)`
+Receives `{cmd: 'burglarAlarm'|'fireAlarm'|'panicAlarm', title: zone_name, media_url: str|None}` from PHP. Puts `(0, "EVENT", {..., retries_left: N})` in priority queue. **Does not change SM2 state** — SM2 → PENDING is set by `_queue_consumer()` at dequeue time, ensuring at most one event is PENDING at any moment (serialization).
+
+`media_url` is passed through to `encode_message()` as the SIA DC-09 Verification extended
+data field `[V...]` (section 5.5.1.8). If `None`, the field is omitted. The URL must not
+contain `[`, `]`, or `|` — `encode_message()` raises `ValueError` if any forbidden character
+is present. The caller (`_send_with_retry()`) catches `ValueError`, sets SM2 → FAILED, and
+fires `_notify(ErrorCode.EVENT_FAILED, {'reason': 'invalid_media_url', ...})`. Silently
+stripping the characters is explicitly rejected: a mutated URL would send a broken camera
+link to the CSR operator during an active alarm with no error raised.
+
+#### Task 1.7 — `_queue_consumer()` coroutine
+
+Main send loop. `await queue.get()` → check SM1 state → dispatch. SM1 state is read
+**at dequeue time**, not at enqueue time, so that events queued before a TCP drop are
+handled correctly after reconnect.
+
+```python
+async def _queue_consumer(self):
+    while True:
+        item = await self._queue.get()
+        priority, kind, data = item
+
+        if kind == 'EVENT':
+            if self._sm1_state == SM1State.NO_NETWORK:
+                # Daemon stopping — fail the event immediately, no send attempt
+                self._sm2_state = SM2State.FAILED
+                await self._update_event_label('no_network')
+                await self._notify(ErrorCode.EVENT_FAILED, {
+                    'zone':      data.get('zone', ''),
+                    'attempts':  self._retry_count - data.get('retries_left', 0),
+                })
+                await self._update_info_commands()
+            elif self._sm1_state == SM1State.TCP_RECONNECTING:
+                # Socket down — re-queue to process after reconnect
+                await self._queue.put(item)
+                self._queue.task_done()
+                await asyncio.sleep(1.0)  # Yield: reconnect takes O(seconds)
+                continue
+            else:
+                # INITIALIZING, HEALTHY, DEGRADED — attempt send.
+                # SM2 → PENDING is set HERE (not at enqueue time) so that at most
+                # one event is in PENDING state. Subsequent queued events stay IDLE
+                # until the consumer dequeues them.
+                self._sm2_state = SM2State.PENDING
+                await self._update_info_commands()
+                try:
+                    await self._send_with_retry(data)
+                except Exception as e:
+                    # Safety net: _send_with_retry() should never raise, but if it does,
+                    # force SM2 → FAILED so the consumer loop never gets stuck.
+                    self._sm2_state = SM2State.FAILED
+                    await self._notify(ErrorCode.EVENT_FAILED, {
+                        'zone': data.get('zone', ''),
+                        'error': repr(e),
+                    })
+                    # log at ERROR with traceback
+
+        elif kind == 'SUPERVISION':
+            if self._sm1_state in (SM1State.TCP_RECONNECTING, SM1State.NO_NETWORK):
+                pass  # Cannot send on closed/missing socket — drop silently
+            else:
+                await self._send_supervision()
+
+        self._queue.task_done()
+```
+
+Push INFO command updates to PHP after each dispatch via `_update_info_commands()`
+(called inside `_send_with_retry()` and `_send_supervision()`).
+
+#### Task 1.8 — `_supervision_loop()` coroutine
+`asyncio.sleep(supervision_interval)` → `queue.put((1, "SUPERVISION", {}))` → repeat. Does not send directly — only enqueues.
+
+#### Task 1.9 — `_update_info_commands()`
+Pushes current SM1 + SM2 state to PHP via `send_to_jeedom()`:
+`supervision_state`, `supervision_label`, `event_state`, `event_label`.
+
+#### Task 1.10 — `_notify(code, context)` ← replaces `_notify_critical()`
+Unified notification dispatcher defined in Component 5a (`error_handler.py`).
+Used by:
+- SM1: strike=3 → `SUPERVISION_DISCONNECTED`, TCP exhausted → `TRANSPORT_PERMANENT`
+- SM2: retries exhausted → `EVENT_FAILED`, any NAK received → `BAD_CSR_RESPONSE`
+See `error-handler-design.md` for full dispatch and tier routing.
+
+---
+
+### Testing strategy for Component 1
+
+| Test | Simulator mode | What to verify |
+|---|---|---|
+| Nominal event | `always-ack` | ACK received, INFO commands updated, sequence increments |
+| Event retry on timeout | `timeout` ×2 then `ack` | 2 retries, 3rd succeeds, state stays HEALTHY |
+| Event critical failure | `timeout` ×3 | SM2 → FAILED, `_notify(EVENT_FAILED)` called |
+| NAK received | `always-nak` | Zero retries, SM2 → FAILED, `_notify(BAD_CSR_RESPONSE)`, status = "Réponse inattendue" |
+| Supervision degraded strike 1 | supervision timeout ×1 | DEGRADED strike=1, `supervision_state=1`, `supervision_label=DÉGRADÉ (1/3)`, no T3 notification |
+| Supervision degraded strike 2 | supervision timeout ×2 | DEGRADED strike=2, `supervision_state=1`, `supervision_label=DÉGRADÉ (2/3)`, no T3 notification |
+| Supervision lost strike 3 | supervision timeout ×3 | DEGRADED strike=3, `supervision_state=0`, `supervision_label=PERDUE`, T3 `_notify` fired once |
+| Supervision recovery from strike 3 | timeout ×3 then ack | → HEALTHY, strike=0, `supervision_state=2`, `supervision_label=CONNEXION ÉTABLIE` |
+| T3 notification not repeated | supervision timeout ×5 | `_notify` fired at strike=3 only, not at 4 or 5 |
+| Event during supervision wait | send alarm while supervision pending | Alarm delivered before next supervision NULL |
+| TCP drop → reconnect success | drop socket, reconnect | SM1 → TCP_RECONNECTING → INITIALIZING → HEALTHY |
+| TCP drop → queued alarm sent | queue alarm during TCP_RECONNECTING | Alarm sent after reconnect, not dropped |
+| TCP permanent failure | exhaust reconnect attempts | SM1 → NO_NETWORK, `_notify(TRANSPORT_PERMANENT)`, `self.stop()` called |
+| Alarm during TCP_RECONNECTING — reconnect succeeds | Queue alarm, drop TCP, reconnect → ACK | SM2: PENDING (queued) → CONFIRMED after reconnect; EVENT_FAILED NOT fired |
+| Alarm during TCP_RECONNECTING — reconnect fails | Queue alarm, drop TCP, exhaust reconnect | SM2: PENDING (queued) → FAILED; both TRANSPORT_PERMANENT + EVENT_FAILED fired |
+| Alarm arrives in NO_NETWORK | on_message called while SM1=NO_NETWORK | SM2 → FAILED immediately; EVENT_FAILED fired; no send attempted |
+| DEGRADED strike 3 UDP — alarm sent and ACK'd | 3 supervision timeouts (UDP), then alarm | SM2 CONFIRMED despite DEGRADED(3); only SUPERVISION_DISCONNECTED fired, not EVENT_FAILED |
+| DEGRADED strike 3 UDP — alarm fails | 3 supervision timeouts (UDP), alarm times out | SM2 FAILED; SUPERVISION_DISCONNECTED + EVENT_FAILED both fired |
+| Supervision dropped during TCP_RECONNECTING | supervision timer fires while reconnecting | Supervision item dequeued and silently dropped; no send on closed socket |

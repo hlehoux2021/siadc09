@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Read(//Users/herve.lehoux/Dev/jeedom-daemon-py/**)",
+      "Bash(grep -v \"^--$\")",
+      "Bash(sudo chown:*)",
+      "WebSearch",
+      "Read(//Users/herve.lehoux/Dev/**)",
+      "WebFetch(domain:community.jeedom.com)",
+      "WebFetch(domain:blog.jeedom.com)",
+      "Bash(gh api:*)",
+      "Bash(gh search:*)",
+      "Read(//var/www/html/plugins/**)",
+      "Bash(/dev/null -name alarm.class.php)",
+      "Bash(find /Users/herve.lehoux/Dev/my-project -name *aiodemo* -o -name *jeeaiodemo*)",
+      "Bash(find /Users/herve.lehoux/Dev/jeedom -name plugin.deamon* -o -name *deamon*modal*)",
+      "Bash(find /Users/herve.lehoux/Dev -type f -name *.php)",
+      "Bash(find /Users/herve.lehoux/Dev/jeedom/core/plugins -name *.class.php)",
+      "Read(//Users/herve.lehoux/**)",
+      "Bash(find /Users/herve.lehoux/Dev/jeedom -maxdepth 5 -name *.class.php)",
+      "Bash(find /Users/herve.lehoux -maxdepth 6 -name *.class.php)",
+      "Bash(grep -r 'function remove' /Users/herve.lehoux/Dev/plugin-template --include=*.php)",
+      "Read(//usr/share/jeedom/core/**)",
+      "Bash(grep -r \"getTemplate\" /Users/herve.lehoux/Dev/plugin-* --include=\"*.php\" -B 2 -A 2)"
+    ],
+    "additionalDirectories": [
+      "/Users/herve.lehoux/Dev/my-project/docs",
+      "/Users/herve.lehoux/Dev/my-project/_bmad-output/planning-artifacts",
+      "/Users/herve.lehoux/Dev/MyHargassner/.claude/commands",
+      "/Users/herve.lehoux/Dev/my-project/.claude/commands"
+    ]
+  }
+}

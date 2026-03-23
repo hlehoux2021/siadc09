@@ -1,0 +1,1041 @@
+# Config Wizard Design — Jeedom siaDC09 Plugin
+
+**Version:** 0.1
+**Date:** 2026-03-05
+**Status:** Draft — all Component 3 decisions confirmed
+
+---
+
+## Overview
+
+The wizard is the **equipment configuration page** (`desktop/php/siaDC09.php`). It guides
+the user through 4 steps the first time, then switches to a standard flat config layout once
+complete. It is the only configuration interface for the plugin — there is no separate
+"wizard page".
+
+**Entry point:** Plugins > Sécurité > Télésurveillance SIA DC-09 → click the
+"Télésurveillance" equipment card on the left.
+
+---
+
+## Two display modes
+
+The page has two modes, selected by checking `wizard_step` on load:
+
+| Condition | Mode displayed |
+|---|---|
+| `wizard_step < 4` (0 = never started) | **Wizard mode** — stepped UI, one section at a time |
+| `wizard_step == 4` | **Config mode** — standard Jeedom flat equipment layout |
+
+A **"Relancer l'assistant"** button is always visible in the equipment config header,
+regardless of mode. It resets the wizard to step 1 with the currently saved values
+(never clears config).
+
+If the daemon is running when the user clicks "Relancer l'assistant", a confirmation
+dialog is shown:
+> "Le démon est en cours d'exécution. L'assistant de connexion requiert que le démon
+> soit arrêté. Voulez-vous l'arrêter maintenant ?"
+
+On confirm: PHP calls `siaDC09::deamon_stop()`, then sets `wizard_step = 0`, then
+reloads the page at step 1. If the daemon is already stopped, the button resets
+`wizard_step = 0` and reloads immediately.
+
+---
+
+## Wizard steps
+
+| Step | Title | What the user configures |
+|---|---|---|
+| 1 | Votre opérateur | Provider selection + account number + encryption key (and all CSR fields) |
+| 2 | Test de connexion | Live connection test to the CSR |
+| 3 | Vos zones d'alarme | Zone → camera action + media URL mapping |
+| 4 | Alertes critiques | Jeedom command to call on critical errors |
+
+Progress is shown as a horizontal stepper at the top (non-clickable, read-only).
+
+---
+
+## Step 1 — Votre opérateur
+
+### Provider selection
+
+Two cards side by side. No badges.
+
+```
++---------------------+    +---------------------+
+|                     |    |                     |
+|    IMA Protect      |    |    Personnalisé     |
+|                     |    |                     |
++---------------------+    +---------------------+
+        (selected)
+```
+
+- Selecting a card sets the hidden `csr_provider` field (`ima_protect` or `manual`).
+- On page load, the **saved** `csr_provider` determines which card is pre-selected.
+  If no config saved yet, "IMA Protect" is pre-selected and fields pre-filled with preset.
+
+### "Personnaliser" button
+
+Visible only when "IMA Protect" card is active. When clicked:
+- Switches card selection to "Personnalisé"
+- Sets `csr_provider` to `manual`
+- Copies current pre-filled values into the now-editable fields
+- No data is lost — the user starts from the preset as a base
+
+### Fields
+
+All fields are **always rendered** in the DOM and always bound via `data-l2key` so they
+are saved to eqLogic on every save. Editability depends on mode:
+- "IMA Protect" active → CSR fields are **read-only** (`readonly` attribute, not `disabled`)
+- "Personnalisé" active → all fields are **editable**
+
+> **`readonly` not `disabled`:** `disabled` inputs are excluded from form submission.
+> `readonly` inputs submit normally. This ensures CSR field values are always persisted
+> to eqLogic by the standard save, regardless of mode.
+
+| Field | HTML binding | IMA Protect preset | Notes |
+|---|---|---|---|
+| `csr_provider` | `data-l2key="csr_provider"` (hidden) | `ima_protect` | Card selection writes this |
+| Adresse IP / Nom de domaine | `data-l2key="csr_ip"` | _(from csr_presets.json)_ | `readonly` in preset mode |
+| Port | `data-l2key="csr_port"` | _(from csr_presets.json)_ | `readonly` in preset mode |
+| Transport | `data-l2key="transport"` | _(from csr_presets.json)_ | `readonly` in preset mode |
+| Numéro de compte | `data-l2key="account_number"` | _(empty, user fills)_ | Always editable — subscriber-specific |
+| Chiffrement | `data-l2key="encryption_enabled"` | _(from csr_presets.json)_ | `readonly` in preset mode |
+| Clé de chiffrement (AES) | `data-l2key="encryption_key"` | _(empty, user fills)_ | Always editable — subscriber-specific; visible only if encryption enabled; 32/48/64 hex chars (AES-128/192/256) |
+| Intervalle supervision | `data-l2key="supervision_interval"` | _(from csr_presets.json)_ | `readonly` in preset mode |
+| Nombre de tentatives | `data-l2key="retry_count"` | _(from csr_presets.json)_ | `readonly` in preset mode |
+
+> **Note:** `account_number` and `encryption_key` are always editable even in "IMA Protect"
+> mode — they are subscriber-specific values that the preset cannot know.
+
+### Validation before "Suivant"
+
+- `account_number` non-empty, 3–16 hex chars
+- If `encryption_enabled`: `encryption_key` non-empty, **32, 48, or 64 hex chars** (AES-128 / AES-192 / AES-256 respectively — per section 5.4.5, CSR must support all three lengths)
+- `csr_ip` non-empty
+- `csr_port` numeric, 1–65535
+
+Errors shown inline (red border + message under the field). No advance if validation fails.
+
+### Data flow
+
+**eqLogic config is the single source of truth** for all CSR parameters. After step 1 is
+saved, eqLogic always contains fully resolved values regardless of whether the user chose
+a preset or entered values manually.
+
+**How preset values reach eqLogic:** PHP renders the step 1 page by reading `csr_presets.json`
+server-side and pre-filling all CSR fields (`csr_ip`, `csr_port`, etc.) with the preset
+values. Those fields carry `data-l2key` bindings and `readonly` attribute — they submit
+their values on save just like editable fields. The standard Jeedom save writes them to
+eqLogic directly. No server-side resolution step is needed.
+
+`csr_provider` is saved to eqLogic to allow the wizard to restore the correct card
+selection on page reload, and to control whether the "Personnaliser" button is shown.
+It is not used by the daemon.
+
+`csr_presets.json` is read **only** at wizard page render time — it is never read by the
+daemon or by `deamon_start()`.
+
+| `csr_provider` | CSR field values come from | Daemon reads from |
+|---|---|---|
+| Any preset ID | PHP pre-fills from `csr_presets.json` → saved to eqLogic | eqLogic |
+| `"manual"` | User fills form fields → saved to eqLogic | eqLogic |
+
+> **Adding a new preset:** add an entry to `csr_presets.json` and add a card in the
+> wizard PHP. No daemon changes, no guard changes.
+
+### On "Suivant"
+
+Standard Jeedom save is triggered (`eqLogicAction[data-action="save"]` click), then
+the wizard advances to step 2.
+
+---
+
+## Step 2 — Test de connexion
+
+### Layout
+
+```
++-----------------------------------------------------------+
+|  Connexion à tester :                                     |
+|  CSR : xxx.xxx.xxx.xxx:5000  (UDP)  Chiffrement : activé  |
++-----------------------------------------------------------+
+|                                                           |
+|   [spinner]  Test en cours...                             |
+|                                                           |
++-----------------------------------------------------------+
+|  [Relancer le test]          [Ignorer]    [Suivant →]     |
++-----------------------------------------------------------+
+```
+
+The CSR summary is computed from the saved config (read-only display, not input fields).
+
+### Auto-trigger
+
+The test fires **automatically** on arriving at step 2, without any user action. The spinner
+and "Test en cours..." message appear immediately.
+
+### Result display
+
+| Result | UI |
+|---|---|
+| ACK received | Green banner: "Connexion établie — ACK reçu en Xms" |
+| NAK received | Orange banner: "Connexion établie mais réponse inattendue (NAK)" |
+| Timeout | Red banner: "Pas de réponse de la centrale — vérifiez l'adresse IP, le port et votre réseau" |
+| Subprocess error | Red banner: "Impossible de lancer le test — vérifiez que Python 3 et les dépendances sont installés" |
+
+### Button behavior
+
+| Button | Behavior |
+|---|---|
+| "Relancer le test" | Re-triggers the same auto-test flow |
+| "Ignorer" | Advances to step 3 WITHOUT testing; shows an inline warning: "Connexion non testée — le plugin ne pourra pas transmettre d'alarmes si la connexion échoue." |
+| "Suivant →" | Only available after a **successful** test (ACK or NAK). Blocked (greyed) if test is pending or timed out. Advances to step 3. If the last result was NAK, a confirmation dialog is shown before advancing. |
+
+### testConnection flow (Option A — standalone subprocess)
+
+The production daemon **must be stopped** before the connection test runs. "Relancer
+l'assistant" guarantees this (see above). The test is performed by spawning a short-lived
+Python subprocess in `--test-only` mode — it connects to the CSR, sends one NULL
+supervision frame, captures the response, writes JSON to stdout, then exits.
+
+```
+JS                     PHP (ajax.php)              Subprocess (--test-only)   CSR
+|                           |                          |                        |
+|-- testConnection -------->|                          |                        |
+|                           |-- python3 siadc09d.py -->|                        |
+|                           |     --test-only          |-- NULL frame --------->|
+|                           |                          |<--- ACK/NAK/timeout ---|
+|                           |<-- JSON (stdout) --------|                        |
+|<-- {status, detail} ------|                          |                        |
+```
+
+- PHP uses `exec()` to spawn the subprocess synchronously (blocks until subprocess exits)
+- Subprocess timeout: **15 seconds** (configured via `--timeout` argument)
+- AJAX call returns a single response — no polling required
+- The subprocess reads CSR config from the eqLogic config JSON passed as `--config`
+
+**Preconditions enforced by the wizard:**
+- The daemon must be stopped (guaranteed by "Relancer l'assistant" daemon-stop flow)
+- Step 1 must have been saved before reaching step 2 (config available on disk)
+
+---
+
+## Step 3 — Vos zones d'alarme
+
+### Zone source
+
+Zones are loaded exclusively from the **Jeedom alarm plugin** via `getZones` AJAX call.
+The call reads the alarm eqLogic configuration (`getConfiguration('zones', [])`) and
+returns the zone names.
+
+If the alarm plugin is not found or returns no zones:
+
+```
++-----------------------------------------------------------+
+|  [!] Plugin alarme non trouvé ou aucune zone configurée.  |
+|  Configurez vos zones dans le plugin alarme puis          |
+|  revenez ici.                                             |
++-----------------------------------------------------------+
+```
+
+The "Suivant" button is still available — the user can proceed with an empty mapping.
+
+### Table layout
+
+Zones are loaded as read-only rows. The user cannot add or remove rows.
+
+```
++--------------------+----------------------------------+----------------------------------+
+| Zone d'alarme      | Action caméra  (optionnel)       | URL média  (optionnel)           |
++--------------------+----------------------------------+----------------------------------+
+| Salon              | [Caméra Salon > Snapshot      ▼] | [Caméra Salon > URL flux      ▼] |
+| Chambre parents    | [(aucune)                     ▼] | [(aucune)                     ▼] |
+| Entrée             | [Caméra Entrée > Snapshot     ▼] | [(aucune)                     ▼] |
+| Garage             | [(aucune)                     ▼] | [(aucune)                     ▼] |
++--------------------+----------------------------------+----------------------------------+
+```
+
+- **Zone d'alarme**: read-only `<td>`, text from alarm plugin
+- **Action caméra**: `<select>` populated with commands of generic type `CAMERA_TAKE`.
+  First option: `(aucune)` (value `""`). Other options: `Caméra Salon > Snapshot` etc.
+- **URL média**: `<select>` populated with commands of generic type `CAMERA_URL`.
+  First option: `(aucune)` (value `""`).
+
+Both dropdowns are populated by a **single** `getCameraCommands` AJAX call that returns
+two lists (CAMERA_TAKE commands + CAMERA_URL commands) in one round trip.
+
+### zoneMapping storage
+
+The mapping is stored as a JSON array in `zoneMapping` config key.
+
+```json
+[
+  {"zone_name": "Salon",           "camera_action_cmd_id": 42,   "media_url_cmd_id": 43},
+  {"zone_name": "Chambre parents", "camera_action_cmd_id": null,  "media_url_cmd_id": null},
+  {"zone_name": "Entrée",          "camera_action_cmd_id": 44,   "media_url_cmd_id": null},
+  {"zone_name": "Garage",          "camera_action_cmd_id": null,  "media_url_cmd_id": null}
+]
+```
+
+The zone table is managed by `printEqLogic()` (populate from saved config) and
+`saveEqLogic()` (serialize table rows back to `zoneMapping` before save).
+
+### On "Suivant"
+
+Saves the current `zoneMapping` via standard save, advances to step 4.
+No mandatory validation — empty mapping is allowed.
+
+---
+
+## Step 4 — Alertes critiques
+
+### Layout
+
+```
++-----------------------------------------------------------+
+|  En cas de problème grave (supervision perdue, alarme     |
+|  non transmise), le plugin doit prévenir quelqu'un.       |
+|                                                           |
+|  Commande de notification :                               |
+|  [#[Salon][Téléphone][Envoyer SMS]       ] [Rechercher]   |
+|  (hidden: notify_cmd_id = 42)                             |
+|                                                           |
+|  [Terminer]                                               |
++-----------------------------------------------------------+
+```
+
+### Command picker
+
+Uses the **standard Jeedom command search modal** (`jeedom.cmd.getSelectModal()`),
+filtered for `type: 'action', subType: 'message'`.
+
+Two bound fields:
+- Visible text input (read-only): stores the human-readable form
+  `data-l2key="notify_cmd_human"` — for display only
+- Hidden input: stores the command ID
+  `data-l2key="notify_cmd_id"` — used by the daemon
+
+The search button opens the modal. On selection:
+```javascript
+jeedom.cmd.getSelectModal(
+    {cmd: {type: 'action', subType: 'message'}},
+    function(result) {
+        // result.human  → "#[Object][Equipment][Command]#"
+        // result.cmd.id → command ID integer
+    }
+);
+```
+
+### Validation before "Terminer"
+
+- `notify_cmd_id` must be non-empty. If empty, a red inline message:
+  "Veuillez sélectionner une commande. Vous pouvez toujours utiliser la messagerie Jeedom."
+- No advance until a command is selected.
+
+### On "Terminer"
+
+1. Validates `notify_cmd_id` non-empty
+2. Triggers standard Jeedom save
+3. Sets `wizard_step = 4` (via save)
+4. Page reloads in **config mode** (standard flat layout)
+
+> No daemon start is triggered here by the wizard itself. The daemon is still stopped at
+> this point (the wizard required it). Jeedom's runtime watchdog (which runs every minute)
+> will see `state='nok'`, `launchable='ok'`, `auto=1` and call `deamon_start()`
+> automatically within ~60 seconds — **the user does not need to start it manually**.
+>
+> After wizard completion, `postSave()` only manages commands — it does **not** restart
+> the daemon on config changes. If the user modifies config in config mode while the daemon
+> is running, they must restart the daemon manually from the Jeedom plugin manager.
+
+---
+
+## Post-wizard: config mode layout
+
+Once `wizard_step == 4`, the equipment config panel shows the standard Jeedom layout:
+
+```
+[Relancer l'assistant]
+
+=== Connexion ===
+Opérateur: IMA Protect    IP: xxx.xxx.xxx.xxx    Port: 5000 (UDP)
+Compte: XXXXXX            Chiffrement: activé    Supervision: 60s
+
+=== Zones mappées ===
+Salon → Caméra Salon (Snapshot) | URL flux
+Chambre → (aucune) | (aucune)
+...
+
+=== Notifications critiques ===
+Commande: #[Salon][Téléphone][Envoyer SMS]#
+
+=== Commandes ===
+[standard Jeedom #table_cmd]
+```
+
+All values are shown in read-only display cards (not form inputs) with an "Edit" button per
+section that re-opens the relevant wizard step directly. This is a v1.x improvement —
+in v1.0, "Relancer l'assistant" is the only edit path.
+
+---
+
+## File structure
+
+```
+desktop/
+├── php/
+│   └── siaDC09.php          ← Wizard + config mode HTML (Component 3)
+└── js/
+    └── siaDC09.js           ← Wizard navigation + AJAX + table logic (Component 3)
+
+core/ajax/
+└── siaDC09.ajax.php         ← AJAX endpoints (extended in Component 3)
+```
+
+---
+
+## Configuration keys used by Component 3
+
+All stored in `eqLogic->getConfiguration()`. Fields introduced by the wizard:
+
+| Key | Type | Set in step |
+|---|---|---|
+| `csr_provider` | string | Step 1 |
+| `csr_ip` | string | Step 1 |
+| `csr_port` | int | Step 1 |
+| `transport` | string | Step 1 |
+| `account_number` | string | Step 1 |
+| `encryption_enabled` | bool | Step 1 |
+| `encryption_key` | string | Step 1 |
+| `supervision_interval` | int | Step 1 |
+| `retry_count` | int | Step 1 |
+| `zoneMapping` | array | Step 3 |
+| `notify_cmd_id` | int | Step 4 |
+| `notify_cmd_human` | string | Step 4 (display only) |
+| `wizard_step` | int | Updated at each step completion |
+
+---
+
+## AJAX endpoint specifications
+
+### `testConnection`
+
+**Direction:** JS → PHP → subprocess (synchronous, single round-trip)
+
+```
+Request:  POST action=testConnection
+Response: {status: "ok"|"fail"|"nak"|"error", detail: "<human-readable string>"}
+```
+
+PHP implementation (see Task 3.6 for full code). No caching, no polling endpoint.
+
+### `getZones`
+
+**Direction:** JS → PHP → alarm plugin eqLogic
+
+```
+Request:  GET action=getZones
+Response: {zones: ["Salon", "Chambre parents", "Entrée", "Garage"]}
+          or {error: "alarm_plugin_not_found"}
+          or {error: "no_zones_configured"}
+```
+
+**PHP implementation:**
+```php
+$alarmEqLogics = eqLogic::byType('alarm');
+if (empty($alarmEqLogics)) {
+    ajax::success(['error' => 'alarm_plugin_not_found']);
+}
+$zones = $alarmEqLogics[0]->getConfiguration('zones', []);
+$names = array_column($zones, 'name');
+ajax::success(['zones' => $names]);
+```
+
+> ⚠️ The alarm plugin's internal data structure must be verified at integration time.
+> `getConfiguration('zones')` is the assumed key — adapt if different.
+
+### `getCameraCommands`
+
+**Direction:** JS → PHP → cmd query by generic type
+
+```
+Request:  GET action=getCameraCommands
+Response: {
+    camera_take: [
+        {id: 42, label: "Caméra Salon > Snapshot"},
+        {id: 44, label: "Caméra Entrée > Snapshot"}
+    ],
+    camera_url: [
+        {id: 43, label: "Caméra Salon > URL flux"},
+    ]
+}
+```
+
+**PHP implementation:**
+```php
+// cmd::byGenericType(string $type) is the correct Jeedom API for genericType lookup.
+// cmd::byValue() searches by command value field — wrong for this use case.
+$takeCmds = cmd::byGenericType('CAMERA_TAKE');
+$urlCmds  = cmd::byGenericType('CAMERA_URL');
+
+$format = function($cmd) {
+    return [
+        'id'    => $cmd->getId(),
+        'label' => $cmd->getEqLogic()->getName() . ' > ' . $cmd->getName(),
+    ];
+};
+ajax::success([
+    'camera_take' => array_map($format, $takeCmds),
+    'camera_url'  => array_map($format, $urlCmds),
+]);
+```
+
+---
+
+## JS architecture (`desktop/js/siaDC09.js`)
+
+### Mandatory Jeedom function
+
+```javascript
+function addCmdToTable(_cmd) {
+    // Standard Jeedom template — auto-created commands shown read-only
+    if (!isset(_cmd)) { var _cmd = {configuration: {}}; }
+    var tr = '<tr class="cmd">';
+    tr += '<td><input class="cmdAttr form-control input-sm" data-l1key="id" style="display:none;">';
+    tr += '<span class="cmdAttr" data-l1key="name"></span></td>';
+    tr += '<td><span class="cmdAttr" data-l1key="type"></span> / ';
+    tr += '<span class="cmdAttr" data-l1key="subType"></span></td>';
+    tr += '</tr>';
+    $('#table_cmd tbody').append(tr);
+    $('#table_cmd tbody tr:last').setJeeValues(_cmd, '.cmdAttr');
+}
+```
+
+### `printEqLogic(_eqLogic)` hook
+
+Called by `plugin.template.js` when the equipment is loaded. Handles:
+1. Determine display mode from `_eqLogic.configuration.wizard_step`
+2. If wizard mode: show step `Math.max(1, wizard_step)`, hide config section
+3. If config mode: hide wizard section, populate config summary cards
+4. Set active provider card based on `_eqLogic.configuration.csr_provider`
+5. Populate zone table from `_eqLogic.configuration.zoneMapping`
+6. Populate notify command display from `_eqLogic.configuration.notify_cmd_human`
+
+### `saveEqLogic(_eqLogic)` hook
+
+Called by `plugin.template.js` before save (and explicitly from `siaDC09_nextStep()`). Handles:
+1. Serialize zone table rows into `_eqLogic.configuration.zoneMapping` JSON array — **only when on step 3 or config mode** (zone table is loaded). At steps 1 and 2 the table is empty; writing it would overwrite a previously saved mapping with an empty array.
+2. Update `wizard_step` to the current step (if in wizard mode)
+
+### Wizard navigation
+
+```javascript
+function siaDC09_showStep(n) {
+    $('.wizard-step').hide();
+    $('#wizard-step-' + n).show();
+    siaDC09_updateProgressBar(n);
+    if (n === 2) { siaDC09_runConnectionTest(); }
+}
+
+function siaDC09_nextStep() {
+    var current = siaDC09_currentStep();
+    if (!siaDC09_validateStep(current)) return;
+    // Save via jeedom.eqLogic.save() with explicit callback — do NOT use .trigger('click')
+    // followed by siaDC09_showStep() inline. The save is an async AJAX call; showStep(2)
+    // immediately calls siaDC09_runConnectionTest(), which reads config from DB.
+    // Advancing before the save commits means the test runs against stale credentials.
+    var eqLogic = $('.eqLogicAttr').getJeeValues('.eqLogicAttr')[0];
+    saveEqLogic(eqLogic);  // run the plugin's own saveEqLogic hook to prepare the object
+    jeedom.eqLogic.save({
+        eqLogic: eqLogic,
+        error: function(error) {
+            jeedom.showAlert({message: error.message, level: 'danger'});
+        },
+        success: function() {
+            siaDC09_showStep(current + 1);
+        }
+    });
+}
+```
+
+### Zone table management
+
+```javascript
+function siaDC09_loadZoneTable(zones, zoneMapping, cameraCommands) {
+    var tbody = $('#siaDC09_zone_table tbody');
+    tbody.empty();
+    zones.forEach(function(zoneName) {
+        var saved = (zoneMapping || []).find(function(m) {
+            return m.zone_name === zoneName;
+        }) || {};
+        var row = siaDC09_buildZoneRow(zoneName, saved, cameraCommands);
+        tbody.append(row);
+    });
+}
+```
+
+### testConnection (single call — no polling)
+
+```javascript
+function siaDC09_runConnectionTest() {
+    siaDC09_setTestUI('pending');
+    // Single AJAX call — PHP blocks until subprocess exits (up to 15 s subprocess
+    // timeout + PHP overhead). jQuery's default AJAX timeout is 0 (infinite), so
+    // an explicit timeout is required. Use 35 000 ms (35 s > PHP set_time_limit(30))
+    // so the JS layer can produce a clean timeout message rather than relying on the
+    // server to drop the connection abruptly (which fires the error callback with no
+    // useful status and produces the wrong user message).
+    jeedom.ajax({
+        action:  'testConnection',
+        plugin:  'siaDC09',
+        timeout: 35000,
+        success: function(data) {
+            siaDC09_setTestUI(data.status, data.detail);
+        },
+        error: function(xhr, status) {
+            if (status === 'timeout') {
+                siaDC09_setTestUI('fail',
+                    'Pas de réponse de la centrale — vérifiez l\'adresse IP, le port et votre réseau');
+            } else {
+                siaDC09_setTestUI('error',
+                    'Impossible de lancer le test — vérifiez que Python 3 et les dépendances sont installés');
+            }
+        }
+    });
+}
+```
+
+---
+
+## Task breakdown — Component 3
+
+### Task 3.1 — `desktop/php/siaDC09.php` skeleton
+
+**What:** The full page HTML. Auth check, `sendVarToJS`, equipment header (name + enable +
+visible + "Relancer l'assistant" button), wizard section (hidden in config mode),
+config summary section (hidden in wizard mode), `#table_cmd`, mandatory
+`plugin.template.js` include at the very end.
+
+**Two root divs inside the eqLogic panel:**
+- `#siaDC09-wizard` (shown when `wizard_step < 4`)
+- `#siaDC09-config-summary` (shown when `wizard_step == 4`)
+
+Both are rendered server-side. JS controls visibility on `printEqLogic()`.
+
+---
+
+### Task 3.2 — Step 1 HTML + JS: provider selection & credentials
+
+**What:** Provider cards, all form fields (always rendered), "Personnaliser" button.
+
+**HTML fields** use `class="eqLogicAttr" data-l1key="configuration" data-l2key="..."`.
+
+**JS behaviors:**
+- Card click → update `csr_provider` hidden input + toggle field editability
+- Encryption checkbox toggle → show/hide `encryption_key` field
+- "Personnaliser" button → switch to manual mode, copy current field values, enable editing
+- Inline validation on "Suivant"
+
+---
+
+### Task 3.3 — Step 2 HTML + JS: connection test
+
+**What:** CSR summary display (read from JS after `printEqLogic`), test result area,
+auto-trigger on step arrival, "Relancer le test" / "Ignorer" / "Suivant" buttons.
+
+**JS behaviors:**
+- `siaDC09_showStep(2)` always calls `siaDC09_runConnectionTest()`
+- `siaDC09_runConnectionTest()` sends a single AJAX call (`action=testConnection`) and
+  displays the result when it returns — no polling, no cache
+- "Suivant" enabled only after status `ok` or `nak`. If `nak`, `jeeDialog.confirm()` before advance.
+- "Ignorer" always advances, appends inline warning banner to step 3
+- "Relancer le test" re-runs `siaDC09_runConnectionTest()`
+
+> The AJAX call may take up to 15 seconds (subprocess timeout). The spinner remains visible
+> during this time. An explicit `timeout: 35000` is set on the call — jQuery's default is
+> `0` (infinite), which would leave the user waiting forever if PHP drops the connection
+> without a response (e.g., on `set_time_limit` expiry).
+
+---
+
+### Task 3.4 — Step 3 HTML + JS: zone table
+
+**What:** Table container, zone row template (hidden), alarm-not-found warning banner
+(hidden by default).
+
+**JS behaviors (in `printEqLogic`):**
+1. Call `getCameraCommands` AJAX → build option lists for both selects
+2. Call `getZones` AJAX → if error, show warning banner, keep "Suivant" enabled
+3. On success: call `siaDC09_loadZoneTable(zones, savedMapping, cameraCommands)`
+4. Rehydrate saved selections from `zoneMapping` config
+
+**`saveEqLogic` hook:**
+- Guard: only serialize when `siaDC09_currentStep() >= 3` (or in config mode). At steps 1–2 the zone table is not loaded — skip writing `zoneMapping` to avoid overwriting a previously saved mapping with an empty array.
+- Read each table row: `zone_name` (text), `camera_action_cmd_id` (select value),
+  `media_url_cmd_id` (select value)
+- Build array and write to `_eqLogic.configuration.zoneMapping`
+
+---
+
+### Task 3.5 — Step 4 HTML + JS: critical notifications
+
+**What:** Explanatory text, command picker (display input + hidden ID input + search button),
+"Terminer" button.
+
+**HTML:**
+```html
+<div class="input-group">
+    <input type="text"
+           class="eqLogicAttr form-control"
+           data-l1key="configuration"
+           data-l2key="notify_cmd_human"
+           readonly
+           placeholder="{{Sélectionnez une commande de notification}}" />
+    <span class="input-group-btn">
+        <a class="btn btn-default cursor" id="siaDC09_searchNotifyCmd">
+            <i class="fas fa-list-alt"></i>
+        </a>
+    </span>
+</div>
+<input type="hidden"
+       class="eqLogicAttr"
+       data-l1key="configuration"
+       data-l2key="notify_cmd_id" />
+```
+
+**JS — command picker:**
+```javascript
+$('#siaDC09_searchNotifyCmd').on('click', function() {
+    jeedom.cmd.getSelectModal(
+        {cmd: {type: 'action', subType: 'message'}},
+        function(result) {
+            $('input[data-l2key="notify_cmd_human"]').val(result.human);
+            $('input[data-l2key="notify_cmd_id"]').val(result.cmd.id);
+        }
+    );
+});
+```
+
+**"Terminer" button:**
+- Validates `notify_cmd_id` non-empty; if empty: inline red message (no `jeeDialog`)
+- Calls `siaDC09_setWizardStep(4)` then triggers standard save
+- Page reloads → `printEqLogic` sees `wizard_step == 4` → switches to config mode
+
+---
+
+### Task 3.6 — `siaDC09.ajax.php`: `testConnection`
+
+**What:** One AJAX action. PHP spawns a short-lived subprocess synchronously and returns
+the test result directly — no cache, no polling endpoint.
+
+```php
+if (init('action') == 'testConnection') {
+    // Use the non-creating variant — testConnection only reads config.
+    // If the equipment doesn't exist (stale tab, mid-wizard reinstall), return an
+    // explicit error rather than silently creating bare equipment with empty config.
+    $eqLogic = siaDC09::_getAutoEquipmentSafe();
+    if (!$eqLogic) {
+        ajax::success([
+            'status' => 'error',
+            'detail' => 'Équipement introuvable — rechargez la page et recommencez l\'assistant.',
+        ]);
+    }
+
+    // Strip encryption_key before passing config as CLI arg — key must never appear
+    // in argv (visible in ps aux). Inject it via env var instead, same pattern as
+    // deamon_start(). The subprocess reads SIA_ENCRYPTION_KEY from os.environ.
+    $configData = $eqLogic->getConfiguration();
+    $encKey     = $configData['encryption_key'] ?? '';
+    unset($configData['encryption_key']);
+    $config     = json_encode($configData);
+    $envPrefix  = 'SIA_ENCRYPTION_KEY=' . escapeshellarg($encKey) . ' ';
+
+    // Use the same venv-aware python binary as deamon_start() — critical on Debian 12
+    // where pip3 packages are installed inside Jeedom's virtualenv, not system python3.
+    $python3 = method_exists('system', 'getCmdPython3')
+        ? system::getCmdPython3(__CLASS__)
+        : 'python3 ';
+
+    // Build subprocess command. --test-only causes the daemon to run one NULL frame,
+    // write a JSON result to stdout, then exit (timeout: 15 s).
+    // Use escapeshellarg() per argument (not escapeshellcmd()) to correctly handle
+    // paths with spaces and avoid shell metacharacter ambiguity.
+    $script  = realpath(__DIR__ . '/../../resources/siadc09d/siadc09d.py');
+    $cmd     = $python3 . escapeshellarg($script)
+             . ' --test-only'
+             . ' --timeout 15'
+             . ' --config ' . escapeshellarg($config);
+
+    $output  = [];
+    $retCode = 0;
+    exec($envPrefix . $cmd . ' 2>/dev/null', $output, $retCode);
+
+    $raw = implode('', $output);
+    $result = json_decode($raw, true);
+
+    if (!$result || !isset($result['status'])) {
+        ajax::success([
+            'status' => 'error',
+            'detail' => 'Impossible de lancer le test — vérifiez que Python 3 et les dépendances sont installés',
+        ]);
+    }
+
+    // result from subprocess: {status: "ok"|"fail"|"nak", detail: "<human string>"}
+    ajax::success($result);
+}
+```
+
+---
+
+### Task 3.7 — `siaDC09.ajax.php`: `getZones`
+
+**What:** Reads zone names from alarm plugin eqLogic.
+
+```php
+if (init('action') == 'getZones') {
+    $alarmEqLogics = eqLogic::byType('alarm');
+    if (empty($alarmEqLogics)) {
+        ajax::success(['error' => 'alarm_plugin_not_found']);
+    }
+    $zones = $alarmEqLogics[0]->getConfiguration('zones', []);
+    if (empty($zones)) {
+        ajax::success(['error' => 'no_zones_configured']);
+    }
+    ajax::success(['zones' => array_column($zones, 'name')]);
+}
+```
+
+> ⚠️ `getConfiguration('zones')` structure must be verified against the alarm plugin
+> source at integration time. The `name` key on each zone element is assumed.
+
+---
+
+### Task 3.8 — `siaDC09.ajax.php`: `getCameraCommands`
+
+**What:** Returns CAMERA_TAKE and CAMERA_URL commands in one call.
+
+```php
+if (init('action') == 'getCameraCommands') {
+    $format = function($cmd) {
+        return [
+            'id'    => (int) $cmd->getId(),
+            'label' => $cmd->getEqLogic()->getName() . ' > ' . $cmd->getName(),
+        ];
+    };
+    ajax::success([
+        'camera_take' => array_map($format, cmd::byGenericType('CAMERA_TAKE')),
+        'camera_url'  => array_map($format, cmd::byGenericType('CAMERA_URL')),
+    ]);
+}
+```
+
+---
+
+### Task 3.9 — ~~`siaDC09::message()` extension: `test_result` type~~
+
+**Removed (Option A).** With the subprocess approach, the test result is returned
+synchronously from `exec()` in Task 3.6. The daemon never sends a `test_result`
+message — no `message()` handler is needed for this flow.
+
+---
+
+### Task 3.10 — Daemon: `--test-only` entry point
+
+**What:** A standalone execution mode in `siadc09d.py`. When invoked with `--test-only`,
+the process connects to the CSR, sends one NULL supervision frame, writes a JSON
+result to **stdout**, and exits. It does **not** start the supervision loop, does not
+open the Jeedom socket, and does not write to the Jeedom log.
+
+**CLI signature:**
+```
+python3 siadc09d.py --test-only --timeout <seconds> --config '<json>'
+```
+
+**Entry point in `siadc09d.py`:**
+```python
+if '--test-only' in sys.argv:
+    import argparse, asyncio, json as _json, sys as _sys
+    _ap = argparse.ArgumentParser()
+    _ap.add_argument('--test-only', action='store_true')
+    _ap.add_argument('--timeout',   type=int, default=15)
+    _ap.add_argument('--config',    type=str, default='{}')
+    _args = _ap.parse_args()
+
+    asyncio.run(run_connection_test(
+        config  = _json.loads(_args.config),
+        timeout = _args.timeout,
+    ))
+    _sys.exit(0)
+```
+
+```python
+async def run_connection_test(config: dict, timeout: int) -> None:
+    """Send a NULL frame to the CSR, write JSON result to stdout, exit."""
+    import time, json as _json, pathlib
+    # Resolve CSR params — mirrors SIADaemon.__init__() exactly (F9 fix).
+    # For preset mode, load from csr_presets.json rather than trusting the
+    # eqLogic-stored values, which may be stale if the preset file was updated.
+    csr_provider = config.get('csr_provider', 'manual')
+    if csr_provider != 'manual':
+        presets_path = pathlib.Path(__file__).parent / 'csr_presets.json'
+        with open(presets_path) as f:
+            presets_data = _json.load(f)
+        preset = next(
+            (p for p in presets_data['presets'] if p['id'] == csr_provider), None
+        )
+        if preset is None:
+            print(_json.dumps({'status': 'error',
+                'detail': f"Preset '{csr_provider}' introuvable dans csr_presets.json"}),
+                flush=True)
+            return
+        csr_ip    = preset['csr_ip']
+        csr_port  = int(preset['csr_port'])
+        transport = preset['transport']
+    else:
+        csr_ip    = config.get('csr_ip')
+        csr_port  = int(config.get('csr_port', 5000))
+        transport = config.get('transport', 'udp')
+    account = config.get('account_number', '')
+    # Encryption key: read from SIA_ENCRYPTION_KEY env var (same as deamon_start())
+
+    start = time.monotonic()
+    frame = sia_protocol.encode_null(account, sequence=1, ...)
+    result = await _send_raw_once(csr_ip, csr_port, transport, frame, timeout=timeout)
+    elapsed_ms = int((time.monotonic() - start) * 1000)
+
+    if result['status'] == 'ack':
+        out = {'status': 'ok',  'detail': f'ACK reçu en {elapsed_ms}ms'}
+    elif result['status'] == 'nak':
+        out = {'status': 'nak', 'detail': 'Réponse inattendue (NAK)'}
+    else:
+        out = {'status': 'fail', 'detail': f'Pas de réponse (timeout {timeout}s)'}
+
+    print(json.dumps(out), flush=True)
+```
+
+> `_send_raw_once()` is a thin async wrapper (open socket → send → receive → close)
+> that shares the same UDP/TCP send logic as `SIADaemon._send_raw()` but is
+> standalone (no SM1 context, no retry loop).
+
+---
+
+## CSR Presets Configuration File
+
+**Location:** `resources/siadc09d/csr_presets.json`
+
+Loaded by the daemon at startup to resolve CSR parameters for preset providers.
+Also read by the PHP wizard (via `file_get_contents`) to populate read-only fields
+for preset providers.
+
+### Format
+
+```json
+{
+  "version": 1,
+  "presets": [
+    {
+      "id": "ima_protect",
+      "label": "IMA Protect",
+      "csr_ip": "TBD",
+      "csr_port": 5000,
+      "transport": "udp",
+      "encryption_enabled": true,
+      "supervision_interval": 60,
+      "retry_count": 3
+    }
+  ]
+}
+```
+
+### Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string | Matches `csr_provider` eqLogic config value |
+| `label` | string | Display label for the wizard card |
+| `csr_ip` | string | CSR IP or FQDN |
+| `csr_port` | int | UDP/TCP port |
+| `transport` | `"udp"` \| `"tcp"` | Protocol transport |
+| `encryption_enabled` | bool | Whether AES encryption is required |
+| `supervision_interval` | int (seconds) | Supervision NULL interval |
+| `retry_count` | int | Max event send retries |
+
+### Daemon usage
+
+In `SIADaemon.__init__()`:
+
+```python
+csr_provider = self.get_config('csr_provider', 'manual')
+if csr_provider != 'manual':
+    try:
+        with open(PRESETS_PATH) as f:
+            presets_data = json.load(f)
+        preset = next(
+            (p for p in presets_data['presets'] if p['id'] == csr_provider),
+            None
+        )
+        if preset is None:
+            self._logger.error(
+                f"Preset '{csr_provider}' introuvable dans csr_presets.json — "
+                f"vérifiez la configuration ou mettez à jour le plugin."
+            )
+            self.stop()
+            return
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        self._logger.error(
+            f"Impossible de lire csr_presets.json : {e} — "
+            f"réinstallez le plugin."
+        )
+        self.stop()
+        return
+    self._csr_ip   = preset['csr_ip']
+    self._csr_port = preset['csr_port']
+    # ... etc.
+else:
+    self._csr_ip   = self.get_config('csr_ip')
+    self._csr_port = int(self.get_config('csr_port'))
+    # ... etc.
+# Always subscriber-specific:
+self._account = self.get_config('account_number')
+self._enc_key = os.environ.get('SIA_ENCRYPTION_KEY', '')
+```
+
+### Community contribution path
+
+The file format and location are documented here for community contributions. To add a
+new preset:
+1. Add a new entry to `csr_presets.json`
+2. Add a card to the Step 1 wizard UI (`desktop/php/siaDC09.php`)
+3. Open a PR — no daemon code changes required
+
+In v1.0, only the `ima_protect` preset is included. Additional presets (Sicur, Telematec,
+etc.) are out of scope for v1.0 but the file structure is designed for extensibility.
+
+---
+
+## Testing strategy for Component 3
+
+| Test | How |
+|---|---|
+| Step 1 IMA Protect preset | Select IMA Protect card → verify fields pre-filled and disabled |
+| Step 1 Personnaliser | Click "Personnaliser" → verify fields become editable with preset values copied |
+| Step 1 reload saved config | Save manual config, reload page → verify "Personnalisé" card selected, saved values shown |
+| Step 1 validation | Leave account empty, click Suivant → verify error shown, no advance |
+| Step 2 auto-trigger | Arrive at step 2 → verify spinner appears immediately, subprocess test fires |
+| Step 2 ACK result | Subprocess returns ACK → green banner, "Suivant" enabled |
+| Step 2 NAK result | Subprocess returns NAK → orange banner, "Suivant" enabled with confirm dialog |
+| Step 2 timeout result | Subprocess returns timeout → red banner, "Suivant" disabled |
+| Step 2 subprocess error | Python missing or deps broken → red banner with install hint |
+| Step 2 Ignorer | Click Ignorer → verify advance + warning banner in step 3 |
+| Step 2 Suivant blocked | While test in-flight → verify Suivant is disabled |
+| Step 2 Suivant on NAK | Test returns NAK → jeeDialog.confirm() shown before advance |
+| Relancer assistant — daemon running | Click "Relancer l'assistant" while daemon is running → confirmation dialog shown, daemon stopped, wizard resets to step 1 |
+| Relancer assistant — daemon stopped | Click "Relancer l'assistant" while daemon is stopped → wizard resets to step 1 immediately |
+| Step 3 alarm plugin found | Install alarm plugin with zones → verify table populated correctly |
+| Step 3 alarm plugin missing | No alarm plugin → verify warning banner, Suivant still available |
+| Step 3 zoneMapping save | Select camera for Salon, save → reload → verify selection preserved |
+| Step 4 Terminer without cmd | Click Terminer with no command → verify inline error, no advance |
+| Step 4 command picker | Click search button → jeedom.cmd.getSelectModal opens, selection fills fields |
+| Post-wizard config mode | After Terminer → verify wizard hidden, config summary shown |
+| Relancer l'assistant | Click button in config mode → verify wizard shows at step 1 with saved values |
