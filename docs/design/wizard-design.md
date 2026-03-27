@@ -36,9 +36,12 @@ dialog is shown:
 > "Le démon est en cours d'exécution. L'assistant de connexion requiert que le démon
 > soit arrêté. Voulez-vous l'arrêter maintenant ?"
 
-On confirm: PHP calls `siaDC09::deamon_stop()`, then sets `wizard_step = 0`, then
-reloads the page at step 1. If the daemon is already stopped, the button resets
-`wizard_step = 0` and reloads immediately.
+On confirm: PHP sets `wizard_step = 0` **first** (makes `launchable='nok'` immediately
+visible to Jeedom's watchdog — prevents auto-restart during wizard), then calls
+`siaDC09::deamon_stop()`, then reloads the page at step 1.
+If the `wizard_step` save fails, the daemon is still running with valid config (no harm —
+do not proceed to stop). If the daemon is already stopped, the button sets `wizard_step = 0`
+and reloads immediately.
 
 ---
 

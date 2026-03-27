@@ -76,6 +76,8 @@ Rationale: Only one equipment exists (plugin-centric). The wizard IS the equipme
 | `account_number` | string | 3–16 hex chars |
 | `encryption_enabled` | bool | AES encryption on/off |
 | `encryption_key` | string | 32 hex chars (AES-128) |
+| `receiver_prefix` | string | 0–6 hex chars receiver prefix (`R` field). Default `''` → omitted; CSR interprets as `R0`. **IMA Protect: unconfirmed — verify at integration time.** |
+| `account_prefix` | string | 0–6 hex chars account prefix (`L` field). Default `''` → omitted; CSR interprets as `L0`. **IMA Protect: unconfirmed — verify at integration time.** |
 | `supervision_interval` | int | seconds between NULL messages (default 60) |
 | `retry_count` | int | max retries on timeout (default 3) |
 | `notify_cmd_id` | int | Jeedom cmd ID of ACTION/message command for critical alerts |
@@ -259,10 +261,10 @@ sequenceDiagram
 {
   "id": "siaDC09",
   "name": "Télésurveillance SIA DC-09",
-  "description": "Transmission d'alarmes vers centrale de télésurveillance via protocole SIA DC-09",
+  "description": {"fr_FR": "Transmission d'alarmes vers centrale de télésurveillance via protocole SIA DC-09"},
   "licence": "AGPL",
   "author": "...",
-  "require": "4.4",
+  "require": "4.5",
   "category": "security",
   "hasDependency": true,
   "hasOwnDeamon": true,
@@ -290,8 +292,8 @@ sequenceDiagram
 ```
 
 **Notes:**
-- All pip3 entries use `{}` (object) — consistent type, matches the reference plugin pattern. Mixed string/object values (`">=3.19"` vs `{}`) cause a PHP type error in `system::checkAndInstall()` which iterates the array expecting uniform shape.
-- Version constraint `pycryptodome>=3.19` is enforced in `install_dep.sh` via `pip3 install "pycryptodome>=3.19"` — not in `packages.json`, which Jeedom does not currently use for version pinning.
+- All pip3 entries use `{}` (object) — consistent type, matches the reference plugin pattern.
+- No version constraints in `install_dep.sh` — pycryptodome's AES-CBC has been stable since v2.x; no minimum version is required. `packages.json` does not currently support version pinning reliably.
 - `jeedomdaemon` installed via pip3 — confirmed by examining the reference plugin in this repo. Not bundled or git-submoduled.
 - `pycryptodome` needed for AES phase 2 (crypto stub in phase 1 has no deps). Declared from day 1 to avoid a migration install step later.
 - ✅ **Decision confirmed**: pip3 for both dependencies, all-object format.
@@ -339,13 +341,14 @@ public function execute($options = []) {
     $mediaUrl = $this->_resolveMediaUrl($zone, $zoneEntry);
 
     // Early validation: SIA DC-09 [V...] field forbids '[', ']', '|' in the URL.
-    // PHP cannot fix the URL — log a warning so the operator knows before the daemon fails.
+    // PHP cannot fix the URL — log a warning so the operator knows before the daemon strips it.
     if ($mediaUrl !== null && preg_match('/[\[\]\|]/', $mediaUrl)) {
         log::add(__CLASS__, 'warning',
-            'media_url for zone ' . $zone . ' contains forbidden SIA DC-09 characters — daemon will reject it'
+            'media_url for zone ' . $zone . ' contains forbidden SIA DC-09 characters — daemon will strip it'
         );
-        // Do NOT nullify the URL here: let the daemon reject it explicitly so the error
-        // surfaces via the normal EVENT_FAILED notification path.
+        // Do NOT nullify the URL here: the daemon strips forbidden chars and logs a WARNING
+        // (never EVENT_FAILED — an alarm must never be blocked by a media URL issue).
+        // The PHP warning above is the only early-detection signal available at execute time.
     }
 
     // Fire-and-forget to daemon
@@ -407,6 +410,35 @@ This removes the manual setup step for the user. **Deferred to a future release.
 
 ---
 
+### Task 2.3a — `siaDC09Cmd::_resolveMediaUrl()`
+
+**What:** Reads the last known camera snapshot URL from the Jeedom command identified by `media_url_cmd_id` in the zone mapping entry.
+
+**API choice:** `cmd::getValue()` — returns the last value stored by the camera plugin via `checkAndUpdateCmd()`. No network call, no side effects. `execCmd()` must **not** be used here: on INFO commands it may trigger a live device refresh (latency, potential failure, unwanted side effect inside `execute()`).
+
+```php
+private function _resolveMediaUrl(string $zone, ?array $zoneEntry): ?string {
+    if (empty($zoneEntry['media_url_cmd_id'])) {
+        return null;
+    }
+    $urlCmd = cmd::byId((int) $zoneEntry['media_url_cmd_id']);
+    if (!$urlCmd) {
+        log::add(__CLASS__, 'warning',
+            'media_url_cmd_id configured for zone ' . $zone . ' but command not found — ignored'
+        );
+        return null;
+    }
+    // getValue() returns the last value stored by the camera plugin via checkAndUpdateCmd().
+    // No network call, no side effects — safe to call inside execute().
+    $url = $urlCmd->getValue();
+    return (!empty($url)) ? (string) $url : null;
+}
+```
+
+**Failure policy:** returns `null` on any failure (cmd not found, empty value). `null` causes `encode_message()` to omit the `[V...]` field entirely. Alarm transmission is never blocked by a URL read failure.
+
+---
+
 ### Task 2.4 — `siaDC09::postSave()`
 
 **What:** Called by Jeedom after any save on the equipment. Responsible for:
@@ -431,8 +463,12 @@ private function _ensureCommands() {
         // INFO numeric (scenario triggers) — isVisible=0: toHtml() renders state display
         ['logicalId' => 'supervision_state',    'type' => 'info', 'subType' => 'numeric',
          'name' => 'État supervision', 'isVisible' => 0, 'order' => 4],
+        // returnStateTime=30, returnStateValue=0: Jeedom auto-reverts to 0 after 30 min of no update.
+        // Handles stuck event_state=3 (PENDING) if daemon crashes mid-alarm — without this,
+        // the "in progress" state would remain visible indefinitely. 0 = no alarm since startup.
         ['logicalId' => 'event_state', 'type' => 'info', 'subType' => 'numeric',
-         'name' => 'Transmission alarme', 'isVisible' => 0, 'order' => 5],
+         'name' => 'Transmission alarme', 'isVisible' => 0, 'order' => 5,
+         'returnStateTime' => 30, 'returnStateValue' => 0],
         // INFO string (display) — isVisible=0
         ['logicalId' => 'supervision_label',    'type' => 'info', 'subType' => 'string',
          'name' => 'Supervision détail', 'isVisible' => 0, 'order' => 6],
@@ -484,8 +520,18 @@ public function preRemove() {
 
 ```php
 public static function message($message) {
-    $eqLogic = self::_getAutoEquipment();
-    if (!$eqLogic) return;
+    // Use _getAutoEquipmentSafe() — NOT _getAutoEquipment() — to avoid triggering
+    // equipment + command creation (DB writes, postSave()) inside a framework callback.
+    // message() is a read-dispatch operation; side effects here are unexpected and
+    // can cause re-entrancy issues. If the equipment is missing (user deleted it),
+    // log a warning and discard the message — auto-creation belongs in deamon_start().
+    $eqLogic = self::_getAutoEquipmentSafe();
+    if (!$eqLogic) {
+        log::add(__CLASS__, 'warning',
+            __('Message daemon reçu mais équipement absent — ignoré jusqu\'à réactivation du plugin.', __FILE__)
+        );
+        return;
+    }
 
     switch ($message['type']) {
         case 'info_update':
@@ -513,6 +559,11 @@ public static function message($message) {
             break;
         // Note: 'test_result' type removed — testConnection uses Option A
         // (standalone subprocess) and never sends a message() callback.
+        default:
+            log::add(__CLASS__, 'warning',
+                'Message daemon de type inconnu ignoré : ' . ($message['type'] ?? '<null>')
+            );
+            break;
     }
 }
 ```
@@ -579,6 +630,8 @@ whether the user chose a preset or manual entry.
 
 ```php
 public static function deamon_start() {
+    self::deamon_stop(); // Kill any stale/zombie instance before launching a new one
+
     $eqLogic = self::_getAutoEquipment();
 
     // encryption_key is intentionally excluded from $config — it is passed via
@@ -594,7 +647,10 @@ public static function deamon_start() {
         'retry_count'        => $eqLogic->getConfiguration('retry_count', 3),
         'account_number'     => $eqLogic->getConfiguration('account_number'),
         'encryption_enabled' => $eqLogic->getConfiguration('encryption_enabled') ? '1' : '0',
-        'notify_cmd_id'      => $eqLogic->getConfiguration('notify_cmd_id'),
+        'receiver_prefix'    => $eqLogic->getConfiguration('receiver_prefix', ''),
+        'account_prefix'     => $eqLogic->getConfiguration('account_prefix', ''),
+        // notify_cmd_id intentionally omitted — used by PHP only (message() reads it from
+        // getConfiguration()), never by the daemon. No need to pass it via CLI.
     ];
 
     // system::getCmdPython3() returns the venv-aware python binary on Debian 12.
@@ -610,17 +666,33 @@ public static function deamon_start() {
         $cmd .= ' --' . $k . ' ' . escapeshellarg($v);
     }
 
-    $cmd .= ' --callback ' . network::getNetworkAccess('internal', 'proto:127.0.0.1:port:comp')
+    $cmd .= ' --callback ' . network::getNetworkAccess('internal', 'http:127.0.0.1:port:comp')
           . '/plugins/siaDC09/core/php/jeesiaDC09.php';
+    $cmd .= ' --apikey ' . jeedom::getApiKey(__CLASS__);
     $cmd .= ' --pid ' . jeedom::getTmpFolder(__CLASS__) . '/deamon.pid';
 
-    // Prepend encryption key as env var — never in argv, never in log.
+    log::add(__CLASS__, 'info', __('Lancement démon', __FILE__));
+    // NOTE: $cmd is safe to log — it contains only CLI args, not the encryption key.
+    // Do NOT log $envPrefix or the full ($envPrefix . $cmd) string — that would expose
+    // the AES key in plaintext in the Jeedom log file.
+
+    // Reset PHP execution timer before the blocking section.
+    // deamon_start() is called from the web UI (plugin manager "Démarrer" button →
+    // AJAX → PHP). In that context PHP's max_execution_time applies (typically 30s).
+    // The exec() call itself returns immediately (daemon runs in background via &),
+    // but the polling loop below sleeps up to 10 × 1s = 10s. Resetting the timer
+    // here guarantees we stay well within the 30s window regardless of how much
+    // PHP time was already consumed before this method was called.
+    // Same rationale as the set_time_limit(30) guard in testConnection (Task 2.10).
+
+    // Build env prefix as late as possible — immediately before exec(), never stored longer.
     // The daemon reads it via os.environ.get('SIA_ENCRYPTION_KEY', '').
+    // SECURITY: never pass ($envPrefix . $cmd) to log::add() or any logging function.
     $encKey    = $eqLogic->getConfiguration('encryption_key', '');
     $envPrefix = 'SIA_ENCRYPTION_KEY=' . escapeshellarg($encKey) . ' ';
-
-    log::add(__CLASS__, 'info', __('Lancement démon', __FILE__));
+    set_time_limit(30);
     $result = exec($envPrefix . $cmd . ' >> ' . log::getPathToLog(__CLASS__ . '_daemon') . ' 2>&1 &');
+    unset($encKey, $envPrefix); // Scrub from scope immediately after use
 
     // Poll up to 10s for daemon to confirm startup
     $i = 0;
@@ -639,12 +711,18 @@ public static function deamon_start() {
 }
 ```
 
-**`deamon_stop()`** — graceful kill → poll → force kill (z2m/zwavejs pattern):
+**`deamon_stop()`** — targeted PID kill → poll → force kill:
 ```php
 public static function deamon_stop() {
     log::add(__CLASS__, 'info', __('Arrêt du démon', __FILE__));
-    // Graceful SIGTERM by script name (also catches stale-PID cases)
-    system::kill('siadc09d.py');
+    // Targeted kill via PID file (safer than pkill -f on multi-instance systems).
+    // Falls back to script-name kill if PID file is absent or stale.
+    $pidFile = jeedom::getTmpFolder(__CLASS__) . '/deamon.pid';
+    if (file_exists($pidFile) && ($pid = (int)trim(file_get_contents($pidFile))) > 0) {
+        system::kill($pid);          // targeted SIGTERM — only this instance
+    } else {
+        system::kill('siadc09d.py'); // fallback: PID file missing or unreadable
+    }
     // Poll up to 5s for graceful shutdown (BaseDaemon on_stop() runs and exits cleanly)
     $i = 0;
     while ($i < 5) {
@@ -654,14 +732,18 @@ public static function deamon_stop() {
     }
     // Force kill if still running after 5s
     if ($i >= 5) {
-        system::kill('siadc09d.py', true);
+        if (file_exists($pidFile) && ($pid = (int)trim(file_get_contents($pidFile))) > 0) {
+            system::kill($pid, true);
+        } else {
+            system::kill('siadc09d.py', true);
+        }
     }
     sleep(1);
 }
 ```
 
 ✅ **Decision:** Fixed default port (55001), configurable in plugin advanced settings (not in the wizard — too technical for end users). Standard Jeedom pattern: advanced/technical config stays out of the user-facing wizard.
-✅ **Decision (`deamon_stop()`):** Polling pattern from z2m/zwavejs — graceful SIGTERM, poll 5s, force kill if needed. The `sleep(1)` at the end ensures the PID file is removed before `deamon_start()` checks for it (BaseDaemon removes the PID file in its shutdown handler).
+✅ **Decision (`deamon_stop()`):** Targeted PID-file kill (safer than script-name `pkill -f` on multi-instance systems), with script-name fallback when PID file is absent. Polling pattern from z2m/zwavejs — graceful SIGTERM, poll 5s, force kill if needed. The `sleep(1)` at the end ensures the PID file is removed before `deamon_start()` checks for it (BaseDaemon removes the PID file in its shutdown handler).
 
 ---
 
@@ -729,7 +811,7 @@ public static function dependancy_install() {
 #!/bin/bash
 PROGRESS_FILE="$1"
 echo 10 > "$PROGRESS_FILE"
-pip3 install --upgrade pycryptodome jeedomdaemon
+pip3 install pycryptodome jeedomdaemon
 echo 90 > "$PROGRESS_FILE"
 # Write sentinel only on success
 if pip3 show pycryptodome > /dev/null 2>&1 && pip3 show jeedomdaemon > /dev/null 2>&1; then
@@ -797,7 +879,7 @@ private static function _getAutoEquipment() {
 try {
     require_once dirname(__FILE__) . '/../../../../core/php/core.inc.php';
     include_file('core', 'authentification', 'php');
-    if (!isConnect()) {
+    if (!isConnect('admin')) {
         throw new Exception('{{401 - Accès non autorisé}}');
     }
     ajax::init(); // validates CSRF token + session
@@ -822,15 +904,14 @@ The reference plugin (`core/ajax/jeeaiodemo.ajax.php`) uses this exact structure
 
 **Endpoints needed (detail in Component 3 and 5c):**
 
-| Action | Called by | What it does |
-|---|---|---|
-| `testConnection` | Wizard step 2 | Sends a test NULL message via subprocess, returns ACK/NAK result |
-| `getZones` | Wizard step 3 | Returns zone list from Jeedom alarm plugin |
-| `getCameraCommands` | Wizard step 3 | Returns CAMERA_TAKE + CAMERA_URL commands |
-| `getProtocolHistory` | Debug panel (5c) | Returns `last_messages` from plugin config |
-| `getDaemonStatus` | Debug panel (5c) | Returns current SM1+SM2 state from INFO commands |
-| `clearErrors` | Debug panel (5c) | Sets `last_errors = []` via `config::save` |
-| `clearMessages` | Debug panel (5c) | Sets `last_messages = []` via `config::save` |
+| Action | Called by | Request params | Response |
+|---|---|---|---|
+| `testConnection` | Wizard step 2 | — | `{status: 'ack'|'nak'|'timeout'|'error', message: str}` |
+| `getZones` | Wizard step 3 | — | `[{name: str}, ...]` |
+| `getCameraCommands` | Wizard step 3 | — | `[{id: int, name: str, type: 'CAMERA_TAKE'|'CAMERA_URL'}, ...]` |
+| `getDiagnosticData` | Diagnostic tab "Actualiser" | — | `{errors: [...], messages: [...], supervision_state: int, supervision_label: str, event_state: int, event_label: str}` — one call refreshes all three panels |
+| `clearDiagnosticData` | Diagnostic tab "Vider" | `target=errors\|messages` | `{success: true}` — clears the corresponding plugin-level config key via `config::save('last_errors'\|'last_messages', '[]', __CLASS__)` |
+| `decodeFrame` | Protocol inspector (5c) expand row | `raw_hex=<hex>`, `key_hex=<hex>\|''` | JSON-encoded `ParsedMessage` dict on success; `{error: str}` on failure — see subprocess contract below |
 
 ✅ **Decision: Option A — standalone subprocess, no running daemon required.**
 
@@ -847,6 +928,24 @@ PHP reads stdout and returns the result directly in a single AJAX response. No c
 > well within the 30s limit.
 
 Full implementation detail: see `wizard-design.md` Tasks 3.6 and 3.10.
+
+**`decodeFrame` subprocess contract:**
+
+`sia_protocol.py` exposes `decode()` via a `if __name__ == '__main__'` CLI block — no separate wrapper script.
+
+```
+python3 resources/siadc09d/sia_protocol.py --decode <raw_hex> [--key <key_hex>]
+```
+
+| Argument | Description |
+|---|---|
+| `--decode <raw_hex>` | Complete frame as hex ASCII string (e.g. `0a30303132...0d`) |
+| `--key <key_hex>` | Optional AES key as hex string. Omitted if encryption disabled or key unavailable. |
+
+**Stdout on success:** JSON-encoded `ParsedMessage` dict (fields match the `ParsedMessage` dataclass in `daemon-design.md` Task 0.5).
+**Stdout on failure:** `{"error": "<message>"}`.
+**Timeout:** 5 seconds — enforced by the PHP AJAX handler via `set_time_limit(10)` before `exec()`.
+**Key source:** the PHP handler reads `encryption_key` from eqLogic config and passes it only if `encryption_enabled=true`.
 
 ---
 
@@ -913,7 +1012,7 @@ try {
 
 The `--callback` argument in `deamon_start()` points to this file:
 ```php
-$cmd .= ' --callback ' . network::getNetworkAccess('internal', 'proto:127.0.0.1:port:comp')
+$cmd .= ' --callback ' . network::getNetworkAccess('internal', 'http:127.0.0.1:port:comp')
       . '/plugins/siaDC09/core/php/jeesiaDC09.php';
 ```
 

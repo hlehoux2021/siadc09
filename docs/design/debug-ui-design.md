@@ -62,10 +62,10 @@ The `supervision_label` string is displayed inline next to the badge dot.
 
 ### Refresh
 
-The badge is populated once on tab load via a single `eqLogic::byId` AJAX call that
-fetches `supervision_state` and `supervision_label`. It does not auto-poll. The user
-refreshes the full tab by navigating away and back, or by clicking the "Actualiser"
-button in any sub-panel (which re-fetches all data including the badge).
+The badge is populated on tab load via `getDiagnosticData` (AJAX — `php-core-design.md`
+Task 2.10), which returns `supervision_state` and `supervision_label` alongside errors and
+messages in a single call. It does not auto-poll. The user refreshes by clicking the
+"Actualiser" button in any sub-panel — all three panels and the badge update together.
 
 ---
 
@@ -99,10 +99,9 @@ Empty state: `Aucune erreur enregistrée` (grey italic text).
 [Actualiser]   [Vider]
 ```
 
-- **Actualiser:** re-fetches `last_errors` from `eqLogic::getConfiguration` via AJAX and
-  re-renders the list.
-- **Vider:** calls an AJAX handler that sets `last_errors` to `[]` on the eqLogic, then
-  re-renders (empty state).
+- **Actualiser:** calls `getDiagnosticData` (AJAX — `php-core-design.md` Task 2.10) and
+  re-renders all three panels from the response.
+- **Vider:** calls `clearDiagnosticData` with `target=errors`, then re-renders (empty state).
 
 ---
 
@@ -261,8 +260,9 @@ via a dedicated AJAX action `decodeFrame` that invokes `sia_protocol.decode()` s
 [Actualiser]   [Vider]
 ```
 
-- **Actualiser:** re-fetches `last_messages` and re-renders the list.
-- **Vider:** AJAX call sets `last_messages` to `[]`, re-renders (empty state).
+- **Actualiser:** calls `getDiagnosticData` (AJAX — `php-core-design.md` Task 2.10) and
+  re-renders all three panels from the response.
+- **Vider:** calls `clearDiagnosticData` with `target=messages`, then re-renders (empty state).
 
 Empty state: `Aucun échange SIA enregistré` (grey italic text).
 

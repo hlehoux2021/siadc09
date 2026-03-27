@@ -64,7 +64,7 @@ Rather than generating a formal PRD and architecture document via BMAD workflows
 | 6 — Widget | [`widget-design.md`](design/widget-design.md) | Real-time supervision badge, last event status, staleness detection |
 
 **BMAD quality tools used:**
-- `/bmad-review-adversarial-general` — Adversarial review of all design documents; 12 findings identified, 7 resolved
+- `/bmad-review-adversarial-general` — 9 adversarial review passes applied to date; all findings resolved. Review 9 (2026-03-27): 12 findings across all 8 design documents, focusing on cross-document incoherence, architecture patterns, and Jeedom/daemon integration. Key issues caught: SM2 IDLE-is-startup-only (CONFIRMED/FAILED→PENDING direct transitions), CRC format interoperability (detect on first CSR response rather than assume hex), encryption key scope leak in PHP `exec()` call (scrub immediately after), wizard restart race condition (save `wizard_step=0` before `deamon_stop()`), ring buffer DB write flood reduced 10× (1 440→144/day via 10-min throttle), and logging architecture separation — all SM1/SM2 state-machine log lines centralized into `_log_sm1_supervision()` / `_log_sm2_event()` helpers with typed context dataclasses; supervision code calls helpers, not `self._logger` directly.
 
 ---
 
@@ -93,5 +93,5 @@ Implementation will follow the design documents in build sequence order:
 
 - **BMAD compressed the design phase significantly.** What would normally require multiple architecture meetings and back-and-forth was completed in a series of focused AI-facilitated sessions.
 - **Domain-expert skills (`/sia-dc09-expert`, `/jeedom-plugin`) were essential.** Generic AI knowledge would not have been sufficient for a niche protocol like SIA DC-09 — having a skill that reads and cites the actual standard made all the difference.
-- **The adversarial review step (`/bmad-review-adversarial-general`) caught real issues.** 12 findings across 8 design documents, including invented protocol behaviors and stale state machine references that would have caused bugs in implementation.
+- **The adversarial review step (`/bmad-review-adversarial-general`) caught real issues.** 9 review passes, ~100 findings across 8 design documents — including invented protocol behaviors, stale state machine references, security risks (encryption key in process list), DB write floods, and architecture incoherence that would have caused bugs in implementation.
 - **Artifacts accumulate fast.** By the end of design phase, 8 detailed design documents (each 200–500 lines) were produced and cross-referenced — a level of documentation that would have been impractical to write manually in the same timeframe.

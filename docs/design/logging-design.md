@@ -106,8 +106,12 @@ Every transition produces an INFO/WARNING/ERROR line (human-friendly) and a DEBU
 | | | `DEBUG` | `SM1: INIT→DEGRADED \| seq={n} strike=1 elapsed={t}s \| no response` |
 | `HEALTHY → DEGRADED` | Timeout (strike=1) | `WARNING` | `Timeout supervision (strike 1/3) — nouvelle tentative` |
 | | | `DEBUG` | `SM1: HEALTHY→DEGRADED \| seq={n} strike=1 elapsed={t}s \| no response` |
+| `HEALTHY → DEGRADED` | Parseable NAK (strike=1) | `WARNING` | `NAK supervision (strike 1/3) — horodatage rejeté par la centrale` |
+| | | `DEBUG` | `SM1: HEALTHY→DEGRADED \| seq={n} strike=1 cause=nak_timestamp \| NAK: raw={hex}` |
 | `DEGRADED → DEGRADED` | Timeout (strike=2) | `WARNING` | `Timeout supervision (strike 2/3) — nouvelle tentative` |
 | | | `DEBUG` | `SM1: DEGRADED→DEGRADED \| seq={n} strike=2 elapsed={t}s \| no response` |
+| `DEGRADED → DEGRADED` | Parseable NAK (strike=2) | `WARNING` | `NAK supervision (strike 2/3) — horodatage rejeté par la centrale` |
+| | | `DEBUG` | `SM1: DEGRADED→DEGRADED \| seq={n} strike=2 cause=nak_timestamp \| NAK: raw={hex}` |
 | `DEGRADED → DEGRADED` | Timeout (strike=3, T3 fires) | `ERROR` | `Supervision perdue — 3 tentatives sans réponse (T3 notification envoyée)` |
 | | | `DEBUG` | `SM1: DEGRADED→DEGRADED \| seq={n} strike=3 elapsed={t}s \| no response \| T3 fired` |
 | `DEGRADED → DEGRADED` | Timeout (strike already 3, subsequent) | `WARNING` | `Supervision toujours absente — en attente de rétablissement` |
@@ -148,8 +152,223 @@ Every transition produces an INFO/WARNING/ERROR line (human-friendly) and a DEBU
 | | | `DEBUG` | `SM2: PENDING→FAILED \| seq={n} cause=nak_received \| NAK: raw={hex}` |
 | `PENDING → FAILED` | SM1 → NO_NETWORK (event in queue, daemon stopping) | `ERROR` | `Alarme {type} non transmise — réseau inaccessible (zone: {zone})` |
 | | | `DEBUG` | `SM2: PENDING→FAILED \| cause=no_network \| event dropped, daemon stopping` |
-| `CONFIRMED → IDLE` | Housekeeping | `DEBUG` | `SM2: CONFIRMED→IDLE` |
-| `FAILED → IDLE` | After notification | `DEBUG` | `SM2: FAILED→IDLE` |
+| `CONFIRMED → PENDING` | Next event dequeued | _(same as `IDLE → PENDING`)_ | See 'received' trigger in helper below |
+| `FAILED → PENDING` | Next event dequeued | _(same as `IDLE → PENDING`)_ | See 'received' trigger in helper below |
+
+> **Note:** `IDLE` is a startup-only state. After the first alarm event completes
+> (CONFIRMED or FAILED), the consumer dequeues the next event directly into PENDING —
+> no intermediate IDLE. There is no "back to IDLE" log line in normal operation.
+
+---
+
+### Logging helper methods
+
+**Architectural rule:** All INFO/WARNING/ERROR log lines for SM1 supervision events and
+SM2 alarm events are emitted exclusively through `_log_sm1_supervision()` and
+`_log_sm2_event()`. Component 4 (supervision) code only constructs context objects and
+calls these helpers — it does **not** call `self._logger` directly for state-machine events.
+Technical DEBUG lines (raw frames, timing details) are also emitted inside the helpers.
+
+#### Context dataclasses
+
+```python
+# resources/siadc09d/siadc09d.py
+
+from dataclasses import dataclass, field
+
+# --- SM1 logging contexts ---
+
+@dataclass
+class SM1AckCtx:
+    seq:         int
+    elapsed_ms:  int
+    crc_format:  str
+    raw_hex:     str
+    prev_strike: int   # 0 = was already HEALTHY (routine); >0 = DEGRADED→HEALTHY recovery
+
+@dataclass
+class SM1TimeoutCtx:
+    seq:           int
+    elapsed:       float     # seconds
+    strike:        int       # current strike after increment (already capped at 3)
+    prev_state:    SM1State  # INITIALIZING | HEALTHY | DEGRADED — drives message choice
+    t3_just_fired: bool      # True = first time strike reaches 3 this session
+
+@dataclass
+class SM1NakCtx:
+    seq:           int
+    elapsed_ms:    int
+    strike:        int
+    raw_hex:       str
+    csr_time:      str | None  # ISO string if NAK timestamp was parseable; None = undecodable
+    t3_just_fired: bool = False
+
+SM1LogCtx = SM1AckCtx | SM1TimeoutCtx | SM1NakCtx
+
+# --- SM2 logging contexts ---
+
+@dataclass
+class SM2LogCtx:
+    event_type:    str          # 'burglarAlarm' | 'fireAlarm' | 'panicAlarm'
+    zone:          str
+    seq:           int
+    attempt:       int   = 1
+    max_attempts:  int   = 5
+    retries_left:  int   = 0
+    elapsed_ms:    int   = 0
+    elapsed:       float = 0.0
+    raw_hex:       str   = ''
+    crc_format:    str   = ''
+```
+
+#### `_log_sm1_supervision(trigger, ctx)`
+
+```python
+def _log_sm1_supervision(self, trigger: str, ctx: SM1LogCtx) -> None:
+    """Emit the dual-line log (INFO/WARNING/ERROR + DEBUG) for SM1 supervision events.
+
+    trigger values:
+      'ack'           — ACK received
+      'timeout'       — no response within deadline
+      'nak_timestamp' — parseable NAK (standard timestamp validation failure)
+      'nak_bad'       — undecodable NAK (protocol anomaly → T2 BAD_CSR_RESPONSE)
+
+    Owns all SM1 supervision log lines — supervision code must not call self._logger
+    directly for these events.
+    """
+    if trigger == 'ack':
+        if ctx.prev_strike == 0:
+            # Routine healthy cycle — DEBUG only to prevent log flood
+            self._logger.debug(
+                f'[← CSR] ACK | seq={ctx.seq:04d} crc_format={ctx.crc_format} '
+                f'elapsed={ctx.elapsed_ms}ms | raw={ctx.raw_hex}'
+            )
+        else:
+            self._logger.info(SM1_RECOVERED.format(prev_strike=ctx.prev_strike))
+            self._logger.debug(
+                f'SM1: DEGRADED→HEALTHY | seq={ctx.seq:04d} prev_strike={ctx.prev_strike} '
+                f'strike=0 | ACK: crc_format={ctx.crc_format} raw={ctx.raw_hex}'
+            )
+
+    elif trigger == 'timeout':
+        if ctx.t3_just_fired:
+            self._logger.error(SM1_LOST)
+            self._logger.debug(
+                f'SM1: DEGRADED→DEGRADED | seq={ctx.seq:04d} strike={ctx.strike} '
+                f'elapsed={ctx.elapsed:.1f}s | no response | T3 fired'
+            )
+        elif ctx.strike >= 3:
+            # T3 already fired in a previous cycle — warn without re-firing
+            self._logger.warning(SM1_STILL_ABSENT)
+            self._logger.debug(
+                f'SM1: DEGRADED(3) | seq={ctx.seq:04d} elapsed={ctx.elapsed:.1f}s '
+                f'| no response | T3 already fired'
+            )
+        elif ctx.prev_state == SM1State.INITIALIZING:
+            self._logger.warning(SM1_TIMEOUT_STARTUP)
+            self._logger.debug(
+                f'SM1: INIT→DEGRADED | seq={ctx.seq:04d} strike={ctx.strike} '
+                f'elapsed={ctx.elapsed:.1f}s | no response'
+            )
+        else:
+            self._logger.warning(SM1_TIMEOUT_WARNING.format(strike=ctx.strike))
+            prev = 'HEALTHY' if ctx.prev_state == SM1State.HEALTHY else 'DEGRADED'
+            self._logger.debug(
+                f'SM1: {prev}→DEGRADED | seq={ctx.seq:04d} strike={ctx.strike} '
+                f'elapsed={ctx.elapsed:.1f}s | no response'
+            )
+
+    elif trigger == 'nak_timestamp':
+        if ctx.t3_just_fired:
+            self._logger.error(SM1_LOST)
+            self._logger.debug(
+                f'SM1: DEGRADED→DEGRADED | seq={ctx.seq:04d} strike={ctx.strike} '
+                f'cause=nak_timestamp csr_time={ctx.csr_time} | NAK: raw={ctx.raw_hex} | T3 fired'
+            )
+        else:
+            self._logger.warning(SM1_NAK_TIMESTAMP.format(strike=ctx.strike))
+            prev = 'HEALTHY' if ctx.strike == 1 else 'DEGRADED'
+            self._logger.debug(
+                f'SM1: {prev}→DEGRADED | seq={ctx.seq:04d} strike={ctx.strike} '
+                f'cause=nak_timestamp csr_time={ctx.csr_time} | NAK: raw={ctx.raw_hex}'
+            )
+
+    elif trigger == 'nak_bad':
+        # T2 event — use ERROR (user-actionable: possible CSR firmware bug)
+        self._logger.error(SM1_NAK_BAD.format(strike=ctx.strike))
+        self._logger.debug(
+            f'SM1: →DEGRADED | seq={ctx.seq:04d} strike={ctx.strike} '
+            f'cause=nak_undecodable | NAK: raw={ctx.raw_hex}'
+        )
+```
+
+#### `_log_sm2_event(trigger, ctx)`
+
+```python
+def _log_sm2_event(self, trigger: str, ctx: SM2LogCtx) -> None:
+    """Emit the dual-line log for SM2 alarm event transitions.
+
+    trigger values:
+      'idle'              — daemon start, no events in queue
+      'received'          — alarm event dequeued (from any state: IDLE, CONFIRMED, FAILED)
+      'retry'             — timeout on current attempt, retrying
+      'confirmed'         — ACK received
+      'failed_timeout'    — retries exhausted
+      'failed_nak'        — unexpected NAK from CSR
+      'failed_no_network' — SM1 → NO_NETWORK while event in flight
+    """
+    fr = _event_type_fr(ctx.event_type)   # helper: 'burglarAlarm' → 'intrusion', etc.
+    sia = _event_sia_code(ctx.event_type)  # helper: 'burglarAlarm' → 'BA', etc.
+
+    if trigger == 'idle':
+        self._logger.info(SM2_IDLE)
+        self._logger.debug('SM2: →IDLE | queue=empty')
+
+    elif trigger == 'received':
+        self._logger.info(SM2_EVENT_RECEIVED.format(type=fr, zone=ctx.zone))
+        self._logger.debug(
+            f'SM2: →PENDING | event={sia} zone={ctx.zone} seq={ctx.seq:04d} '
+            f'retries_left={ctx.max_attempts}'
+        )
+
+    elif trigger == 'retry':
+        self._logger.warning(SM2_RETRY.format(attempt=ctx.attempt, max=ctx.max_attempts))
+        self._logger.debug(
+            f'SM2: PENDING→PENDING | seq={ctx.seq:04d} retries_left={ctx.retries_left} '
+            f'elapsed={ctx.elapsed:.1f}s | no response'
+        )
+
+    elif trigger == 'confirmed':
+        self._logger.info(SM2_CONFIRMED.format(type=fr, zone=ctx.zone))
+        self._logger.debug(
+            f'SM2: PENDING→CONFIRMED | seq={ctx.seq:04d} elapsed={ctx.elapsed_ms}ms '
+            f'| ACK: crc_format={ctx.crc_format} raw={ctx.raw_hex}'
+        )
+
+    elif trigger == 'failed_timeout':
+        self._logger.error(SM2_FAILED.format(type=fr, max=ctx.max_attempts, zone=ctx.zone))
+        self._logger.debug(
+            f'SM2: PENDING→FAILED | seq={ctx.seq:04d} retries_exhausted={ctx.max_attempts} '
+            f'| last attempt: no response elapsed={ctx.elapsed:.1f}s'
+        )
+
+    elif trigger == 'failed_nak':
+        self._logger.error(SM2_FAILED_NAK.format(type=fr, zone=ctx.zone))
+        self._logger.debug(
+            f'SM2: PENDING→FAILED | seq={ctx.seq:04d} cause=nak_received | NAK: raw={ctx.raw_hex}'
+        )
+
+    elif trigger == 'failed_no_network':
+        self._logger.error(SM2_FAILED_NO_NETWORK.format(type=fr, zone=ctx.zone))
+        self._logger.debug(
+            f'SM2: PENDING→FAILED | seq={ctx.seq:04d} cause=no_network '
+            f'| event dropped, daemon stopping'
+        )
+```
+
+> **`_event_type_fr()` and `_event_sia_code()`:** Small module-level dicts mapping
+> `'burglarAlarm' → 'intrusion'/'BA'`, `'fireAlarm' → 'incendie'/'FA'`,
+> `'panicAlarm' → 'panique'/'PA'`. Defined once near the top of `siadc09d.py`.
 
 ---
 
@@ -265,8 +484,37 @@ All routine cycles are still logged at DEBUG (5b.2) — only the ring buffer is 
 
 **Alarm event dialogs**: always appended.
 
-**Push to PHP:** immediately on dialog completion (after response received or timeout),
+**Push to PHP:** on dialog completion (after response received or timeout),
 via `send_to_jeedom({'type': 'message_trace', 'dialog': {...}})`.
+
+**Routine supervision push throttle:** routine dialogs (`routine=True`) are pushed to PHP
+at most once every **600 seconds (10 minutes)**, not on every cycle.
+
+> **Rationale:** Every `message_trace` push triggers a `config::save('last_messages', ...)`
+> DB write (read-modify-write of a 5–15 KB JSON blob). At the default `supervision_interval=60s`,
+> pushing every routine ACK produces **1,440 DB writes/day** — significant I/O on
+> Raspberry Pi or NAS SD cards, and a source of DB lock contention on busy Jeedom instances.
+>
+> Skipping routine pushes entirely was considered but rejected: the debug inspector would
+> show an empty list during healthy operation (no routine entry visible), making it appear
+> the daemon is idle — a confusing UX regression for a diagnostic tool.
+>
+> Throttling to 10-minute intervals keeps the inspector useful (the routine entry shows
+> "last healthy supervision ≤10 min ago"), while reducing routine DB writes from
+> 1,440/day to ~144/day (10× reduction). Non-routine events (timeout, NAK, alarm) are
+> always pushed immediately — no throttle.
+
+**Daemon implementation:** `SIADaemon` tracks `_last_routine_trace_ts: float` (epoch,
+init `0.0` in `on_start()`). Before pushing a routine dialog:
+```python
+if dialog['routine']:
+    now = time.monotonic()
+    if now - self._last_routine_trace_ts < 600:
+        return   # throttled — skip this push
+    self._last_routine_trace_ts = now
+await self.send_to_jeedom({'type': 'message_trace', 'dialog': dialog})
+```
+Non-routine dialogs bypass the throttle entirely.
 
 ### New PHP callback type: `message_trace`
 
@@ -276,12 +524,15 @@ case 'message_trace':
     $dialog   = $result['dialog'];
 
     if ($dialog['dialog_type'] === 'supervision' && $dialog['routine']) {
-        // Replace existing routine entry, or prepend if none exists
+        // Replace existing routine entry, or prepend if none exists.
+        // Routine dialogs are throttled to one push per 10 min by the daemon —
+        // this branch fires at most ~144 times/day (not 1440).
         $idx = array_search(true, array_column($messages, 'routine'));
         if ($idx !== false) {
             $messages[$idx] = $dialog;
         } else {
             array_unshift($messages, $dialog);
+            $messages = array_slice($messages, 0, 50);    // enforce cap on first-ever routine entry
         }
     } else {
         array_unshift($messages, $dialog);            // newest first
@@ -289,7 +540,7 @@ case 'message_trace':
     }
 
     // Stored at plugin level (config::save) — NOT on eqLogic — to avoid triggering
-    // postSave() on every supervision cycle (1440×/day at default 60s interval).
+    // postSave() on every write.
     config::save('last_messages', json_encode($messages), __CLASS__);
     break;
 ```
@@ -326,6 +577,8 @@ SM1_TIMEOUT_STARTUP       = "Timeout supervision au démarrage (strike 1/3) — 
 SM1_TIMEOUT_WARNING       = "Timeout supervision (strike {strike}/3) — nouvelle tentative"
 SM1_STILL_ABSENT          = "Supervision toujours absente — en attente de rétablissement"
 SM1_TCP_DROP              = "Connexion TCP perdue — tentative de reconnexion (depuis état {prev_state})"
+SM1_NAK_TIMESTAMP         = "NAK supervision (strike {strike}/3) — horodatage rejeté par la centrale"
+SM1_NAK_BAD               = "Réponse invalide de la centrale — NAK non décodable (strike {strike}/3)"
 
 # SM1 — error
 SM1_LOST                  = "Supervision perdue — 3 tentatives sans réponse (T3 notification envoyée)"

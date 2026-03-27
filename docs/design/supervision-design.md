@@ -168,9 +168,9 @@ encryption key, or bad message format.
 | CSR response | Action | Notification |
 |---|---|---|
 | ACK | strike=0 → SM1 HEALTHY | — |
-| NAK with parseable CSR timestamp | Treat as timeout → strike++ | _(timestamp auto-heal deferred to v1.1)_ |
+| NAK with parseable CSR timestamp | strike++ + `_notify(SUPERVISION_NAK, {…})` if strike < 3 | T1 via `error_handler`; T3 at strike=3 via `_update_sm1_from_strike()` |
 | NAK without parseable timestamp, or undecodable response | strike++ + `_notify(BAD_CSR_RESPONSE, {…})` | T2 via `error_handler` |
-| Timeout (no response) | strike++ | T3 after 3 strikes via `_update_sm1_from_strike()` |
+| Timeout (no response) | strike++ + `_notify(SUPERVISION_TIMEOUT, {…})` if strike < 3 | T1 via `error_handler`; T3 at strike=3 via `_update_sm1_from_strike()` |
 
 **In v1.0**, all NAK variants result in strike++ with no special recovery path.
 The `timestamp_old` auto-heal (parse CSR time from NAK → resync clock → retry) is
@@ -262,17 +262,26 @@ async def on_start(self):
     self._sm2_state = SM2State.IDLE
     self._strike_counter = 0
 
-    # Push INITIALIZING to PHP before any task starts
-    # Guarantees stale state is cleared even if queue_consumer runs first
+    # Push INITIALIZING to PHP before any task starts.
+    # Guarantees stale state is cleared even if queue_consumer runs first.
     # NOTE: event_state and event_label are intentionally NOT reset here.
     # They retain their value across daemon restarts — the combination of
     # supervision_state + event_state conveys the full picture without ambiguity
     # (e.g. supervision_state=0 + event_state=3 = daemon stopped during alarm-in-flight).
-    await self.send_to_jeedom({
-        'type':              'info_update',
-        'supervision_state': SM1_STATE_TO_VALUE[SM1State.INITIALIZING],  # → 1 (impaired)
-        'supervision_label': 'DÉMARRAGE…',
-    })
+    #
+    # Error policy: intentionally NOT wrapped in try/except.
+    # If PHP is unreachable at startup the daemon cannot function — fail fast and let
+    # Jeedom's watchdog handle the restart. Contrast with on_stop() which is best-effort
+    # (PHP may itself be shutting down). The exception propagates after the ERROR log below.
+    try:
+        await self.send_to_jeedom({
+            'type':              'info_update',
+            'supervision_state': SM1_STATE_TO_VALUE[SM1State.INITIALIZING],  # → 1 (impaired)
+            'supervision_label': 'DÉMARRAGE…',
+        })
+    except Exception as e:
+        self._logger.error(f'Impossible de joindre PHP au démarrage — arrêt du démon : {e}')
+        raise
 
     # Start background coroutines
     asyncio.create_task(self._queue_consumer())
@@ -318,8 +327,14 @@ async def on_stop(self):
 duplicating the 3-strike logic. Called by B.2 after incrementing the counter.
 
 ```python
-def _update_sm1_from_strike(self):
+async def _update_sm1_from_strike(self) -> bool:
     """Update SM1 from current strike counter. Call AFTER incrementing.
+
+    Returns True if the T3 notification was fired by this call, False otherwise.
+    Callers use the return value to set t3_just_fired in their SM1LogCtx.
+
+    async def — schedules fire-and-forget tasks via asyncio.create_task().
+    Must be called with `await` from within a coroutine.
 
     SM1 stays DEGRADED at all strike levels — there is no DISCONNECTED state.
     At strike=3 on TCP: force socket close and enter TCP_RECONNECTING to escape
@@ -340,12 +355,9 @@ def _update_sm1_from_strike(self):
             asyncio.create_task(self._reconnect_tcp())
         if not self._sm1_t3_fired:
             self._sm1_t3_fired = True
-            asyncio.create_task(
-                self._notify(ErrorCode.SUPERVISION_DISCONNECTED, {
-                    'csr_address': f'{self._csr_ip}:{self._csr_port}',
-                    'transport':   self._transport,
-                })
-            )
+            asyncio.create_task(self._notify(ErrorCode.SUPERVISION_DISCONNECTED))
+            return True
+    return False
 
 
 def _supervision_label(self) -> str:
@@ -368,8 +380,9 @@ def _supervision_label(self) -> str:
     return 'DÉMARRAGE…'  # INITIALIZING
 ```
 
-**Note:** `_notify()` is `async def` but `_update_sm1_from_strike()` is a plain `def` —
-`asyncio.create_task()` is used here because `await` is a SyntaxError in a sync function.
+**Note:** Both `_notify()` and `_update_sm1_from_strike()` are `async def`. The internal
+`asyncio.create_task()` calls remain fire-and-forget (not awaited) — the reconnect and notify
+coroutines run concurrently without blocking the supervision loop.
 `_sm1_t3_fired` is initialised to `False` in `on_start()`
 and reset to `False` in two places:
 1. **ACK received** → `_strike_counter` reset to 0 → `_sm1_t3_fired = False`
@@ -383,6 +396,12 @@ and reset to `False` in two places:
 
 **What:** The supervision send function called by `_queue_consumer()` for each
 SUPERVISION queue item. Completes the NAK handling left unspecified by Component 1.
+
+> **Instance variable origins (see daemon-design.md Task 1.1):**
+> `self._encryption_enabled` is loaded from the `--encryption_enabled` CLI arg in `__init__()`.
+> `self._encryption_key` is loaded from `os.environ.get('SIA_ENCRYPTION_KEY', '')` — **never**
+> from a CLI arg (would be visible in `ps aux`). Any implementer adding encryption handling
+> here must read the key from `self._encryption_key`, not from argv.
 
 > **Concurrency note:** `_strike_counter` is incremented in three places, all within
 > `_send_supervision()` or `_handle_supervision_nak()` (called from `_send_supervision()`).
@@ -399,39 +418,67 @@ SUPERVISION queue item. Completes the NAK handling left unspecified by Component
 > states, SUPERVISION items are **dropped silently** before `_send_supervision()` is
 > called — no strike increment, no send attempt on the closed socket. This is the only
 > place the guard lives; `_send_supervision()` itself has no SM1 state check.
+>
+> **EVENT items during TCP_RECONNECTING / NO_NETWORK** are handled differently — see
+> daemon-design.md Task 1.7 SM2 dependency matrix: TCP_RECONNECTING → re-queued with
+> 1 s backoff; NO_NETWORK → instant EVENT_FAILED.
 
 ```python
 async def _send_supervision(self):
     """Send one supervision NULL frame and update SM1."""
     seq = self._next_sequence()
+    id_type = '*NULL' if self._encryption_enabled else 'NULL'
     frame = sia_protocol.encode_message(
-        id_type='NULL',
+        id_type=id_type,
         account=self._account,
         seq=seq,
         zone='',
         timestamp=sia_protocol.make_timestamp(),
+        receiver_prefix=self._receiver_prefix,
+        account_prefix=self._account_prefix,
+        crc_format=self._crc_format,
     )
+    t_start = time.monotonic()
     result = await self._send_raw(frame, timeout=10)
+    elapsed = time.monotonic() - t_start
 
     if result['status'] == 'ack':
+        # NOTE: _crc_format detection happens inside _send_raw() on first response —
+        # no detection logic needed here. See daemon-design.md CRC format contract.
+        prev_strike = self._strike_counter
         self._strike_counter = 0
         self._sm1_t3_fired = False          # reset so next DEGRADED(3) fires T3 again
         self._sm1_state = SM1State.HEALTHY
         self._last_supervision_ack = datetime.utcnow()
-        self._logger.debug(f'Supervision ACK seq={seq}')
+        self._log_sm1_supervision('ack', SM1AckCtx(
+            seq=seq,
+            elapsed_ms=int(elapsed * 1000),
+            crc_format=self._crc_format,
+            raw_hex=result.get('raw_hex', ''),
+            prev_strike=prev_strike,
+        ))
 
     elif result['status'] == 'nak':
-        await self._handle_supervision_nak(result.get('raw_nak'))  # bytes | None
+        await self._handle_supervision_nak(seq, elapsed, result.get('raw_nak'))
 
     else:  # timeout
-        self._strike_counter = min(self._strike_counter + 1, 3)   # cap at 3: label stays "DÉGRADÉ (3/3)"
-        self._update_sm1_from_strike()
-        self._logger.warning(f'Supervision timeout seq={seq} — strike {self._strike_counter}/3')
+        prev_state = self._sm1_state
+        self._strike_counter = min(self._strike_counter + 1, 3)
+        t3_just_fired = await self._update_sm1_from_strike()
+        if self._strike_counter < 3:
+            await self._notify(ErrorCode.SUPERVISION_TIMEOUT)
+        self._log_sm1_supervision('timeout', SM1TimeoutCtx(
+            seq=seq,
+            elapsed=elapsed,
+            strike=self._strike_counter,
+            prev_state=prev_state,
+            t3_just_fired=t3_just_fired,
+        ))
 
     await self._update_info_commands()
 
 
-async def _handle_supervision_nak(self, nak_data: bytes | None):
+async def _handle_supervision_nak(self, seq: int, elapsed: float, nak_data: bytes | None):
     """
     Handle a NAK from the CSR during supervision.
 
@@ -439,26 +486,40 @@ async def _handle_supervision_nak(self, nak_data: bytes | None):
     failure. The NAK data field contains the CSR's current GMT time (for clock sync).
     There are no NAK sub-codes. In v1.0 all NAKs are treated as timeouts (strike++).
     The timestamp auto-heal will parse nak_data in v1.1.
+
+    seq and elapsed are passed from _send_supervision() for the logging context —
+    they are not needed for protocol logic.
     """
     csr_time = sia_protocol.parse_nak_timestamp(nak_data)  # returns datetime | None
+    raw_hex = nak_data.hex() if nak_data else ''
+
+    self._strike_counter = min(self._strike_counter + 1, 3)
+    t3_just_fired = await self._update_sm1_from_strike()
 
     if csr_time is not None:
         # Standard timestamp NAK — treat as timeout in v1.0
         # (v1.1 will use csr_time to resync clock and retry)
-        self._strike_counter = min(self._strike_counter + 1, 3)
-        self._update_sm1_from_strike()
-        self._logger.warning(
-            f'Supervision NAK (timestamp) — CSR time={csr_time.isoformat()} '
-            f'— treated as timeout, strike {self._strike_counter}/3'
-        )
+        if self._strike_counter < 3:
+            await self._notify(ErrorCode.SUPERVISION_NAK)
+        self._log_sm1_supervision('nak_timestamp', SM1NakCtx(
+            seq=seq,
+            elapsed_ms=int(elapsed * 1000),
+            strike=self._strike_counter,
+            raw_hex=raw_hex,
+            csr_time=csr_time.isoformat(),
+            t3_just_fired=t3_just_fired,
+        ))
     else:
         # Undecodable NAK — protocol anomaly
-        self._strike_counter = min(self._strike_counter + 1, 3)
-        self._update_sm1_from_strike()
-        await self._notify(ErrorCode.BAD_CSR_RESPONSE, {
-            'csr_address': f'{self._csr_ip}:{self._csr_port}',
-            'transport':   self._transport,
-        })
+        await self._notify(ErrorCode.BAD_CSR_RESPONSE)
+        self._log_sm1_supervision('nak_bad', SM1NakCtx(
+            seq=seq,
+            elapsed_ms=int(elapsed * 1000),
+            strike=self._strike_counter,
+            raw_hex=raw_hex,
+            csr_time=None,
+            t3_just_fired=t3_just_fired,
+        ))
 
 # _nak_to_user_message() removed — replaced by error_handler.build_notification()
 # from Component 5a.
@@ -495,7 +556,7 @@ from repeatedly trying to start a daemon with broken config.
 ```php
 public static function deamon_info() {
     $return = [
-        'log'        => __CLASS__,
+        'log'        => __CLASS__ . '_daemon',  // points to siaDC09_daemon (Python output), not siaDC09 (PHP log)
         'state'      => 'nok',
         'launchable' => 'ok',
         'auto'       => config::byKey('autoStartDeamon', __CLASS__, 1),
@@ -546,11 +607,24 @@ public static function deamon_info() {
         return $return;
     }
 
-    // Guard 4 — account number
-    if (empty($eqLogic->getConfiguration('account_number'))) {
+    // Guard 4 — account number (non-empty + valid SIA DC-09 hex format, 3–16 chars)
+    // SIA DC-09 section 5.5.1.3 defines account as 3–16 hexadecimal characters.
+    // An invalid format is silently embedded in every frame and causes the CSR to
+    // NAK/reject all frames — supervision fails with 3 strikes and T3 fires with a
+    // misleading "CSR unreachable" message. Catching it here produces an actionable
+    // launchable_message instead.
+    $account = $eqLogic->getConfiguration('account_number');
+    if (empty($account)) {
         $return['launchable'] = 'nok';
         $return['launchable_message'] = __(
             "Numéro de compte non configuré (étape 1 de l'assistant).", __FILE__
+        );
+        return $return;
+    }
+    if (!preg_match('/^[0-9A-Fa-f]{3,16}$/', $account)) {
+        $return['launchable'] = 'nok';
+        $return['launchable_message'] = __(
+            "Numéro de compte invalide — doit contenir 3 à 16 caractères hexadécimaux (étape 1 de l'assistant).", __FILE__
         );
         return $return;
     }
@@ -624,8 +698,23 @@ every `checkAndUpdateCmd()` call, regardless of value change).
 **Rate limiting:** Maximum one alert per 30 minutes to avoid notification spam.
 The `_freshness_alert_ts` config key tracks the last alert timestamp.
 
+> **`supervision_interval` constraint:** The freshness threshold (`3 × supervision_interval`)
+> is read from eqLogic config at check time. The running daemon uses the value it received
+> at startup via CLI arg. **If the user changes `supervision_interval` without restarting
+> the daemon, the threshold diverges from the daemon's actual send interval**, risking
+> false zombie alerts (interval decreased) or missed detections (interval increased).
+> A daemon restart is required for this setting to take effect — consistent with the
+> no-restart-on-save policy (php-core-design.md Task 2.4). The wizard should document
+> this restart requirement for the `supervision_interval` field.
+
 ```php
 private static function _checkSupervisionFreshness($eqLogic) {
+    // NOTE: supervision_interval is read from eqLogic config at check time.
+    // The running daemon uses the value from its startup CLI args.
+    // If the user changes supervision_interval without restarting the daemon,
+    // this threshold will diverge from the daemon's actual send interval.
+    // A daemon restart is required for supervision_interval changes to take effect
+    // (consistent with the no-restart-on-save policy).
     $supervisionInterval = (int) $eqLogic->getConfiguration('supervision_interval', 60);
     // Flag after 3 missed supervision cycles
     $staleThreshold = $supervisionInterval * 3;

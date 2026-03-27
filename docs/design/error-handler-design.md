@@ -47,6 +47,7 @@ entry** with occurrence count 10, not 10 separate entries.
 | Code | Event | Trigger |
 |------|-------|---------|
 | `supervision_timeout` | Single supervision timeout | SM1 strike++ (strike < 3) |
+| `supervision_nak` | CSR rejected frame timestamp (parseable NAK) | SM1 strike++ (strike < 3) |
 
 ### Tier 2 — User-actionable (error)
 
@@ -108,6 +109,7 @@ class ErrorTier(Enum):
 class ErrorCode(Enum):
     # Tier 1
     SUPERVISION_TIMEOUT      = 'supervision_timeout'
+    SUPERVISION_NAK          = 'supervision_nak'
 
     # Tier 2
     BAD_CSR_RESPONSE         = 'bad_csr_response'
@@ -120,11 +122,33 @@ class ErrorCode(Enum):
 
 ERROR_TIERS: dict[ErrorCode, ErrorTier] = {
     ErrorCode.SUPERVISION_TIMEOUT:    ErrorTier.T1,
+    ErrorCode.SUPERVISION_NAK:        ErrorTier.T1,
     ErrorCode.BAD_CSR_RESPONSE:       ErrorTier.T2,
     ErrorCode.SUPERVISION_DISCONNECTED: ErrorTier.T3,
     ErrorCode.EVENT_FAILED:           ErrorTier.T3,
     ErrorCode.TRANSPORT_PERMANENT:    ErrorTier.T3,
 }
+
+
+# --- Typed context dataclasses for _notify() call sites ---
+# Defined here (alongside ErrorCode) so call sites import from one place.
+# Base context (csr_address, transport, strike_count) is always injected
+# by _notify() from self — callers only pass event-specific extras.
+
+@dataclass
+class EventFailedCtx:
+    """Extra context for ErrorCode.EVENT_FAILED."""
+    event_type:  str   # 'burglarAlarm' | 'fireAlarm' | 'panicAlarm'
+    zone:        str   # zone name from alarm event
+    retry_count: int   # number of attempts made
+
+@dataclass
+class TransportPermanentCtx:
+    """Extra context for ErrorCode.TRANSPORT_PERMANENT."""
+    retry_count: int   # TCP reconnect attempts exhausted
+
+# Union type for _notify() optional second argument
+NotifyCtx = EventFailedCtx | TransportPermanentCtx | None
 
 
 def build_notification(code: ErrorCode, context: dict) -> dict:
@@ -138,6 +162,13 @@ def build_notification(code: ErrorCode, context: dict) -> dict:
             'title':      str,           # for notification queue dedup
             'message':    str,           # full user-facing message
         }
+
+    Missing-field policy: all context fields are accessed via context.get('field', '<inconnu>').
+    A missing field produces a degraded but deliverable message (e.g. "Centrale: <inconnu>")
+    rather than a KeyError. A degraded message is always preferable to a silent notification
+    failure in a safety-critical context.
+    Call sites are still expected to pass all required fields — .get() with default is a
+    safety net, not a licence to omit fields.
     """
     ...
 
@@ -176,6 +207,7 @@ make messages actionable.
 | Error code | Required context fields |
 |------------|------------------------|
 | `supervision_timeout` | `csr_address`, `strike_count`, `transport` |
+| `supervision_nak` | `csr_address`, `strike_count`, `transport` |
 | `bad_csr_response` | `csr_address`, `transport` |
 | `supervision_disconnected` | `csr_address`, `transport` |
 | `event_failed` | `event_type`, `zone`, `csr_address`, `transport`, `retry_count` |
@@ -193,6 +225,7 @@ repeated occurrences increment the occurrence counter rather than creating new e
 | Code | logicalId |
 |------|-----------|
 | `supervision_timeout` | `supervision_timeout` |
+| `supervision_nak` | `supervision_nak` |
 | `bad_csr_response` | `bad_csr_response` |
 | `supervision_disconnected` | `supervision_disconnected` |
 | `event_failed` | `event_failed` |
@@ -211,6 +244,7 @@ be consistent per error type (same error = same title) and distinct across types
 | Code | Title |
 |------|-------|
 | `supervision_timeout` | `siaDC09 — Timeout supervision (auto-résolu)` |
+| `supervision_nak` | `siaDC09 — NAK supervision (horodatage rejeté — auto-résolu)` |
 | `bad_csr_response` | `siaDC09 — Réponse incompréhensible de la centrale` |
 | `supervision_disconnected` | `siaDC09 — CRITIQUE — Supervision perdue` |
 | `event_failed` | `siaDC09 — CRITIQUE — Alarme non transmise` |
@@ -223,6 +257,10 @@ be consistent per error type (same error = same title) and distinct across types
 ```
 supervision_timeout:
   "Timeout supervision auto-résolu (strike {strike_count}/3).
+   Centrale: {csr_address} ({transport})."
+
+supervision_nak:
+  "NAK supervision (strike {strike_count}/3) — la centrale a rejeté l'horodatage du message.
    Centrale: {csr_address} ({transport})."
 ```
 
@@ -266,15 +304,31 @@ transport_permanent:
 Replaces the existing `_notify_critical()` in `siadc09d.py`.
 
 ```python
-async def _notify(self, code: ErrorCode, context: dict = None):
+async def _notify(self, code: ErrorCode, ctx: NotifyCtx = None):
     """
     Unified notification dispatcher.
 
     T1 → Jeedom message center only (via PHP callback)
     T2 → Jeedom message center + configured notification command
     T3 → Jeedom message center + configured notification command
+
+    Base context (csr_address, transport, strike_count) is always injected
+    from self. Callers only pass event-specific extras via a typed ctx dataclass:
+      - EventFailedCtx      for ErrorCode.EVENT_FAILED
+      - TransportPermanentCtx for ErrorCode.TRANSPORT_PERMANENT
+      - None                for all other codes (no extra fields needed)
     """
-    notification = error_handler.build_notification(code, context or {})
+    # Base context — always available from self, no need to repeat at call sites
+    context = {
+        'csr_address':  f'{self._csr_ip}:{self._csr_port}',
+        'transport':    self._transport,
+        'strike_count': self._strike_counter,
+    }
+    # Merge event-specific extras from typed ctx dataclass
+    if ctx is not None:
+        context.update(dataclasses.asdict(ctx))
+
+    notification = error_handler.build_notification(code, context)
     tier = notification['tier']
 
     # --- Channel 1: Jeedom message center (always) ---
@@ -305,7 +359,7 @@ async def _notify(self, code: ErrorCode, context: dict = None):
             'type':     'error_update',
             'tier':     tier.value,
             'code':     code.value,
-            'context':  context or {},
+            'context':  context,
             'message':  notification['message'],
             'ts':       datetime.utcnow().strftime('%H:%M:%S'),
         })
@@ -319,7 +373,9 @@ async def _notify(self, code: ErrorCode, context: dict = None):
 
 ## PHP callback — new payload types
 
-Three new `type` values are added to the existing callback dispatcher in `core/php/jeeXxx.php`.
+Three new `type` values are added to `siaDC09::message()` in `core/class/siaDC09.class.php`
+(Task 2.6 in php-core-design.md). `core/php/jeesiaDC09.php` is a thin routing shim that
+verifies the API key and calls `siaDC09::message($payload)` — it is not modified by Component 5a.
 
 ### `message_center` — write to Jeedom message center
 
@@ -439,8 +495,8 @@ Implement `build_notification()` for the T1 code (`supervision_timeout`). Includ
 Implement `build_notification()` for the T2 code (`bad_csr_response`). The message:
 - Includes CSR address and transport
 - Notes that the response could not be interpreted and suggests contacting support
-- Is used for both supervision and event send contexts (context included in the payload
-  via `context['send_context']` = `'supervision'` | `'event'`)
+- Uses a single context-agnostic template for both supervision and event send contexts
+  (the operator contacts support either way — no `send_context` field is needed)
 
 ---
 

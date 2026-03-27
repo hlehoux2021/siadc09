@@ -22,7 +22,9 @@
       "Bash(find /Users/herve.lehoux -maxdepth 6 -name *.class.php)",
       "Bash(grep -r 'function remove' /Users/herve.lehoux/Dev/plugin-template --include=*.php)",
       "Read(//usr/share/jeedom/core/**)",
-      "Bash(grep -r \"getTemplate\" /Users/herve.lehoux/Dev/plugin-* --include=\"*.php\" -B 2 -A 2)"
+      "Bash(grep -r \"getTemplate\" /Users/herve.lehoux/Dev/plugin-* --include=\"*.php\" -B 2 -A 2)",
+      "Bash(wc -l /Users/herve.lehoux/Dev/my-project/docs/design/*.md)",
+      "WebFetch(domain:api.github.com)"
     ],
     "additionalDirectories": [
       "/Users/herve.lehoux/Dev/my-project/docs",

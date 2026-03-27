@@ -40,6 +40,16 @@
     <step n="3" title="Present Findings">
       <action>Output findings as a Markdown list (descriptions only)</action>
     </step>
+
+    <step n="4" title="Review Findings One by One With User" critical="true">
+      <mandate>For each finding, engage a discussion and obtain explicit user validation before moving to the next</mandate>
+      <action>Present the finding clearly: what the problem is and why it matters</action>
+      <action>Identify the exact portions of content or code implied by this finding; include a markdown link to the relevant file and line range</action>
+      <action>Propose a concrete solution to resolve the finding</action>
+      <action>Engage a discussion: invite the user to amend, challenge, or accept the proposal</action>
+      <action>WAIT for the user to explicitly validate the solution before proceeding to the next finding — do NOT advance until validation is received</action>
+      <action>Repeat for every finding in the list</action>
+    </step>
   </flow>
 
   <halt-conditions>

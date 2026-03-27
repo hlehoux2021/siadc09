@@ -37,6 +37,20 @@ tests/
 
 ---
 
+## Enum type ownership
+
+All named constants used in this document belong to one of three Python enums. Values are defined once, in their canonical location — never duplicated here.
+
+| Enum | Python file | Canonical values defined in |
+|---|---|---|
+| `SM1State` | `siadc09d.py` | [SM1 — Connection / Supervision State](#sm1--connection--supervision-state) — this document |
+| `SM2State` | `siadc09d.py` | [SM2 — Alarm Event State](#sm2--alarm-event-state) — this document |
+| `ErrorCode` | `error_handler.py` | `error-handler-design.md` §"3-tier error model" |
+
+In prose and code blocks, always use the qualified form: `SM1State.HEALTHY`, `SM2State.FAILED`, `ErrorCode.SUPERVISION_DISCONNECTED`, etc. Mermaid diagrams use short node labels for readability — consult the sections above for the authoritative enum values.
+
+---
+
 ## Component 0 — `sia_protocol.py` + `sia_crypto.py` + `csr_simulator.py`
 
 ### API surface of `sia_protocol.py`
@@ -114,7 +128,7 @@ tests/
 
 ---
 
-#### `encode_message(id_type, account, seq, zone, timestamp, receiver_prefix='', account_prefix='', media_url=None) -> bytes`
+#### `encode_message(id_type, account, seq, zone, timestamp, receiver_prefix='', account_prefix='', media_url=None, crc_format: str = 'hex') -> bytes`
 
 **Why:** Primary outbound frame builder. Constructs alarm and supervision frames from semantic parameters, handling the SIA-DCS data block format and optional Verification extended data field.
 
@@ -146,10 +160,11 @@ The pad is pseudo-random bytes prepended so that the total encrypted region leng
 | `account` | `str` | Account number, 3–16 hex chars |
 | `seq` | `int` | Sequence number 1–9999; wraps to 1 after 9999. Formatted as 4 zero-padded digits. |
 | `zone` | `str` | Zone name for alarm events; empty string `''` for `'NULL'` supervision frames |
-| `timestamp` | `str` | UTC timestamp from `make_timestamp()` |
+| `timestamp` | `str` | UTC timestamp from `make_timestamp()`. `encode_message()` prepends the mandatory `_` separator before embedding it in the frame — do **not** include `_` in the value returned by `make_timestamp()`. |
 | `receiver_prefix` | `str` | Optional 0–6 hex char receiver prefix. Default `''` → field omitted; CSR interprets as `R0`. **IMA Protect: unconfirmed — verify at integration time.** |
 | `account_prefix` | `str` | Optional 0–6 hex char account prefix. Default `''` → field omitted; CSR interprets as `L0`. **IMA Protect: unconfirmed — verify at integration time.** |
 | `media_url` | `str \| None` | Snapshot URL appended as `[V...]` Verification extended data field per section 5.5.1.8. Appended after event data block, before timestamp. Forbidden chars: `[`, `]`, `|`. Encoding: Windows-1252. `None` → field omitted. |
+| `crc_format` | `str` | `'hex'` (default, 4-byte ASCII CRC) or `'bin'` (2-byte binary CRC). Must match what the CSR uses in its responses — detected by the daemon on first ACK via `detect_crc_format()` and stored in `self._crc_format`. **Always pass `self._crc_format`** — never rely on the default. |
 
 **Returns:** `bytes` — complete frame ready to transmit.
 
@@ -271,6 +286,8 @@ class ParsedMessage:
 
 **Behaviour:** `key=None` + encrypted frame → `data_raw` = hex of ciphertext, `data_decrypted=None`. Key provided → decrypt, set `data_decrypted`; `data_raw` still holds original ciphertext hex.
 
+**Subprocess contract:** `decode()` is exposed via a `if __name__ == '__main__'` block in `sia_protocol.py` — no separate wrapper script needed. See `php-core-design.md` Task 2.10 (`decodeFrame` action) for the full invocation contract.
+
 ---
 
 #### `parse_nak_timestamp(nak_data: bytes) -> datetime | None` *(Task 0.5)*
@@ -353,8 +370,8 @@ sequenceDiagram
     D->>P: decode_ack_nak(raw)
     P-->>D: {type: "ACK", seq: 1}
 
-    D->>PHP: send_to_jeedom({event_label: "Intrusion — Salon — 14:32:11 — Confirmé par la centrale"})
-    D->>PHP: send_to_jeedom({supervision_state: 2, supervision_label: "CONNEXION ÉTABLIE"})
+    D->>PHP: send_to_jeedom({event_state: 1, event_label: _update_event_label('confirmed')})
+    D->>PHP: send_to_jeedom({supervision_state: _supervision_value(), supervision_label: _supervision_label()})
 ```
 
 ---
@@ -455,8 +472,32 @@ The simulator supports scenario scripts (JSON) to test all NAK branches:
 | Supervision vs event priority | **Event wins** (priority 0 vs 1) | Alarm delivery is safety-critical |
 | Critical notification command | User-selected Jeedom ACTION/message command (configured in wizard) | Reuses existing notification channels (SMS, push, etc.) |
 | TCP reconnection | Auto-reconnect silently; notify user if reconnection fails | Network blip should not wake user; persistent failure should |
+| CRC format | `_crc_format: str` initialized to `'hex'`; updated once on first ACK | `'hex'` is the safe default; detected from first CSR response and locked for daemon lifetime |
 
 > ⚠️ **Known limitation (v1.0):** Sequence number resets to `0001` on daemon restart. Some CSRs may briefly reject messages as potential duplicates until the sequence diverges from the last known value. This will be addressed in v1.1 by persisting the counter in Jeedom plugin config.
+
+**CRC format contract:**
+
+- **Owner:** `SIADaemon._crc_format: str` — initialized to `'hex'` in `on_start()`.
+- **Lock flag:** `SIADaemon._crc_format_locked: bool` — initialized to `False` in `on_start()`. Set to `True` on first detection. Prevents re-evaluation on subsequent responses.
+- **Detection point:** `_send_raw()` — on the **first response of any type** (ACK or NAK), before returning to the caller:
+  ```python
+  if not self._crc_format_locked and raw_response:
+      self._crc_format = sia_protocol.detect_crc_format(raw_response)
+      self._crc_format_locked = True
+  ```
+  Centralised here so detection is guaranteed regardless of whether the first response is ACK, NAK, or any future response type. Timeout produces no raw bytes — `_crc_format` stays `'hex'` until the next response arrives.
+- **Rationale:** SIA DC-09 section 5.5.1.2 mandates hex-ASCII CRC. However, some CSRs (e.g. Lupusec) non-standardly send binary CRC in all responses. Detection on first response future-proofs against such CSRs without impacting standards-compliant ones (IMA Protect).
+- **Usage:** passed to every `encode_message()` call for the lifetime of the daemon process. Resets to `'hex'` / `False` on daemon restart and re-detects from the next response.
+
+---
+
+**Sequence number contract:**
+
+- **Owner:** `SIADaemon._seq: int` — single instance variable, initialized to `1` in `on_start()`.
+- **Scope:** one global counter shared across both supervision NULLs and alarm event frames (SIA DC-09 defines one sequence space per PE/account — section 5.5.1.3).
+- **Increment:** after each call to `encode_message()`, regardless of whether the frame receives an ACK. Wraps `9999 → 1` (never reaches `0`).
+- **Restart behaviour:** resets to `1` on every daemon start — not persisted. The CSR treats the first post-restart frame as a fresh sequence. **IMA Protect tolerance for this reset must be verified at integration time.**
 
 ---
 
@@ -498,7 +539,7 @@ stateDiagram-v2
 
 **DEGRADED state — strike counter semantics:**
 
-DEGRADED and the former DISCONNECTED state are collapsed into a single `DEGRADED` state.
+`SM1State.DEGRADED` and the former DISCONNECTED state are collapsed into a single `SM1State.DEGRADED` state.
 The `strike` counter (1–3) drives all side effects — there is no separate DISCONNECTED state.
 
 | Strike | `supervision_state` | `supervision_label` | Action |
@@ -507,35 +548,37 @@ The `strike` counter (1–3) drives all side effects — there is no separate DI
 | 2 | `1` | `DÉGRADÉ (2/3)` | WARNING logged |
 | 3 | `0` | `PERDUE` | T3 `_notify()` fired once |
 
-Recovery from any strike level: supervision ACK received → HEALTHY, strike=0.
+Recovery from any strike level: supervision ACK received → `SM1State.HEALTHY`, strike=0.
 
 For **UDP**, there is no TCP drop event to detect. Network loss is discovered only via
-supervision timeouts. `TCP_RECONNECTING` and `NO_NETWORK` states do not exist for UDP.
-In DEGRADED (including strike=3), the daemon keeps sending supervision packets indefinitely.
-Recovery happens when the network restores and the CSR responds with ACK → HEALTHY.
+supervision timeouts. `SM1State.TCP_RECONNECTING` and `SM1State.NO_NETWORK` states do not exist for UDP.
+In `SM1State.DEGRADED` (including strike=3), the daemon keeps sending supervision packets indefinitely.
+Recovery happens when the network restores and the CSR responds with ACK → `SM1State.HEALTHY`.
 
 **SM1 transitions are driven by:**
-- Supervision NULL ACK received → HEALTHY, strike=0
-- Supervision timeout → strike++; → DEGRADED (all strike levels)
+- Supervision NULL ACK received → `SM1State.HEALTHY`, strike=0
+- Supervision timeout → strike++; → `SM1State.DEGRADED` (all strike levels)
 - At strike=3: T3 `_notify(ErrorCode.SUPERVISION_DISCONNECTED, {...})` fired once; `supervision_state` → 0
-- TCP connection dropped → TCP_RECONNECTING [TCP only]
-- TCP reconnect succeeded → INITIALIZING (supervision must be re-verified)
-- TCP reconnect exhausted → NO_NETWORK → `_notify(ErrorCode.TRANSPORT_PERMANENT, {...})` + `self.stop()`
+- TCP connection dropped → `SM1State.TCP_RECONNECTING` [TCP only]
+- TCP reconnect succeeded → `SM1State.INITIALIZING` (supervision must be re-verified)
+- TCP reconnect exhausted → `SM1State.NO_NETWORK` → `_notify(ErrorCode.TRANSPORT_PERMANENT, {...})` + `self.stop()`
 
 **SM1 → INFO commands:**
 
 > **Canonical mapping is in `supervision-design.md`** (SM1 state → PHP INFO commands table).
 > Summary reproduced here for readability — supervision-design.md is authoritative.
 
-| SM1 state | `supervision_state` (numeric) | `supervision_label` (string) |
-|---|---|---|
-| INITIALIZING | `1` | `DÉMARRAGE…` |
-| HEALTHY | `2` | `OK` |
-| DEGRADED (strike 1–2) | `1` | `DÉGRADÉ (N/3)` |
-| DEGRADED (strike 3) | `0` | `PERDUE` |
-| TCP_RECONNECTING | `0` | `Reconnexion {transport}…` |
-| NO_NETWORK | `0` | `HORS RÉSEAU — arrêt` |
-| STOPPED | `0` | `ARRÊTÉ` |
+| SM1 state | `supervision_state` (numeric) |
+|---|---|
+| INITIALIZING | `1` |
+| HEALTHY | `2` |
+| DEGRADED (strike 1–2) | `1` |
+| DEGRADED (strike 3) | `0` |
+| TCP_RECONNECTING | `0` |
+| NO_NETWORK | `0` |
+| STOPPED | `0` |
+
+> **`supervision_label` strings are NOT defined here.** Call `_supervision_label()` — defined and owned by supervision-design.md (Task B.1). Never hardcode label strings in daemon-design.md.
 
 > **HEALTHY label is static `"OK"` — not `"OK — HH:MM"`.** Embedding a clock in the
 > label would cause `checkAndUpdateCmd()` to detect a value change every minute
@@ -552,8 +595,8 @@ Although SM1 and SM2 track independent concerns (CSR link health vs. alarm event
 lifecycle), they are **not fully orthogonal**: SM1 state determines whether the
 `_queue_consumer()` will attempt to send a queued alarm event, or hold/fail it.
 
-> **Critical states note:** TCP_RECONNECTING and NO_NETWORK already generate T3 critical
-> alerts (SUPERVISION_DISCONNECTED and TRANSPORT_PERMANENT respectively) — the operator
+> **Critical states note:** `SM1State.TCP_RECONNECTING` and `SM1State.NO_NETWORK` already generate T3 critical
+> alerts (`ErrorCode.SUPERVISION_DISCONNECTED` and `ErrorCode.TRANSPORT_PERMANENT` respectively) — the operator
 > already knows the system is broken when SM1 enters these states. SM2 behavior in these
 > states must still be explicit: an alarm event must never disappear silently.
 
@@ -561,7 +604,10 @@ lifecycle), they are **not fully orthogonal**: SM1 state determines whether the
 
 Alarm commands from PHP are **always accepted into the PriorityQueue**, regardless of SM1
 state. The enqueue step never blocks or fails — this guarantees PHP's fire-and-forget call
-returns immediately and SM2 transitions to PENDING at enqueue time.
+returns immediately. SM2 stays **`SM2State.IDLE` at enqueue time**; it transitions to `SM2State.PENDING` only
+when `_queue_consumer()` dequeues the item (Task 1.7). This ensures at most one event is
+ever `SM2State.PENDING` simultaneously — a second queued alarm stays `SM2State.IDLE` in the queue until the
+first completes.
 SM1 state is evaluated at dequeue time (Phase 2).
 
 #### Phase 2 — Dequeue and send (_queue_consumer dispatch)
@@ -574,9 +620,9 @@ SM1 state is evaluated at dequeue time (Phase 2).
 | HEALTHY | TCP/UDP | `_send_with_retry()` attempted — CSR **confirmed** reachable (at least one supervision ACK received) | CONFIRMED or FAILED |
 | DEGRADED (strike 1–2) | TCP/UDP | `_send_with_retry()` attempted — socket open, CSR **possibly** still reachable | CONFIRMED or FAILED |
 | DEGRADED (strike 3) | **UDP** | `_send_with_retry()` attempted best-effort. T3 SUPERVISION_DISCONNECTED already fired for supervision loss. If SM2 also FAILS → EVENT_FAILED fires as a second T3 alert. | CONFIRMED or FAILED |
-| DEGRADED (strike 3) | **TCP** | Cannot occur in practice: at strike=3 TCP immediately transitions SM1 → TCP_RECONNECTING and force-closes the socket (supervision-design.md B.1). Event will be re-queued under TCP_RECONNECTING rule below. | — |
-| TCP_RECONNECTING | TCP | Event **re-queued** (put back at same priority). Consumer yields briefly (1 s) to allow `_reconnect_tcp()` to progress before re-checking. On reconnect success (SM1 → INITIALIZING): event processed normally on next dequeue. On reconnect failure (SM1 → NO_NETWORK): event will be failed on next dequeue via the NO_NETWORK rule below. T3 SUPERVISION_DISCONNECTED was already fired; EVENT_FAILED will fire in addition if the event ultimately fails. | CONFIRMED or FAILED |
-| NO_NETWORK | TCP | SM2 → **FAILED immediately**, no send attempt. `_notify(EVENT_FAILED)` fired before daemon calls `self.stop()`. T3 TRANSPORT_PERMANENT was already fired for the transport loss; EVENT_FAILED is an additional T3 alert for the lost alarm event. | FAILED |
+| DEGRADED (strike 3) | **TCP** | Cannot occur in practice: at strike=3 TCP immediately transitions SM1 → `SM1State.TCP_RECONNECTING` and force-closes the socket (supervision-design.md B.1). Event will be re-queued under TCP_RECONNECTING rule below. | — |
+| TCP_RECONNECTING | TCP | Event **re-queued** (put back at same priority). Consumer yields briefly (1 s) to allow `_reconnect_tcp()` to progress before re-checking. On reconnect success (SM1 → `SM1State.INITIALIZING`): event processed normally on next dequeue. On reconnect failure (SM1 → `SM1State.NO_NETWORK`): event will be failed on next dequeue via the NO_NETWORK rule below. `ErrorCode.SUPERVISION_DISCONNECTED` was already fired; `ErrorCode.EVENT_FAILED` will fire in addition if the event ultimately fails. | CONFIRMED or FAILED |
+| NO_NETWORK | TCP | SM2 → **`SM2State.FAILED` immediately**, no send attempt. `_notify(ErrorCode.EVENT_FAILED)` fired before daemon calls `self.stop()`. `ErrorCode.TRANSPORT_PERMANENT` was already fired for the transport loss; `ErrorCode.EVENT_FAILED` is an additional T3 alert for the lost alarm event. | FAILED |
 
 **Supervision items in critical states:**
 
@@ -598,7 +644,7 @@ SM1 state is evaluated at dequeue time (Phase 2).
 **When a supervision NAK is received:**
 
 > **Canonical NAK dispatch is in `supervision-design.md` Task B.2** (`_handle_supervision_nak()`).
-> Summary: parseable-timestamp NAK → strike++ only (no `_notify`); undecodable NAK → strike++ + `_notify(BAD_CSR_RESPONSE)`.
+> Summary: parseable-timestamp NAK → strike++ only (no `_notify`); undecodable NAK → strike++ + `_notify(ErrorCode.BAD_CSR_RESPONSE)`.
 > `classify_nak()` does not exist — per SIA DC-09 section 5.5.3.2 there are no NAK sub-codes.
 
 ---
@@ -609,7 +655,7 @@ SM1 state is evaluated at dequeue time (Phase 2).
 stateDiagram-v2
     [*] --> IDLE
 
-    IDLE --> PENDING : alarm event received from PHP
+    IDLE --> PENDING : first alarm dequeued
 
     PENDING --> CONFIRMED : ACK received
     PENDING --> PENDING : timeout → retry (retries_left > 0)
@@ -618,14 +664,19 @@ stateDiagram-v2
     PENDING --> PENDING : NAK timestamp_old → auto-heal, retry once [v1.1]
     PENDING --> FAILED : SM1 → NO_NETWORK → _notify(EVENT_FAILED) [event still queued]
 
-    CONFIRMED --> IDLE : ready for next event
-    FAILED --> IDLE : ready for next event (after notification sent)
+    CONFIRMED --> PENDING : next alarm dequeued (direct — no IDLE step)
+    FAILED --> PENDING : next alarm dequeued (direct — no IDLE step)
 ```
+
+> **IDLE is a startup-only state.** After the first alarm, SM2 alternates directly between
+> PENDING, CONFIRMED, and FAILED. `_queue_consumer()` writes `SM2=PENDING` unconditionally
+> at dequeue time — there is no CONFIRMED→IDLE or FAILED→IDLE transition in the code.
+> The IDLE state is never re-entered after the first alarm event.
 
 > **Protocol fact (SIA DC-09 section 5.5.3.2):** The only standard NAK is a timestamp
 > validation failure carrying the CSR's current GMT time. There are **no NAK sub-codes**
 > (`bad_acct`, `bad_encryption`, `bad_message` do not exist in the protocol).
-> Any NAK in v1.0 → `_notify(ErrorCode.BAD_CSR_RESPONSE)` → stop retrying → SM2 FAILED.
+> Any NAK in v1.0 → `_notify(ErrorCode.BAD_CSR_RESPONSE)` → stop retrying → `SM2State.FAILED`.
 > Timestamp auto-heal (parse CSR time from NAK → resync → retry once) is deferred to v1.1.
 
 **SM2 → INFO commands:**
@@ -644,7 +695,26 @@ stateDiagram-v2
 | `0` | No alarm sent since daemon start |
 | `1` | Last alarm delivery confirmed (ACK from CSR) |
 | `2` | Last alarm delivery failed (timeout, NAK, or NO_NETWORK) |
-| `3` | Alarm transmission in progress (PENDING) |
+| `3` | Alarm transmission in progress (`SM2State.PENDING`) |
+
+> **`event_state` is NOT driven by SM2 → IDLE transitions.** When SM2 returns to `SM2State.IDLE`
+> after CONFIRMED or FAILED, the daemon does NOT update `event_state` — it retains its last value
+> (1 or 2). `event_state` is **NOT reset on daemon startup** — it retains its previous value
+> across restarts (see `php-core-design.md` and `supervision-design.md` Task A.1).
+> The three points where the daemon writes `event_state` are:
+> alarm dequeued for send (3=PENDING), ACK received (1=CONFIRMED), all retries exhausted
+> or NO_NETWORK (2=FAILED).
+>
+> **First-ever install:** `event_state` starts as `null` (no previous run). It will remain
+> `null` until the first alarm is sent. The `returnStateValue=0` auto-revert (see below)
+> handles this: after 30 minutes with no daemon write, Jeedom resets it to `0`.
+>
+> **Auto-revert:** the `event_state` command is created with `returnStateTime=30` and
+> `returnStateValue=0` (see `php-core-design.md` `_ensureCommands()`). Jeedom automatically
+> resets it to `0` after 30 minutes without a daemon update. This cleans up a stuck `3`
+> (PENDING) if the daemon crashes mid-alarm — without this, the "in progress" state would
+> remain indefinitely. 30 minutes is intentionally generous: a normal alarm exchange completes
+> in seconds; any alarm still "in progress" after 30 minutes is unambiguously orphaned.
 
 `event_label` (string — display):
 
@@ -661,10 +731,10 @@ stateDiagram-v2
 SIA code → French label mapping: `BA` → `Intrusion`, `FA` → `Incendie`, `PA` → `Panique`.
 Format decided by Component 6 (Widget) to serve the night-time emergency use case.
 
-**On FAILED:** call `_notify(code, context)` → dual-channel dispatch via Component 5a.
-- Timeout exhausted → `_notify(ErrorCode.EVENT_FAILED, {...})`
-- NAK received → `_notify(ErrorCode.BAD_CSR_RESPONSE, {...})`
-- SM1 → NO_NETWORK (event still in queue) → `_notify(ErrorCode.EVENT_FAILED, {...})` — fired by `_queue_consumer()` directly, not by `_send_with_retry()`
+**On `SM2State.FAILED`:** call `_notify(code, ctx)` → dual-channel dispatch via Component 5a.
+- Timeout exhausted → `_notify(ErrorCode.EVENT_FAILED, EventFailedCtx(...))`
+- NAK received → `_notify(ErrorCode.BAD_CSR_RESPONSE)` — no ctx needed
+- SM1 → `SM1State.NO_NETWORK` (event still in queue) → `_notify(ErrorCode.EVENT_FAILED, EventFailedCtx(...))` — fired by `_queue_consumer()` directly, not by `_send_with_retry()`
 
 ---
 
@@ -718,6 +788,7 @@ sequenceDiagram
 
     PHP->>D: on_message(burglarAlarm, zone)
     D->>D: queue.put(priority=0, EVENT)
+    Note over D: _queue_consumer dequeues EVENT
     D->>D: SM2 → PENDING, update event_label
 
     loop Up to N retries
@@ -769,9 +840,9 @@ sequenceDiagram
             D->>D: SM1: strike=0 → HEALTHY
             D->>D: last_supervision_ack = now
         else No response (timeout)
-            D->>D: SM1: strike += 1 → DEGRADED
+            D->>D: SM1: strike += 1 → SM1State.DEGRADED
             alt strike == 3
-                D->>D: _notify(SUPERVISION_LOST) [fired once]
+                D->>D: _notify(ErrorCode.SUPERVISION_DISCONNECTED) [fired once]
             end
         end
 
@@ -790,9 +861,13 @@ Extend `JeedomDaemon`. Implement `__init__()` loading config:
   whether the user chose a preset or manual entry. eqLogic is the single source of truth:
   preset values are resolved into eqLogic by the wizard at step 1 save time.
 - Reads `account_number` from CLI args.
+- Reads `receiver_prefix` from CLI args (default `''` → field omitted in frames; CSR interprets as `R0`). Stored as `self._receiver_prefix`.
+- Reads `account_prefix` from CLI args (default `''` → field omitted in frames; CSR interprets as `L0`). Stored as `self._account_prefix`.
 - Reads `encryption_key` from `os.environ.get('SIA_ENCRYPTION_KEY', '')` — injected by
   `deamon_start()` as an env var, never passed as a CLI argument (see security note above).
-- Reads `notify_cmd_id` and `retry_count` from CLI args.
+- Reads `retry_count` from CLI args.
+- Does NOT read `notify_cmd_id` — that value is used exclusively by PHP (read from
+  `getConfiguration()` inside `message()`). The daemon never needs the cmd ID.
 - No `csr_presets.json` dependency at runtime.
 
 Implement `run()` launching two coroutines: `_queue_consumer()` + `_supervision_loop()`.
@@ -806,7 +881,7 @@ Initialize `sm1_state = INITIALIZING`, `sm2_state = IDLE`, `strike_counter = 0`.
 #### Task 1.2 — Socket management `_connect()` / `_disconnect()`
 Open UDP socket (`socket.SOCK_DGRAM`) or TCP (`asyncio.open_connection()`).
 
-For **TCP**: on socket drop → SM1 → `TCP_RECONNECTING`. Launch `_tcp_reconnect_loop()` as
+For **TCP**: on socket drop → SM1 → `SM1State.TCP_RECONNECTING`. Launch `_tcp_reconnect_loop()` as
 an independent `asyncio.Task` (does not block `_queue_consumer()`):
 
 ```
@@ -814,7 +889,7 @@ _tcp_reconnect_loop():
     for attempt in range(1, 6):          # max 5 attempts
         try:
             await asyncio.open_connection(csr_ip, csr_port)  # 10s connect timeout
-            SM1 → INITIALIZING
+            SM1 → SM1State.INITIALIZING
             return
         except (OSError, asyncio.TimeoutError):
             log DEBUG "TCP reconnect attempt {attempt}/5 failed"
@@ -823,8 +898,8 @@ _tcp_reconnect_loop():
                                                 # so widget stale detector stays silent
                 await asyncio.sleep(10)  # fixed 10s between attempts
     # exhausted
-    SM1 → NO_NETWORK
-    await self._notify(ErrorCode.TRANSPORT_PERMANENT, {...})  # valid: _tcp_reconnect_loop is async def
+    SM1 → SM1State.NO_NETWORK
+    await self._notify(ErrorCode.TRANSPORT_PERMANENT, TransportPermanentCtx(retry_count=5))
     self.stop()
 ```
 
@@ -832,49 +907,67 @@ Parameters (not configurable in v1.0):
 - **Max attempts:** 5
 - **Per-attempt connect timeout:** 10 s (via `asyncio.wait_for`)
 - **Delay between attempts:** 10 s fixed
-- **Total window before NO_NETWORK:** ~90 s (5 × 10 s connect + 4 × 10 s delay)
+- **Total window before `SM1State.NO_NETWORK`:** ~90 s (5 × 10 s connect + 4 × 10 s delay)
 
-During `TCP_RECONNECTING`: `_queue_consumer()` continues running; EVENT items are re-queued
+During `SM1State.TCP_RECONNECTING`: `_queue_consumer()` continues running; EVENT items are re-queued
 (held); SUPERVISION items are dropped silently. PriorityQueue retains alarm events until
-reconnect succeeds or NO_NETWORK is declared.
+reconnect succeeds or `SM1State.NO_NETWORK` is declared.
 
 For **UDP**: stateless, no persistent connection. Network loss is not detectable at the
-transport layer — only discoverable via supervision timeouts driving SM1 → DEGRADED.
-`TCP_RECONNECTING` and `NO_NETWORK` states do not apply.
+transport layer — only discoverable via supervision timeouts driving SM1 → `SM1State.DEGRADED`.
+`SM1State.TCP_RECONNECTING` and `SM1State.NO_NETWORK` states do not apply.
 
 #### Task 1.3 — `_send_raw(frame, timeout) -> dict`
 Send frame bytes on socket, wait for response up to `timeout` seconds. Return `{status: 'ack'|'nak'|'timeout', raw_nak: bytes|None}`. `raw_nak` holds the full raw NAK frame bytes when status is `'nak'`; `None` otherwise. Passed directly to `_handle_supervision_nak(nak_data: bytes)` for timestamp parsing. Uses `sia_protocol.decode_ack_nak()`.
 
+**CRC format detection (inside `_send_raw()`):** on any non-timeout response, before returning, attempt one-time CRC format detection:
+```python
+if not self._crc_format_locked and raw_response:
+    self._crc_format = sia_protocol.detect_crc_format(raw_response)
+    self._crc_format_locked = True
+```
+`detect_crc_format()` raises `ValueError` on malformed frames — catch it and leave `_crc_format` at `'hex'` (do not lock; retry on next response). This covers both ACK and NAK responses in a single central location — callers need not handle detection themselves.
+
 **OS exception handling:** if `send()` or `recv()` raises an `OSError` (including EAGAIN, ECONNRESET, EPIPE), catch it, log at WARNING with the exception detail, and return `{status: 'timeout', raw_nak: None}`. The caller treats it as a normal timeout — no separate error path. No retry inside `_send_raw()`; retries are the caller's responsibility (supervision: recurring loop; events: `_send_with_retry()`).
 
 #### Task 1.4 — `_send_with_retry(event_item) -> dict`
-Wraps `_send_raw`. Builds frame via `sia_protocol.encode_message()`. Implements NAK dispatch:
-- **ACK** → SM2 CONFIRMED
-- **NAK** (any) → SM2 FAILED, `_notify(ErrorCode.BAD_CSR_RESPONSE, {...})`, stop retrying.
+Wraps `_send_raw`. Before building the frame, validates and sanitises `media_url`:
+
+**media_url validation (before encode):** Check for forbidden SIA DC-09 chars (`[`, `]`, `|`).
+If found: set `media_url = None`, log at WARNING (`"media_url invalide pour zone {zone} — champ V omis"`),
+and continue encoding without the URL. An alarm must never be blocked by a media URL issue.
+`EVENT_FAILED` is never triggered for a URL validation failure.
+
+Implements NAK dispatch:
+- **ACK** → `SM2State.CONFIRMED`
+- **NAK** (any) → `SM2State.FAILED`, `_notify(ErrorCode.BAD_CSR_RESPONSE, {...})`, stop retrying.
   Per SIA DC-09 section 5.5.3.2, there are no NAK sub-codes. Any NAK = unexpected CSR behavior.
   _(v1.1: will parse CSR timestamp from NAK data for auto-heal resync before flagging as failure)_
-- **Timeout** → decrement `retries_left`; at 0 → SM2 FAILED, `_notify(ErrorCode.EVENT_FAILED, {...})`
-- **`ValueError` from `encode_message()`** (forbidden char in media URL: `[`, `]`, `|`) →
-  SM2 FAILED, `_notify(ErrorCode.EVENT_FAILED, {'reason': 'invalid_media_url', ...})`, log at ERROR.
-- **Other unexpected exception** (unexpected socket state, etc.) → SM2 FAILED,
+- **Timeout** → decrement `retries_left`; at 0 → `SM2State.FAILED`, `_notify(ErrorCode.EVENT_FAILED, {...})`
+- **Unexpected exception** (unexpected socket state, etc.) → `SM2State.FAILED`,
   `_notify(ErrorCode.EVENT_FAILED, {..., 'error': repr(e)})`, log at ERROR. **Must never propagate.**
   Returns result dict with `status: 'error'` in this case.
 
 Updates SM2 state and `event_label` at each step. Returns final result dict.
 
+**`encode_message()` call site:** always pass `self._receiver_prefix`, `self._account_prefix`, and `self._crc_format` — never rely on the defaults. See `encode_message()` parameter table for the `crc_format` contract.
+
 #### Task 1.5 — `_next_sequence() -> int`
 Increment 1–9999 with wrap. In-memory only (v1.0).
 
 #### Task 1.6 — `on_message(cmd, params)`
-Receives `{cmd: 'burglarAlarm'|'fireAlarm'|'panicAlarm', title: zone_name, media_url: str|None}` from PHP. Puts `(0, "EVENT", {..., retries_left: N})` in priority queue. **Does not change SM2 state** — SM2 → PENDING is set by `_queue_consumer()` at dequeue time, ensuring at most one event is PENDING at any moment (serialization).
+Receives `{cmd: 'burglarAlarm'|'fireAlarm'|'panicAlarm', zone: zone_name, media_url: str|None}` from PHP. Puts `(0, "EVENT", {..., retries_left: N})` in priority queue. **Does not change SM2 state** — SM2 → PENDING is set by `_queue_consumer()` at dequeue time, ensuring at most one event is PENDING at any moment (serialization).
 
 `media_url` is passed through to `encode_message()` as the SIA DC-09 Verification extended
-data field `[V...]` (section 5.5.1.8). If `None`, the field is omitted. The URL must not
-contain `[`, `]`, or `|` — `encode_message()` raises `ValueError` if any forbidden character
-is present. The caller (`_send_with_retry()`) catches `ValueError`, sets SM2 → FAILED, and
-fires `_notify(ErrorCode.EVENT_FAILED, {'reason': 'invalid_media_url', ...})`. Silently
-stripping the characters is explicitly rejected: a mutated URL would send a broken camera
-link to the CSR operator during an active alarm with no error raised.
+data field `[V...]` (section 5.5.1.8). If `None`, the field is omitted.
+
+**Forbidden char policy:** `_send_with_retry()` validates `media_url` for forbidden chars
+(`[`, `]`, `|`) before calling `encode_message()`. If found: `media_url` is set to `None`,
+a WARNING is logged (`"media_url invalide pour zone {zone} — champ V omis"`), and the alarm
+is sent without the URL. An alarm must never be blocked by a media URL issue — the CSR
+operator receives a valid alarm frame, just without the camera link.
+PHP also performs early detection (at execute time) and logs a warning, but does not nullify
+the URL — the daemon is the enforcement point.
 
 #### Task 1.7 — `_queue_consumer()` coroutine
 
@@ -893,10 +986,11 @@ async def _queue_consumer(self):
                 # Daemon stopping — fail the event immediately, no send attempt
                 self._sm2_state = SM2State.FAILED
                 await self._update_event_label('no_network')
-                await self._notify(ErrorCode.EVENT_FAILED, {
-                    'zone':      data.get('zone', ''),
-                    'attempts':  self._retry_count - data.get('retries_left', 0),
-                })
+                await self._notify(ErrorCode.EVENT_FAILED, EventFailedCtx(
+                    event_type  = data.get('cmd', ''),
+                    zone        = data.get('zone', ''),
+                    retry_count = self._retry_count - data.get('retries_left', 0),
+                ))
                 await self._update_info_commands()
             elif self._sm1_state == SM1State.TCP_RECONNECTING:
                 # Socket down — re-queue to process after reconnect
@@ -917,17 +1011,29 @@ async def _queue_consumer(self):
                     # Safety net: _send_with_retry() should never raise, but if it does,
                     # force SM2 → FAILED so the consumer loop never gets stuck.
                     self._sm2_state = SM2State.FAILED
-                    await self._notify(ErrorCode.EVENT_FAILED, {
-                        'zone': data.get('zone', ''),
-                        'error': repr(e),
-                    })
+                    # 'error' detail goes to the ERROR log (traceback), not to the
+                    # notification — EventFailedCtx carries only user-facing fields.
+                    await self._notify(ErrorCode.EVENT_FAILED, EventFailedCtx(
+                        event_type  = data.get('cmd', ''),
+                        zone        = data.get('zone', ''),
+                        retry_count = self._retry_count - data.get('retries_left', 0),
+                    ))
                     # log at ERROR with traceback
 
         elif kind == 'SUPERVISION':
             if self._sm1_state in (SM1State.TCP_RECONNECTING, SM1State.NO_NETWORK):
                 pass  # Cannot send on closed/missing socket — drop silently
             else:
-                await self._send_supervision()
+                try:
+                    await self._send_supervision()
+                except Exception as e:
+                    # Never crash the consumer loop on a supervision error.
+                    # _send_supervision() can raise if PHP is temporarily unreachable
+                    # (send_to_jeedom() in _update_info_commands() throws). This is
+                    # transient — the next supervision cycle will retry automatically.
+                    # Without this guard, an unhandled exception here skips
+                    # task_done() and kills the consumer loop silently (zombie daemon).
+                    self._logger.error(f'Supervision cycle error (consumer loop kept alive): {e!r}')
 
         self._queue.task_done()
 ```
@@ -936,7 +1042,31 @@ Push INFO command updates to PHP after each dispatch via `_update_info_commands(
 (called inside `_send_with_retry()` and `_send_supervision()`).
 
 #### Task 1.8 — `_supervision_loop()` coroutine
-`asyncio.sleep(supervision_interval)` → `queue.put((1, "SUPERVISION", {}))` → repeat. Does not send directly — only enqueues.
+
+**What:** Periodic timer that enqueues one SUPERVISION item every `supervision_interval` seconds. Never sends directly — only enqueues. All socket I/O is serialised through `_queue_consumer()`.
+
+```python
+async def _supervision_loop(self):
+    """Enqueue a SUPERVISION item every supervision_interval seconds.
+
+    Starts with a sleep — NOT an immediate put — because on_start() already
+    enqueues one SUPERVISION for immediate dispatch. Starting with sleep avoids
+    a duplicate put at t=0.
+
+    asyncio.CancelledError propagates naturally on daemon stop — no catch needed.
+    """
+    while True:
+        await asyncio.sleep(self._supervision_interval)
+        await self._queue.put((1, 'SUPERVISION', {}))
+```
+
+**Key design points:**
+- Starts with `asyncio.sleep()` (not a put) — `on_start()` already queues the first one.
+- Uses `asyncio.sleep` — cooperative, cancels cleanly on SIGTERM without extra handling.
+- No SM1 state check here — the consumer drops SUPERVISION items when SM1 is
+  `TCP_RECONNECTING` or `NO_NETWORK` (Task 1.7). The loop keeps enqueuing regardless;
+  the queue is bounded only by the reconnect window duration (max ~90 s × 1 item/interval).
+- Priority 1 ensures any queued EVENT items always execute first.
 
 #### Task 1.9 — `_update_info_commands()`
 Pushes current SM1 + SM2 state to PHP via `send_to_jeedom()`:
@@ -957,20 +1087,20 @@ See `error-handler-design.md` for full dispatch and tier routing.
 |---|---|---|
 | Nominal event | `always-ack` | ACK received, INFO commands updated, sequence increments |
 | Event retry on timeout | `timeout` ×2 then `ack` | 2 retries, 3rd succeeds, state stays HEALTHY |
-| Event critical failure | `timeout` ×3 | SM2 → FAILED, `_notify(EVENT_FAILED)` called |
-| NAK received | `always-nak` | Zero retries, SM2 → FAILED, `_notify(BAD_CSR_RESPONSE)`, status = "Réponse inattendue" |
-| Supervision degraded strike 1 | supervision timeout ×1 | DEGRADED strike=1, `supervision_state=1`, `supervision_label=DÉGRADÉ (1/3)`, no T3 notification |
-| Supervision degraded strike 2 | supervision timeout ×2 | DEGRADED strike=2, `supervision_state=1`, `supervision_label=DÉGRADÉ (2/3)`, no T3 notification |
-| Supervision lost strike 3 | supervision timeout ×3 | DEGRADED strike=3, `supervision_state=0`, `supervision_label=PERDUE`, T3 `_notify` fired once |
+| Event critical failure | `timeout` ×3 | SM2 → `SM2State.FAILED`, `_notify(ErrorCode.EVENT_FAILED)` called |
+| NAK received | `always-nak` | Zero retries, SM2 → `SM2State.FAILED`, `_notify(ErrorCode.BAD_CSR_RESPONSE)`, status = "Réponse inattendue" |
+| Supervision degraded strike 1 | supervision timeout ×1 | `SM1State.DEGRADED` strike=1, `supervision_state=1`, `supervision_label=DÉGRADÉ (1/3)`, no T3 notification |
+| Supervision degraded strike 2 | supervision timeout ×2 | `SM1State.DEGRADED` strike=2, `supervision_state=1`, `supervision_label=DÉGRADÉ (2/3)`, no T3 notification |
+| Supervision lost strike 3 | supervision timeout ×3 | `SM1State.DEGRADED` strike=3, `supervision_state=0`, `supervision_label=PERDUE`, T3 `_notify(ErrorCode.SUPERVISION_DISCONNECTED)` fired once |
 | Supervision recovery from strike 3 | timeout ×3 then ack | → HEALTHY, strike=0, `supervision_state=2`, `supervision_label=CONNEXION ÉTABLIE` |
 | T3 notification not repeated | supervision timeout ×5 | `_notify` fired at strike=3 only, not at 4 or 5 |
 | Event during supervision wait | send alarm while supervision pending | Alarm delivered before next supervision NULL |
 | TCP drop → reconnect success | drop socket, reconnect | SM1 → TCP_RECONNECTING → INITIALIZING → HEALTHY |
 | TCP drop → queued alarm sent | queue alarm during TCP_RECONNECTING | Alarm sent after reconnect, not dropped |
-| TCP permanent failure | exhaust reconnect attempts | SM1 → NO_NETWORK, `_notify(TRANSPORT_PERMANENT)`, `self.stop()` called |
-| Alarm during TCP_RECONNECTING — reconnect succeeds | Queue alarm, drop TCP, reconnect → ACK | SM2: PENDING (queued) → CONFIRMED after reconnect; EVENT_FAILED NOT fired |
-| Alarm during TCP_RECONNECTING — reconnect fails | Queue alarm, drop TCP, exhaust reconnect | SM2: PENDING (queued) → FAILED; both TRANSPORT_PERMANENT + EVENT_FAILED fired |
-| Alarm arrives in NO_NETWORK | on_message called while SM1=NO_NETWORK | SM2 → FAILED immediately; EVENT_FAILED fired; no send attempted |
-| DEGRADED strike 3 UDP — alarm sent and ACK'd | 3 supervision timeouts (UDP), then alarm | SM2 CONFIRMED despite DEGRADED(3); only SUPERVISION_DISCONNECTED fired, not EVENT_FAILED |
-| DEGRADED strike 3 UDP — alarm fails | 3 supervision timeouts (UDP), alarm times out | SM2 FAILED; SUPERVISION_DISCONNECTED + EVENT_FAILED both fired |
-| Supervision dropped during TCP_RECONNECTING | supervision timer fires while reconnecting | Supervision item dequeued and silently dropped; no send on closed socket |
+| TCP permanent failure | exhaust reconnect attempts | SM1 → `SM1State.NO_NETWORK`, `_notify(ErrorCode.TRANSPORT_PERMANENT)`, `self.stop()` called |
+| Alarm during `SM1State.TCP_RECONNECTING` — reconnect succeeds | Queue alarm, drop TCP, reconnect → ACK | SM2: `SM2State.PENDING` (queued) → `SM2State.CONFIRMED` after reconnect; `ErrorCode.EVENT_FAILED` NOT fired |
+| Alarm during `SM1State.TCP_RECONNECTING` — reconnect fails | Queue alarm, drop TCP, exhaust reconnect | SM2: `SM2State.PENDING` (queued) → `SM2State.FAILED`; both `ErrorCode.TRANSPORT_PERMANENT` + `ErrorCode.EVENT_FAILED` fired |
+| Alarm arrives in `SM1State.NO_NETWORK` | on_message called while SM1=`SM1State.NO_NETWORK` | SM2 → `SM2State.FAILED` immediately; `ErrorCode.EVENT_FAILED` fired; no send attempted |
+| `SM1State.DEGRADED` strike 3 UDP — alarm sent and ACK'd | 3 supervision timeouts (UDP), then alarm | `SM2State.CONFIRMED` despite DEGRADED(3); only `ErrorCode.SUPERVISION_DISCONNECTED` fired, not `ErrorCode.EVENT_FAILED` |
+| `SM1State.DEGRADED` strike 3 UDP — alarm fails | 3 supervision timeouts (UDP), alarm times out | `SM2State.FAILED`; `ErrorCode.SUPERVISION_DISCONNECTED` + `ErrorCode.EVENT_FAILED` both fired |
+| Supervision dropped during `SM1State.TCP_RECONNECTING` | supervision timer fires while reconnecting | Supervision item dequeued and silently dropped; no send on closed socket |
