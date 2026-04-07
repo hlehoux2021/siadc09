@@ -76,7 +76,7 @@ Rather than generating a formal PRD and architecture document via BMAD workflows
 
 **Output:** [`_bmad-output/planning-artifacts/architecture.md`](../_bmad-output/planning-artifacts/architecture.md)
 
-**Steps completed (5 of 6+):**
+**Steps completed (8 of 8 — COMPLETE):**
 
 | Step | Focus | Outcome |
 |------|-------|---------|
@@ -85,6 +85,9 @@ Rather than generating a formal PRD and architecture document via BMAD workflows
 | 3 — Starter Template | Technology stack confirmation | Jeedom plugin template confirmed; Python 3.10+/Debian 12 floor declared |
 | 4 — Architectural Decisions | Testing strategy, versioning, CI/CD | Contract-driven 4-level test pyramid; single-version strategy; GitHub Actions with self-hosted Pi 5 runner |
 | 5 — Implementation Patterns | Consistency rules for AI agent implementation | 80+ rules across naming, structure, communication, process, and PHP/Python boundary patterns |
+| 6 — Project Structure | Directory layout and component file organization | Complete siadc09 plugin structure (adapted from aiodemo template); all 8 design components mapped to files; requirements-to-file traceability established |
+| 7 — Validation | Architecture coherence and readiness verification | All checks passed (decision compatibility ✅, pattern consistency ✅, structure alignment ✅); 12 FRs + 7 NFRs covered; implementation readiness HIGH |
+| 8 — Completion | Architecture finalization and implementation handoff | 1,400+ line architecture.md; all 8 design docs aligned; 16 ADRs + 200+ consistency rules; implementation sequence confirmed |
 
 **Self-consistency validation findings (Step 2) — all resolved:**
 - CRC format detection removed (daemon is sender, not receiver — format is a preset config field)
@@ -95,30 +98,64 @@ Rather than generating a formal PRD and architecture document via BMAD workflows
 
 **Implementation patterns depth (Step 5):** Went through 5 rounds of Advanced Elicitation and 41 rounds of Party Mode (multiple AI agent perspectives), producing over 200 individual consistency rules covering: exception hierarchy, CSRPreset dataclass, transport layer dispatch, UDP persistent protocol, shutdown discipline, retry/backoff policy, PHP config key namespace, schema versioning, error context schemas, eqLogic lifecycle, canonical file creation order, and Pattern Compliance Checklist.
 
+**Project structure mapping (Step 6):** Adapted the existing Jeedom aiodemo plugin template to siadc09. File naming and class naming updated throughout (aiodemo → siadc09). All 8 design components mapped to concrete file paths with clear boundaries. Requirements-to-file traceability established, showing which design decisions are realized in which source files.
+
+**Architecture validation (Step 7):** Comprehensive validation covering: (1) decision compatibility — all 16 ADRs consistent, no internal contradictions; (2) pattern consistency — 200+ rules applied across all boundary types; (3) structure alignment — project layout matches architectural boundaries. All 12 functional requirements and 7 non-functional requirements verified covered. Implementation readiness assessed as HIGH confidence.
+
+**Workflow completion (Step 8):** Architecture document finalized at 1,400+ lines with complete frontmatter (stepsCompleted, workflowStatus, completedAt). All 8 design documents aligned with architecture patterns in a single focused session. Implementation handoff package includes: file structure blueprint, build sequence (8 phases), consistency checklist for code review, and deployment target specification (Raspberry Pi 5, Debian 12).
+
 **Key observations from this phase:**
 - The self-consistency validation step alone found 5 real inconsistencies that had survived 11 adversarial reviews — a different class of check (cross-document coherence vs single-document correctness).
 - The Party Mode technique (multiple agent personas reviewing in parallel) was particularly effective at surfacing implementation traps invisible to a single reviewer — including the `deamon_` spelling trap, CancelledError swallowing, and UDP socket lifecycle.
 
 ---
 
-## Phase 4 — Implementation (planned, 8 weeks)
+## Phase 4 — Epic & Story Decomposition (April 2026)
 
-Implementation will follow the design documents in build sequence order:
+**BMAD workflow used:** Create Epics and Stories (`/bmad-bmm-create-epics-and-stories`)
 
-1. Daemon skeleton + protocol layer (message builder, UDP/TCP, ACK/NAK)
-2. Supervision loop + 3-strike state machine
-3. PHP plugin scaffold + auto-equipment
-4. Config wizard (steps 1–2: preset + connection test)
-5. Config wizard (step 3: zone mapping)
-6. Error translation + protocol inspector
-7. Widget + notifications + end-to-end testing
-8. Polish + documentation + Jeedom Market submission
+**What happened:** With architecture fully documented and validated, the create-epics-and-stories workflow was run to decompose the 9 design components and 12 FRs into a sprint-ready epic and story breakdown. The workflow processes sequentially: validate prerequisites → design epics → create stories → final validation.
 
-**BMAD workflows available for implementation phase:**
-- `/bmad-bmm-create-epics-and-stories` — Break design docs into sprint-ready stories
-- `/bmad-bmm-sprint-planning` — Generate sprint plan
-- `/bmad-bmm-dev-story` — AI-assisted story implementation
-- `/bmad-bmm-code-review` — Adversarial code review per story
+**Output:** [`_bmad-output/planning-artifacts/epics.md`](../_bmad-output/planning-artifacts/epics.md)
+
+**Workflow completion (Steps 1–4 — COMPLETE):**
+
+| Step | Focus | Outcome |
+|------|-------|---------|
+| 1 — Validate Prerequisites | Requirements inventory assembly | 15 FRs + 8 NFRs extracted; all inputs validated; 2 input documents linked |
+| 2 — Design Epics | Epic structure and dependencies | 11 epics designed around components, not user journeys (deliberate rejection of value-stream decomposition in favor of technical architecture); corrected dependency chain (Epic 2 depends on 1.1+1.2 only, not full Epic 1) |
+| 3 — Create Stories | Story breakdown with acceptance criteria | 37 stories written across 11 epics; each story has clear AC, no forward dependencies; 6 critical stories enhanced with detailed test strategies from design docs |
+| 4 — Final Validation | Coverage + dependency + quality checks | ✅ All 15 FRs mapped ✅ No forward dependencies ✅ 11-epic chain valid ✅ Design doc integration complete |
+
+**Epic structure (11 total, 37 stories):**
+
+1. **Protocol Engine** (3 stories) — message builder, AES-128, ACK/NAK parser
+2. **CSR Simulator** (5 stories) — standalone tool for Ajax protocol testing (separate from Jeedom plugin, releasable)
+3. **Error Handler** (3 stories) — ErrorCode enum, notification contexts, callback contracts (design-doc integrated)
+4. **Logging** (3 stories) — messages.py French strings, logging infrastructure, ring buffer (design-doc integrated)
+5. **Daemon Core** (6 stories) — SM1 + SM2 state machines, transport, task lifecycle (SM1/SM2 design-doc integrated)
+6. **PHP Plugin** (6 stories) — eqLogic, auto-equipment, IPC, INFO commands, dependency manager
+7. **Supervision** (3 stories) — supervision loop, strike escalation, TCP stall detection (design-doc integrated)
+8. **Config Wizard** (3 stories) — 4 steps, CSR preset selection, zone mapping
+9. **Debug UI** (3 stories) — status badge, error panel, protocol inspector
+10. **Widget** (2 stories) — supervision health display, staleness detection
+11. **E2E Testing & Market** (4 stories) — Ajax protocol conformance, IMA Protect validation, documentation (CSR validation design-doc integrated)
+
+**Design doc integration approach (6 critical stories):**
+
+Rather than embed full test harness details in all 37 stories, a selective integration strategy was applied:
+- **Critical stories** (SM1, SM2, Supervision, ErrorCode, messages.py, CSR Validation) receive detailed test strategies, test data filenames, validation thresholds, logging output tables, and state transition matrices extracted from design documents
+- **Other stories** include cross-references to relevant design doc sections with brief AC summaries
+- Design documents remain the authoritative source for edge cases, protocols, and architectural patterns
+
+This balanced approach keeps acceptance criteria readable while ensuring developers have everything needed for the most complex/critical components.
+
+**Key decisions from this phase:**
+- Epic 2 (CSR Simulator) made standalone and releasable (not bundled with plugin) — enables protocol testing for other alarm systems (Ajax, etc.)
+- Epics organized by technical components (not user journeys) since v1.0 is already minimal scope — this front-loads the infrastructure and enables dependent features
+- Corrected Epic 2 dependency chain: depends on Protocol Engine stories 1.1 + 1.2 only, not full Epic 1
+
+**Next workflow:** `/bmad-bmm-check-implementation-readiness` — Validates that PRD + Architecture + Epics/Stories are fully aligned and complete before implementation begins.
 
 ---
 
@@ -130,3 +167,7 @@ Implementation will follow the design documents in build sequence order:
 - **Artifacts accumulate fast.** By the end of design phase, 8 detailed design documents (each 200–500 lines) were produced and cross-referenced — a level of documentation that would have been impractical to write manually in the same timeframe.
 - **The architecture phase catches a different class of problem.** Adversarial reviews check correctness within a single document; the self-consistency validation step checks coherence *between* documents. 5 cross-document inconsistencies were found that had survived 11 adversarial review passes — demonstrating that these are genuinely complementary quality tools, not redundant.
 - **Multi-agent Party Mode is surprisingly effective for implementation patterns.** Running 41 rounds of simulated multi-agent design review — where different AI personas (architect, developer, QA, analyst, PM) each apply their lens to the same patterns — produced over 200 actionable consistency rules. Many of the most valuable rules came from the developer and QA perspectives catching traps the architect perspective missed.
+- **Architecture workflow is fully complete.** Steps 6–8 (project structure, validation, finalization) took one focused session following Step 5, demonstrating that with comprehensive patterns in place, the final synthesis moves quickly. Implementation can now proceed with high confidence from the architecture blueprint.
+- **Design doc integration into stories is selective, not exhaustive.** Rather than embedding the full test harness spec into all 37 stories (which would balloon acceptance criteria and reduce readability), critical stories (SM1, SM2, Supervision, ErrorCode, messages.py, CSR Validation) received detailed integration while others use cross-references. This keeps stories actionable while preserving design docs as the authoritative source — a practical balance between convenience and maintainability.
+- **Epic structure choice: components over user journeys.** For a system with v1.0 as hard scope (no phased user-value delivery), organizing by technical components is more appropriate than user journeys. This front-loads infrastructure dependencies and enables dependent features — clearer for development planning.
+- **CSR Simulator as standalone epic was a good call.** Separating the simulator from the plugin (Epic 2 of 11) makes it independently testable, releasable, and useful for protocol validation against other alarm systems (e.g., Ajax). This emerged naturally from the story creation process and represents a minor but valuable scope clarification.
