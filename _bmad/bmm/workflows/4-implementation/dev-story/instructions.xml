@@ -147,6 +147,32 @@
     </output>
   </step>
 
+  <step n="2b" goal="Identify and validate domain expertise (CLAUDE.md compliance)">
+    <critical>Per CLAUDE.md: "Always use available skills: invoke in priority the skill — never answer from general knowledge when a skill is available"</critical>
+
+    <action>Scan story file and tasks for domain indicators: protocol, security, API, encryption, framework, plugin, algorithm, standard, etc.</action>
+    <action>Cross-reference story context against available skills list (check system-reminder or skill documentation)</action>
+
+    <check if="domain-specific expert skill available">
+      <output>🔍 **Domain Expert Skill Identified**
+
+        Expert skill available: {{expert_skill_name}}
+        Domain: {{domain_area}}
+
+        This expert skill will validate the implementation approach against
+        domain standards, protocols, and best practices BEFORE code is written.
+      </output>
+      <action>Store {{expert_skill_name}} for invocation at Step 4b (pre-implementation validation)</action>
+    </check>
+
+    <check if="no domain-specific skill found">
+      <output>ℹ️ **No Domain Expert Skills Available**
+
+        Proceeding with story file, Dev Notes, and project context as authoritative sources.
+      </output>
+    </check>
+  </step>
+
   <step n="3" goal="Detect review continuation and extract review context">
     <critical>Determine if this is a fresh start or continuation after code review</critical>
 
@@ -221,10 +247,47 @@
     </check>
   </step>
 
+  <step n="4b" goal="Invoke domain expert skill for pre-implementation validation" tag="skills">
+    <critical>CLAUDE.md Priority: Always invoke available expert skills before proceeding with implementation</critical>
+
+    <check if="{{expert_skill_name}} was identified in Step 2b">
+      <output>🎓 **Pre-Implementation Expert Validation**
+
+        Invoking {{expert_skill_name}} to validate implementation approach...
+
+        This validates that the implementation will comply with:
+        - Domain standards and specifications
+        - Best practices and patterns
+        - Protocol/framework requirements
+        - Security and compliance considerations
+      </output>
+      <action>Invoke the identified expert skill with story context:
+        - Story key: {{story_key}}
+        - Story title: {{story_title}}
+        - Acceptance criteria summary
+        - Dev Notes and technical requirements
+        - First incomplete task description
+      </action>
+      <action>Store expert skill output and recommendations</action>
+      <action>Incorporate expert feedback into implementation plan</action>
+      <output>✅ Expert validation complete
+        Ready to proceed with implementation following expert guidance
+      </output>
+    </check>
+
+    <check if="{{expert_skill_name}} was NOT identified">
+      <output>ℹ️ No domain expert skill available for this story
+        Proceeding with story file and project context as authoritative sources
+      </output>
+    </check>
+  </step>
+
   <step n="5" goal="Implement task following red-green-refactor cycle">
     <critical>FOLLOW THE STORY FILE TASKS/SUBTASKS SEQUENCE EXACTLY AS WRITTEN - NO DEVIATION</critical>
+    <critical>NOTE: If domain expert skill was invoked in Step 4b, incorporate expert recommendations and validation into implementation</critical>
 
     <action>Review the current task/subtask from the story file - this is your authoritative implementation guide</action>
+    <action>Incorporate any domain expert skill recommendations from Step 4b into technical approach</action>
     <action>Plan implementation following red-green-refactor cycle</action>
 
     <!-- RED PHASE -->
