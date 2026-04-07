@@ -316,8 +316,14 @@ sia_protocol.py
 - Quality: 100% of public API tested
 
 **Files Modified:**
-- ✅ resources/siadc09d/sia_protocol.py (corrected algorithms)
-- ✅ tests/test_sia_protocol.py (updated for correct formats)
+- ✅ resources/siadc09d/sia_protocol.py (corrected algorithms per expert)
+- ✅ tests/test_sia_protocol.py (converted to native pytest style per architecture.md)
+
+**Test Framework Alignment:**
+- ❌ Initial implementation: unittest (not per architecture.md)
+- ✅ Corrected implementation: pytest + pytest-asyncio (per architecture.md)
+- ✅ All 52 tests converted to native pytest function-based style
+- ✅ All 52 tests passing with pytest framework
 
 ### Prerequisites for Dev Agent
 
