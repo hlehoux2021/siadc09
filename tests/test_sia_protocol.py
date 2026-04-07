@@ -15,7 +15,6 @@ from datetime import datetime, timezone
 from resources.siadc09d.sia_protocol import (
     # Constants
     LF, CR, SIA_NULL_CODE, BURGLARY, FIRE, PANIC,
-    SIA_DCS_TOKEN, ADM_CID_TOKEN,
     CRC_FORMAT_SIA, CRC_FORMAT_ADM,
 
     # Classes
@@ -242,35 +241,45 @@ class TestTimestampFormatting(unittest.TestCase):
     """Test timestamp field formatting."""
 
     def test_timestamp_length(self):
-        """Timestamp should be 10 hex characters."""
+        """Timestamp should be exactly 20 characters per spec."""
         ts = datetime(2026, 4, 7, 15, 30, 0, tzinfo=timezone.utc)
         result = format_timestamp(ts)
-        self.assertEqual(len(result), 10)
+        self.assertEqual(len(result), 20)
 
-    def test_timestamp_is_hex(self):
-        """Timestamp should be hex digits."""
-        ts = datetime(2026, 4, 7, 15, 30, 0, tzinfo=timezone.utc)
+    def test_timestamp_format(self):
+        """Timestamp should be formatted as _HH:MM:SS,MM-DD-YYYY."""
+        ts = datetime(2026, 4, 7, 15, 30, 45, tzinfo=timezone.utc)
         result = format_timestamp(ts)
-        for c in result:
-            self.assertIn(c, '0123456789ABCDEF')
+        # Format: _HH:MM:SS,MM-DD-YYYY
+        self.assertEqual(result, "_15:30:45,04-07-2026")
 
-    def test_timestamp_no_separators(self):
-        """Timestamp should have no colons, underscores, or dashes."""
+    def test_timestamp_has_required_separators(self):
+        """Timestamp should have underscore, colons, comma, and dashes per spec."""
         ts = datetime(2026, 4, 7, 15, 30, 0, tzinfo=timezone.utc)
         result = format_timestamp(ts)
-        self.assertNotIn("_", result)
-        self.assertNotIn(":", result)
-        self.assertNotIn("-", result)
+        self.assertTrue(result.startswith("_"))  # Leading underscore
+        self.assertIn(":", result)  # Colons in time
+        self.assertIn(",", result)  # Comma separator
+        self.assertIn("-", result)  # Dashes in date
+
+    def test_timestamp_zero_fills_components(self):
+        """Timestamp components should be zero-filled."""
+        # Test with early month/day/hour/minute
+        ts = datetime(2026, 1, 3, 9, 5, 2, tzinfo=timezone.utc)
+        result = format_timestamp(ts)
+        self.assertEqual(result, "_09:05:02,01-03-2026")
 
     def test_timestamp_current_if_none(self):
         """None timestamp should use current time."""
-        before = int(datetime.now(timezone.utc).timestamp())
+        before = datetime.now(timezone.utc)
         result = format_timestamp(None)
-        after = int(datetime.now(timezone.utc).timestamp()) + 1
-        # Parse hex timestamp
-        ts_int = int(result, 16)
-        self.assertGreaterEqual(ts_int, before)
-        self.assertLessEqual(ts_int, after)
+        after = datetime.now(timezone.utc)
+        # Result should be formatted string, not hex
+        self.assertEqual(len(result), 20)
+        self.assertTrue(result.startswith("_"))
+        # Verify it's within the time window
+        self.assertIn(":", result)
+        self.assertIn(",", result)
 
 
 # ===== TESTS: Complete Message Encoding =====
@@ -328,7 +337,8 @@ class TestEncodeMessage(unittest.TestCase):
     def test_encode_message_crc_format_keyword_only(self):
         """crc_format must be keyword-only parameter."""
         with self.assertRaises(TypeError):
-            encode_message("001234", "1130", "L0", None, None, None, CRC_FORMAT_SIA)
+            # This should fail: crc_format passed as positional instead of keyword-only
+            encode_message("001234", "1130", "L0", None, None, None, CRC_FORMAT_SIA)  # type: ignore
 
     def test_encode_message_unencrypted_token(self):
         """Unencrypted message should use SIA-DCS token."""

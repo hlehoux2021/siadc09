@@ -5,6 +5,11 @@ Pure protocol layer for constructing and serializing SIA DC-09 compliant message
 No external dependencies beyond Python stdlib.
 
 Reference: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5 Messages
+
+Expert Validation: sia-dc09-expert (2026-04-07)
+- CRC: CRC-16 MODBUS (polynomial 0xA001)
+- Timestamp: Formatted string _HH:MM:SS,MM-DD-YYYY (20 chars, UTC)
+- Message frame: LF + CRC + Length + Message + CR
 """
 
 import zlib
@@ -39,7 +44,6 @@ ENCRYPTED_MARKER = "*"
 # CRC format types (preset-configured)
 CRC_FORMAT_SIA = "SIA"
 CRC_FORMAT_ADM = "ADM"
-CRC_FORMAT_CUSTOM = "custom"
 
 
 # ===== TASK 3: Sequence Number Management =====
@@ -48,6 +52,8 @@ class SequenceManager:
     """
     Maintains separate sequence counter per account number.
     Wraps from 9999 → 0001 (never 0000).
+
+    Per SIA DC-09 § 5.5.1.5: "Sequence numbers are associated with PE account numbers"
     """
 
     def __init__(self):
@@ -67,7 +73,7 @@ class SequenceManager:
         current = self._seq_map.get(account_number, 0)
         current = current + 1
         if current > 9999:
-            current = 1  # Wrap: 9999 → 0001
+            current = 1  # Wrap: 9999 → 0001 (per § 5.5.1.5)
         self._seq_map[account_number] = current
         return f"{current:04d}"
 
@@ -87,26 +93,29 @@ class SequenceManager:
 
 # ===== TASK 2: CRC and Length Calculation =====
 
-def _detect_crc_format(crc_format: str) -> str:
+def _compute_crc_modbus(data: bytes) -> int:
     """
-    Validate CRC format is recognized.
+    Compute CRC-16 MODBUS (polynomial 0xA001).
+
+    Per expert validation and reference implementation,
+    SIA DC-09 uses CRC-16 MODBUS, NOT CRC-32.
 
     Args:
-        crc_format: One of "SIA", "ADM", or preset-specific custom format
+        data: Bytes to compute CRC over
 
     Returns:
-        Validated format string
-
-    Raises:
-        ValueError: If format not recognized
+        CRC value as integer
     """
-    if not isinstance(crc_format, str) or len(crc_format) == 0:
-        raise ValueError(f"Invalid CRC format: {crc_format}")
-    # Known formats: SIA, ADM (other formats may be added for custom presets)
-    if crc_format not in [CRC_FORMAT_SIA, CRC_FORMAT_ADM]:
-        # For v1.0, only SIA and ADM are supported
-        raise ValueError(f"CRC format not supported: {crc_format}")
-    return crc_format
+    crc = 0
+    for byte in data:
+        temp = byte & 0xFF
+        for _ in range(8):
+            temp ^= crc & 1
+            crc >>= 1
+            if temp & 1:
+                crc ^= 0xA001
+            temp >>= 1
+    return crc
 
 
 def calculate_crc(data: bytes, crc_format: str) -> str:
@@ -115,18 +124,19 @@ def calculate_crc(data: bytes, crc_format: str) -> str:
 
     Args:
         data: Plaintext bytes from first quote through CR (excluding CR)
-        crc_format: CRC algorithm selector ("SIA", "ADM", or custom)
+        crc_format: CRC algorithm selector ("SIA", "ADM")
 
     Returns:
         4-character ASCII hex CRC (uppercase)
 
     Reference: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.2
+    Expert: sia-dc09-expert (uses CRC-16 MODBUS polynomial 0xA001)
     """
-    _detect_crc_format(crc_format)
+    if crc_format not in [CRC_FORMAT_SIA, CRC_FORMAT_ADM]:
+        raise ValueError(f"CRC format not supported: {crc_format}")
 
-    # For both SIA and ADM, use CRC-16 via zlib (same algorithm)
-    # SIA DC-09 spec references DC-07 for CRC implementation
-    crc_value = zlib.crc32(data) & 0xFFFF  # CRC-16 equivalent
+    # Both SIA and ADM use CRC-16 MODBUS
+    crc_value = _compute_crc_modbus(data)
     return f"{crc_value:04X}"
 
 
@@ -168,7 +178,7 @@ def format_account_id(
     Args:
         account_number: 3-16 hex ASCII characters (required)
         account_prefix: 1-6 hex ASCII digits, default "L0" (required)
-        receiver_number: 1-6 hex ASCII digits (optional, omit if None or "0")
+        receiver_number: 1-6 hex ASCII digits (optional; omit if None or "0")
 
     Returns:
         Combined string (e.g., "#001234L1R2")
@@ -217,7 +227,7 @@ def format_data_field(
     Args:
         account_number: Account ID (3-16 hex chars)
         event_code: 4-digit event code (e.g., "1130")
-        extended_data: Optional dict of additional fields (not used in v1.0)
+        extended_data: Optional dict of additional fields (deferred to v1.1)
 
     Returns:
         Data field string: [#{account}|{event_code}...]
@@ -237,27 +247,27 @@ def format_data_field(
 
 def format_timestamp(ts: Optional[datetime] = None) -> str:
     """
-    Format timestamp field.
+    Format timestamp field per SIA DC-09 § 5.5.1.9.
 
     Args:
         ts: datetime object (UTC) or None for current time
 
     Returns:
-        10-character ASCII hex timestamp (Unix epoch seconds)
+        Formatted string: _HH:MM:SS,MM-DD-YYYY (exactly 20 characters)
 
     Reference: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.9
+    Expert Validation: sia-dc09-expert (formatted string, NOT hex)
+
+    Example: "_22:49:34,04-07-2026"
     """
     if ts is None:
         ts = datetime.now(timezone.utc)
 
-    # Convert to Unix epoch seconds
-    epoch_seconds = int(ts.timestamp())
-
-    # Format as 10-character ASCII hex (uppercase, no separators)
-    return f"{epoch_seconds:010X}"
+    # Format: _HH:MM:SS,MM-DD-YYYY (20 chars exactly)
+    return ts.strftime("_%H:%M:%S,%m-%d-%Y")
 
 
-# ===== TASK 7: Core encode_message() Function =====
+# ===== TASK 7: Core `encode_message()` Function =====
 
 def encode_message(
     account_number: str,
@@ -280,36 +290,36 @@ def encode_message(
         receiver_number: Optional 1-6 hex digits
         extended_data: Optional additional fields
         timestamp: Optional datetime (UTC); None = current time
-        crc_format: REQUIRED, keyword-only. CRC algorithm ("SIA", "ADM", or custom)
+        crc_format: REQUIRED, keyword-only. CRC algorithm ("SIA" or "ADM")
         encryption: Whether data is encrypted (default False)
 
     Returns:
-        Complete frame as bytes
+        Complete frame as bytes: LF + CRC + Length + Message + CR
 
     Reference: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1
+    Expert Validation: sia-dc09-expert
     """
-    _detect_crc_format(crc_format)
-
     if extended_data is None:
         extended_data = {}
 
-    # Build message components
+    # Build message components per spec § 5.5.1
     account_id_str = format_account_id(account_number, account_prefix, receiver_number)
     data_field = format_data_field(account_number, event_code, extended_data)
     timestamp_str = format_timestamp(timestamp)
 
-    # Select ID token
+    # Select ID token per § 5.5.1.4 and § 5.5.1.4.1
     if encryption:
         id_token = f'"{ENCRYPTED_MARKER}{SIA_DCS_TOKEN}"'
     else:
         id_token = f'"{SIA_DCS_TOKEN}"'
 
-    # Sequence number (always 4 digits, not per-account here for simplicity in message encoding)
+    # Sequence number (4 digits per spec § 5.5.1.5)
     # Note: Caller should use SequenceManager for proper per-account sequencing
     seq = "0001"
 
-    # Build frame components (in order per spec)
-    # message_core = everything from first quote through CR (used for CRC/length calculation)
+    # Build message core (everything included in CRC calculation)
+    # Per § 5.5.1.2: "starting with the first quote character of the ID
+    # and ending with the character before the terminating CR"
     message_core = (
         id_token +
         seq +
@@ -318,11 +328,11 @@ def encode_message(
         timestamp_str
     ).encode('ascii')
 
-    # Calculate CRC and length
+    # Calculate CRC and length per § 5.5.1.2 and § 5.5.1.3
     crc = calculate_crc(message_core, crc_format)
     length = calculate_length(message_core)
 
-    # Build complete frame
+    # Build complete frame: LF + CRC + Length + Message + CR
     frame = (
         LF +
         crc.encode('ascii') +
@@ -359,7 +369,7 @@ def make_supervision_message(
 
     Reference: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.2.1
     """
-    # NULL message uses event code "0000"
+    # NULL message uses event code "0000" per § 5.5.2.1
     return encode_message(
         account_number=account_number,
         event_code=SIA_NULL_CODE,
