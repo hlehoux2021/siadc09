@@ -64,11 +64,44 @@ Rather than generating a formal PRD and architecture document via BMAD workflows
 | 6 — Widget | [`widget-design.md`](design/widget-design.md) | Real-time supervision badge, last event status, staleness detection |
 
 **BMAD quality tools used:**
-- `/bmad-review-adversarial-general` — 9 adversarial review passes applied to date; all findings resolved. Review 9 (2026-03-27): 12 findings across all 8 design documents, focusing on cross-document incoherence, architecture patterns, and Jeedom/daemon integration. Key issues caught: SM2 IDLE-is-startup-only (CONFIRMED/FAILED→PENDING direct transitions), CRC format interoperability (detect on first CSR response rather than assume hex), encryption key scope leak in PHP `exec()` call (scrub immediately after), wizard restart race condition (save `wizard_step=0` before `deamon_stop()`), ring buffer DB write flood reduced 10× (1 440→144/day via 10-min throttle), and logging architecture separation — all SM1/SM2 state-machine log lines centralized into `_log_sm1_supervision()` / `_log_sm2_event()` helpers with typed context dataclasses; supervision code calls helpers, not `self._logger` directly.
+- `/bmad-review-adversarial-general` — 11 adversarial review passes applied to date; all findings resolved. Review 9 (2026-03-27): 12 findings — cross-document incoherence, architecture patterns, Jeedom/daemon integration. Review 10 (2026-03-27): 10 findings — Python best practices pass. Key issues caught in R10: asyncio task lifecycle (untracked fire-and-forget tasks vulnerable to garbage collection and silent exception loss), priority queue crash on simultaneous alarms (fixed with monotonic counter tie-breaker), API type safety throughout (TypedDict return type, Literal trigger parameters, keyword-only required argument), Python version floor formally declared via Jeedom's Debian OS constraint mechanism, deprecated datetime API replaced, and redundant data eliminated from logging context dataclasses. Review 11 (2026-03-30): 9 findings applied — second Python best practices pass. Key issues: missing `asyncio.wait_for()` wrapper on TCP connect (bare `asyncio.open_connection()` could hang indefinitely on filtered ports), `ValueError` from CRC format detection not caught inside `_send_raw()` (design prose and code block contradicted each other), instance attribute `_tasks` initialized in `on_start()` instead of `__init__()` (AttributeError risk if `on_stop()` called before startup completes), SIA code lookup dict `_event_sia_code` mislabelled as function and misplaced in logging-design (moved to daemon-design as `_EVENT_SIA_CODES` constant), `_track_task()` parameter untyped and task name missing (unhelpful `Task-N` in error logs), `PriorityQueue` not parameterized with item type, and `Optional[Union[...]]` type aliases replaced with Python 3.10+ `|` syntax (misleading "all Python versions" comment removed).
 
 ---
 
-## Phase 3 — Implementation (planned, 8 weeks)
+## Phase 3 — Solution Architecture (March–April 2026)
+
+**BMAD workflow used:** Create Architecture (`/bmad-bmm-create-architecture`)
+
+**What happened:** With all 9 component design documents complete, the create-architecture workflow was run to synthesize them into a formal, implementation-ready architecture document. The workflow is structured in sequential steps: project context analysis, self-consistency validation, starter template selection, core architectural decisions, and implementation patterns.
+
+**Output:** [`_bmad-output/planning-artifacts/architecture.md`](../_bmad-output/planning-artifacts/architecture.md)
+
+**Steps completed (5 of 6+):**
+
+| Step | Focus | Outcome |
+|------|-------|---------|
+| 1 — Init | Document discovery + project context | 7 cross-cutting concerns identified; 8 NFRs formalized |
+| 2 — Context + ADRs + Validation | Self-consistency validation across all design docs | 16 ADRs documented; 5 cross-document inconsistencies found and resolved |
+| 3 — Starter Template | Technology stack confirmation | Jeedom plugin template confirmed; Python 3.10+/Debian 12 floor declared |
+| 4 — Architectural Decisions | Testing strategy, versioning, CI/CD | Contract-driven 4-level test pyramid; single-version strategy; GitHub Actions with self-hosted Pi 5 runner |
+| 5 — Implementation Patterns | Consistency rules for AI agent implementation | 80+ rules across naming, structure, communication, process, and PHP/Python boundary patterns |
+
+**Self-consistency validation findings (Step 2) — all resolved:**
+- CRC format detection removed (daemon is sender, not receiver — format is a preset config field)
+- `_notify()` call pattern clarified (sync wrapper calling `_track_task(_dispatch_notify(...))`)
+- Staleness threshold corrected from 2× to 3× `supervision_interval` across all docs
+- SM1 strike reset on TCP reconnect success added to both ADR and daemon pseudocode
+- Wizard connection test flow clarified (warn + confirm before daemon stop; JS fields preserved)
+
+**Implementation patterns depth (Step 5):** Went through 5 rounds of Advanced Elicitation and 41 rounds of Party Mode (multiple AI agent perspectives), producing over 200 individual consistency rules covering: exception hierarchy, CSRPreset dataclass, transport layer dispatch, UDP persistent protocol, shutdown discipline, retry/backoff policy, PHP config key namespace, schema versioning, error context schemas, eqLogic lifecycle, canonical file creation order, and Pattern Compliance Checklist.
+
+**Key observations from this phase:**
+- The self-consistency validation step alone found 5 real inconsistencies that had survived 11 adversarial reviews — a different class of check (cross-document coherence vs single-document correctness).
+- The Party Mode technique (multiple agent personas reviewing in parallel) was particularly effective at surfacing implementation traps invisible to a single reviewer — including the `deamon_` spelling trap, CancelledError swallowing, and UDP socket lifecycle.
+
+---
+
+## Phase 4 — Implementation (planned, 8 weeks)
 
 Implementation will follow the design documents in build sequence order:
 
@@ -93,5 +126,7 @@ Implementation will follow the design documents in build sequence order:
 
 - **BMAD compressed the design phase significantly.** What would normally require multiple architecture meetings and back-and-forth was completed in a series of focused AI-facilitated sessions.
 - **Domain-expert skills (`/sia-dc09-expert`, `/jeedom-plugin`) were essential.** Generic AI knowledge would not have been sufficient for a niche protocol like SIA DC-09 — having a skill that reads and cites the actual standard made all the difference.
-- **The adversarial review step (`/bmad-review-adversarial-general`) caught real issues.** 9 review passes, ~100 findings across 8 design documents — including invented protocol behaviors, stale state machine references, security risks (encryption key in process list), DB write floods, and architecture incoherence that would have caused bugs in implementation.
+- **The adversarial review step (`/bmad-review-adversarial-general`) caught real issues.** 11 review passes, ~120 findings across 8 design documents — including invented protocol behaviors, stale state machine references, security risks (encryption key in process list), DB write floods, architecture incoherence, and Python best practice violations (asyncio task leaks, type safety gaps, deprecated APIs, priority queue crash scenarios) that would have caused silent failures or bugs in implementation.
 - **Artifacts accumulate fast.** By the end of design phase, 8 detailed design documents (each 200–500 lines) were produced and cross-referenced — a level of documentation that would have been impractical to write manually in the same timeframe.
+- **The architecture phase catches a different class of problem.** Adversarial reviews check correctness within a single document; the self-consistency validation step checks coherence *between* documents. 5 cross-document inconsistencies were found that had survived 11 adversarial review passes — demonstrating that these are genuinely complementary quality tools, not redundant.
+- **Multi-agent Party Mode is surprisingly effective for implementation patterns.** Running 41 rounds of simulated multi-agent design review — where different AI personas (architect, developer, QA, analyst, PM) each apply their lens to the same patterns — produced over 200 actionable consistency rules. Many of the most valuable rules came from the developer and QA perspectives catching traps the architect perspective missed.

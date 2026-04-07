@@ -58,7 +58,7 @@ INFO:  Alarme intrusion envoyée vers la centrale (zone: Salon)
 DEBUG: [→ CSR] SIA-DCS | acct=ABC123 seq=007 event=BA zone=Salon ts_sia=14:32:11,03-06-2026 | raw=0a30...
 
 WARNING: Timeout supervision (strike 1/3) — nouvelle tentative
-DEBUG:   SM1: HEALTHY→DEGRADED | seq=012 strike=1 elapsed=45s | no response
+DEBUG:   SM1: HEALTHY→DEGRADED | seq=012 strike=1 elapsed=45000ms | no response
 ```
 
 ### Protocol message trace format
@@ -74,7 +74,7 @@ Used in DEBUG companion lines for send/receive events.
 ```
 [← CSR] ACK | seq={n} crc_format={hex|bin} elapsed={t}ms | raw={hex}
 [← CSR] NAK | seq={n} elapsed={t}ms | raw={hex}
-[← CSR] timeout | seq={n} elapsed={t}s
+[← CSR] timeout | seq={n} elapsed={t}ms
 ```
 
 ### Privacy rules for logs
@@ -103,19 +103,19 @@ Every transition produces an INFO/WARNING/ERROR line (human-friendly) and a DEBU
 | `INITIALIZING → HEALTHY` | First supervision ACK | `INFO` | `Connexion à la centrale établie` |
 | | | `DEBUG` | `SM1: INIT→HEALTHY \| seq={n} strike=0 \| ACK: crc_format={hex\|bin} raw={hex}` |
 | `INITIALIZING → DEGRADED` | First timeout (strike=1) | `WARNING` | `Timeout supervision au démarrage (strike 1/3) — nouvelle tentative` |
-| | | `DEBUG` | `SM1: INIT→DEGRADED \| seq={n} strike=1 elapsed={t}s \| no response` |
+| | | `DEBUG` | `SM1: INIT→DEGRADED \| seq={n} strike=1 elapsed={t}ms \| no response` |
 | `HEALTHY → DEGRADED` | Timeout (strike=1) | `WARNING` | `Timeout supervision (strike 1/3) — nouvelle tentative` |
-| | | `DEBUG` | `SM1: HEALTHY→DEGRADED \| seq={n} strike=1 elapsed={t}s \| no response` |
+| | | `DEBUG` | `SM1: HEALTHY→DEGRADED \| seq={n} strike=1 elapsed={t}ms \| no response` |
 | `HEALTHY → DEGRADED` | Parseable NAK (strike=1) | `WARNING` | `NAK supervision (strike 1/3) — horodatage rejeté par la centrale` |
 | | | `DEBUG` | `SM1: HEALTHY→DEGRADED \| seq={n} strike=1 cause=nak_timestamp \| NAK: raw={hex}` |
 | `DEGRADED → DEGRADED` | Timeout (strike=2) | `WARNING` | `Timeout supervision (strike 2/3) — nouvelle tentative` |
-| | | `DEBUG` | `SM1: DEGRADED→DEGRADED \| seq={n} strike=2 elapsed={t}s \| no response` |
+| | | `DEBUG` | `SM1: DEGRADED→DEGRADED \| seq={n} strike=2 elapsed={t}ms \| no response` |
 | `DEGRADED → DEGRADED` | Parseable NAK (strike=2) | `WARNING` | `NAK supervision (strike 2/3) — horodatage rejeté par la centrale` |
 | | | `DEBUG` | `SM1: DEGRADED→DEGRADED \| seq={n} strike=2 cause=nak_timestamp \| NAK: raw={hex}` |
 | `DEGRADED → DEGRADED` | Timeout (strike=3, T3 fires) | `ERROR` | `Supervision perdue — 3 tentatives sans réponse (T3 notification envoyée)` |
-| | | `DEBUG` | `SM1: DEGRADED→DEGRADED \| seq={n} strike=3 elapsed={t}s \| no response \| T3 fired` |
+| | | `DEBUG` | `SM1: DEGRADED→DEGRADED \| seq={n} strike=3 elapsed={t}ms \| no response \| T3 fired` |
 | `DEGRADED → DEGRADED` | Timeout (strike already 3, subsequent) | `WARNING` | `Supervision toujours absente — en attente de rétablissement` |
-| | | `DEBUG` | `SM1: DEGRADED(3) \| seq={n} elapsed={t}s \| no response \| T3 already fired` |
+| | | `DEBUG` | `SM1: DEGRADED(3) \| seq={n} elapsed={t}ms \| no response \| T3 already fired` |
 | `DEGRADED → HEALTHY` | ACK, strike reset | `INFO` | `Supervision rétablie après {prev_strike} timeout(s)` |
 | | | `DEBUG` | `SM1: DEGRADED→HEALTHY \| seq={n} prev_strike={n} strike=0 \| ACK: crc_format={hex\|bin} raw={hex}` |
 | `{any} → TCP_RECONNECTING` | TCP drop | `WARNING` | `Connexion TCP perdue — tentative de reconnexion (depuis état {prev_state})` |
@@ -141,13 +141,13 @@ Every transition produces an INFO/WARNING/ERROR line (human-friendly) and a DEBU
 | `IDLE → PENDING` | Alarm from PHP | `INFO` | `Alarme {type} reçue (zone: {zone}) — transmission en cours` |
 | | | `DEBUG` | `SM2: IDLE→PENDING \| event={sia_code} zone={zone} seq={n} retries_left={max}` |
 | `PENDING → PENDING` | Timeout, retry | `WARNING` | `Pas de réponse de la centrale — tentative {attempt}/{max}` |
-| | | `DEBUG` | `SM2: PENDING→PENDING \| seq={n} retries_left={r} timeout={t}s elapsed={e}s \| no response` |
+| | | `DEBUG` | `SM2: PENDING→PENDING \| seq={n} retries_left={r} elapsed={e}ms \| no response` |
 | `PENDING → PENDING` | NAK timestamp_old, auto-heal | `WARNING` | `Horodatage refusé — correction automatique et renvoi` _(v1.1 only — not present in v1.0)_ |
 | | | `DEBUG` | `SM2: PENDING→PENDING \| cause=nak_timestamp_old seq={n} old_ts={ts} new_ts={ts} \| NAK: raw={hex}` _(v1.1)_ |
 | `PENDING → CONFIRMED` | ACK received | `INFO` | `Centrale confirmée — alarme {type} transmise (zone: {zone})` |
 | | | `DEBUG` | `SM2: PENDING→CONFIRMED \| seq={n} elapsed={t}ms \| ACK: crc_format={hex\|bin} raw={hex}` |
 | `PENDING → FAILED` | Retries exhausted | `ERROR` | `Alarme {type} non transmise après {max} tentatives (zone: {zone})` |
-| | | `DEBUG` | `SM2: PENDING→FAILED \| seq={n} retries_exhausted={max} \| last attempt: no response elapsed={t}s` |
+| | | `DEBUG` | `SM2: PENDING→FAILED \| seq={n} retries_exhausted={max} \| last attempt: no response elapsed={t}ms` |
 | `PENDING → FAILED` | NAK received | `ERROR` | `Réponse inattendue de la centrale — alarme {type} non transmise (zone: {zone})` |
 | | | `DEBUG` | `SM2: PENDING→FAILED \| seq={n} cause=nak_received \| NAK: raw={hex}` |
 | `PENDING → FAILED` | SM1 → NO_NETWORK (event in queue, daemon stopping) | `ERROR` | `Alarme {type} non transmise — réseau inaccessible (zone: {zone})` |
@@ -175,6 +175,14 @@ Technical DEBUG lines (raw frames, timing details) are also emitted inside the h
 # resources/siadc09d/siadc09d.py
 
 from dataclasses import dataclass, field
+from typing import Literal
+
+# --- SM1 trigger type ---
+SM1Trigger = Literal['ack', 'timeout', 'nak_timestamp', 'nak_bad']
+
+# --- SM2 trigger type ---
+SM2Trigger = Literal['idle', 'received', 'retry', 'confirmed',
+                     'failed_timeout', 'failed_nak', 'failed_no_network']
 
 # --- SM1 logging contexts ---
 
@@ -189,7 +197,7 @@ class SM1AckCtx:
 @dataclass
 class SM1TimeoutCtx:
     seq:           int
-    elapsed:       float     # seconds
+    elapsed_ms:    int
     strike:        int       # current strike after increment (already capped at 3)
     prev_state:    SM1State  # INITIALIZING | HEALTHY | DEGRADED — drives message choice
     t3_just_fired: bool      # True = first time strike reaches 3 this session
@@ -214,9 +222,8 @@ class SM2LogCtx:
     seq:           int
     attempt:       int   = 1
     max_attempts:  int   = 5
-    retries_left:  int   = 0
+    retries_left:  int   = -1  # sentinel; caller must set for 'received', 'retry', and 'failed_*' triggers
     elapsed_ms:    int   = 0
-    elapsed:       float = 0.0
     raw_hex:       str   = ''
     crc_format:    str   = ''
 ```
@@ -224,7 +231,7 @@ class SM2LogCtx:
 #### `_log_sm1_supervision(trigger, ctx)`
 
 ```python
-def _log_sm1_supervision(self, trigger: str, ctx: SM1LogCtx) -> None:
+def _log_sm1_supervision(self, trigger: SM1Trigger, ctx: SM1LogCtx) -> None:
     """Emit the dual-line log (INFO/WARNING/ERROR + DEBUG) for SM1 supervision events.
 
     trigger values:
@@ -255,27 +262,27 @@ def _log_sm1_supervision(self, trigger: str, ctx: SM1LogCtx) -> None:
             self._logger.error(SM1_LOST)
             self._logger.debug(
                 f'SM1: DEGRADED→DEGRADED | seq={ctx.seq:04d} strike={ctx.strike} '
-                f'elapsed={ctx.elapsed:.1f}s | no response | T3 fired'
+                f'elapsed={ctx.elapsed_ms}ms | no response | T3 fired'
             )
         elif ctx.strike >= 3:
             # T3 already fired in a previous cycle — warn without re-firing
             self._logger.warning(SM1_STILL_ABSENT)
             self._logger.debug(
-                f'SM1: DEGRADED(3) | seq={ctx.seq:04d} elapsed={ctx.elapsed:.1f}s '
+                f'SM1: DEGRADED(3) | seq={ctx.seq:04d} elapsed={ctx.elapsed_ms}ms '
                 f'| no response | T3 already fired'
             )
         elif ctx.prev_state == SM1State.INITIALIZING:
             self._logger.warning(SM1_TIMEOUT_STARTUP)
             self._logger.debug(
                 f'SM1: INIT→DEGRADED | seq={ctx.seq:04d} strike={ctx.strike} '
-                f'elapsed={ctx.elapsed:.1f}s | no response'
+                f'elapsed={ctx.elapsed_ms}ms | no response'
             )
         else:
             self._logger.warning(SM1_TIMEOUT_WARNING.format(strike=ctx.strike))
             prev = 'HEALTHY' if ctx.prev_state == SM1State.HEALTHY else 'DEGRADED'
             self._logger.debug(
                 f'SM1: {prev}→DEGRADED | seq={ctx.seq:04d} strike={ctx.strike} '
-                f'elapsed={ctx.elapsed:.1f}s | no response'
+                f'elapsed={ctx.elapsed_ms}ms | no response'
             )
 
     elif trigger == 'nak_timestamp':
@@ -284,6 +291,13 @@ def _log_sm1_supervision(self, trigger: str, ctx: SM1LogCtx) -> None:
             self._logger.debug(
                 f'SM1: DEGRADED→DEGRADED | seq={ctx.seq:04d} strike={ctx.strike} '
                 f'cause=nak_timestamp csr_time={ctx.csr_time} | NAK: raw={ctx.raw_hex} | T3 fired'
+            )
+        elif ctx.strike >= 3:
+            # T3 already fired in a previous cycle — warn without re-stating strike
+            self._logger.warning(SM1_STILL_ABSENT)
+            self._logger.debug(
+                f'SM1: DEGRADED(3) | seq={ctx.seq:04d} elapsed={ctx.elapsed_ms}ms '
+                f'cause=nak_timestamp csr_time={ctx.csr_time} | NAK: raw={ctx.raw_hex} | T3 already fired'
             )
         else:
             self._logger.warning(SM1_NAK_TIMESTAMP.format(strike=ctx.strike))
@@ -305,7 +319,7 @@ def _log_sm1_supervision(self, trigger: str, ctx: SM1LogCtx) -> None:
 #### `_log_sm2_event(trigger, ctx)`
 
 ```python
-def _log_sm2_event(self, trigger: str, ctx: SM2LogCtx) -> None:
+def _log_sm2_event(self, trigger: SM2Trigger, ctx: SM2LogCtx) -> None:
     """Emit the dual-line log for SM2 alarm event transitions.
 
     trigger values:
@@ -317,25 +331,25 @@ def _log_sm2_event(self, trigger: str, ctx: SM2LogCtx) -> None:
       'failed_nak'        — unexpected NAK from CSR
       'failed_no_network' — SM1 → NO_NETWORK while event in flight
     """
-    fr = _event_type_fr(ctx.event_type)   # helper: 'burglarAlarm' → 'intrusion', etc.
-    sia = _event_sia_code(ctx.event_type)  # helper: 'burglarAlarm' → 'BA', etc.
+    fr  = error_handler.event_type_fr(ctx.event_type)  # canonical French label from error_handler.py
 
     if trigger == 'idle':
         self._logger.info(SM2_IDLE)
         self._logger.debug('SM2: →IDLE | queue=empty')
 
     elif trigger == 'received':
+        sia = _EVENT_SIA_CODES[ctx.event_type]          # SIA protocol code — see daemon-design.md Task 1.1
         self._logger.info(SM2_EVENT_RECEIVED.format(type=fr, zone=ctx.zone))
         self._logger.debug(
             f'SM2: →PENDING | event={sia} zone={ctx.zone} seq={ctx.seq:04d} '
-            f'retries_left={ctx.max_attempts}'
+            f'retries_left={ctx.retries_left}'
         )
 
     elif trigger == 'retry':
         self._logger.warning(SM2_RETRY.format(attempt=ctx.attempt, max=ctx.max_attempts))
         self._logger.debug(
             f'SM2: PENDING→PENDING | seq={ctx.seq:04d} retries_left={ctx.retries_left} '
-            f'elapsed={ctx.elapsed:.1f}s | no response'
+            f'elapsed={ctx.elapsed_ms}ms | no response'
         )
 
     elif trigger == 'confirmed':
@@ -349,7 +363,7 @@ def _log_sm2_event(self, trigger: str, ctx: SM2LogCtx) -> None:
         self._logger.error(SM2_FAILED.format(type=fr, max=ctx.max_attempts, zone=ctx.zone))
         self._logger.debug(
             f'SM2: PENDING→FAILED | seq={ctx.seq:04d} retries_exhausted={ctx.max_attempts} '
-            f'| last attempt: no response elapsed={ctx.elapsed:.1f}s'
+            f'| last attempt: no response elapsed={ctx.elapsed_ms}ms'
         )
 
     elif trigger == 'failed_nak':
@@ -366,9 +380,9 @@ def _log_sm2_event(self, trigger: str, ctx: SM2LogCtx) -> None:
         )
 ```
 
-> **`_event_type_fr()` and `_event_sia_code()`:** Small module-level dicts mapping
-> `'burglarAlarm' → 'intrusion'/'BA'`, `'fireAlarm' → 'incendie'/'FA'`,
-> `'panicAlarm' → 'panique'/'PA'`. Defined once near the top of `siadc09d.py`.
+> **`_EVENT_SIA_CODES`:** Module-level dict constant defined in `siadc09d.py` (daemon-design.md Task 1.1).
+> French label mapping (`intrusion`, `incendie`, `panique`) is provided by
+> `error_handler.event_type_fr()` — separate concern, separate owner.
 
 ---
 
@@ -520,7 +534,7 @@ Non-routine dialogs bypass the throttle entirely.
 
 ```php
 case 'message_trace':
-    $messages = json_decode(config::byKey('last_messages', __CLASS__, '[]'), true) ?: [];
+    $messages = json_decode(config::byKey('sia_last_messages', __CLASS__, '[]'), true) ?: [];
     $dialog   = $result['dialog'];
 
     if ($dialog['dialog_type'] === 'supervision' && $dialog['routine']) {
@@ -541,7 +555,7 @@ case 'message_trace':
 
     // Stored at plugin level (config::save) — NOT on eqLogic — to avoid triggering
     // postSave() on every write.
-    config::save('last_messages', json_encode($messages), __CLASS__);
+    config::save('sia_last_messages', json_encode($messages), __CLASS__);
     break;
 ```
 
@@ -565,39 +579,50 @@ clean foundation if locale support is added in a future version (gettext loader 
 # User-facing log message strings — INFO/WARNING/ERROR only.
 # Technical DEBUG lines are NOT here; they stay inline in code.
 # All strings are French (v1.0). Gettext deferred to future version.
+# TODO v1.1: replace with gettext loader
+from typing import Final
 
-# SM1 — lifecycle
+T3_PREFIX: Final[str] = "CRITIQUE — "
+# Level 1 test: assert every T3 message starts with T3_PREFIX.
+
+SIA_NULL_CODE: Final[str] = "NULL"
+# Used for supervision NULL frames only. NOT in _EVENT_SIA_CODES.
+# Level 1 test: assert SIA_NULL_CODE not in _EVENT_SIA_CODES.
+
+# --- SM1 transitions ---
 SM1_STARTING              = "Démarrage — connexion à la centrale en cours"
 SM1_CONNECTED             = "Connexion à la centrale établie"
 SM1_RECOVERED             = "Supervision rétablie après {prev_strike} timeout(s)"
 SM1_TCP_RECONNECTED       = "Connexion TCP rétablie — vérification supervision en cours"
-
-# SM1 — degraded / warning
 SM1_TIMEOUT_STARTUP       = "Timeout supervision au démarrage (strike 1/3) — nouvelle tentative"
 SM1_TIMEOUT_WARNING       = "Timeout supervision (strike {strike}/3) — nouvelle tentative"
 SM1_STILL_ABSENT          = "Supervision toujours absente — en attente de rétablissement"
 SM1_TCP_DROP              = "Connexion TCP perdue — tentative de reconnexion (depuis état {prev_state})"
 SM1_NAK_TIMESTAMP         = "NAK supervision (strike {strike}/3) — horodatage rejeté par la centrale"
 SM1_NAK_BAD               = "Réponse invalide de la centrale — NAK non décodable (strike {strike}/3)"
-
-# SM1 — error
 SM1_LOST                  = "Supervision perdue — 3 tentatives sans réponse (T3 notification envoyée)"
 SM1_TCP_RECONNECT_FAIL_1  = "Reconnexion TCP échouée — centrale injoignable"
 SM1_NO_NETWORK            = "Réseau injoignable après {n} tentatives — arrêt du daemon"
 
-# SM2 — lifecycle
+# --- SM2 transitions ---
 SM2_IDLE                  = "En attente d'événements alarme"
 SM2_EVENT_RECEIVED        = "Alarme {type} reçue (zone: {zone}) — transmission en cours"
 SM2_CONFIRMED             = "Centrale confirmée — alarme {type} transmise (zone: {zone})"
-
-# SM2 — warning
 SM2_RETRY                 = "Pas de réponse de la centrale — tentative {attempt}/{max}"
 SM2_TIMESTAMP_HEAL        = "Horodatage refusé — correction automatique et renvoi"  # v1.1 — not used in v1.0
-
-# SM2 — error
 SM2_FAILED                = "Alarme {type} non transmise après {max} tentatives (zone: {zone})"
 SM2_FAILED_NAK            = "Réponse inattendue de la centrale — alarme {type} non transmise (zone: {zone})"
 SM2_FAILED_NO_NETWORK     = "Alarme {type} non transmise — réseau inaccessible (zone: {zone})"
+
+# --- Error notifications (T1 / T2 / T3) ---
+# T3 messages must prepend T3_PREFIX — enforced by Level 1 test.
+# (Notification message templates are constructed in error_handler.py using these constants.)
+
+# --- Preset validation ---
+# Human-readable French error messages for missing/invalid preset fields.
+
+# --- Wizard UI ---
+# UI-facing strings for wizard steps (French only, v1.0).
 ```
 
 **Usage in `siadc09d.py`:**
@@ -638,7 +663,7 @@ logging.info(SM2_CONFIRMED.format(type=event_type_fr(evt), zone=zone))
 
 | Type | Storage | Description |
 |---|---|---|
-| `message_trace` | `last_messages` (JSON, max 50) | Protocol dialog for inspector panel (5c) |
+| `message_trace` | `sia_last_messages` (JSON, max 50) | Protocol dialog for inspector panel (5c) |
 
 > Combined with Component 5a's `message_center`, `notify`, `error_update` — four callback
 > types total added across 5a and 5b.
@@ -649,9 +674,25 @@ logging.info(SM2_CONFIRMED.format(type=event_type_fr(evt), zone=zone))
 
 **Location:** `resources/siadc09d/messages.py`
 
-**Dependencies:** None — pure string constants.
+**Dependencies:** `typing.Final` only (stdlib). **Zero other imports** — `messages.py` is always
+the first module in the creation/import chain; no circular dependency risk.
+Level 1 test: `assert messages.py` has no imports other than `typing.Final`.
 
 **Used by:** `siadc09d.py` (imports named constants, formats with `.format()`).
+
+**`T3_PREFIX` constant:**
+```python
+T3_PREFIX: Final[str] = "CRITIQUE — "
+```
+All T3-tier notification messages prepend this constant (not the raw string).
+Level 1 test: assert every T3 message starts with `T3_PREFIX`.
+
+**`SIA_NULL_CODE` constant:**
+```python
+SIA_NULL_CODE: Final[str] = "NULL"
+```
+Used for supervision NULL frames only. `SIA_NULL_CODE` is **not** in `_EVENT_SIA_CODES`.
+Level 1 test: `assert SIA_NULL_CODE not in _EVENT_SIA_CODES`.
 
 ---
 

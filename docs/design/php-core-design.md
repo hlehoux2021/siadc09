@@ -67,22 +67,29 @@ Rationale: Only one equipment exists (plugin-centric). The wizard IS the equipme
 
 ### Configuration keys
 
-| Key | Type | Description |
-|---|---|---|
-| `csr_provider` | string | `ima_protect` or `manual` |
-| `csr_ip` | string | CSR IP address |
-| `csr_port` | int | CSR UDP/TCP port |
-| `transport` | string | `udp` or `tcp` |
-| `account_number` | string | 3–16 hex chars |
-| `encryption_enabled` | bool | AES encryption on/off |
-| `encryption_key` | string | 32 hex chars (AES-128) |
-| `receiver_prefix` | string | 0–6 hex chars receiver prefix (`R` field). Default `''` → omitted; CSR interprets as `R0`. **IMA Protect: unconfirmed — verify at integration time.** |
-| `account_prefix` | string | 0–6 hex chars account prefix (`L` field). Default `''` → omitted; CSR interprets as `L0`. **IMA Protect: unconfirmed — verify at integration time.** |
-| `supervision_interval` | int | seconds between NULL messages (default 60) |
-| `retry_count` | int | max retries on timeout (default 3) |
-| `notify_cmd_id` | int | Jeedom cmd ID of ACTION/message command for critical alerts |
-| `wizard_step` | int | last completed wizard step (1–4), for resuming |
-| `zoneMapping` | array | `[{zone_name, camera_action, media_url_cmd_id}]` |
+> **Naming rule:** All plugin-owned config keys use the `sia_` prefix to avoid collisions with
+> Jeedom framework reserved keys (e.g. `eqType_name`, `isEnable`, `object_id`). Always pass a
+> typed default as second argument to `getConfiguration()` matching the value type.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `csr_provider` | string | `''` | `ima_protect` or `manual` |
+| `csr_ip` | string | `''` | CSR IP address |
+| `csr_port` | int | `0` | CSR UDP/TCP port |
+| `transport` | string | `''` | `udp` or `tcp` |
+| `account_number` | string | `''` | 3–16 hex chars |
+| `encryption_enabled` | bool | `0` | AES encryption on/off (stored as 0/1) |
+| `encryption_key` | string | `''` | 32 hex chars (AES-128) |
+| `receiver_prefix` | string | `''` | 0–6 hex chars receiver prefix (`R` field). Default `''` → omitted; CSR interprets as `R0`. **IMA Protect: unconfirmed — verify at integration time.** |
+| `account_prefix` | string | `''` | 0–6 hex chars account prefix (`L` field). Default `''` → omitted; CSR interprets as `L0`. **IMA Protect: unconfirmed — verify at integration time.** |
+| `supervision_interval` | int | `60` | seconds between NULL messages |
+| `retry_count` | int | `3` | max retries on timeout |
+| `sia_notify_cmd_id` | int | `0` | Jeedom cmd ID of ACTION/message command for critical alerts |
+| `sia_notify_cmd_human` | string | `''` | Display-only companion for `sia_notify_cmd_id` — never passed to daemon, never used in logic |
+| `sia_wizard_step` | int | `0` | last completed wizard step (0–4), for resuming |
+| `sia_zone_mappings` | array | `[]` | `[{zone_name, camera_action_cmd_id, media_url_cmd_id}]` |
+| `sia_last_errors` | JSON array | `[]` | Structured error list (daemon-written, max 10 entries, newest first) |
+| `sia_last_messages` | JSON array | `[]` | Protocol dialog ring buffer (daemon-written, max 50 entries, newest first) |
 
 ### IMA Protect preset values
 
@@ -103,7 +110,7 @@ See `wizard-design.md` §"CSR Presets Configuration File" for the full preset fo
 | INFO command type for scenario triggers | **Numeric** | Standard Jeedom practice |
 | INFO update mechanism | **`checkAndUpdateCmd()`** | Standard Jeedom — always updates `collectDate`, updates `valueDate` only on change, fires scenario events automatically |
 | Config storage | **All in `getConfiguration`** on auto-equipment | Single equipment, wizard = equipment config page, no fragmentation needed |
-| Zone mapping storage | `getConfiguration('zoneMapping', [])` | JSON array, consistent with all other config keys |
+| Zone mapping storage | `getConfiguration('sia_zone_mappings', [])` | JSON array, consistent with all other config keys |
 | `jeedom-daemon-py` distribution | **pip3 via `packages.json`** | Confirmed by examining the reference plugin in this repo — `jeedomdaemon` is in pip3 deps, not bundled |
 | `pycryptodome` in packages.json | **Declared from phase 1** | Avoids migration issues when AES is enabled later |
 | Daemon logging | Python `logging` module via jeedom-daemon-py | Writes directly to Jeedom log files — no 'log' message type needed in PHP `message()` |
@@ -264,13 +271,25 @@ sequenceDiagram
   "description": {"fr_FR": "Transmission d'alarmes vers centrale de télésurveillance via protocole SIA DC-09"},
   "licence": "AGPL",
   "author": "...",
-  "require": "4.5",
+  "require": {"jeedom": ">=4.5"},
   "category": "security",
   "hasDependency": true,
   "hasOwnDeamon": true,
-  "maxDependancyInstallTime": 10
+  "maxDependancyInstallTime": 10,
+  "os": {"min": 12}
 }
 ```
+
+> **`require` format:** As of Jeedom 4.5, `require` must be an object `{"jeedom": ">=4.5"}`,
+> not a bare string. The `os.min: 12` field enforces Debian 12 (Python 3.11), which satisfies
+> the Python 3.10+ requirement.
+
+**`os.min: 12` rationale:** The daemon Python code requires **Python 3.10+** (PEP 604 union types in annotations). Jeedom has no direct Python version field — the `os` field constrains by Debian version instead. Debian 12 (Bookworm) ships Python 3.11, which satisfies the requirement. Debian 11 (Bullseye) ships Python 3.9 and is excluded.
+
+Dependency chain:
+- The `os` field was introduced in **Core 4.4.15** — older cores ignore it entirely.
+- Jeedom officially supports Debian 12 starting from **Core 4.4.x**.
+- Both constraints are already satisfied by `require: "4.5"` (4.5 > 4.4.15). No change to `require` is needed.
 
 **Challenge Q:** `category: "security"` — est-ce le bon choix pour le Market Jeedom ? Il y a aussi `"automation"`, `"communication"`. Cela affecte le référencement sur le Market.
 
@@ -308,6 +327,9 @@ sequenceDiagram
 
 ```php
 public function execute($options = []) {
+    // parent::execute() MUST be first — handles Jeedom built-in checks and history.
+    parent::execute($options);
+
     $eqLogic = $this->getEqLogic();
     $cmd = $this->getLogicalId();  // burglarAlarm | fireAlarm | panicAlarm
 
@@ -315,7 +337,7 @@ public function execute($options = []) {
     $zone = $options['title'] ?? '';
 
     // Resolve zone mapping entry for this zone
-    $zoneMapping = $eqLogic->getConfiguration('zoneMapping', []);
+    $zoneMapping = $eqLogic->getConfiguration('sia_zone_mappings', []);
     $zoneEntry   = $this->_findZoneEntry($zone, $zoneMapping);
 
     // Execute camera action if configured (e.g. snapshot or recording start).
@@ -452,28 +474,37 @@ private function _resolveMediaUrl(string $zone, ?array $zoneEntry): ?string {
 
 ```php
 private function _ensureCommands() {
+    // returnStateTime=30, returnStateValue=0 on ALL commands:
+    // Jeedom auto-reverts to 0 after 30 min of no update.
+    // For event_state: prevents stuck PENDING (value=3) if daemon crashes mid-alarm.
+    // For all other commands: safe no-op when daemon is running normally.
     $commandsSpec = [
         // ACTION commands — isVisible=0: rendered via toHtml() panel only, not as raw tile buttons
         ['logicalId' => 'burglarAlarm', 'type' => 'action', 'subType' => 'message',
-         'name' => 'Alarme intrusion', 'isVisible' => 0, 'order' => 1],
+         'name' => 'Alarme intrusion', 'isVisible' => 0, 'order' => 1,
+         'returnStateTime' => 30, 'returnStateValue' => 0],
         ['logicalId' => 'fireAlarm',    'type' => 'action', 'subType' => 'message',
-         'name' => 'Alarme incendie',  'isVisible' => 0, 'order' => 2],
+         'name' => 'Alarme incendie',  'isVisible' => 0, 'order' => 2,
+         'returnStateTime' => 30, 'returnStateValue' => 0],
         ['logicalId' => 'panicAlarm',   'type' => 'action', 'subType' => 'message',
-         'name' => 'Alarme panique',   'isVisible' => 0, 'order' => 3],
+         'name' => 'Alarme panique',   'isVisible' => 0, 'order' => 3,
+         'returnStateTime' => 30, 'returnStateValue' => 0],
         // INFO numeric (scenario triggers) — isVisible=0: toHtml() renders state display
         ['logicalId' => 'supervision_state',    'type' => 'info', 'subType' => 'numeric',
-         'name' => 'État supervision', 'isVisible' => 0, 'order' => 4],
-        // returnStateTime=30, returnStateValue=0: Jeedom auto-reverts to 0 after 30 min of no update.
-        // Handles stuck event_state=3 (PENDING) if daemon crashes mid-alarm — without this,
-        // the "in progress" state would remain visible indefinitely. 0 = no alarm since startup.
+         'name' => 'État supervision', 'isVisible' => 0, 'order' => 4,
+         'returnStateTime' => 30, 'returnStateValue' => 0],
+        // event_state=3 (PENDING) would remain visible indefinitely if daemon crashes mid-alarm.
+        // returnStateTime=30 / returnStateValue=0 auto-reverts after 30 min of no daemon update.
         ['logicalId' => 'event_state', 'type' => 'info', 'subType' => 'numeric',
          'name' => 'Transmission alarme', 'isVisible' => 0, 'order' => 5,
          'returnStateTime' => 30, 'returnStateValue' => 0],
         // INFO string (display) — isVisible=0
         ['logicalId' => 'supervision_label',    'type' => 'info', 'subType' => 'string',
-         'name' => 'Supervision détail', 'isVisible' => 0, 'order' => 6],
+         'name' => 'Supervision détail', 'isVisible' => 0, 'order' => 6,
+         'returnStateTime' => 30, 'returnStateValue' => 0],
         ['logicalId' => 'event_label',    'type' => 'info', 'subType' => 'string',
-         'name' => 'Dernier événement', 'isVisible' => 0, 'order' => 7],
+         'name' => 'Dernier événement', 'isVisible' => 0, 'order' => 7,
+         'returnStateTime' => 30, 'returnStateValue' => 0],
     ];
     foreach ($commandsSpec as $spec) {
         if (!$this->getCmd(null, $spec['logicalId'])) {
@@ -501,14 +532,54 @@ public function postSave() {
 
 ```php
 public function preRemove() {
-    // deamon_running() does not exist in Jeedom — use deamon_info()['state']
+    // Step 1: stop daemon FIRST — ordering matters.
+    // deamon_running() does not exist in Jeedom — use deamon_info()['state'].
     if (siaDC09::deamon_info()['state'] == 'ok') {
         siaDC09::deamon_stop();  // includes its own graceful shutdown polling
+    }
+    // Step 2: clear ring-buffer config keys explicitly.
+    // Although Jeedom deletes the eqLogic row (and all config) automatically,
+    // clearing here ensures no stale entries survive in any cache layer.
+    $this->setConfiguration('sia_last_errors',   []);
+    $this->setConfiguration('sia_last_messages', []);
+    $this->save();
+}
+```
+
+> **`preRemove()` ordering rule (from architecture.md):** (1) `deamon_stop()`, (2) clear
+> `sia_last_errors` / `sia_last_messages`. Jeedom handles `eqLogic` row deletion after
+> `preRemove()` returns.
+
+---
+
+### Task 2.5a — `siaDC09::activate()` / `siaDC09::deactivate()`
+
+**What:** Equipment lifecycle hooks called by Jeedom when the user enables or disables the equipment from the UI.
+
+```php
+public function activate(): void {
+    // No-op: the Jeedom watchdog (cron5) starts the daemon automatically
+    // when equipment is enabled and launchable. Do NOT auto-start here —
+    // starting from activate() would bypass the launchable guard in deamon_info().
+}
+
+public function deactivate(): void {
+    // Stop the daemon when the equipment is disabled.
+    // deamon_running() does not exist in Jeedom — use deamon_info()['state'].
+    if (siaDC09::deamon_info()['state'] == 'ok') {
+        siaDC09::deamon_stop();
     }
 }
 ```
 
-✅ **Decision:** Do NOT clear `getConfiguration` on `preRemove`. Jeedom deletes the eqLogic row (and its config) automatically. No explicit cleanup needed — and preserving config would anyway ease reinstalls.
+**`toHtml()` interaction:** When `getIsEnable() === 0`, `toHtml()` renders a grey "Désactivé"
+badge and ignores `supervision_state` entirely. See `widget-design.md` for the full rendering
+logic.
+
+> **Note on `deamon_` spelling:** Jeedom uses the historical misspelling `deamon_` (not `daemon_`)
+> for all framework hook methods: `deamon_start()`, `deamon_stop()`, `deamon_info()`. The
+> correctly-spelled `daemon_start()` is **silently ignored by Jeedom** — no error, no execution.
+> All methods in this plugin use `deamon_` as required.
 
 ---
 
@@ -544,17 +615,26 @@ public static function message($message) {
             // Full implementation: error-handler-design.md §`message_center`
             break;
         case 'notify':
-            // T2/T3 → execCmd on notify_cmd_id with ['title'=>..., 'message'=>...]
+            // T2/T3 → execCmd on sia_notify_cmd_id with ['title'=>..., 'message'=>...]
+            // Layer 2 validation: guard against stale/unset config (Layer 1 = wizard Step 4).
             // Full implementation: error-handler-design.md §`notify`
+            $notifyCmdId = (int) $eqLogic->getConfiguration('sia_notify_cmd_id', 0);
+            if ($notifyCmdId <= 0) {
+                log::add(__CLASS__, 'warning',
+                    __('Commande notification non configurée — alerte ignorée', __FILE__)
+                );
+                return;
+            }
+            // cmd::byId() + execCmd(['title' => ..., 'message' => ...])
             break;
         case 'error_update':
-            // Structured error → prepend to last_errors (max 10, newest first)
+            // Structured error → prepend to sia_last_errors (max 10, newest first)
             // Full implementation: error-handler-design.md §`error_update`
             break;
         // --- Component 5b callback type ---
         // Implement per logging-design.md §"PHP callback: message_trace"
         case 'message_trace':
-            // Protocol dialog → prepend to last_messages (max 50, newest first)
+            // Protocol dialog → prepend to sia_last_messages (max 50, newest first)
             // Full implementation: logging-design.md §`message_trace`
             break;
         // Note: 'test_result' type removed — testConnection uses Option A
@@ -602,6 +682,10 @@ private static function _handleInfoUpdate($eqLogic, $data) {
 
 ### Task 2.7 — `siaDC09::deamon_info()` / `deamon_start()` / `deamon_stop()`
 
+> ⚠️ **`deamon_` spelling is mandatory.** Jeedom uses the historical misspelling `deamon_`
+> for all daemon lifecycle methods. The correctly-spelled `daemon_start()` / `daemon_stop()` /
+> `daemon_info()` are **silently ignored** by Jeedom — no error is raised. Always use `deamon_`.
+
 **What:** Standard Jeedom daemon management interface. These static methods are called by the Jeedom core to manage the daemon lifecycle from the plugin management page.
 
 > ⚠️ **`deamon_info()` is superseded by supervision-design.md Task C.2.** The enhanced
@@ -637,20 +721,21 @@ public static function deamon_start() {
     // encryption_key is intentionally excluded from $config — it is passed via
     // environment variable (SIA_ENCRYPTION_KEY) to prevent exposure in ps aux /
     // process listings and in the Jeedom log file where $cmd is logged.
+    // All getConfiguration() calls use sia_* prefix and typed defaults.
+    // notify_cmd_id intentionally omitted — used by PHP only (message() reads it from
+    // getConfiguration()), never by the daemon. No need to pass it via CLI.
     $config = [
-        'socketport'         => config::byKey('socketport', 'siaDC09', 55001),
-        'loglevel'           => log::convertLogLevel(log::getLogLevel('siaDC09')),
-        'csr_ip'             => $eqLogic->getConfiguration('csr_ip'),
-        'csr_port'           => $eqLogic->getConfiguration('csr_port'),
-        'transport'          => $eqLogic->getConfiguration('transport'),
-        'supervision_interval'=> $eqLogic->getConfiguration('supervision_interval', 60),
-        'retry_count'        => $eqLogic->getConfiguration('retry_count', 3),
-        'account_number'     => $eqLogic->getConfiguration('account_number'),
-        'encryption_enabled' => $eqLogic->getConfiguration('encryption_enabled') ? '1' : '0',
-        'receiver_prefix'    => $eqLogic->getConfiguration('receiver_prefix', ''),
-        'account_prefix'     => $eqLogic->getConfiguration('account_prefix', ''),
-        // notify_cmd_id intentionally omitted — used by PHP only (message() reads it from
-        // getConfiguration()), never by the daemon. No need to pass it via CLI.
+        'socketport'          => config::byKey('socketport', 'siaDC09', 55001),
+        'loglevel'            => log::convertLogLevel(log::getLogLevel('siaDC09')),
+        'csr_ip'              => $eqLogic->getConfiguration('csr_ip', ''),
+        'csr_port'            => $eqLogic->getConfiguration('csr_port', 0),
+        'transport'           => $eqLogic->getConfiguration('transport', ''),
+        'supervision_interval' => $eqLogic->getConfiguration('supervision_interval', 60),
+        'retry_count'         => $eqLogic->getConfiguration('retry_count', 3),
+        'account_number'      => $eqLogic->getConfiguration('account_number', ''),
+        'encryption_enabled'  => $eqLogic->getConfiguration('encryption_enabled', 0) ? '1' : '0',
+        'receiver_prefix'     => $eqLogic->getConfiguration('receiver_prefix', ''),
+        'account_prefix'      => $eqLogic->getConfiguration('account_prefix', ''),
     ];
 
     // system::getCmdPython3() returns the venv-aware python binary on Debian 12.
@@ -688,7 +773,7 @@ public static function deamon_start() {
     // Build env prefix as late as possible — immediately before exec(), never stored longer.
     // The daemon reads it via os.environ.get('SIA_ENCRYPTION_KEY', '').
     // SECURITY: never pass ($envPrefix . $cmd) to log::add() or any logging function.
-    $encKey    = $eqLogic->getConfiguration('encryption_key', '');
+    $encKey    = $eqLogic->getConfiguration('encryption_key', '');  // scrubbed immediately after exec()
     $envPrefix = 'SIA_ENCRYPTION_KEY=' . escapeshellarg($encKey) . ' ';
     set_time_limit(30);
     $result = exec($envPrefix . $cmd . ' >> ' . log::getPathToLog(__CLASS__ . '_daemon') . ' 2>&1 &');
@@ -774,17 +859,28 @@ resources/
 ```
 
 **`dependancy_info()`:**
+
+> **Rule:** `dependancy_info()` **never throws** — always returns `['state' => ..., 'progression' => ...]`.
+> The Jeedom watchdog calls it every minute; an uncaught exception here would crash the cron job.
+
 ```php
 public static function dependancy_info() {
-    $return = [
-        'state'         => 'nok',
-        'progress_file' => jeedom::getTmpFolder(__CLASS__) . '/dependance',
-    ];
-    if (config::byKey('lastDependancyInstallTime', __CLASS__) != ''
-        && file_exists(__DIR__ . '/../../resources/siadc09d/.install_ok')) {
-        $return['state'] = 'ok';
+    // MUST never throw — Jeedom watchdog calls this every minute.
+    try {
+        $return = [
+            'state'         => 'nok',
+            'progression'   => 100,
+            'progress_file' => jeedom::getTmpFolder(__CLASS__) . '/dependance',
+        ];
+        if (config::byKey('lastDependancyInstallTime', __CLASS__) != ''
+            && file_exists(__DIR__ . '/../../resources/siadc09d/.install_ok')) {
+            $return['state'] = 'ok';
+        }
+        return $return;
+    } catch (Exception $e) {
+        log::add(__CLASS__, 'error', 'dependancy_info() threw: ' . $e->getMessage());
+        return ['state' => 'nok', 'progression' => 100];
     }
-    return $return;
 }
 ```
 
@@ -910,7 +1006,7 @@ The reference plugin (`core/ajax/jeeaiodemo.ajax.php`) uses this exact structure
 | `getZones` | Wizard step 3 | — | `[{name: str}, ...]` |
 | `getCameraCommands` | Wizard step 3 | — | `[{id: int, name: str, type: 'CAMERA_TAKE'|'CAMERA_URL'}, ...]` |
 | `getDiagnosticData` | Diagnostic tab "Actualiser" | — | `{errors: [...], messages: [...], supervision_state: int, supervision_label: str, event_state: int, event_label: str}` — one call refreshes all three panels |
-| `clearDiagnosticData` | Diagnostic tab "Vider" | `target=errors\|messages` | `{success: true}` — clears the corresponding plugin-level config key via `config::save('last_errors'\|'last_messages', '[]', __CLASS__)` |
+| `clearDiagnosticData` | Diagnostic tab "Vider" | `target=errors\|messages` | `{success: true}` — clears the corresponding equipment config key via `$eqLogic->setConfiguration('sia_last_errors'\|'sia_last_messages', [])` + `$eqLogic->save()` |
 | `decodeFrame` | Protocol inspector (5c) expand row | `raw_hex=<hex>`, `key_hex=<hex>\|''` | JSON-encoded `ParsedMessage` dict on success; `{error: str}` on failure — see subprocess contract below |
 
 ✅ **Decision: Option A — standalone subprocess, no running daemon required.**

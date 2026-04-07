@@ -24,7 +24,13 @@
       "Read(//usr/share/jeedom/core/**)",
       "Bash(grep -r \"getTemplate\" /Users/herve.lehoux/Dev/plugin-* --include=\"*.php\" -B 2 -A 2)",
       "Bash(wc -l /Users/herve.lehoux/Dev/my-project/docs/design/*.md)",
-      "WebFetch(domain:api.github.com)"
+      "WebFetch(domain:api.github.com)",
+      "Bash(gh repo:*)",
+      "Read(//private/tmp/ioBroker.sia/**)",
+      "Read(//tmp/ioBroker.sia/src/lib/**)",
+      "Read(//private/tmp/ioBroker.sia/src/lib/**)",
+      "Read(//tmp/ioBroker.sia/src/**)",
+      "Read(//private/tmp/ioBroker.sia/src/**)"
     ],
     "additionalDirectories": [
       "/Users/herve.lehoux/Dev/my-project/docs",

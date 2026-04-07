@@ -30,6 +30,8 @@ tests/
 
 ### Dependency rules
 
+- **Requires Python 3.10+** — uses PEP 604 union syntax (`X | Y`) in annotations. On Jeedom, enforced via `info.json` `"os": {"min": 12}` (Debian 12 ships Python 3.11). Runtime type aliases use `typing.Union` for clarity.
+- **All `datetime` objects are UTC and timezone-aware** — always use `datetime.now(timezone.utc)`, never `datetime.utcnow()` (deprecated since Python 3.12, returns a timezone-naive object). Mixing naive and aware datetimes raises `TypeError` at runtime.
 - `sia_protocol.py` imports only `sia_crypto.py` — zero Jeedom dependencies
 - `sia_crypto.py` imports only Python stdlib (`cryptography` or `pycryptodome`)
 - `siadc09d.py` imports `sia_protocol`, `sia_crypto`, and `jeedom-daemon-py`
@@ -52,6 +54,27 @@ In prose and code blocks, always use the qualified form: `SM1State.HEALTHY`, `SM
 ---
 
 ## Component 0 — `sia_protocol.py` + `sia_crypto.py` + `csr_simulator.py`
+
+### Exception hierarchy
+
+Two named exception classes are defined in `sia_protocol.py` and replace all generic `ValueError`/`OSError` for protocol and transport failures:
+
+```python
+class SIATransportError(OSError):
+    """Network/socket failure — TCP timeout, UDP timeout, socket closed."""
+
+class SIAProtocolError(ValueError):
+    """SIA DC-09 protocol violation — malformed frame, decode failure."""
+```
+
+- `_send_raw_tcp()` / `_send_raw_udp()` raise `SIATransportError` on all transport failures (timeout, connection reset, socket closed, etc.)
+- `encode_message()` / `decode_message()` raise `SIAProtocolError` on malformed or invalid data
+- Call sites catch by type — never use bare `except Exception:` for protocol/transport errors (that would swallow `CancelledError`)
+- Both defined in `sia_protocol.py`; imported from there everywhere
+
+> **`CancelledError` safety rule:** `except Exception:` in asyncio code **must not swallow `asyncio.CancelledError`** (a subclass of `BaseException`, not `Exception`, in Python 3.8+). Use typed `except (SIATransportError, SIAProtocolError):` for expected protocol/transport errors, or `except Exception as e: if isinstance(e, asyncio.CancelledError): raise` if a broad catch is unavoidable. `asyncio.TaskGroup` is forbidden — use `_track_task()` for each coroutine independently.
+
+---
 
 ### API surface of `sia_protocol.py`
 
@@ -96,22 +119,6 @@ In prose and code blocks, always use the qualified form: `SM1State.HEALTHY`, `SM
 
 ---
 
-#### `detect_crc_format(raw: bytes) -> str`
-
-**Why:** SIA DC-09 frames carry the CRC in either hex-ASCII (4 bytes) or binary (2 bytes) format. Both must be accepted. The daemon detects the format used in CSR responses to encode its own frames in the matching format.
-
-**What:** Inspects fixed byte positions in the raw frame using the standard's layout:
-- Hex format: `raw[5] == ord('0') and raw[9] == ord('"')` → `'hex'`
-- Bin format: `raw[3] == ord('0') and raw[7] == ord('"')` → `'bin'`
-
-| Parameter | Type | Description |
-|---|---|---|
-| `raw` | `bytes` | Complete raw frame bytes (minimum 10 bytes) |
-
-**Returns:** `'hex'` or `'bin'`.
-**Raises:** `ValueError` if neither pattern matches (malformed frame).
-
----
 
 #### `wrap_frame(message_str: str, crc_format: str = 'hex') -> bytes`
 
@@ -128,7 +135,7 @@ In prose and code blocks, always use the qualified form: `SM1State.HEALTHY`, `SM
 
 ---
 
-#### `encode_message(id_type, account, seq, zone, timestamp, receiver_prefix='', account_prefix='', media_url=None, crc_format: str = 'hex') -> bytes`
+#### `encode_message(id_type, account, seq, zone, timestamp, receiver_prefix='', account_prefix='', media_url=None, *, crc_format: str) -> bytes`
 
 **Why:** Primary outbound frame builder. Constructs alarm and supervision frames from semantic parameters, handling the SIA-DCS data block format and optional Verification extended data field.
 
@@ -158,13 +165,13 @@ The pad is pseudo-random bytes prepended so that the total encrypted region leng
 |---|---|---|
 | `id_type` | `str` | Frame identifier token (see table above) |
 | `account` | `str` | Account number, 3–16 hex chars |
-| `seq` | `int` | Sequence number 1–9999; wraps to 1 after 9999. Formatted as 4 zero-padded digits. |
+| `seq` | `int` | Sequence number 0–9999; initialized to 0, wraps `9999 → 0000`. Formatted as 4 zero-padded digits: `f"{seq:04d}"`. |
 | `zone` | `str` | Zone name for alarm events; empty string `''` for `'NULL'` supervision frames |
 | `timestamp` | `str` | UTC timestamp from `make_timestamp()`. `encode_message()` prepends the mandatory `_` separator before embedding it in the frame — do **not** include `_` in the value returned by `make_timestamp()`. |
 | `receiver_prefix` | `str` | Optional 0–6 hex char receiver prefix. Default `''` → field omitted; CSR interprets as `R0`. **IMA Protect: unconfirmed — verify at integration time.** |
 | `account_prefix` | `str` | Optional 0–6 hex char account prefix. Default `''` → field omitted; CSR interprets as `L0`. **IMA Protect: unconfirmed — verify at integration time.** |
 | `media_url` | `str \| None` | Snapshot URL appended as `[V...]` Verification extended data field per section 5.5.1.8. Appended after event data block, before timestamp. Forbidden chars: `[`, `]`, `|`. Encoding: Windows-1252. `None` → field omitted. |
-| `crc_format` | `str` | `'hex'` (default, 4-byte ASCII CRC) or `'bin'` (2-byte binary CRC). Must match what the CSR uses in its responses — detected by the daemon on first ACK via `detect_crc_format()` and stored in `self._crc_format`. **Always pass `self._crc_format`** — never rely on the default. |
+| `crc_format` | `str` | **Required keyword-only argument.** `'hex'` (4-byte ASCII CRC) or `'bin'` (2-byte binary CRC). Loaded from the CSR preset at daemon startup and stored in `self._crc_format`. Always call as `crc_format=self._crc_format`. |
 
 **Returns:** `bytes` — complete frame ready to transmit.
 
@@ -198,7 +205,7 @@ The pad is pseudo-random bytes prepended so that the total encrypted region leng
 | `timestamp` | `str \| None` | Timestamp string, or `None` if absent |
 | `crc_format` | `str` | `'hex'` or `'bin'` |
 
-**Raises:** `ValueError` if frame structure is invalid.
+**Raises:** `SIAProtocolError` if frame structure is invalid.
 
 ---
 
@@ -271,17 +278,23 @@ For encrypted ACK, the `*ACK` response is itself encrypted (timestamp + pad in t
 ```python
 @dataclass
 class ParsedMessage:
-    raw_hex: str
-    crc_received: str;  crc_computed: str;  crc_valid: bool
-    length_declared: int;  length_actual: int
-    id_token: str              # e.g. "SIA-DCS", "*SIA-DCS", "ACK", "NAK"
-    encrypted: bool;  aes_blocks: int | None
-    sequence: str
-    receiver_prefix: str | None;  account_prefix: str;  account: str
-    data_raw: str              # hex string if encrypted + no key; plaintext otherwise
-    data_decrypted: str | None # populated when encrypted and key provided
-    extended_fields: list[tuple[str, str]]  # [(identifier, content), ...]
-    timestamp: str | None
+    raw_hex:          str
+    crc_received:     str
+    crc_computed:     str
+    crc_valid:        bool
+    length_declared:  int
+    length_actual:    int
+    id_token:         str              # e.g. "SIA-DCS", "*SIA-DCS", "ACK", "NAK"
+    encrypted:        bool
+    aes_blocks:       int | None       # populated if encrypted
+    sequence:         str
+    receiver_prefix:  str | None
+    account_prefix:   str
+    account:          str
+    data_raw:         str              # hex string if encrypted + no key; plaintext otherwise
+    data_decrypted:   str | None       # populated when encrypted and key provided
+    extended_fields:  list[tuple[str, str]]  # [(identifier, content), ...]
+    timestamp:        str | None
 ```
 
 **Behaviour:** `key=None` + encrypted frame → `data_raw` = hex of ciphertext, `data_decrypted=None`. Key provided → decrypt, set `data_decrypted`; `data_raw` still holds original ciphertext hex.
@@ -290,15 +303,33 @@ class ParsedMessage:
 
 ---
 
-#### `parse_nak_timestamp(nak_data: bytes) -> datetime | None` *(Task 0.5)*
+#### `parse_nak_timestamp(nak_data: bytes) -> datetime` *(Task 0.5)*
 
 **Why:** Extracts the CSR's current time from a NAK frame data field (section 5.5.3.2). In v1.0 used only to distinguish a standard timestamp-NAK (parseable) from a malformed NAK (anomaly → `BAD_CSR_RESPONSE`). In v1.1, the extracted `datetime` will drive clock auto-heal and a one-shot retry.
 
 | Parameter | Type | Description |
 |---|---|---|
-| `nak_data` | `bytes` | Full raw NAK frame bytes — the `raw_nak` field from `decode_ack_nak()` |
+| `nak_data` | `bytes` | Full raw NAK frame bytes — the `raw_nak` field from `decode_ack_nak()`. **Must not be `None`** — callers must guard before calling (see call site contract below). |
 
-**Returns:** `datetime` (UTC, timezone-aware) if the NAK data field contains a parseable SIA DC-09 timestamp; `None` otherwise.
+**Returns:** `datetime` (UTC, timezone-aware) — the CSR's current time extracted from the NAK data field.
+
+**Raises:** `ValueError` if the NAK data field is missing, malformed, or does not contain a parseable SIA DC-09 timestamp. Callers must catch `ValueError` and treat it as a protocol anomaly (`BAD_CSR_RESPONSE`).
+
+**Call site contract:** callers must NOT pass `None`. The canonical pattern is:
+
+```python
+try:
+    if nak_data is None:
+        raise ValueError('no NAK data')
+    csr_time = sia_protocol.parse_nak_timestamp(nak_data)
+    # success path — standard timestamp NAK
+except ValueError:
+    # failure path — missing or undecodable NAK data → BAD_CSR_RESPONSE
+```
+
+This design is intentional: `parse_nak_timestamp` does one thing (parse), and callers own the
+routing decision. Returning `None` would conflate two distinct outcomes (parse failure vs. no data)
+and push a conditional into every call site.
 
 ---
 
@@ -357,7 +388,7 @@ sequenceDiagram
     Note over Q: Consumer picks highest priority item
 
     Q-->>D: get() → EVENT{BA, Salon}
-    D->>P: encode_message("SIA-DCS", account, seq, "Salon", ts)
+    D->>P: encode_message("SIA-DCS", account, seq, "Salon", ts, crc_format=self._crc_format)
     P->>C: encrypt(payload, key)
     Note over C: Stub: returns payload unchanged (Phase 1)
     C-->>P: payload
@@ -370,8 +401,8 @@ sequenceDiagram
     D->>P: decode_ack_nak(raw)
     P-->>D: {type: "ACK", seq: 1}
 
-    D->>PHP: send_to_jeedom({event_state: 1, event_label: _update_event_label('confirmed')})
-    D->>PHP: send_to_jeedom({supervision_state: _supervision_value(), supervision_label: _supervision_label()})
+    D->>D: SM2 → CONFIRMED; format event_label via _update_info_commands()
+    D->>PHP: send_to_jeedom({event_state: 1, event_label: "...", supervision_state: _supervision_value(), supervision_label: _supervision_label()})
 ```
 
 ---
@@ -472,32 +503,46 @@ The simulator supports scenario scripts (JSON) to test all NAK branches:
 | Supervision vs event priority | **Event wins** (priority 0 vs 1) | Alarm delivery is safety-critical |
 | Critical notification command | User-selected Jeedom ACTION/message command (configured in wizard) | Reuses existing notification channels (SMS, push, etc.) |
 | TCP reconnection | Auto-reconnect silently; notify user if reconnection fails | Network blip should not wake user; persistent failure should |
-| CRC format | `_crc_format: str` initialized to `'hex'`; updated once on first ACK | `'hex'` is the safe default; detected from first CSR response and locked for daemon lifetime |
+| CRC format | `_crc_format: str` loaded from CSR preset at startup | `'hex'` (standard, IMA Protect) or `'bin'` (Lupusec quirk); defined in preset JSON — not detected at runtime |
 
-> ⚠️ **Known limitation (v1.0):** Sequence number resets to `0001` on daemon restart. Some CSRs may briefly reject messages as potential duplicates until the sequence diverges from the last known value. This will be addressed in v1.1 by persisting the counter in Jeedom plugin config.
+> ⚠️ **Known limitation (v1.0):** Sequence number resets to `0000` on daemon restart. Some CSRs may briefly reject messages as potential duplicates until the sequence diverges from the last known value. This will be addressed in v1.1 by persisting the counter in Jeedom plugin config.
 
 **CRC format contract:**
 
-- **Owner:** `SIADaemon._crc_format: str` — initialized to `'hex'` in `on_start()`.
-- **Lock flag:** `SIADaemon._crc_format_locked: bool` — initialized to `False` in `on_start()`. Set to `True` on first detection. Prevents re-evaluation on subsequent responses.
-- **Detection point:** `_send_raw()` — on the **first response of any type** (ACK or NAK), before returning to the caller:
-  ```python
-  if not self._crc_format_locked and raw_response:
-      self._crc_format = sia_protocol.detect_crc_format(raw_response)
-      self._crc_format_locked = True
-  ```
-  Centralised here so detection is guaranteed regardless of whether the first response is ACK, NAK, or any future response type. Timeout produces no raw bytes — `_crc_format` stays `'hex'` until the next response arrives.
-- **Rationale:** SIA DC-09 section 5.5.1.2 mandates hex-ASCII CRC. However, some CSRs (e.g. Lupusec) non-standardly send binary CRC in all responses. Detection on first response future-proofs against such CSRs without impacting standards-compliant ones (IMA Protect).
-- **Usage:** passed to every `encode_message()` call for the lifetime of the daemon process. Resets to `'hex'` / `False` on daemon restart and re-detects from the next response.
+- **Owner:** `SIADaemon._crc_format: str` — loaded from `self._preset.crc_format` in `on_start()`. Fails fast (ADR-09) if the value is not `'hex'` or `'bin'`.
+- **No runtime detection:** CRC format is a CSR characteristic defined in the preset JSON, not something discoverable from ACK/NAK responses. The daemon is the *sender* (panel role) — it chooses the format; the CSR does not dictate it.
+- **Preset values:** `'hex'` = 4-byte ASCII CRC (SIA DC-09 standard, used by IMA Protect). `'bin'` = 2-byte raw big-endian binary (Lupusec panels only).
+- **Usage:** passed as `crc_format=self._preset.crc_format` to every `encode_message()` call (keyword-only, no default — omitting it is a compile-time error). Value is constant for the daemon lifetime.
+
+**`CSRPreset` dataclass:**
+
+`on_start()` constructs a `CSRPreset` from the daemon config:
+```python
+self._preset = CSRPreset(**preset_dict)
+```
+`CSRPreset` is a `@dataclass(frozen=True, slots=True)` defined in `presets.py`. Field names:
+`csr_provider`, `schema_version`, `host`, `port`, `account_number`, `transport`, `crc_format`,
+`connect_timeout_s`, `receive_timeout_s`, `supervision_interval_s`.
+`SUPPORTED_SCHEMA_VERSION: int = 1` is a module constant in `presets.py`. `on_start()` raises
+`SIAProtocolError` if `preset.schema_version != SUPPORTED_SCHEMA_VERSION`.
+All preset field access uses `self._preset.field_name` (attribute access on frozen dataclass —
+never dict subscript after construction).
 
 ---
 
 **Sequence number contract:**
 
-- **Owner:** `SIADaemon._seq: int` — single instance variable, initialized to `1` in `on_start()`.
+- **Owner:** `SIADaemon._sia_seq: int` — single instance variable, initialized to `0` in `__init__()`.
 - **Scope:** one global counter shared across both supervision NULLs and alarm event frames (SIA DC-09 defines one sequence space per PE/account — section 5.5.1.3).
-- **Increment:** after each call to `encode_message()`, regardless of whether the frame receives an ACK. Wraps `9999 → 1` (never reaches `0`).
-- **Restart behaviour:** resets to `1` on every daemon start — not persisted. The CSR treats the first post-restart frame as a fresh sequence. **IMA Protect tolerance for this reset must be verified at integration time.**
+- **Increment:** only after a successful send (i.e. after `_send_raw()` returns without raising). Wraps `9999 → 0000` via `(self._sia_seq + 1) % 10000`. **Never incremented on send failure** — retry uses the same sequence number (correct per SIA DC-09).
+- **Format:** `f"{self._sia_seq:04d}"` — always 4 digits, never 5. First frame uses `"0000"`.
+- **Correct ordering:** encode → send → increment:
+  ```python
+  frame = encode_message(..., seq=self._sia_seq, crc_format=self._preset.crc_format)
+  await self._send_raw(frame)           # raises SIATransportError on failure
+  self._sia_seq = (self._sia_seq + 1) % 10000  # wraps 9999 → 0000
+  ```
+- **Restart behaviour:** resets to `0` on every daemon start — not persisted. The CSR treats the first post-restart frame as a fresh sequence. **IMA Protect tolerance for this reset must be verified at integration time.**
 
 ---
 
@@ -621,7 +666,7 @@ SM1 state is evaluated at dequeue time (Phase 2).
 | DEGRADED (strike 1–2) | TCP/UDP | `_send_with_retry()` attempted — socket open, CSR **possibly** still reachable | CONFIRMED or FAILED |
 | DEGRADED (strike 3) | **UDP** | `_send_with_retry()` attempted best-effort. T3 SUPERVISION_DISCONNECTED already fired for supervision loss. If SM2 also FAILS → EVENT_FAILED fires as a second T3 alert. | CONFIRMED or FAILED |
 | DEGRADED (strike 3) | **TCP** | Cannot occur in practice: at strike=3 TCP immediately transitions SM1 → `SM1State.TCP_RECONNECTING` and force-closes the socket (supervision-design.md B.1). Event will be re-queued under TCP_RECONNECTING rule below. | — |
-| TCP_RECONNECTING | TCP | Event **re-queued** (put back at same priority). Consumer yields briefly (1 s) to allow `_reconnect_tcp()` to progress before re-checking. On reconnect success (SM1 → `SM1State.INITIALIZING`): event processed normally on next dequeue. On reconnect failure (SM1 → `SM1State.NO_NETWORK`): event will be failed on next dequeue via the NO_NETWORK rule below. `ErrorCode.SUPERVISION_DISCONNECTED` was already fired; `ErrorCode.EVENT_FAILED` will fire in addition if the event ultimately fails. | CONFIRMED or FAILED |
+| TCP_RECONNECTING | TCP | Event **re-queued** (put back at same priority). Consumer yields briefly (1 s) to allow `_tcp_reconnect_loop()` to progress before re-checking. On reconnect success (SM1 → `SM1State.INITIALIZING`): event processed normally on next dequeue. On reconnect failure (SM1 → `SM1State.NO_NETWORK`): event will be failed on next dequeue via the NO_NETWORK rule below. `ErrorCode.SUPERVISION_DISCONNECTED` was already fired; `ErrorCode.EVENT_FAILED` will fire in addition if the event ultimately fails. | CONFIRMED or FAILED |
 | NO_NETWORK | TCP | SM2 → **`SM2State.FAILED` immediately**, no send attempt. `_notify(ErrorCode.EVENT_FAILED)` fired before daemon calls `self.stop()`. `ErrorCode.TRANSPORT_PERMANENT` was already fired for the transport loss; `ErrorCode.EVENT_FAILED` is an additional T3 alert for the lost alarm event. | FAILED |
 
 **Supervision items in critical states:**
@@ -758,17 +803,48 @@ Format decided by Component 6 (Widget) to serve the night-time emergency use cas
 ### Priority Queue coordination
 
 ```
-asyncio.PriorityQueue items:
-  (0, "EVENT",      {type, zone, media_url, retries_left})  ← from PHP via on_message()
-  (1, "SUPERVISION", {})                                     ← from supervision timer
+asyncio.PriorityQueue items — 4-tuple:
+  (priority, counter, item_type, data)
+
+  priority:  0 = EVENT, 1 = SUPERVISION
+  counter:   monotonic int from itertools.count() — tie-breaker (see below)
+  item_type: "EVENT" | "SUPERVISION"
+  data:      dict — {type, zone, media_url, retries_left} for EVENT; {} for SUPERVISION
+
+Examples:
+  (0, 42, "EVENT",       {type, zone, media_url, retries_left})  ← from PHP via on_message()
+  (1, 43, "SUPERVISION", {})                                      ← from supervision timer
 
 Single consumer coroutine:
   loop:
     item = await queue.get()
-    if EVENT      → send_with_retry(item) → update SM2
-    if SUPERVISION → send_raw(null_frame, timeout=10s, no retry) → update SM1
+    priority, counter, item_type, data = item
+    if item_type == "EVENT"       → send_with_retry(data) → update SM2
+    if item_type == "SUPERVISION" → send_raw(null_frame, timeout=10s, no retry) → update SM1
     queue.task_done()
 ```
+
+**Tie-breaker rationale:** `asyncio.PriorityQueue` uses `heapq`, which compares tuples
+element-by-element with `<`. If two items share the same `priority` AND `item_type`
+(e.g. two simultaneous EVENT alarms), Python would attempt to compare the `data` dict —
+which does not support `<`, raising `TypeError`. A monotonic counter as the second element
+guarantees a total ordering that never reaches `data`:
+
+```python
+import itertools
+
+# In SIADaemon.__init__() or on_start():
+self._queue_counter = itertools.count()
+
+# Enqueue an event:
+await self._queue.put((0, next(self._queue_counter), 'EVENT', data))
+
+# Enqueue a supervision tick:
+await self._queue.put((1, next(self._queue_counter), 'SUPERVISION', {}))
+```
+
+`itertools.count()` is not thread-safe in a multi-threaded context, but asyncio is
+single-threaded and cooperative — `next()` is atomic with respect to the event loop.
 
 The supervision timer never sends directly — it only enqueues. This guarantees:
 - No concurrent sends on the socket
@@ -792,7 +868,7 @@ sequenceDiagram
     D->>D: SM2 → PENDING, update event_label
 
     loop Up to N retries
-        D->>P: encode_message(seq, zone, ts)
+        D->>P: encode_message(seq, zone, ts, crc_format=self._crc_format)
         P-->>D: frame
         D->>CSR: send(frame)
 
@@ -831,7 +907,7 @@ sequenceDiagram
         Note over Q: Processed only when no EVENT pending
 
         Q-->>D: get() → SUPERVISION
-        D->>P: encode_message("NULL", account, seq, ts)
+        D->>P: encode_message("NULL", account, seq, ts, crc_format=self._crc_format)
         P-->>D: null_frame
         D->>CSR: send(null_frame)
 
@@ -870,36 +946,103 @@ Extend `JeedomDaemon`. Implement `__init__()` loading config:
   `getConfiguration()` inside `message()`). The daemon never needs the cmd ID.
 - No `csr_presets.json` dependency at runtime.
 
+Also initialize in `__init__()` (not deferred to `on_start()`) — ensures `on_stop()` never
+raises `AttributeError` if called before `on_start()` completes:
+```python
+self._tasks: set[asyncio.Task] = set()
+```
+
 Implement `run()` launching two coroutines: `_queue_consumer()` + `_supervision_loop()`.
-Initialize `sm1_state = INITIALIZING`, `sm2_state = IDLE`, `strike_counter = 0`.
+Initialize in `on_start()`: `sm1_state = INITIALIZING`, `sm2_state = IDLE`, `strike_counter = 0`.
+`on_start()` also re-assigns `self._tasks = set()` to reset tracked tasks on restart (see below).
+
+Initialize the priority queue with its full item type so static analysis catches malformed enqueue calls:
+
+```python
+self._queue: asyncio.PriorityQueue[tuple[int, int, str, dict[str, Any]]] = asyncio.PriorityQueue()
+#                                   ^       ^       ^    ^
+#                                   priority counter kind data
+```
+
+Define the `_track_task()` helper — used everywhere in place of bare `asyncio.create_task()`:
+
+```python
+def _track_task(self, coro: Coroutine[Any, Any, Any]) -> asyncio.Task:
+    """Schedule coro as a tracked asyncio.Task.
+
+    Stores the task ref to prevent GC-before-completion, logs any unhandled
+    exception via add_done_callback(), and removes the ref on completion.
+    Use in place of bare asyncio.create_task() for all background coroutines.
+
+    coro must be a coroutine object (i.e. the result of calling an async def
+    function). Passing a coroutine function reference without calling it is a
+    silent error that mypy catches with this annotation.
+    Requires: from collections.abc import Coroutine; from typing import Any
+    """
+    t = asyncio.create_task(coro, name=getattr(coro, '__qualname__', repr(coro)))
+    self._tasks.add(t)
+    def _on_done(task: asyncio.Task) -> None:
+        self._tasks.discard(task)
+        if not task.cancelled() and (exc := task.exception()):
+            self._logger.error(
+                f'Unhandled exception in background task {task.get_name()}: {exc!r}',
+                exc_info=exc,
+            )
+    t.add_done_callback(_on_done)
+    return t
+```
 
 > **Security note:** `encryption_key` is NOT passed as a CLI argument (it would be visible
 > in `ps aux`). It is injected by `deamon_start()` as the `SIA_ENCRYPTION_KEY` environment
 > variable and read in `__init__()` via `os.environ.get('SIA_ENCRYPTION_KEY', '')`.
 > All other config values arrive as `--arg` CLI parameters.
 
+Define module-level constants:
+
+```python
+MAX_ALARM_ATTEMPTS: int = 3
+"""Maximum number of send attempts per alarm event (initial + retries).
+Used in: _send_with_retry() check `item["attempt"] > MAX_ALARM_ATTEMPTS`.
+"""
+
+_EVENT_SIA_CODES: dict[str, str] = {
+    'burglarAlarm': 'BA',
+    'fireAlarm':    'FA',
+    'panicAlarm':   'PA',
+}
+```
+
+Used in `_log_sm2_event()` (trigger `'received'`) as `_EVENT_SIA_CODES[ctx.event_type]`.
+French label mapping (`intrusion`, `incendie`, `panique`) is provided by
+`error_handler.event_type_fr()` — separate concern, separate owner.
+
 #### Task 1.2 — Socket management `_connect()` / `_disconnect()`
 Open UDP socket (`socket.SOCK_DGRAM`) or TCP (`asyncio.open_connection()`).
 
-For **TCP**: on socket drop → SM1 → `SM1State.TCP_RECONNECTING`. Launch `_tcp_reconnect_loop()` as
-an independent `asyncio.Task` (does not block `_queue_consumer()`):
+For **TCP**: on socket drop → SM1 → `SM1State.TCP_RECONNECTING`. Launch `_tcp_reconnect_loop()` via
+`self._track_task()` (does not block `_queue_consumer()`):
 
 ```
 _tcp_reconnect_loop():
     for attempt in range(1, 6):          # max 5 attempts
         try:
-            await asyncio.open_connection(csr_ip, csr_port)  # 10s connect timeout
+            await asyncio.wait_for(
+                asyncio.open_connection(csr_ip, csr_port),
+                timeout=10.0,
+            )
+            self._strike_counter = 0          # reset: fresh INITIALIZING, not poisoned by prior DEGRADED
+            self._sm1_t3_fired = False         # reset: next DEGRADED(strike=3) must fire T3 again
             SM1 → SM1State.INITIALIZING
             return
-        except (OSError, asyncio.TimeoutError):
+        except SIATransportError:
             log DEBUG "TCP reconnect attempt {attempt}/5 failed"
             if attempt < 5:
                 await _update_info_commands()   # heartbeat: keeps collectDate fresh
                                                 # so widget stale detector stays silent
-                await asyncio.sleep(10)  # fixed 10s between attempts
+                await asyncio.sleep(self._preset.reconnect_delay_s)  # fixed delay (default 5 s)
     # exhausted
     SM1 → SM1State.NO_NETWORK
-    await self._notify(ErrorCode.TRANSPORT_PERMANENT, TransportPermanentCtx(retry_count=5))
+    self._notify(ErrorCode.TRANSPORT_PERMANENT, TransportPermanentCtx(retry_count=5))
     self.stop()
 ```
 
@@ -917,18 +1060,50 @@ For **UDP**: stateless, no persistent connection. Network loss is not detectable
 transport layer — only discoverable via supervision timeouts driving SM1 → `SM1State.DEGRADED`.
 `SM1State.TCP_RECONNECTING` and `SM1State.NO_NETWORK` states do not apply.
 
-#### Task 1.3 — `_send_raw(frame, timeout) -> dict`
-Send frame bytes on socket, wait for response up to `timeout` seconds. Return `{status: 'ack'|'nak'|'timeout', raw_nak: bytes|None}`. `raw_nak` holds the full raw NAK frame bytes when status is `'nak'`; `None` otherwise. Passed directly to `_handle_supervision_nak(nak_data: bytes)` for timestamp parsing. Uses `sia_protocol.decode_ack_nak()`.
+#### Task 1.3 — `_send_raw(frame: bytes) -> dict`
 
-**CRC format detection (inside `_send_raw()`):** on any non-timeout response, before returning, attempt one-time CRC format detection:
+Dispatches to `_send_raw_tcp()` or `_send_raw_udp()` based on `self._preset.transport`. Returns `{status: 'ack'|'nak'|'timeout'|'tcp_drop', raw_nak: bytes|None}`. `raw_nak` holds the full raw NAK frame bytes when status is `'nak'`; `None` otherwise. Passed directly to `_handle_supervision_nak(nak_data: bytes)` for timestamp parsing. Uses `sia_protocol.decode_ack_nak()`.
+
+> **Caller restriction:** Only `_queue_consumer()` may call `_send_raw()`. Any other call site is an architectural violation.
+
+No retry inside `_send_raw()`; retries are the caller's responsibility.
+
+##### `_send_raw_tcp()` rules
+
+- `asyncio.wait_for(open_connection(host, port), timeout=self._preset.connect_timeout_s)` — **never** bare `open_connection()` (would hang indefinitely on filtered ports)
+- Response read: `asyncio.wait_for(reader.read(...), timeout=self._preset.receive_timeout_s)`
+- `finally:` block closes the writer unconditionally — even on `SIATransportError` or `CancelledError`:
+  ```python
+  finally:
+      writer.close()
+      await writer.wait_closed()
+  ```
+- **Not reentrant** — `asyncio.StreamWriter`/`StreamReader` owned exclusively within the method; no concurrent reader task. Single caller at a time enforced by `_queue_consumer()`.
+- Transport failures (connect timeout, read timeout, connection reset, etc.) → raise `SIATransportError`.
+
+**OS exception handling:** if `send()` or `recv()` raises an `OSError`, classify by errno:
+
 ```python
-if not self._crc_format_locked and raw_response:
-    self._crc_format = sia_protocol.detect_crc_format(raw_response)
-    self._crc_format_locked = True
-```
-`detect_crc_format()` raises `ValueError` on malformed frames — catch it and leave `_crc_format` at `'hex'` (do not lock; retry on next response). This covers both ACK and NAK responses in a single central location — callers need not handle detection themselves.
+import errno as errno_mod
 
-**OS exception handling:** if `send()` or `recv()` raises an `OSError` (including EAGAIN, ECONNRESET, EPIPE), catch it, log at WARNING with the exception detail, and return `{status: 'timeout', raw_nak: None}`. The caller treats it as a normal timeout — no separate error path. No retry inside `_send_raw()`; retries are the caller's responsibility (supervision: recurring loop; events: `_send_with_retry()`).
+except OSError as e:
+    if self._preset.transport == 'TCP' and e.errno in (
+        errno_mod.ECONNRESET, errno_mod.EPIPE, errno_mod.ENOTCONN, errno_mod.EBADF
+    ):
+        # Connection-fatal — kernel already knows the socket is dead.
+        # Return tcp_drop so callers transition immediately to TCP_RECONNECTING
+        # rather than waiting 3 supervision strikes (~3 min) to detect the loss.
+        self._logger.warning(f'TCP connection lost in _send_raw_tcp(): {e!r}')
+        return {'status': 'tcp_drop', 'raw_nak': None}
+    raise SIATransportError(f'TCP socket error: {e!r}') from e
+```
+
+##### `_send_raw_udp()` rules
+
+- Uses a **persistent** `asyncio.DatagramTransport` + `_SIADatagramProtocol(asyncio.DatagramProtocol)` created in `on_start()`, closed in `on_stop()` — **never** creates a per-send socket (avoids ephemeral port exhaustion).
+- Reply gate: `_SIADatagramProtocol.datagram_received()` sets an `asyncio.Future`; `_send_raw_udp()` awaits it with `asyncio.wait_for(..., timeout=self._preset.receive_timeout_s)`.
+- One `asyncio.Future` per send; replaced after each reply.
+- `asyncio.TimeoutError` from `wait_for` → raise `SIATransportError`.
 
 #### Task 1.4 — `_send_with_retry(event_item) -> dict`
 Wraps `_send_raw`. Before building the frame, validates and sanitises `media_url`:
@@ -944,16 +1119,26 @@ Implements NAK dispatch:
   Per SIA DC-09 section 5.5.3.2, there are no NAK sub-codes. Any NAK = unexpected CSR behavior.
   _(v1.1: will parse CSR timestamp from NAK data for auto-heal resync before flagging as failure)_
 - **Timeout** → decrement `retries_left`; at 0 → `SM2State.FAILED`, `_notify(ErrorCode.EVENT_FAILED, {...})`
+- **`tcp_drop`** → SM1 → `TCP_RECONNECTING`, `_track_task(_tcp_reconnect_loop())`, re-queue event
+  (same as the TCP_RECONNECTING re-queue path in `_queue_consumer()`). No `SM2State.FAILED` —
+  the event is held for delivery after reconnect.
 - **Unexpected exception** (unexpected socket state, etc.) → `SM2State.FAILED`,
   `_notify(ErrorCode.EVENT_FAILED, {..., 'error': repr(e)})`, log at ERROR. **Must never propagate.**
   Returns result dict with `status: 'error'` in this case.
 
 Updates SM2 state and `event_label` at each step. Returns final result dict.
 
-**`encode_message()` call site:** always pass `self._receiver_prefix`, `self._account_prefix`, and `self._crc_format` — never rely on the defaults. See `encode_message()` parameter table for the `crc_format` contract.
+**`encode_message()` call site:** always pass `self._receiver_prefix`, `self._account_prefix`, and `crc_format=self._crc_format`. `crc_format` is keyword-only with no default — the compiler enforces it.
 
 #### Task 1.5 — `_next_sequence() -> int`
-Increment 1–9999 with wrap. In-memory only (v1.0).
+
+> **Deprecated helper** — `_next_sequence()` is replaced by the inline increment pattern at each call site:
+> ```python
+> seq = self._sia_seq
+> # ... encode and send ...
+> self._sia_seq = (self._sia_seq + 1) % 10000  # only on success
+> ```
+> `_sia_seq` is initialized to `0` in `__init__()`; first frame uses `"0000"`. In-memory only (v1.0).
 
 #### Task 1.6 — `on_message(cmd, params)`
 Receives `{cmd: 'burglarAlarm'|'fireAlarm'|'panicAlarm', zone: zone_name, media_url: str|None}` from PHP. Puts `(0, "EVENT", {..., retries_left: N})` in priority queue. **Does not change SM2 state** — SM2 → PENDING is set by `_queue_consumer()` at dequeue time, ensuring at most one event is PENDING at any moment (serialization).
@@ -979,14 +1164,15 @@ handled correctly after reconnect.
 async def _queue_consumer(self):
     while True:
         item = await self._queue.get()
-        priority, kind, data = item
+        priority, counter, kind, data = item
 
         if kind == 'EVENT':
             if self._sm1_state == SM1State.NO_NETWORK:
-                # Daemon stopping — fail the event immediately, no send attempt
+                # Daemon stopping — fail the event immediately, no send attempt.
+                # _update_info_commands() reads self._sm2_state and formats event_label
+                # from stored zone/event data — no separate _update_event_label() needed.
                 self._sm2_state = SM2State.FAILED
-                await self._update_event_label('no_network')
-                await self._notify(ErrorCode.EVENT_FAILED, EventFailedCtx(
+                self._notify(ErrorCode.EVENT_FAILED, EventFailedCtx(
                     event_type  = data.get('cmd', ''),
                     zone        = data.get('zone', ''),
                     retry_count = self._retry_count - data.get('retries_left', 0),
@@ -1013,7 +1199,7 @@ async def _queue_consumer(self):
                     self._sm2_state = SM2State.FAILED
                     # 'error' detail goes to the ERROR log (traceback), not to the
                     # notification — EventFailedCtx carries only user-facing fields.
-                    await self._notify(ErrorCode.EVENT_FAILED, EventFailedCtx(
+                    self._notify(ErrorCode.EVENT_FAILED, EventFailedCtx(
                         event_type  = data.get('cmd', ''),
                         zone        = data.get('zone', ''),
                         retry_count = self._retry_count - data.get('retries_left', 0),
@@ -1043,11 +1229,11 @@ Push INFO command updates to PHP after each dispatch via `_update_info_commands(
 
 #### Task 1.8 — `_supervision_loop()` coroutine
 
-**What:** Periodic timer that enqueues one SUPERVISION item every `supervision_interval` seconds. Never sends directly — only enqueues. All socket I/O is serialised through `_queue_consumer()`.
+**What:** Periodic timer that enqueues one SUPERVISION item every `self._preset.supervision_interval_s` seconds. Never sends directly — only enqueues. All socket I/O is serialised through `_queue_consumer()`.
 
 ```python
 async def _supervision_loop(self):
-    """Enqueue a SUPERVISION item every supervision_interval seconds.
+    """Enqueue a SUPERVISION item every supervision_interval_s seconds.
 
     Starts with a sleep — NOT an immediate put — because on_start() already
     enqueues one SUPERVISION for immediate dispatch. Starting with sleep avoids
@@ -1056,8 +1242,8 @@ async def _supervision_loop(self):
     asyncio.CancelledError propagates naturally on daemon stop — no catch needed.
     """
     while True:
-        await asyncio.sleep(self._supervision_interval)
-        await self._queue.put((1, 'SUPERVISION', {}))
+        await asyncio.sleep(self._preset.supervision_interval_s)
+        await self._queue.put((1, next(self._queue_counter), 'SUPERVISION', {}))
 ```
 
 **Key design points:**

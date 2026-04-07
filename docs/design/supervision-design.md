@@ -196,6 +196,17 @@ the intention of TCP_RECONNECTING: it exists precisely for when the TCP link is 
 timeouts. DEGRADED(strike=3) for UDP means: keep sending supervision indefinitely;
 recovery is via ACK → HEALTHY. This is correct behavior (UDP is stateless).
 
+**TCP reconnect policy — no exponential backoff:**
+
+The `_tcp_reconnect_loop()` uses a **fixed** `self._preset.reconnect_delay_s` sleep between
+attempts (default: 5 s). Exponential backoff is deliberately **not used** — it is an
+anti-pattern for this protocol:
+- A CSR restart completes in seconds; exponential backoff delays alarm delivery unnecessarily.
+- The supervision contract already provides an upper bound via strike=3 (T3 notification).
+- All timing parameters are part of the `CSRPreset` dataclass.
+
+`reconnect_delay_s: float` — preset field (default 5 s). Part of `CSRPreset` loaded at startup via `self._preset.reconnect_delay_s`.
+
 > The full `_update_sm1_from_strike()` implementation is in Task B.1 below — that is
 > the canonical code. This section describes the rationale for the TCP_RECONNECTING
 > transition at strike=3.
@@ -261,6 +272,7 @@ async def on_start(self):
     self._sm1_state = SM1State.INITIALIZING
     self._sm2_state = SM2State.IDLE
     self._strike_counter = 0
+    self._tasks: set[asyncio.Task] = set()   # reset on restart (also initialized in __init__ — see daemon-design.md Task 1.1)
 
     # Push INITIALIZING to PHP before any task starts.
     # Guarantees stale state is cleared even if queue_consumer runs first.
@@ -283,12 +295,12 @@ async def on_start(self):
         self._logger.error(f'Impossible de joindre PHP au démarrage — arrêt du démon : {e}')
         raise
 
-    # Start background coroutines
-    asyncio.create_task(self._queue_consumer())
-    asyncio.create_task(self._supervision_loop())
+    # Start background coroutines — tracked to log exceptions and allow cancellation
+    self._track_task(self._queue_consumer())
+    self._track_task(self._supervision_loop())
 
     # Enqueue immediate first supervision — SM1 exits INITIALIZING within seconds
-    await self._queue.put((1, 'SUPERVISION', {}))
+    await self._queue.put((1, next(self._queue_counter), 'SUPERVISION', {}))
     self._logger.info('Démon prêt — supervision initiale planifiée')
 ```
 
@@ -317,6 +329,24 @@ async def on_stop(self):
         # Best-effort — never block shutdown on a failed HTTP call
         # (Jeedom may itself be stopping during a system reboot)
         self._logger.warning(f'Impossible de notifier PHP à l\'arrêt : {e}')
+
+    # Drain the queue before cancelling tasks — prevents _queue_consumer from
+    # processing items after the transport is closed.
+    while not self._queue.empty():
+        self._queue.get_nowait()
+
+    # Cancel all tracked background tasks (queue_consumer, supervision_loop,
+    # any in-flight reconnect or notify tasks).
+    for task in list(self._tasks):
+        task.cancel()
+    # Hard 5-second ceiling — prevents shutdown from hanging if a task ignores
+    # cancellation or is blocked in a tight loop.
+    # return_exceptions=True: exceptions from cancelled tasks are not re-raised.
+    # asyncio.gather(..., return_exceptions=True) is mandatory here — never omit it.
+    await asyncio.wait_for(
+        asyncio.gather(*self._tasks, return_exceptions=True),
+        timeout=5.0,
+    )
 ```
 
 ---
@@ -333,7 +363,8 @@ async def _update_sm1_from_strike(self) -> bool:
     Returns True if the T3 notification was fired by this call, False otherwise.
     Callers use the return value to set t3_just_fired in their SM1LogCtx.
 
-    async def — schedules fire-and-forget tasks via asyncio.create_task().
+    async def — awaits T3 notification directly (must not be dropped at shutdown);
+    schedules TCP reconnect as a tracked task (non-blocking long-running loop).
     Must be called with `await` from within a coroutine.
 
     SM1 stays DEGRADED at all strike levels — there is no DISCONNECTED state.
@@ -346,16 +377,16 @@ async def _update_sm1_from_strike(self) -> bool:
     if self._strike_counter >= 3:
         if self._transport == 'TCP':
             # Force TCP_RECONNECTING to escape half-open socket stall.
-            # SM1 state is set synchronously here; _reconnect_tcp() is scheduled
-            # as a task and will run on the next event loop iteration.
+            # SM1 state is set synchronously here; _tcp_reconnect_loop() is scheduled
+            # as a tracked task — it runs a long retry loop and must not block here.
             # This is safe: _queue_consumer() checks SM1=TCP_RECONNECTING and
             # re-queues (never calls _send_raw()), so the socket close inside
-            # _reconnect_tcp() completes before any send is attempted.
+            # _tcp_reconnect_loop() completes before any send is attempted.
             self._sm1_state = SM1State.TCP_RECONNECTING
-            asyncio.create_task(self._reconnect_tcp())
+            self._track_task(self._tcp_reconnect_loop())
         if not self._sm1_t3_fired:
             self._sm1_t3_fired = True
-            asyncio.create_task(self._notify(ErrorCode.SUPERVISION_DISCONNECTED))
+            self._notify(ErrorCode.SUPERVISION_DISCONNECTED)
             return True
     return False
 
@@ -380,13 +411,15 @@ def _supervision_label(self) -> str:
     return 'DÉMARRAGE…'  # INITIALIZING
 ```
 
-**Note:** Both `_notify()` and `_update_sm1_from_strike()` are `async def`. The internal
-`asyncio.create_task()` calls remain fire-and-forget (not awaited) — the reconnect and notify
-coroutines run concurrently without blocking the supervision loop.
+**Note:** `_update_sm1_from_strike()` is `async def`. `_notify()` is a synchronous wrapper
+that internally calls `_track_task(self._dispatch_notify(...), name)` — GC-safe and
+exception-logged via done-callback, without blocking the caller (see ADR-04, ADR-05).
+`_tcp_reconnect_loop()` is also scheduled via `_track_task()` because it runs a long retry
+loop and must not block the caller. See daemon-design.md Task 1.1.
 `_sm1_t3_fired` is initialised to `False` in `on_start()`
 and reset to `False` in two places:
 1. **ACK received** → `_strike_counter` reset to 0 → `_sm1_t3_fired = False`
-2. **TCP reconnect succeeded** → `_reconnect_tcp()` on success resets both
+2. **TCP reconnect succeeded** → `_tcp_reconnect_loop()` on success resets both
    `_strike_counter = 0` and `_sm1_t3_fired = False` before transitioning to INITIALIZING.
    This ensures a new DEGRADED(strike=3) after reconnect will fire T3 again.
 
@@ -426,7 +459,7 @@ SUPERVISION queue item. Completes the NAK handling left unspecified by Component
 ```python
 async def _send_supervision(self):
     """Send one supervision NULL frame and update SM1."""
-    seq = self._next_sequence()
+    seq = self._sia_seq   # capture before send; increment only on success
     id_type = '*NULL' if self._encryption_enabled else 'NULL'
     frame = sia_protocol.encode_message(
         id_type=id_type,
@@ -436,20 +469,21 @@ async def _send_supervision(self):
         timestamp=sia_protocol.make_timestamp(),
         receiver_prefix=self._receiver_prefix,
         account_prefix=self._account_prefix,
-        crc_format=self._crc_format,
+        crc_format=self._preset.crc_format,
     )
     t_start = time.monotonic()
-    result = await self._send_raw(frame, timeout=10)
+    result = await self._send_raw(frame)
     elapsed = time.monotonic() - t_start
 
     if result['status'] == 'ack':
-        # NOTE: _crc_format detection happens inside _send_raw() on first response —
-        # no detection logic needed here. See daemon-design.md CRC format contract.
+        # Increment sequence counter only on successful send+ACK.
+        # Never incremented on timeout/NAK/drop — retry reuses the same seq number.
+        self._sia_seq = (self._sia_seq + 1) % 10000  # wraps 9999 → 0000
         prev_strike = self._strike_counter
         self._strike_counter = 0
         self._sm1_t3_fired = False          # reset so next DEGRADED(3) fires T3 again
         self._sm1_state = SM1State.HEALTHY
-        self._last_supervision_ack = datetime.utcnow()
+        self._last_supervision_ack = datetime.now(timezone.utc)
         self._log_sm1_supervision('ack', SM1AckCtx(
             seq=seq,
             elapsed_ms=int(elapsed * 1000),
@@ -461,15 +495,22 @@ async def _send_supervision(self):
     elif result['status'] == 'nak':
         await self._handle_supervision_nak(seq, elapsed, result.get('raw_nak'))
 
+    elif result['status'] == 'tcp_drop':
+        # TCP connection lost at OS level — transition immediately without waiting
+        # for 3 supervision strikes (~3 min). _update_sm1_from_strike() is NOT called
+        # here; TCP_RECONNECTING is set directly.
+        self._sm1_state = SM1State.TCP_RECONNECTING
+        self._track_task(self._tcp_reconnect_loop())
+
     else:  # timeout
         prev_state = self._sm1_state
         self._strike_counter = min(self._strike_counter + 1, 3)
         t3_just_fired = await self._update_sm1_from_strike()
         if self._strike_counter < 3:
-            await self._notify(ErrorCode.SUPERVISION_TIMEOUT)
+            self._notify(ErrorCode.SUPERVISION_TIMEOUT)
         self._log_sm1_supervision('timeout', SM1TimeoutCtx(
             seq=seq,
-            elapsed=elapsed,
+            elapsed_ms=int(elapsed * 1000),
             strike=self._strike_counter,
             prev_state=prev_state,
             t3_just_fired=t3_just_fired,
@@ -490,17 +531,19 @@ async def _handle_supervision_nak(self, seq: int, elapsed: float, nak_data: byte
     seq and elapsed are passed from _send_supervision() for the logging context —
     they are not needed for protocol logic.
     """
-    csr_time = sia_protocol.parse_nak_timestamp(nak_data)  # returns datetime | None
     raw_hex = nak_data.hex() if nak_data else ''
 
     self._strike_counter = min(self._strike_counter + 1, 3)
     t3_just_fired = await self._update_sm1_from_strike()
 
-    if csr_time is not None:
+    try:
+        if nak_data is None:
+            raise ValueError('no NAK data')
+        csr_time = sia_protocol.parse_nak_timestamp(nak_data)
         # Standard timestamp NAK — treat as timeout in v1.0
         # (v1.1 will use csr_time to resync clock and retry)
         if self._strike_counter < 3:
-            await self._notify(ErrorCode.SUPERVISION_NAK)
+            self._notify(ErrorCode.SUPERVISION_NAK)
         self._log_sm1_supervision('nak_timestamp', SM1NakCtx(
             seq=seq,
             elapsed_ms=int(elapsed * 1000),
@@ -509,9 +552,9 @@ async def _handle_supervision_nak(self, seq: int, elapsed: float, nak_data: byte
             csr_time=csr_time.isoformat(),
             t3_just_fired=t3_just_fired,
         ))
-    else:
-        # Undecodable NAK — protocol anomaly
-        await self._notify(ErrorCode.BAD_CSR_RESPONSE)
+    except ValueError:
+        # Missing or undecodable NAK data — protocol anomaly
+        self._notify(ErrorCode.BAD_CSR_RESPONSE)
         self._log_sm1_supervision('nak_bad', SM1NakCtx(
             seq=seq,
             elapsed_ms=int(elapsed * 1000),

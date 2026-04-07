@@ -1,8 +1,8 @@
 # Config Wizard Design — Jeedom siaDC09 Plugin
 
-**Version:** 0.1
-**Date:** 2026-03-05
-**Status:** Draft — all Component 3 decisions confirmed
+**Version:** 0.2
+**Date:** 2026-04-03
+**Status:** Updated — aligned with architecture.md (sia_ prefix, canonical step map, exit contract)
 
 ---
 
@@ -20,12 +20,26 @@ complete. It is the only configuration interface for the plugin — there is no 
 
 ## Two display modes
 
-The page has two modes, selected by checking `wizard_step` on load:
+The page has two modes, selected by checking `sia_wizard_step` on load:
 
 | Condition | Mode displayed |
 |---|---|
-| `wizard_step < 4` (0 = never started) | **Wizard mode** — stepped UI, one section at a time |
-| `wizard_step == 4` | **Config mode** — standard Jeedom flat equipment layout |
+| `sia_wizard_step < 4` (0 = never started) | **Wizard mode** — stepped UI, one section at a time |
+| `sia_wizard_step == 4` | **Config mode** — standard Jeedom flat equipment layout |
+
+### Canonical Wizard Step Map
+
+| `sia_wizard_step` | Meaning |
+|---|---|
+| `0` | Not started |
+| `1` | Preset selection complete |
+| `2` | Connection test complete |
+| `3` | Zone mapping complete |
+| `4` | Configuration mode (wizard complete) |
+
+> **Browser-refresh safety:** on every "Next" click, saving `sia_wizard_step` must be the
+> **first statement** before any other side effect (AJAX call, subprocess launch, etc.).
+> This ensures the wizard resumes at the correct step if the browser is refreshed mid-flow.
 
 A **"Relancer l'assistant"** button is always visible in the equipment config header,
 regardless of mode. It resets the wizard to step 1 with the currently saved values
@@ -36,11 +50,11 @@ dialog is shown:
 > "Le démon est en cours d'exécution. L'assistant de connexion requiert que le démon
 > soit arrêté. Voulez-vous l'arrêter maintenant ?"
 
-On confirm: PHP sets `wizard_step = 0` **first** (makes `launchable='nok'` immediately
+On confirm: PHP sets `sia_wizard_step = 0` **first** (makes `launchable='nok'` immediately
 visible to Jeedom's watchdog — prevents auto-restart during wizard), then calls
 `siaDC09::deamon_stop()`, then reloads the page at step 1.
-If the `wizard_step` save fails, the daemon is still running with valid config (no harm —
-do not proceed to stop). If the daemon is already stopped, the button sets `wizard_step = 0`
+If the `sia_wizard_step` save fails, the daemon is still running with valid config (no harm —
+do not proceed to stop). If the daemon is already stopped, the button sets `sia_wizard_step = 0`
 and reloads immediately.
 
 ---
@@ -98,25 +112,25 @@ are saved to eqLogic on every save. Editability depends on mode:
 
 | Field | HTML binding | IMA Protect preset | Notes |
 |---|---|---|---|
-| `csr_provider` | `data-l2key="csr_provider"` (hidden) | `ima_protect` | Card selection writes this |
-| Adresse IP / Nom de domaine | `data-l2key="csr_ip"` | _(from csr_presets.json)_ | `readonly` in preset mode |
-| Port | `data-l2key="csr_port"` | _(from csr_presets.json)_ | `readonly` in preset mode |
-| Transport | `data-l2key="transport"` | _(from csr_presets.json)_ | `readonly` in preset mode |
-| Numéro de compte | `data-l2key="account_number"` | _(empty, user fills)_ | Always editable — subscriber-specific |
-| Chiffrement | `data-l2key="encryption_enabled"` | _(from csr_presets.json)_ | `readonly` in preset mode |
-| Clé de chiffrement (AES) | `data-l2key="encryption_key"` | _(empty, user fills)_ | Always editable — subscriber-specific; visible only if encryption enabled; 32/48/64 hex chars (AES-128/192/256) |
-| Intervalle supervision | `data-l2key="supervision_interval"` | _(from csr_presets.json)_ | `readonly` in preset mode |
-| Nombre de tentatives | `data-l2key="retry_count"` | _(from csr_presets.json)_ | `readonly` in preset mode |
+| `sia_csr_provider` | `data-l2key="sia_csr_provider"` (hidden) | `ima_protect` | Card selection writes this |
+| Adresse IP / Nom de domaine | `data-l2key="sia_host"` | _(from csr_presets.json)_ | `readonly` in preset mode |
+| Port | `data-l2key="sia_port"` | _(from csr_presets.json)_ | `readonly` in preset mode |
+| Transport | `data-l2key="sia_transport"` | _(from csr_presets.json)_ | `readonly` in preset mode |
+| Numéro de compte | `data-l2key="sia_account_number"` | _(empty, user fills)_ | Always editable — subscriber-specific |
+| Chiffrement | `data-l2key="sia_encryption_enabled"` | _(from csr_presets.json)_ | `readonly` in preset mode |
+| Clé de chiffrement (AES) | `data-l2key="sia_encryption_key"` | _(empty, user fills)_ | Always editable — subscriber-specific; visible only if encryption enabled; 32/48/64 hex chars (AES-128/192/256) |
+| Intervalle supervision | `data-l2key="sia_supervision_interval_s"` | _(from csr_presets.json)_ | `readonly` in preset mode |
+| Nombre de tentatives | `data-l2key="sia_retry_count"` | _(from csr_presets.json)_ | `readonly` in preset mode |
 
-> **Note:** `account_number` and `encryption_key` are always editable even in "IMA Protect"
-> mode — they are subscriber-specific values that the preset cannot know.
+> **Note:** `sia_account_number` and `sia_encryption_key` are always editable even in
+> "IMA Protect" mode — they are subscriber-specific values that the preset cannot know.
 
 ### Validation before "Suivant"
 
-- `account_number` non-empty, 3–16 hex chars
-- If `encryption_enabled`: `encryption_key` non-empty, **32, 48, or 64 hex chars** (AES-128 / AES-192 / AES-256 respectively — per section 5.4.5, CSR must support all three lengths)
-- `csr_ip` non-empty
-- `csr_port` numeric, 1–65535
+- `sia_account_number` non-empty, 3–16 hex chars
+- If `sia_encryption_enabled`: `sia_encryption_key` non-empty, **32, 48, or 64 hex chars** (AES-128 / AES-192 / AES-256 respectively — per section 5.4.5, CSR must support all three lengths)
+- `sia_host` non-empty
+- `sia_port` numeric, 1–65535
 
 Errors shown inline (red border + message under the field). No advance if validation fails.
 
@@ -127,19 +141,19 @@ saved, eqLogic always contains fully resolved values regardless of whether the u
 a preset or entered values manually.
 
 **How preset values reach eqLogic:** PHP renders the step 1 page by reading `csr_presets.json`
-server-side and pre-filling all CSR fields (`csr_ip`, `csr_port`, etc.) with the preset
+server-side and pre-filling all CSR fields (`sia_host`, `sia_port`, etc.) with the preset
 values. Those fields carry `data-l2key` bindings and `readonly` attribute — they submit
 their values on save just like editable fields. The standard Jeedom save writes them to
 eqLogic directly. No server-side resolution step is needed.
 
-`csr_provider` is saved to eqLogic to allow the wizard to restore the correct card
+`sia_csr_provider` is saved to eqLogic to allow the wizard to restore the correct card
 selection on page reload, and to control whether the "Personnaliser" button is shown.
 It is not used by the daemon.
 
 `csr_presets.json` is read **only** at wizard page render time — it is never read by the
 daemon or by `deamon_start()`.
 
-| `csr_provider` | CSR field values come from | Daemon reads from |
+| `sia_csr_provider` | CSR field values come from | Daemon reads from |
 |---|---|---|
 | Any preset ID | PHP pre-fills from `csr_presets.json` → saved to eqLogic | eqLogic |
 | `"manual"` | User fills form fields → saved to eqLogic | eqLogic |
@@ -178,14 +192,26 @@ The CSR summary is computed from the saved config (read-only display, not input 
 The test fires **automatically** on arriving at step 2, without any user action. The spinner
 and "Test en cours..." message appear immediately.
 
+### `test_connection.py` exit contract
+
+```
+exit 0  →  stdout: "success"
+exit 1  →  stdout: "failure"  or  "timeout"
+```
+
+No free-form stderr is surfaced to PHP. `set_time_limit(30)` must precede the `exec()`
+call. The subprocess may use `asyncio.run()` internally — "synchronous" means PHP `exec()`
+blocks; the subprocess is free to use any Python async pattern.
+
 ### Result display
 
-| Result | UI |
+| Subprocess output | UI |
 |---|---|
-| ACK received | Green banner: "Connexion établie — ACK reçu en Xms" |
-| NAK received | Orange banner: "Connexion établie mais réponse inattendue (NAK)" |
-| Timeout | Red banner: "Pas de réponse de la centrale — vérifiez l'adresse IP, le port et votre réseau" |
-| Subprocess error | Red banner: "Impossible de lancer le test — vérifiez que Python 3 et les dépendances sont installés" |
+| exit 0, stdout `"success"` | Green banner: "Connexion établie — ACK reçu" |
+| exit 0, stdout `"failure"` | Orange banner: "Connexion établie mais réponse inattendue (NAK)" |
+| exit 1, stdout `"timeout"` | Red banner: "Pas de réponse de la centrale — vérifiez l'adresse IP, le port et votre réseau" |
+| exit 1, stdout `"failure"` | Red banner: "Connexion échouée — vérifiez l'adresse IP, le port et votre réseau" |
+| Subprocess error (non-zero + unexpected output) | Red banner: "Impossible de lancer le test — vérifiez que Python 3 et les dépendances sont installés" |
 
 ### Button behavior
 
@@ -193,7 +219,7 @@ and "Test en cours..." message appear immediately.
 |---|---|
 | "Relancer le test" | Re-triggers the same auto-test flow |
 | "Ignorer" | Advances to step 3 WITHOUT testing; shows an inline warning: "Connexion non testée — le plugin ne pourra pas transmettre d'alarmes si la connexion échoue." |
-| "Suivant →" | Only available after a **successful** test (ACK or NAK). Blocked (greyed) if test is pending or timed out. Advances to step 3. If the last result was NAK, a confirmation dialog is shown before advancing. |
+| "Suivant →" | Only available after exit 0 (`"success"` or `"failure"`/NAK). Blocked (greyed) if test is pending or timed out (exit 1 `"timeout"`). Advances to step 3. If the last result was `"failure"` (NAK), a confirmation dialog is shown before advancing. |
 
 ### testConnection flow (Option A — standalone subprocess)
 
@@ -232,13 +258,13 @@ Zones are loaded exclusively from the **Jeedom alarm plugin** via `getZones` AJA
 The call reads the alarm eqLogic configuration (`getConfiguration('zones', [])`) and
 returns the zone names.
 
-If the alarm plugin is not found or returns no zones:
+If the alarm plugin is not found or returns no zones, the wizard shows the canonical
+helper message — it never crashes or silently skips:
 
 ```
 +-----------------------------------------------------------+
-|  [!] Plugin alarme non trouvé ou aucune zone configurée.  |
-|  Configurez vos zones dans le plugin alarme puis          |
-|  revenez ici.                                             |
+|  [!] Aucune zone détectée — configurez d'abord votre     |
+|  plugin alarme.                                           |
 +-----------------------------------------------------------+
 ```
 
@@ -268,9 +294,10 @@ Zones are loaded as read-only rows. The user cannot add or remove rows.
 Both dropdowns are populated by a **single** `getCameraCommands` AJAX call that returns
 two lists (CAMERA_TAKE commands + CAMERA_URL commands) in one round trip.
 
-### zoneMapping storage
+### `sia_zone_mappings` storage
 
-The mapping is stored as a JSON array in `zoneMapping` config key.
+The mapping is stored as a JSON array in the `sia_zone_mappings` config key:
+`$this->getConfiguration('sia_zone_mappings', [])`.
 
 ```json
 [
@@ -282,11 +309,11 @@ The mapping is stored as a JSON array in `zoneMapping` config key.
 ```
 
 The zone table is managed by `printEqLogic()` (populate from saved config) and
-`saveEqLogic()` (serialize table rows back to `zoneMapping` before save).
+`saveEqLogic()` (serialize table rows back to `sia_zone_mappings` before save).
 
 ### On "Suivant"
 
-Saves the current `zoneMapping` via standard save, advances to step 4.
+Saves the current `sia_zone_mappings` via standard save, advances to step 4.
 No mandatory validation — empty mapping is allowed.
 
 ---
@@ -315,9 +342,10 @@ filtered for `type: 'action', subType: 'message'`.
 
 Two bound fields:
 - Visible text input (read-only): stores the human-readable form
-  `data-l2key="notify_cmd_human"` — for display only
+  `data-l2key="sia_notify_cmd_human"` — **display only; never passed to daemon, never
+  used in logic**
 - Hidden input: stores the command ID
-  `data-l2key="notify_cmd_id"` — used by the daemon
+  `data-l2key="sia_notify_cmd_id"` — used by the daemon notification handler
 
 The search button opens the modal. On selection:
 ```javascript

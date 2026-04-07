@@ -98,7 +98,15 @@ Pure classification and message factory functions. Fully unit-testable in isolat
 ### API surface
 
 ```python
+import dataclasses
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
+from typing import Any, Final, TypedDict
+
+T3_PREFIX: Final[str] = "CRITIQUE — "
+# All T3-tier notification messages prepend this constant (not the raw string).
+# Level 1 test: assert every T3 message starts with T3_PREFIX.
 
 class ErrorTier(Enum):
     T1 = 1   # Auto-heal — warning, message center only
@@ -132,36 +140,67 @@ ERROR_TIERS: dict[ErrorCode, ErrorTier] = {
 
 # --- Typed context dataclasses for _notify() call sites ---
 # Defined here (alongside ErrorCode) so call sites import from one place.
-# Base context (csr_address, transport, strike_count) is always injected
-# by _notify() from self — callers only pass event-specific extras.
+# All context dataclasses are frozen (immutable) and use __slots__ for
+# memory efficiency. Use dataclasses.replace(ctx, field=val) for derived copies.
 
-@dataclass
+@dataclass(frozen=True, slots=True)
+class SM1TimeoutCtx:
+    """Extra context for ErrorCode.SUPERVISION_TIMEOUT."""
+    strike:     int    # current strike after increment (1–3, capped)
+    interval_s: float  # supervision interval in seconds
+
+@dataclass(frozen=True, slots=True)
+class SM1NakCtx:
+    """Extra context for ErrorCode.SUPERVISION_NAK and ErrorCode.BAD_CSR_RESPONSE."""
+    strike:    int            # current strike after increment (1–3, capped)
+    raw_nak:   bytes          # raw NAK frame bytes
+    parsed_ts: datetime | None  # parsed CSR timestamp from NAK data; None if undecodable
+
+@dataclass(frozen=True, slots=True)
 class EventFailedCtx:
     """Extra context for ErrorCode.EVENT_FAILED."""
-    event_type:  str   # 'burglarAlarm' | 'fireAlarm' | 'panicAlarm'
-    zone:        str   # zone name from alarm event
-    retry_count: int   # number of attempts made
+    zone:     str | None  # zone name from alarm event; None if unset
+    sia_code: str         # SIA event code ('BA' | 'FA' | 'PA')
+    attempts: int         # total number of send attempts made
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class TransportPermanentCtx:
     """Extra context for ErrorCode.TRANSPORT_PERMANENT."""
-    retry_count: int   # TCP reconnect attempts exhausted
+    transport:  str        # "tcp" | "udp"
+    last_error: str | None # last OS/network error message; None if unavailable
 
-# Union type for _notify() optional second argument
-NotifyCtx = EventFailedCtx | TransportPermanentCtx | None
+# Type alias for _notify() ctx argument (Python 3.10+ | syntax).
+# Use ErrorContext everywhere — never re-expand the union inline.
+ErrorContext = SM1TimeoutCtx | SM1NakCtx | EventFailedCtx | TransportPermanentCtx | None
 
 
-def build_notification(code: ErrorCode, context: dict) -> dict:
+class NotificationPayload(TypedDict):
+    """Typed return value of build_notification(). Keys verified by mypy at all call sites."""
+    tier:       ErrorTier
+    logical_id: str   # for Jeedom message center dedup
+    title:      str   # for notification queue dedup
+    message:    str   # full user-facing message
+
+
+def make_error_entry(code: str, message: str, timestamp: str,
+                     context: dict | None, count: int) -> dict:
+    """
+    Factory — the only valid construction path for `sia_last_errors` entries.
+    All 5 fields are mandatory; `context` may be None; `count` starts at 1.
+
+    Returns: {"code": str, "message": str, "timestamp": str,  # ISO 8601
+              "context": dict | None, "count": int}
+
+    Level 1 test: Each ErrorCode → make_error_entry() → valid JSON with all 5 keys.
+    """
+    ...
+
+
+def build_notification(code: ErrorCode, context: dict[str, Any]) -> NotificationPayload:
     """
     Build notification payload for a given error code + runtime context.
 
-    Returns:
-        {
-            'tier':       ErrorTier,
-            'logical_id': str,           # for Jeedom message center dedup
-            'title':      str,           # for notification queue dedup
-            'message':    str,           # full user-facing message
-        }
+    Returns a NotificationPayload TypedDict — all keys are always present.
 
     Missing-field policy: all context fields are accessed via context.get('field', '<inconnu>').
     A missing field produces a degraded but deliverable message (e.g. "Centrale: <inconnu>")
@@ -246,9 +285,9 @@ be consistent per error type (same error = same title) and distinct across types
 | `supervision_timeout` | `siaDC09 — Timeout supervision (auto-résolu)` |
 | `supervision_nak` | `siaDC09 — NAK supervision (horodatage rejeté — auto-résolu)` |
 | `bad_csr_response` | `siaDC09 — Réponse incompréhensible de la centrale` |
-| `supervision_disconnected` | `siaDC09 — CRITIQUE — Supervision perdue` |
-| `event_failed` | `siaDC09 — CRITIQUE — Alarme non transmise` |
-| `transport_permanent` | `siaDC09 — CRITIQUE — Connexion {transport} impossible` |
+| `supervision_disconnected` | `siaDC09 — ` + T3_PREFIX + `Supervision perdue` |
+| `event_failed` | `siaDC09 — ` + T3_PREFIX + `Alarme non transmise` |
+| `transport_permanent` | `siaDC09 — ` + T3_PREFIX + `Connexion {transport} impossible` |
 
 ### Full message templates
 
@@ -276,22 +315,26 @@ bad_csr_response:
 
 **Tier 3:**
 
+All T3 messages prepend `T3_PREFIX` (defined as the `"CRITIQUE — "` constant in
+`error_handler.py` and re-exported from `messages.py`). Never hardcode the prefix
+string at call sites. Level 1 test: assert every T3 message starts with `T3_PREFIX`.
+
 ```
 supervision_disconnected:
-  "CRITIQUE — La supervision vers la centrale est perdue
+  T3_PREFIX + "La supervision vers la centrale est perdue
    (3 tentatives sans réponse). La centrale de télésurveillance ne reçoit plus
    les signaux de vie. Vérifiez votre connexion réseau et le service IMA Protect.
    Centrale: {csr_address} ({transport})."
 
 event_failed:
-  "CRITIQUE — L'alarme {event_type} (zone: {zone}) n'a pas pu être transmise
+  T3_PREFIX + "L'alarme {event_type} (zone: {zone}) n'a pas pu être transmise
    à la centrale après {retry_count} tentative(s). La centrale de
    télésurveillance n'a PAS reçu l'alarme.
    Vérifiez votre connexion réseau et le service IMA Protect.
    Centrale: {csr_address} ({transport})."
 
 transport_permanent:
-  "CRITIQUE — Impossible de rétablir la connexion {transport} avec la centrale
+  T3_PREFIX + "Impossible de rétablir la connexion {transport} avec la centrale
    après {retry_count} tentative(s). La supervision et la transmission d'alarmes
    sont interrompues. Vérifiez votre réseau.
    Centrale: {csr_address} ({transport})."
@@ -304,19 +347,36 @@ transport_permanent:
 Replaces the existing `_notify_critical()` in `siadc09d.py`.
 
 ```python
-async def _notify(self, code: ErrorCode, ctx: NotifyCtx = None):
+def _notify(self, code: ErrorCode, ctx: ErrorContext = None) -> None:
     """
-    Unified notification dispatcher.
+    Synchronous entry point for all notification dispatch.
+
+    Fires _dispatch_notify() as a tracked background task — GC-safe,
+    exception-logged, cleanly cancelled on daemon stop. Call sites use
+    plain self._notify(code, ctx) with no await and no _track_task().
+    """
+    self._track_task(self._dispatch_notify(code, ctx), f"notify_{code.name}")
+
+async def _dispatch_notify(self, code: ErrorCode, ctx: ErrorContext = None) -> None:
+    """
+    Actual dual-channel dispatch. Called only via _notify().
 
     T1 → Jeedom message center only (via PHP callback)
     T2 → Jeedom message center + configured notification command
     T3 → Jeedom message center + configured notification command
 
+    Both channels are independent — each wrapped in its own try/except.
+    Failure of one channel never prevents the other.
+
     Base context (csr_address, transport, strike_count) is always injected
     from self. Callers only pass event-specific extras via a typed ctx dataclass:
-      - EventFailedCtx      for ErrorCode.EVENT_FAILED
+      - SM1TimeoutCtx         for ErrorCode.SUPERVISION_TIMEOUT
+      - SM1NakCtx             for ErrorCode.SUPERVISION_NAK
+      - SM1NakCtx             for ErrorCode.BAD_CSR_RESPONSE
+      - None                  for ErrorCode.SUPERVISION_DISCONNECTED
+      - EventFailedCtx        for ErrorCode.EVENT_FAILED
       - TransportPermanentCtx for ErrorCode.TRANSPORT_PERMANENT
-      - None                for all other codes (no extra fields needed)
+    Use ErrorContext type alias — never re-expand the union inline.
     """
     # Base context — always available from self, no need to repeat at call sites
     context = {
@@ -334,22 +394,30 @@ async def _notify(self, code: ErrorCode, ctx: NotifyCtx = None):
     # --- Channel 1: Jeedom message center (always) ---
     # PHP callback calls message::add(__CLASS__, message, '', logicalId)
     # Jeedom deduplicates same logicalId → occurrence counter, not new entries
-    await self.send_to_jeedom({
-        'type':       'message_center',
-        'logical_id': notification['logical_id'],
-        'message':    notification['message'],
-    })
+    # Wrapped in its own try/except — failure never prevents Channel 2.
+    try:
+        await self.send_to_jeedom({
+            'type':       'message_center',
+            'logical_id': notification['logical_id'],
+            'message':    notification['message'],
+        })
+    except Exception:
+        self._logger.error('message_center callback failed')
 
     # --- Channel 2: configured notification command (T2 + T3 only) ---
     # The notification queue plugin deduplicates based on title and/or message.
     # Deduplication and spam control are the notification plugin's responsibility.
     # We call unconditionally — the plugin handles whether to actually deliver.
+    # Wrapped in its own try/except — independent of Channel 1.
     if tier in (ErrorTier.T2, ErrorTier.T3):
-        await self.send_to_jeedom({
-            'type':    'notify',
-            'title':   notification['title'],
-            'message': notification['message'],
-        })
+        try:
+            await self.send_to_jeedom({
+                'type':    'notify',
+                'title':   notification['title'],
+                'message': notification['message'],
+            })
+        except Exception:
+            self._logger.error('notify callback failed')
 
     # --- Structured error payload for debug panel (Component 5c) ---
     # Only T2 and T3 are stored in last_errors — T1 events are auto-healed
@@ -361,9 +429,41 @@ async def _notify(self, code: ErrorCode, ctx: NotifyCtx = None):
             'code':     code.value,
             'context':  context,
             'message':  notification['message'],
-            'ts':       datetime.utcnow().strftime('%H:%M:%S'),
+            'ts':       datetime.now(timezone.utc).strftime('%H:%M:%S'),
         })
 ```
+
+### Error Context Schema — per-ErrorCode requirements
+
+| ErrorCode | Dataclass | Required fields | Optional fields |
+|-----------|-----------|-----------------|-----------------|
+| `SUPERVISION_TIMEOUT` | `SM1TimeoutCtx` | `strike: int`, `interval_s: float` | — |
+| `SUPERVISION_NAK` | `SM1NakCtx` | `strike: int`, `raw_nak: bytes` | `parsed_ts: datetime \| None` |
+| `BAD_CSR_RESPONSE` | `SM1NakCtx` | `strike: int`, `raw_nak: bytes` | `parsed_ts: datetime \| None` |
+| `SUPERVISION_DISCONNECTED` | `None` | — | — |
+| `EVENT_FAILED` | `EventFailedCtx` | `zone: str \| None`, `sia_code: str`, `attempts: int` | — |
+| `TRANSPORT_PERMANENT` | `TransportPermanentCtx` | `transport: str` | `last_error: str \| None` |
+
+`ErrorContext = SM1TimeoutCtx | SM1NakCtx | EventFailedCtx | TransportPermanentCtx | None`
+
+`_notify()` signature: `def _notify(self, code: ErrorCode, ctx: ErrorContext = None) -> None`
+
+All context dataclasses are `@dataclass(frozen=True, slots=True)`. Defined in `error_handler.py`;
+imported from there everywhere. Use `ErrorContext` type alias — never re-expand the union inline.
+Use `dataclasses.replace(ctx, field=new_val)` for derived contexts.
+
+### T1 auto-resolve on HEALTHY transition
+
+When SM1 transitions to `HEALTHY` (ACK received after DEGRADED), T1 errors
+(`SUPERVISION_TIMEOUT`, `SUPERVISION_NAK`) are auto-resolved from `sia_last_errors`:
+remove all T1-tier entries from the list before pushing the updated `error_update` callback.
+
+### `sia_last_errors` persistence
+
+`sia_last_errors` persists across daemon restarts — PHP reads it at page load. On daemon
+start, `sia_last_errors` is **NOT cleared**. Cleared only in `preRemove()`.
+
+---
 
 **No episode tracking in the daemon.** Deduplication responsibilities:
 - **Message center:** Jeedom occurrence counter via `logicalId`
@@ -417,27 +517,34 @@ case 'notify':
 
 ```php
 case 'error_update':
-    $errors = json_decode(config::byKey('last_errors', __CLASS__, '[]'), true) ?: [];
+    $errors = json_decode(config::byKey('sia_last_errors', __CLASS__, '[]'), true) ?: [];
+
+    // Auto-resolve T1 entries before prepending (T1 = supervision_timeout, supervision_nak).
+    // When SM1 recovers (ACK after DEGRADED), all T1-tier entries are removed.
+    // The daemon sends error_update with a flag or the updated list directly.
 
     // Prepend new entry (newest first), keep max 10.
-    // Entries are never auto-removed — the user clears them via the "Vider" button (5c).
+    // T2/T3 entries remain until the user clears them via the "Vider" button (5c).
+    // All 5 fields are mandatory (make_error_entry() factory in error_handler.py ensures this).
     array_unshift($errors, [
-        'tier'    => $result['tier'],
-        'code'    => $result['code'],
-        'context' => $result['context'],
-        'message' => $result['message'],
-        'ts'      => $result['ts'],
+        'code'      => $result['code'],      // ErrorCode string value
+        'message'   => $result['message'],   // full user-facing message
+        'timestamp' => $result['timestamp'], // ISO 8601 string
+        'context'   => $result['context'],   // dict | null
+        'count'     => $result['count'],     // int, starts at 1
     ]);
     $errors = array_slice($errors, 0, 10);
 
-    config::save('last_errors', json_encode($errors), __CLASS__);
+    config::save('sia_last_errors', json_encode($errors), __CLASS__);
     break;
 ```
 
-**Persistence:** plugin-level config key `last_errors` (via `config::byKey/__CLASS__`, JSON,
+**Persistence:** plugin-level config key `sia_last_errors` (via `config::byKey/__CLASS__`, JSON,
 array of up to 10 entries, newest first). Stored at plugin level — NOT on eqLogic — to
 avoid triggering `postSave()` on every error event. Read by Component 5c debug inspector.
-Cleared by the "Vider" button via `config::save('last_errors', '[]', __CLASS__)`.
+Cleared by the "Vider" button via `config::save('sia_last_errors', '[]', __CLASS__)`.
+
+Persists across daemon restarts — **NOT cleared on daemon start**. Cleared only in `preRemove()`.
 
 ---
 
@@ -453,8 +560,8 @@ Component 5a introduces `error_handler.py` — Components 1 and 4 must be update
 | `_nak_to_user_message(nak_code: str) -> str` | Removed — replaced by `error_handler.build_notification()` |
 | Inline NAK dispatch in `_handle_supervision_nak()` | Any NAK → `_notify(ErrorCode.BAD_CSR_RESPONSE, {…})` |
 | Inline NAK dispatch in `_send_with_retry()` | Any NAK → `_notify(ErrorCode.BAD_CSR_RESPONSE, {…})` |
-| `_notify_critical("Supervision perdue…")` in `_update_sm1_from_strike()` | `asyncio.create_task(self._notify(ErrorCode.SUPERVISION_DISCONNECTED, {…}))` |
-| `_notify_critical("Reconnexion TCP échouée")` in `_connect()` | `await self._notify(ErrorCode.TRANSPORT_PERMANENT, {…})` in `_tcp_reconnect_loop()` |
+| `_notify_critical("Supervision perdue…")` in `_update_sm1_from_strike()` | `self._notify(ErrorCode.SUPERVISION_DISCONNECTED)` |
+| `_notify_critical("Reconnexion TCP échouée")` in `_connect()` | `self._notify(ErrorCode.TRANSPORT_PERMANENT, {…})` in `_tcp_reconnect_loop()` |
 
 > **Protocol note:** per SIA DC-09 section 5.5.3.2, a NAK carries no sub-code — only
 > the CSR's current GMT time for clock correction. There is no standard mechanism for
@@ -509,22 +616,25 @@ Implement `build_notification()` for all T3 codes. Each message:
 
 ---
 
-### Task 5a.5 — `_notify()` method in `siadc09d.py`
+### Task 5a.5 — `_notify()` and `_dispatch_notify()` in `siadc09d.py`
 
-Replace `_notify_critical()` with `_notify(code, context)`. Implement dual-channel
-dispatch (message_center always, notify for T2+T3). Add `error_update` send.
+Replace `_notify_critical()` with two methods:
+- `def _notify(self, code: ErrorCode, ctx: ErrorContext = None)` — synchronous wrapper; calls `_track_task(self._dispatch_notify(code, ctx), f"notify_{code.name}")`
+- `async def _dispatch_notify(self, code: ErrorCode, ctx: ErrorContext = None)` — actual dual-channel dispatch (message_center always, notify for T2+T3, error_update for T2+T3); each channel in its own `try/except` — failure of one never prevents the other
+
+All call sites use `self._notify(code, ctx)` — no `await`, no `_track_task()` at the call site.
 
 Update all call sites in Components 1 and 4:
-- `_update_sm1_from_strike()` → `_notify(ErrorCode.SUPERVISION_DISCONNECTED, {...})`
-- `_send_with_retry()` NAK received → `_notify(ErrorCode.BAD_CSR_RESPONSE, {...})` directly.
+- `_update_sm1_from_strike()` → `self._notify(ErrorCode.SUPERVISION_DISCONNECTED, {...})`
+- `_send_with_retry()` NAK received → `self._notify(ErrorCode.BAD_CSR_RESPONSE, {...})` directly.
   No `classify_nak()` — per SIA DC-09 section 5.5.3.2 there are no NAK sub-codes; any NAK
   maps unconditionally to BAD_CSR_RESPONSE.
-- `_handle_supervision_nak()` undecodable NAK → `_notify(ErrorCode.BAD_CSR_RESPONSE, {...})`
-  Parseable timestamp NAK (v1.0) → treated as timeout, no _notify.
-- `_connect()` reconnect failure → `_notify(ErrorCode.TRANSPORT_PERMANENT, {...})`
+- `_handle_supervision_nak()` undecodable NAK → `self._notify(ErrorCode.BAD_CSR_RESPONSE, {...})`
+  Parseable timestamp NAK (v1.0) → treated as timeout, no notify.
+- `_tcp_reconnect_loop()` reconnect failure → `self._notify(ErrorCode.TRANSPORT_PERMANENT, {...})`
 - `_send_raw()` OS exception (EAGAIN/ECONNRESET/EPIPE) → logged at WARNING, returned as `{status: 'timeout'}` — no notification fired; absorbed by caller's retry mechanism
-- `_send_with_retry()` all retries exhausted → `_notify(ErrorCode.EVENT_FAILED, {...})`
-- `_queue_consumer()` SM1=NO_NETWORK at event dequeue → `_notify(ErrorCode.EVENT_FAILED, {...})` (event never sent; fired by consumer directly, not by `_send_with_retry()`)
+- `_send_with_retry()` all retries exhausted → `self._notify(ErrorCode.EVENT_FAILED, {...})`
+- `_queue_consumer()` SM1=NO_NETWORK at event dequeue → `self._notify(ErrorCode.EVENT_FAILED, {...})` (event never sent; fired by consumer directly, not by `_send_with_retry()`)
 
 ---
 
@@ -550,9 +660,11 @@ Implement `last_errors` persistence (10 entries, remove on resolved).
 | Privacy: encryption key | Show length only | Never expose key material in any log or notification |
 | Garbled CSR response tier | T2, first occurrence | Unknown response = potential protocol mismatch, not transient |
 | Transport support | TCP + UDP both in v1.0 | IMA Protect = TCP; simulator tests both; error messages reference `{transport}` |
-| `last_errors` depth | 10 entries, newest first | Sufficient for debug panel; bounded size |
-| `last_errors` cleared by | User via "Vider" button only | No daemon flag needed; T2/T3 errors require explicit user acknowledgement |
-| `_notify_critical()` | Removed — replaced by `_notify(code, context)` | Single entry point, consistent dispatch |
+| `sia_last_errors` depth | 10 entries, newest first | Sufficient for debug panel; bounded size |
+| `sia_last_errors` cleared by | User via "Vider" button only (preRemove() resets on plugin removal) | T2/T3 errors require explicit user acknowledgement; persists across restarts |
+| T1 auto-resolve | Remove all T1-tier entries on SM1→HEALTHY | T1 errors are self-healing; stale T1 entries in the panel would be misleading |
+| `_notify_critical()` | Removed — replaced by `_notify(code, ErrorContext)` | Single entry point, consistent dispatch with typed context |
+| Dual-channel independence | Each channel in its own `try/except` | Failure of message center never prevents notification command (and vice versa) |
 
 ---
 
