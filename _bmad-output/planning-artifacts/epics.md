@@ -216,9 +216,15 @@ So that I can distinguish successful delivery from errors.
 
 ## Epic 2: CSR Simulator (Standalone Tool)
 
+**⚠️ SCOPE CLARIFICATION (2026-04-07):** This is **Internal Testing Infrastructure**, not a v1.0 user-facing epic. It provides developer and QA tools for protocol validation. Can be implemented in parallel with or after Epic 1 based on resource availability. Core v1.0 implementation (Epics 1, 5-10) can proceed with mock CSR responses if simulator is deferred.
+
 Build a standalone CSR simulator that responds to SIA DC-09 protocol frames, usable for testing daemon implementations and other alarm systems without a real CSR.
 
 **Dependencies:** Story 1.1 (Message Builder) + Story 1.2 (AES-128 Encryption)
+
+**Scope Classification:** Developer/Testing Infrastructure (not user-facing v1.0 feature)
+
+**Optionality:** Can be deferred to v1.1+ if v1.0 implementation uses mock responses instead
 
 ### Story 2.1: Simulator Framework & UDP/TCP Listen
 
