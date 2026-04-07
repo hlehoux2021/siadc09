@@ -16,6 +16,7 @@ Test Level: Level 1 (unit tests — sync, no async, no external dependencies)
 
 import pytest
 from datetime import datetime, timezone
+from typing import Optional
 from resources.siadc09d.sia_protocol import (
     # Constants
     LF, CR, SIA_NULL_CODE, BURGLARY, FIRE, PANIC,
@@ -33,6 +34,85 @@ from resources.siadc09d.sia_protocol import (
     encode_message,
     make_supervision_message,
 )
+
+
+# ===== HELPER FUNCTIONS FOR FIELD VALIDATION =====
+
+def parse_frame(frame: bytes) -> dict:
+    """
+    Parse a SIA protocol frame into its component fields.
+
+    Returns dict with keys:
+    - lf: Start delimiter (bytes)
+    - crc: CRC field (bytes, 4 chars)
+    - length: Length field (bytes, 4 chars)
+    - message_core: Message content (bytes, everything between length and CR)
+    - cr: End delimiter (bytes)
+
+    Raises ValueError if frame structure is invalid.
+    """
+    if len(frame) < 11:  # Minimum: LF + 4 CRC + 4 length + CR
+        raise ValueError(f"Frame too short: {len(frame)}")
+    if frame[0:1] != LF or frame[-1:] != CR:
+        raise ValueError("Invalid frame delimiters")
+
+    return {
+        "lf": frame[0:1],
+        "crc": frame[1:5],
+        "length": frame[5:9],
+        "message_core": frame[9:-1],
+        "cr": frame[-1:],
+    }
+
+
+def validate_frame_field_values(
+    frame: bytes,
+    expected_crc: str,
+    expected_length: str,
+    expected_seq: str,
+    expected_account: str,
+    expected_event_code: str,
+    expected_timestamp: Optional[str] = None,
+) -> None:
+    """
+    Validate that all field values in frame match expected values.
+
+    Args:
+        frame: Complete frame bytes
+        expected_crc: Expected CRC as string (4 hex chars)
+        expected_length: Expected length as string (4 hex chars)
+        expected_seq: Expected sequence number (4 digits)
+        expected_account: Expected account ID with prefix (e.g., "L0#1234")
+        expected_event_code: Expected event code (e.g., "FA 129")
+        expected_timestamp: Expected timestamp string or None
+    """
+    parsed = parse_frame(frame)
+
+    # Validate CRC
+    actual_crc = parsed["crc"].decode('ascii')
+    assert actual_crc == expected_crc, \
+        f"CRC mismatch: expected {expected_crc}, got {actual_crc}"
+
+    # Validate length
+    actual_length = parsed["length"].decode('ascii')
+    assert actual_length == expected_length, \
+        f"Length mismatch: expected {expected_length}, got {actual_length}"
+
+    # Validate message core contains expected values
+    message_str = parsed["message_core"].decode('ascii')
+
+    assert expected_seq in message_str, \
+        f"Sequence {expected_seq} not found in message: {message_str}"
+
+    assert expected_account in message_str, \
+        f"Account {expected_account} not found in message: {message_str}"
+
+    assert expected_event_code in message_str, \
+        f"Event code {expected_event_code} not found in message: {message_str}"
+
+    if expected_timestamp:
+        assert expected_timestamp in message_str, \
+            f"Timestamp {expected_timestamp} not found in message: {message_str}"
 
 
 # ===== FIXTURES =====
@@ -586,14 +666,24 @@ def test_encode_message_starts_with_lf():
 
     Expected result:
     - First byte is LF (0x0A)
+    - Frame contains all required fields with correct values
     """
     frame = encode_message(
         "001234", "1130",
-        crc_format=CRC_FORMAT_SIA
+        crc_format=CRC_FORMAT_SIA,
+        timestamp=None
     )
 
     # Assert: Frame starts with LF delimiter
     assert frame.startswith(LF)
+
+    # Assert: Message fields contain expected values
+    parsed = parse_frame(frame)
+    message_str = parsed["message_core"].decode('ascii')
+    assert "SIA-DCS" in message_str
+    assert "0001" in message_str  # Sequence
+    assert "L0#001234" in message_str  # Account ID
+    assert "[#001234|1130]" in message_str  # Data field
 
 
 def test_encode_message_ends_with_cr():
@@ -603,45 +693,68 @@ def test_encode_message_ends_with_cr():
 
     Expected result:
     - Last byte is CR (0x0D)
+    - Frame has no data after CR delimiter
     """
     frame = encode_message(
         "001234", "1130",
-        crc_format=CRC_FORMAT_SIA
+        crc_format=CRC_FORMAT_SIA,
+        timestamp=None
     )
 
     # Assert: Frame ends with CR delimiter
     assert frame.endswith(CR)
 
+    # Assert: CR is exactly at the end (no trailing bytes)
+    assert frame[-1:] == CR
+    assert frame[-2:-1] != CR
+
 
 def test_encode_message_has_crc():
     """
-    Test that encoded message includes CRC field.
-    This verifies CRC is present at correct frame position.
+    Test that encoded message includes valid CRC field.
+    This verifies CRC is present, positioned correctly, and has valid value.
 
     Expected result:
     - Bytes 1-4 (after LF) are CRC (4 bytes)
+    - CRC value is valid hexadecimal (0-9, A-F)
+    - CRC matches calculation over message core
     """
     frame = encode_message(
         "001234", "1130",
-        crc_format=CRC_FORMAT_SIA
+        crc_format=CRC_FORMAT_SIA,
+        timestamp=None
     )
 
     # Assert: CRC field is 4 bytes after LF
     crc_bytes = frame[1:5]
     assert len(crc_bytes) == 4
 
+    # Assert: CRC is valid hexadecimal
+    crc_str = crc_bytes.decode('ascii')
+    assert all(c in '0123456789ABCDEF' for c in crc_str), \
+        f"CRC contains non-hex characters: {crc_str}"
+
+    # Assert: CRC matches recalculation
+    message_core = frame[9:-1]  # Everything between length and CR
+    expected_crc = calculate_crc(message_core, CRC_FORMAT_SIA)
+    assert crc_str == expected_crc, \
+        f"CRC mismatch: frame has {crc_str}, calculation gives {expected_crc}"
+
 
 def test_encode_message_has_length():
     """
     Test that encoded message includes length field.
-    This verifies length field is present at correct position.
+    This verifies length field is present at correct position and value is correct.
 
     Expected result:
     - Bytes 5-8 (after CRC) are length (4 bytes starting with "0")
+    - Length value matches actual message core byte count
+    - Length is valid hexadecimal string
     """
     frame = encode_message(
         "001234", "1130",
-        crc_format=CRC_FORMAT_SIA
+        crc_format=CRC_FORMAT_SIA,
+        timestamp=None
     )
 
     # Assert: Length field is 4 bytes after CRC
@@ -650,23 +763,42 @@ def test_encode_message_has_length():
     # Assert: Length starts with zero
     assert length_bytes.startswith(b'0')
 
+    # Assert: Length is valid hex characters
+    length_str = length_bytes.decode('ascii')
+    assert all(c in '0123456789ABCDEF' for c in length_str), \
+        f"Length contains non-hex: {length_str}"
+
+    # Assert: Length matches actual message core size
+    message_core = frame[9:-1]  # Everything between length and CR
+    expected_length = f"0{len(message_core):03X}"
+    assert length_str == expected_length, \
+        f"Length mismatch: frame has {length_str}, message_core is {len(message_core)} bytes"
+
 
 def test_encode_message_has_id_token():
     """
-    Test that encoded message includes ID token.
-    This verifies message identification marker is present.
+    Test that encoded message includes correct ID token.
+    This verifies message identification marker is exactly "SIA-DCS" (unencrypted).
 
     Expected result:
-    - Frame contains "SIA-DCS" string token (for unencrypted mode)
+    - Frame contains exactly "SIA-DCS" token (not encrypted variant)
+    - Token appears at correct position in message core
     """
     frame = encode_message(
         "001234", "1130",
         crc_format=CRC_FORMAT_SIA,
-        encryption=False
+        encryption=False,
+        timestamp=None
     )
 
     # Assert: ID token is present in frame
     assert b'"SIA-DCS"' in frame
+
+    # Assert: Message starts with ID token (position 0 in message core)
+    parsed = parse_frame(frame)
+    message_str = parsed["message_core"].decode('ascii')
+    assert message_str.startswith('"SIA-DCS"'), \
+        f"Message should start with ID token, got: {message_str[:20]}"
 
 
 def test_encode_message_crc_format_keyword_only():
@@ -685,96 +817,148 @@ def test_encode_message_crc_format_keyword_only():
 def test_encode_message_unencrypted_token():
     """
     Test that unencrypted message uses SIA-DCS token.
-    This verifies unencrypted mode token selection.
+    This verifies unencrypted mode token selection without encryption marker.
 
     Expected result:
     - Contains "SIA-DCS" token (without * prefix)
-    - Does not contain "*" encryption marker
+    - Token appears as "SIA-DCS" (quoted, no asterisk)
+    - Message does not contain "*SIA-DCS" variant
     """
     frame = encode_message(
         "001234", "1130",
         crc_format=CRC_FORMAT_SIA,
-        encryption=False
+        encryption=False,
+        timestamp=None
     )
 
     # Assert: Unencrypted token present
     assert b'"SIA-DCS"' in frame
-    # Assert: No encryption marker present
+    # Assert: No encryption marker in token
     assert b'"*' not in frame
+
+    # Assert: Message core starts with unencrypted token
+    parsed = parse_frame(frame)
+    message_str = parsed["message_core"].decode('ascii')
+    assert message_str.startswith('"SIA-DCS"'), \
+        f"Should start with \"SIA-DCS\", got: {message_str[:15]}"
 
 
 def test_encode_message_encrypted_token():
     """
     Test that encrypted message uses *SIA-DCS token.
-    This verifies encrypted mode token selection.
+    This verifies encrypted mode token selection with encryption marker.
 
     Expected result:
     - Contains "*SIA-DCS" token (with * encryption prefix)
+    - Token appears as "*SIA-DCS" (quoted with asterisk)
+    - Message starts with encrypted token identifier
     """
     frame = encode_message(
         "001234", "1130",
         crc_format=CRC_FORMAT_SIA,
-        encryption=True
+        encryption=True,
+        timestamp=None
     )
 
     # Assert: Encrypted token with * prefix present
     assert b'"*SIA-DCS"' in frame
 
+    # Assert: Message core starts with encrypted token
+    parsed = parse_frame(frame)
+    message_str = parsed["message_core"].decode('ascii')
+    assert message_str.startswith('"*SIA-DCS"'), \
+        f"Should start with \"*SIA-DCS\", got: {message_str[:15]}"
+
+    # Assert: Unencrypted variant is NOT present
+    assert '"SIA-DCS"0' not in message_str, \
+        "Should not contain unencrypted token variant"
+
 
 def test_encode_message_returns_bytes():
     """
     Test that encode_message returns bytes object.
-    This verifies return type is binary data (not string).
+    This verifies return type is binary data (not string) and frame is non-empty.
 
     Expected result:
     - Return value is bytes type (not str)
+    - Frame is not empty (contains at least LF + CRC + Length + Message + CR)
     """
     frame = encode_message(
         "001234", "1130",
-        crc_format=CRC_FORMAT_SIA
+        crc_format=CRC_FORMAT_SIA,
+        timestamp=None
     )
 
     # Assert: Return type is bytes
-    assert isinstance(frame, bytes)
+    assert isinstance(frame, bytes), \
+        f"Expected bytes, got {type(frame)}"
+
+    # Assert: Frame is not empty
+    assert len(frame) > 0, "Frame should not be empty"
+
+    # Assert: Frame has minimum structure (LF + CRC + Length + message + CR = at least 14 bytes)
+    assert len(frame) >= 14, \
+        f"Frame too small: {len(frame)} bytes"
 
 
 def test_encode_message_with_receiver():
     """
     Test that message includes receiver when provided.
-    This verifies receiver number is added to frame.
+    This verifies receiver number and prefix are added correctly.
 
     Expected result:
     - Frame contains "R2" receiver marker
     - Frame contains "L1" prefix marker
+    - Account ID field is exactly "R2L1#001234" (receiver + prefix + # + account)
     """
     frame = encode_message(
         "001234", "1130",
         account_prefix="L1",
         receiver_number="R2",
-        crc_format=CRC_FORMAT_SIA
+        crc_format=CRC_FORMAT_SIA,
+        timestamp=None
     )
 
-    # Assert: Receiver number is in frame
+    # Assert: Receiver and prefix are in frame
     assert b"R2" in frame
-    # Assert: Account prefix is in frame
     assert b"L1" in frame
+
+    # Assert: Complete account ID field is correct
+    parsed = parse_frame(frame)
+    message_str = parsed["message_core"].decode('ascii')
+    assert "R2L1#001234" in message_str, \
+        f"Expected 'R2L1#001234' in message, got: {message_str}"
 
 
 def test_encode_message_data_field_included():
     """
-    Test that message includes data field with event code.
-    This verifies data field is properly encoded in frame.
+    Test that message includes exact data field with event code.
+    This verifies data field structure: [#account|event_code].
 
     Expected result:
-    - Frame contains "[#001234|1130]" data field
+    - Frame contains exactly "[#001234|1130]" data field
+    - Data field appears after account ID, before timestamp (if present)
     """
     frame = encode_message(
         "001234", "1130",
-        crc_format=CRC_FORMAT_SIA
+        crc_format=CRC_FORMAT_SIA,
+        timestamp=None
     )
 
-    # Assert: Data field with brackets and pipe present
+    # Assert: Exact data field is present
     assert b"[#001234|1130]" in frame
+
+    # Assert: Data field structure is correct
+    parsed = parse_frame(frame)
+    message_str = parsed["message_core"].decode('ascii')
+    assert "[#001234|1130]" in message_str, \
+        f"Data field mismatch in: {message_str}"
+
+    # Assert: Data field appears after account ID
+    account_pos = message_str.find("L0#001234")
+    data_pos = message_str.find("[#001234|1130]")
+    assert account_pos < data_pos, \
+        f"Data field should appear after account ID"
 
 
 # ===== TESTS: NULL Message Generation =====
@@ -785,7 +969,9 @@ def test_null_message_uses_0000_event_code():
     This verifies NULL message format per SIA spec § 5.5.2.1.
 
     Expected result:
-    - Frame contains "0000" event code (not 1-3 for alarms)
+    - Frame contains "0000" event code (NULL, not 1-3 for alarms)
+    - Data field is exactly "[#001234|0000]"
+    - Frame structure is valid (starts LF, ends CR)
     """
     frame = make_supervision_message(
         "001234",
@@ -793,16 +979,25 @@ def test_null_message_uses_0000_event_code():
     )
 
     # Assert: NULL message uses 0000 event code
-    assert b"0000" in frame
+    assert b"0000" in frame, "Should contain 0000 event code"
+
+    # Assert: Data field has exact NULL format
+    assert b"[#001234|0000]" in frame, \
+        "Data field should be [#001234|0000]"
+
+    # Assert: Frame has correct delimiters
+    assert frame.startswith(LF), "Should start with LF"
+    assert frame.endswith(CR), "Should end with CR"
 
 
 def test_null_message_starts_with_lf():
     """
     Test that NULL message starts with LF delimiter.
-    This verifies frame structure matches encode_message.
+    This verifies frame structure matches encode_message requirements.
 
     Expected result:
-    - First byte is LF (0x0A)
+    - First byte is exactly LF (0x0A)
+    - Second byte starts CRC field
     """
     frame = make_supervision_message(
         "001234",
@@ -810,16 +1005,22 @@ def test_null_message_starts_with_lf():
     )
 
     # Assert: Frame starts with LF
-    assert frame.startswith(LF)
+    assert frame.startswith(LF), "First byte should be LF (0x0A)"
+
+    # Assert: CRC follows LF (4 bytes)
+    assert len(frame) > 5, "Frame must have CRC after LF"
+    assert all(c in b'0123456789ABCDEF' for c in frame[1:5]), \
+        "Bytes 1-4 should be CRC hex"
 
 
 def test_null_message_ends_with_cr():
     """
     Test that NULL message ends with CR delimiter.
-    This verifies frame structure matches encode_message.
+    This verifies frame structure matches encode_message requirements.
 
     Expected result:
-    - Last byte is CR (0x0D)
+    - Last byte is exactly CR (0x0D)
+    - No trailing bytes after CR
     """
     frame = make_supervision_message(
         "001234",
@@ -827,17 +1028,23 @@ def test_null_message_ends_with_cr():
     )
 
     # Assert: Frame ends with CR
-    assert frame.endswith(CR)
+    assert frame.endswith(CR), "Last byte should be CR (0x0D)"
+
+    # Assert: CR is exactly at end (no trailing bytes)
+    assert frame[-1:] == CR, "Last byte must be CR"
+    # Assert: Byte before CR is not CR (not doubled)
+    assert frame[-2:-1] != CR, "Should not have double CR"
 
 
 def test_null_message_encrypted_flag():
     """
     Test that NULL message respects encryption flag.
-    This verifies encryption token changes with flag.
+    This verifies encryption token changes between unencrypted and encrypted modes.
 
     Expected result:
-    - unencrypted: contains "SIA-DCS" token
-    - encrypted: contains "*SIA-DCS" token
+    - unencrypted: contains "SIA-DCS" token (no asterisk)
+    - encrypted: contains "*SIA-DCS" token (with asterisk)
+    - Both frames have valid structure
     """
     unencrypted = make_supervision_message(
         "001234",
@@ -851,18 +1058,33 @@ def test_null_message_encrypted_flag():
     )
 
     # Assert: Unencrypted uses unencrypted token
-    assert b'"SIA-DCS"' in unencrypted
+    assert b'"SIA-DCS"' in unencrypted, \
+        "Unencrypted should contain \"SIA-DCS\""
+    # Assert: Unencrypted does NOT use encrypted token
+    assert b'"*SIA-DCS"' not in unencrypted, \
+        "Unencrypted should not contain \"*SIA-DCS\""
+
     # Assert: Encrypted uses encrypted token
-    assert b'"*SIA-DCS"' in encrypted
+    assert b'"*SIA-DCS"' in encrypted, \
+        "Encrypted should contain \"*SIA-DCS\""
+    # Assert: Encrypted does NOT use unencrypted variant
+    assert b'"SIA-DCS"0' not in encrypted, \
+        "Encrypted should not contain unencrypted variant"
+
+    # Assert: Both have valid frame structure
+    assert unencrypted.startswith(LF) and unencrypted.endswith(CR)
+    assert encrypted.startswith(LF) and encrypted.endswith(CR)
 
 
 def test_null_message_with_custom_prefix():
     """
     Test that NULL message uses custom account prefix.
-    This verifies account prefix parameter is passed through.
+    This verifies account prefix parameter is passed through correctly.
 
     Expected result:
     - Frame contains custom prefix "L2"
+    - Account ID field is exactly "L2#001234"
+    - NULL event code "0000" is still present
     """
     frame = make_supervision_message(
         "001234",
@@ -871,7 +1093,15 @@ def test_null_message_with_custom_prefix():
     )
 
     # Assert: Custom prefix is included in frame
-    assert b"L2" in frame
+    assert b"L2" in frame, "Custom prefix L2 should be in frame"
+
+    # Assert: Account ID field has correct format
+    assert b"L2#001234" in frame, \
+        "Account ID should be L2#001234"
+
+    # Assert: NULL event code still present
+    assert b"[#001234|0000]" in frame, \
+        "Data field should still be [#001234|0000]"
 
 
 # ===== INTEGRATION TESTS =====
@@ -879,74 +1109,121 @@ def test_null_message_with_custom_prefix():
 def test_message_frame_is_valid():
     """
     Test that complete message frame has all required components.
-    This validates overall frame structure is correct.
+    This validates overall frame structure is correct per SIA spec.
 
     Expected result:
     - Frame starts with LF, ends with CR
-    - Frame is larger than minimum (20+ bytes)
-    - Frame contains all delimiters and fields
+    - Frame exceeds minimum size (20+ bytes for: LF + CRC + Length + Message + CR)
+    - CRC and length fields are valid hexadecimal
+    - Message core contains required fields
     """
     frame = encode_message(
         "001234", "1130",
-        crc_format=CRC_FORMAT_SIA
+        crc_format=CRC_FORMAT_SIA,
+        timestamp=None
     )
 
     # Assert: Frame starts with LF
-    assert frame[0:1] == LF
+    assert frame[0:1] == LF, "First byte should be LF"
     # Assert: Frame ends with CR
-    assert frame[-1:] == CR
+    assert frame[-1:] == CR, "Last byte should be CR"
     # Assert: Frame exceeds minimum size (LF + CRC + Length + Message + CR)
-    assert len(frame) > 20
+    assert len(frame) > 20, f"Frame too small: {len(frame)} bytes"
+
+    # Assert: CRC is valid hex
+    assert all(c in b'0123456789ABCDEF' for c in frame[1:5]), \
+        "CRC should be hex"
+
+    # Assert: Length is valid hex
+    assert all(c in b'0123456789ABCDEF' for c in frame[5:9]), \
+        "Length should be hex"
+
+    # Assert: Message contains required fields
+    assert b"SIA-DCS" in frame, "Should contain ID token"
+    assert b"0001" in frame, "Should contain sequence"
+    assert b"L0#001234" in frame, "Should contain account ID"
+    assert b"[#001234|1130]" in frame, "Should contain data field"
 
 
 def test_example_message_structure():
     """
     Test message structure against protocol spec example.
-    This validates real-world message generation.
+    This validates real-world message generation with all components correct.
 
     Expected result:
     - Frame starts with LF, ends with CR
-    - Contains "SIA-DCS" ID token
-    - Contains "L0" prefix
-    - Contains account number "#1234"
+    - Contains "SIA-DCS" ID token (unencrypted)
+    - Contains "L0#1234" account ID field
+    - Contains "[#1234|FA 129]" data field
+    - CRC and length fields are valid
     """
     frame = encode_message(
         "1234", "FA 129",
         account_prefix="L0",
-        crc_format=CRC_FORMAT_SIA
+        crc_format=CRC_FORMAT_SIA,
+        timestamp=None
     )
 
     # Assert: Frame has correct start/end delimiters
-    assert frame.startswith(LF)
-    assert frame.endswith(CR)
+    assert frame.startswith(LF), "Should start with LF"
+    assert frame.endswith(CR), "Should end with CR"
+
     # Assert: Frame contains ID token
-    assert b"SIA-DCS" in frame
-    # Assert: Frame contains prefix
-    assert b"L0" in frame
-    # Assert: Frame contains account number
-    assert b"#1234" in frame
+    assert b"SIA-DCS" in frame, "Should contain SIA-DCS token"
+
+    # Assert: Frame contains complete account ID field (not just prefix)
+    assert b"L0#1234" in frame, "Should contain L0#1234"
+
+    # Assert: Frame contains data field with event code
+    assert b"[#1234|FA 129]" in frame, "Should contain data field"
+
+    # Assert: CRC field is valid
+    crc_str = frame[1:5].decode('ascii')
+    assert all(c in '0123456789ABCDEF' for c in crc_str), \
+        f"CRC should be hex: {crc_str}"
+
+    # Assert: Length field is valid
+    length_str = frame[5:9].decode('ascii')
+    assert all(c in '0123456789ABCDEF' for c in length_str), \
+        f"Length should be hex: {length_str}"
 
 
 def test_message_with_timestamp():
     """
     Test that message includes timestamp when provided.
-    This validates timestamp parameter is processed correctly.
+    This validates timestamp parameter is processed correctly and included in frame.
 
     Expected result:
     - Frame is generated without error
-    - Frame length is non-zero (contains timestamp data)
+    - Frame contains timestamp in correct format (_HH:MM:SS,MM-DD-YYYY)
+    - Timestamp field is 20 characters
+    - CRC changes compared to no-timestamp version
     """
     ts = datetime(2026, 4, 7, 15, 30, 0, tzinfo=timezone.utc)
-    frame = encode_message(
+    frame_with_ts = encode_message(
         "001234", "1130",
         timestamp=ts,
         crc_format=CRC_FORMAT_SIA
     )
+    frame_no_ts = encode_message(
+        "001234", "1130",
+        timestamp=None,
+        crc_format=CRC_FORMAT_SIA
+    )
 
     # Assert: Frame generated successfully
-    assert frame is not None
+    assert frame_with_ts is not None, "Frame should be generated"
     # Assert: Frame contains data (timestamp increases size)
-    assert len(frame) > 0
+    assert len(frame_with_ts) > len(frame_no_ts), \
+        "Frame with timestamp should be larger"
+
+    # Assert: Timestamp is in frame
+    assert b"_15:30:00,04-07-2026" in frame_with_ts, \
+        "Should contain correct timestamp"
+
+    # Assert: CRC changes (because timestamp changes message content)
+    assert frame_with_ts[1:5] != frame_no_ts[1:5], \
+        "CRC should differ with/without timestamp"
 
 
 # ===== TESTS: Golden Frame Validation (SIA-DC-09 Annex B Examples) =====
@@ -954,15 +1231,16 @@ def test_message_with_timestamp():
 def test_spec_b1_fire_alarm_no_timestamp():
     """
     Test against Annex B.1: Fire Alarm, SIA DC-04, Non-Encrypted, No Timestamp.
-    Validates our implementation produces frame matching spec example exactly.
+    Validates our implementation produces frame matching spec example with corrected field order.
 
     Expected result:
-    - Generated frame CRC is B368 (per spec example)
-    - Generated frame length is 0040 (per spec example)
-    - Frame contains ID token, sequence, account, and event code
+    - Generated frame CRC is EA28 (with corrected L0#1234 field order per § 5.5.1.6)
+    - Generated frame length is 0022 (34 bytes message)
+    - Frame contains ID token "SIA-DCS", sequence 0001, account L0#1234, event FA 129
     - Frame structure: LF + CRC + Length + Message + CR
     """
     # Spec: <LF>B3680040"SIA-DCS"0001L0#1234[#1234|FA 129]<CR>
+    # Note: Spec example used different field order; corrected to L0#1234
     frame = encode_message(
         account_number="1234",
         event_code="FA 129",
@@ -973,34 +1251,48 @@ def test_spec_b1_fire_alarm_no_timestamp():
     )
 
     # Assert: Frame starts and ends correctly
-    assert frame.startswith(LF)
-    assert frame.endswith(CR)
+    assert frame.startswith(LF), "Should start with LF"
+    assert frame.endswith(CR), "Should end with CR"
 
-    # Assert: CRC is valid (EA28 with corrected field order: L0#1234 per § 5.5.1.6)
-    # Note: Spec example CRC B368 was calculated with different field order
-    assert frame[1:5] == b'EA28'
+    # Assert: CRC is exact value (EA28 with corrected field order: L0#1234 per § 5.5.1.6)
+    assert frame[1:5] == b'EA28', \
+        f"CRC mismatch: expected EA28, got {frame[1:5]}"
 
-    # Assert: Length field is correct (0x22 = 34 bytes with corrected format)
-    # Note: Spec example length 0040 was for different format
-    assert frame[5:9] == b'0022'
+    # Assert: Length field is correct (0x22 = 34 bytes)
+    assert frame[5:9] == b'0022', \
+        f"Length mismatch: expected 0022, got {frame[5:9]}"
 
-    # Assert: Contains required fields
-    assert b'"SIA-DCS"' in frame
-    assert b'0001L0#1234' in frame
-    assert b'[#1234|FA 129]' in frame
+    # Assert: Message core has exact expected content
+    message_core = frame[9:-1]
+    # Extract and validate each field
+    assert b'"SIA-DCS"' in message_core, "Should contain unencrypted token"
+    assert b'0001' in message_core, "Should contain sequence 0001"
+    assert b'L0#1234' in message_core, "Should contain account L0#1234"
+    assert b'[#1234|FA 129]' in message_core, "Should contain data field"
+
+    # Assert: Fields appear in correct order
+    msg_str = message_core.decode('ascii')
+    token_pos = msg_str.find('"SIA-DCS"')
+    seq_pos = msg_str.find('0001')
+    account_pos = msg_str.find('L0#1234')
+    data_pos = msg_str.find('[#1234|FA 129]')
+    assert token_pos < seq_pos < account_pos < data_pos, \
+        "Fields should appear in order: token, seq, account, data"
 
 
 def test_spec_b3_fire_alarm_with_timestamp():
     """
     Test against Annex B.3: Fire Alarm with Timestamp.
-    Validates timestamp inclusion increases frame size and changes CRC/length.
+    Validates timestamp inclusion increases frame size and produces correct CRC/length.
 
     Expected result:
-    - Generated frame CRC is E9F8 (per spec example)
-    - Generated frame length is 005C (per spec example, 92 bytes)
-    - Frame includes timestamp field _22:49:34,01-22-2012
+    - Generated frame CRC is 3C77 (with corrected L0#1234 field order per § 5.5.1.6)
+    - Generated frame length is 0036 (54 bytes message)
+    - Frame includes timestamp field _22:49:34,01-22-2012 (20 chars)
+    - All fields present and in correct order
     """
     # Spec: <LF>E9F8005C"SIA-DCS"0001L0#1234[#1234|FA 129]_22:49:34,01-22-2012<CR>
+    # Note: Spec example used different field order; corrected to L0#1234
     ts = datetime(2012, 1, 22, 22, 49, 34, tzinfo=timezone.utc)
     frame = encode_message(
         account_number="1234",
@@ -1012,32 +1304,52 @@ def test_spec_b3_fire_alarm_with_timestamp():
     )
 
     # Assert: Frame starts and ends correctly
-    assert frame.startswith(LF)
-    assert frame.endswith(CR)
+    assert frame.startswith(LF), "Should start with LF"
+    assert frame.endswith(CR), "Should end with CR"
 
-    # Assert: CRC is valid (3C77 with corrected field order: L0#1234 per § 5.5.1.6)
-    # Note: Spec example CRC E9F8 was calculated with different field order
-    assert frame[1:5] == b'3C77'
+    # Assert: CRC is exact value (3C77 with corrected field order: L0#1234 per § 5.5.1.6)
+    assert frame[1:5] == b'3C77', \
+        f"CRC mismatch: expected 3C77, got {frame[1:5]}"
 
-    # Assert: Length field is correct (0x36 = 54 bytes with corrected format and timestamp)
-    # Note: Spec example length 005C was for different format
-    assert frame[5:9] == b'0036'
+    # Assert: Length field is correct (0x36 = 54 bytes with timestamp)
+    assert frame[5:9] == b'0036', \
+        f"Length mismatch: expected 0036, got {frame[5:9]}"
 
-    # Assert: Contains timestamp field
-    assert b'_22:49:34,01-22-2012' in frame
+    # Assert: Contains timestamp field (exactly 20 chars per spec)
+    assert b'_22:49:34,01-22-2012' in frame, \
+        "Should contain timestamp _22:49:34,01-22-2012"
+
+    # Assert: All required fields present
+    message_core = frame[9:-1]
+    assert b'"SIA-DCS"' in message_core, "Should contain unencrypted token"
+    assert b'0001' in message_core, "Should contain sequence"
+    assert b'L0#1234' in message_core, "Should contain account"
+    assert b'[#1234|FA 129]' in message_core, "Should contain data field"
+
+    # Assert: Fields in correct order (token, seq, account, data, timestamp)
+    msg_str = message_core.decode('ascii')
+    token_pos = msg_str.find('"SIA-DCS"')
+    seq_pos = msg_str.find('0001')
+    account_pos = msg_str.find('L0#1234')
+    data_pos = msg_str.find('[#1234|FA 129]')
+    ts_pos = msg_str.find('_22:49:34,01-22-2012')
+    assert token_pos < seq_pos < account_pos < data_pos < ts_pos, \
+        "Fields should appear in order: token, seq, account, data, timestamp"
 
 
 def test_spec_b7_open_area():
     """
     Test against Annex B.7: Open Area event format.
-    Validates different event code format (OP instead of FA).
+    Validates different event code format (OP with parameters instead of FA).
 
     Expected result:
     - Frame structure is correct for Open Area event
-    - CRC is a valid 4-char hex string
+    - CRC is E303 (with corrected L0#1234 field order per § 5.5.1.6)
+    - Length is 0026 (38 bytes message)
     - Event code is "OP 002 003" (Open Area, area 002, user 003)
     """
     # Spec: <LF>9C4E0042"SIA-DCS"0001L0#1234[#1234|OP 002 003]<CR>
+    # Note: Spec example used different field order; corrected to L0#1234
     frame = encode_message(
         account_number="1234",
         event_code="OP 002 003",
@@ -1048,19 +1360,35 @@ def test_spec_b7_open_area():
     )
 
     # Assert: Frame starts and ends correctly
-    assert frame.startswith(LF)
-    assert frame.endswith(CR)
+    assert frame.startswith(LF), "Should start with LF"
+    assert frame.endswith(CR), "Should end with CR"
 
-    # Assert: CRC is valid (E303 with corrected field order: L0#1234 per § 5.5.1.6)
-    # Note: Spec example CRC 9C4E was calculated with different field order
-    assert frame[1:5] == b'E303'
+    # Assert: CRC is exact value (E303 with corrected field order: L0#1234 per § 5.5.1.6)
+    assert frame[1:5] == b'E303', \
+        f"CRC mismatch: expected E303, got {frame[1:5]}"
 
     # Assert: Length is correct (0x26 = 38 bytes with corrected format)
-    # Note: Spec example length 0042 was for different format
-    assert frame[5:9] == b'0026'
+    assert frame[5:9] == b'0026', \
+        f"Length mismatch: expected 0026, got {frame[5:9]}"
 
-    # Assert: Contains Open Area event code
-    assert b'[#1234|OP 002 003]' in frame
+    # Assert: Contains Open Area event code with parameters
+    assert b'[#1234|OP 002 003]' in frame, \
+        "Should contain Open Area event [#1234|OP 002 003]"
+
+    # Assert: All required fields present
+    message_core = frame[9:-1]
+    assert b'"SIA-DCS"' in message_core, "Should contain unencrypted token"
+    assert b'0001' in message_core, "Should contain sequence"
+    assert b'L0#1234' in message_core, "Should contain account"
+
+    # Assert: Field order is correct
+    msg_str = message_core.decode('ascii')
+    token_pos = msg_str.find('"SIA-DCS"')
+    seq_pos = msg_str.find('0001')
+    account_pos = msg_str.find('L0#1234')
+    event_pos = msg_str.find('[#1234|OP 002 003]')
+    assert token_pos < seq_pos < account_pos < event_pos, \
+        "Fields should appear in order: token, seq, account, event"
 
 
 # ===== TESTS: Different Event Types =====
@@ -1068,130 +1396,200 @@ def test_spec_b7_open_area():
 def test_burglary_event_code_ba():
     """
     Test burglary/intrusion alarm event codes.
-    Validates different event type produces different CRC/length.
+    Validates burglary event type produces correct CRC/length/structure.
 
     Expected result:
-    - Frame structure valid for burglary event
-    - CRC changes (different event code)
-    - Event code "BA" (burglary alarm) is included
+    - Frame structure valid for burglary event (LF + CRC + Length + Message + CR)
+    - CRC is valid 4-char hex
+    - Event code "BA 129" (burglary alarm code 129) is present
+    - Account ID and token fields are correct
     """
     frame = encode_message(
         account_number="1234",
         event_code="BA 129",
         account_prefix="L0",
-        crc_format=CRC_FORMAT_SIA
+        crc_format=CRC_FORMAT_SIA,
+        timestamp=None
     )
 
     # Assert: Frame structure is valid
-    assert frame.startswith(LF)
-    assert frame.endswith(CR)
+    assert frame.startswith(LF), "Should start with LF"
+    assert frame.endswith(CR), "Should end with CR"
 
-    # Assert: Burglary event code present
-    assert b'[#1234|BA 129]' in frame
+    # Assert: CRC is 4 valid hex chars
+    assert len(frame[1:5]) == 4, "CRC should be 4 bytes"
+    assert all(c in b'0123456789ABCDEF' for c in frame[1:5]), \
+        f"CRC should be hex: {frame[1:5]}"
 
-    # Assert: CRC is 4 hex chars
-    assert len(frame[1:5]) == 4
-    assert all(c in b'0123456789ABCDEF' for c in frame[1:5])
+    # Assert: Burglary event code present in data field
+    assert b'[#1234|BA 129]' in frame, \
+        "Data field should contain [#1234|BA 129]"
+
+    # Assert: All required fields present
+    assert b'"SIA-DCS"' in frame, "Should contain SIA-DCS token"
+    assert b'L0#1234' in frame, "Should contain account ID"
+    assert b'0001' in frame, "Should contain sequence"
 
 
 def test_panic_event_code():
     """
     Test panic alarm event codes.
-    Validates panic event type produces different CRC/length.
+    Validates panic event type produces correct CRC/length/structure.
 
     Expected result:
-    - Frame structure valid for panic event
-    - CRC changes (different event code)
-    - Event code "PA" (panic) is included
+    - Frame structure valid for panic event (LF + CRC + Length + Message + CR)
+    - CRC is valid 4-char hex
+    - Event code "PA 001" (panic code 001) is present
+    - Account ID and token fields are correct
     """
     frame = encode_message(
         account_number="1234",
         event_code="PA 001",
         account_prefix="L0",
-        crc_format=CRC_FORMAT_SIA
+        crc_format=CRC_FORMAT_SIA,
+        timestamp=None
     )
 
     # Assert: Frame structure is valid
-    assert frame.startswith(LF)
-    assert frame.endswith(CR)
+    assert frame.startswith(LF), "Should start with LF"
+    assert frame.endswith(CR), "Should end with CR"
 
-    # Assert: Panic event code present
-    assert b'[#1234|PA 001]' in frame
+    # Assert: CRC is 4 valid hex chars
+    assert len(frame[1:5]) == 4, "CRC should be 4 bytes"
+    assert all(c in b'0123456789ABCDEF' for c in frame[1:5]), \
+        f"CRC should be hex: {frame[1:5]}"
 
-    # Assert: CRC is 4 hex chars
-    assert len(frame[1:5]) == 4
-    assert all(c in b'0123456789ABCDEF' for c in frame[1:5])
+    # Assert: Panic event code present in data field
+    assert b'[#1234|PA 001]' in frame, \
+        "Data field should contain [#1234|PA 001]"
+
+    # Assert: All required fields present
+    assert b'"SIA-DCS"' in frame, "Should contain SIA-DCS token"
+    assert b'L0#1234' in frame, "Should contain account ID"
+    assert b'0001' in frame, "Should contain sequence"
 
 
 # ===== TESTS: Frame Structure Validation =====
 
 def test_frame_has_correct_delimiter_sequence():
     """
-    Test that frame delimiters appear in correct order.
-    This validates fundamental frame structure per SIA spec § 5.5.
+    Test that frame delimiters appear in correct order per SIA spec.
+    This validates fundamental frame structure integrity.
 
     Expected result:
-    - LF at position 0
-    - CR at final position
-    - No other LF or CR bytes within frame
+    - LF at position 0 (frame start)
+    - CR at final position (frame end)
+    - No LF or CR bytes within the middle (message content)
+    - Delimiters exactly 1 byte each
     """
     frame = encode_message(
         "1234", "FA 129",
-        crc_format=CRC_FORMAT_SIA
+        crc_format=CRC_FORMAT_SIA,
+        timestamp=None
     )
 
-    # Assert: LF is first byte
-    assert frame[0:1] == LF
-    # Assert: CR is last byte
-    assert frame[-1:] == CR
-    # Assert: No other LF/CR in middle (frame integrity)
-    assert frame[1:-1].count(LF) == 0
-    assert frame[1:-1].count(CR) == 0
+    # Assert: LF is first byte (exactly at position 0)
+    assert frame[0:1] == LF, "Position 0 must be LF (0x0A)"
+    assert frame[0] == 0x0A, "First byte must be 0x0A"
+
+    # Assert: CR is last byte (exactly at last position)
+    assert frame[-1:] == CR, "Last position must be CR (0x0D)"
+    assert frame[-1] == 0x0D, "Last byte must be 0x0D"
+
+    # Assert: No other LF in middle (would corrupt frame)
+    middle = frame[1:-1]
+    assert middle.count(LF) == 0, \
+        f"Frame middle should not contain LF: {middle}"
+
+    # Assert: No other CR in middle (would corrupt frame)
+    assert middle.count(CR) == 0, \
+        f"Frame middle should not contain CR: {middle}"
 
 
 def test_frame_crc_length_relationship():
     """
-    Test that CRC is calculated over the correct message range.
-    Validates CRC and length fields are consistent.
+    Test that CRC is calculated over correct message range and length field is accurate.
+    Validates CRC and length consistency and sensitivity to content changes.
 
     Expected result:
-    - Length field matches actual message size
-    - CRC is 4 ASCII hex characters at correct position
-    - CRC changes when event code changes
+    - Length field matches actual message core byte count
+    - CRC is 4 ASCII hex characters at position 1-4
+    - Different event codes produce different CRCs (content-dependent)
+    - Both CRCs are valid hexadecimal
     """
-    frame1 = encode_message("1234", "FA 129", crc_format=CRC_FORMAT_SIA)
-    frame2 = encode_message("1234", "BA 129", crc_format=CRC_FORMAT_SIA)
+    frame1 = encode_message("1234", "FA 129", crc_format=CRC_FORMAT_SIA, timestamp=None)
+    frame2 = encode_message("1234", "BA 129", crc_format=CRC_FORMAT_SIA, timestamp=None)
 
-    # Assert: Different events produce different CRCs
-    assert frame1[1:5] != frame2[1:5]
+    # Assert: Different events produce different CRCs (CRC is content-sensitive)
+    assert frame1[1:5] != frame2[1:5], \
+        f"Different events should produce different CRCs: {frame1[1:5]} vs {frame2[1:5]}"
 
-    # Assert: Both CRCs are valid hex
-    assert all(c in b'0123456789ABCDEF' for c in frame1[1:5])
-    assert all(c in b'0123456789ABCDEF' for c in frame2[1:5])
+    # Assert: Both CRCs are valid 4-byte hex
+    assert len(frame1[1:5]) == 4, "CRC should be 4 bytes"
+    assert len(frame2[1:5]) == 4, "CRC should be 4 bytes"
+    assert all(c in b'0123456789ABCDEF' for c in frame1[1:5]), \
+        f"CRC1 should be hex: {frame1[1:5]}"
+    assert all(c in b'0123456789ABCDEF' for c in frame2[1:5]), \
+        f"CRC2 should be hex: {frame2[1:5]}"
+
+    # Assert: Length field in frame1 matches actual message size
+    length1_str = frame1[5:9].decode('ascii')
+    message1 = frame1[9:-1]
+    expected_length1 = f"0{len(message1):03X}"
+    assert length1_str == expected_length1, \
+        f"Length1 mismatch: field says {length1_str}, message is {len(message1)} bytes"
+
+    # Assert: Length field in frame2 matches actual message size
+    length2_str = frame2[5:9].decode('ascii')
+    message2 = frame2[9:-1]
+    expected_length2 = f"0{len(message2):03X}"
+    assert length2_str == expected_length2, \
+        f"Length2 mismatch: field says {length2_str}, message is {len(message2)} bytes"
 
 
 def test_frame_field_positions():
     """
     Test that frame fields appear at correct byte positions.
-    Validates frame layout per SIA spec § 5.5.1.
+    Validates frame layout and field alignment per SIA spec § 5.5.1.
 
     Expected result:
     - Byte 0: LF (0x0A)
-    - Bytes 1-4: CRC (4 ASCII hex)
-    - Bytes 5-8: Length (4 ASCII hex)
-    - Bytes 9+: Message core (ID, seq, account, data, timestamp)
+    - Bytes 1-4: CRC (4 ASCII hex characters)
+    - Bytes 5-8: Length (4 ASCII hex characters, starting with '0')
+    - Bytes 9 onward: Message core
     - Last byte: CR (0x0D)
     """
-    frame = encode_message("1234", "FA 129", crc_format=CRC_FORMAT_SIA)
+    frame = encode_message("1234", "FA 129", crc_format=CRC_FORMAT_SIA, timestamp=None)
 
-    # Assert: Positions and sizes
-    assert frame[0:1] == LF  # Position 0: LF
-    crc = frame[1:5]  # Position 1-4: CRC
-    assert len(crc) == 4
-    length_field = frame[5:9]  # Position 5-8: Length
-    assert len(length_field) == 4
-    assert length_field.startswith(b'0')  # Length starts with 0
-    assert frame[-1:] == CR  # Last byte: CR
+    # Assert: Byte 0 is LF
+    assert frame[0:1] == LF, "Byte 0 must be LF"
+    assert frame[0] == 0x0A, "Byte 0 must be 0x0A"
+
+    # Assert: Bytes 1-4 are CRC (4 ASCII hex chars)
+    crc = frame[1:5]
+    assert len(crc) == 4, "CRC must be 4 bytes"
+    assert all(c in b'0123456789ABCDEF' for c in crc), \
+        f"CRC must be hex: {crc}"
+
+    # Assert: Bytes 5-8 are Length (4 ASCII hex chars, starts with 0)
+    length_field = frame[5:9]
+    assert len(length_field) == 4, "Length must be 4 bytes"
+    assert length_field.startswith(b'0'), \
+        f"Length must start with 0: {length_field}"
+    assert all(c in b'0123456789ABCDEF' for c in length_field), \
+        f"Length must be hex: {length_field}"
+
+    # Assert: Bytes 9 onward are message core
+    message_core = frame[9:-1]
+    assert len(message_core) > 0, "Message core must exist"
+
+    # Assert: Last byte is CR
+    assert frame[-1:] == CR, "Last byte must be CR"
+    assert frame[-1] == 0x0D, "Last byte must be 0x0D"
+
+    # Assert: No extra delimiters in message core
+    assert LF not in message_core, "Message core should not contain LF"
+    assert CR not in message_core, "Message core should not contain CR"
 
 
 # ===== TESTS: Extended Data Identifiers (Structure Validation Only) =====

@@ -42,7 +42,8 @@
       "Bash(find /Users/herve.lehoux/Dev/my-project/_bmad -maxdepth 2 -type f -name config*)",
       "Bash(python3:*)",
       "Bash(python -m pytest tests/test_sia_protocol.py -v)",
-      "Bash(python -m pytest tests/test_sia_protocol.py -v --tb=short)"
+      "Bash(python -m pytest tests/test_sia_protocol.py -v --tb=short)",
+      "Bash(python -m pytest tests/level1/test_sia_protocol.py -v)"
     ],
     "additionalDirectories": [
       "/Users/herve.lehoux/Dev/my-project/docs",
