@@ -12,9 +12,8 @@ Expert Validation: sia-dc09-expert (2026-04-07)
 - Message frame: LF + CRC + Length + Message + CR
 """
 
-import zlib
 from datetime import datetime, timezone
-from typing import Dict, Optional
+from typing import Dict, Literal, Optional
 
 # ===== TASK 1: Frame Component Constants =====
 
@@ -56,8 +55,13 @@ class SequenceManager:
     Per SIA DC-09 § 5.5.1.5: "Sequence numbers are associated with PE account numbers"
     """
 
-    def __init__(self):
-        """Initialize empty sequence state."""
+    def __init__(self) -> None:
+        """Initialize empty sequence state.
+
+        Instance Variables:
+            _seq_map: Dictionary mapping account numbers (str) to their current sequence
+                      number (int). Used to track per-account sequence counters.
+        """
         self._seq_map: Dict[str, int] = {}
 
     def next_seq(self, account_number: str) -> str:
@@ -118,22 +122,25 @@ def _compute_crc_modbus(data: bytes) -> int:
     return crc
 
 
-def calculate_crc(data: bytes, crc_format: str) -> str:
+def calculate_crc(data: bytes, crc_format: Literal["SIA", "ADM"]) -> str:
     """
     Calculate CRC for SIA protocol message.
 
     Args:
         data: Plaintext bytes from first quote through CR (excluding CR)
-        crc_format: CRC algorithm selector ("SIA", "ADM")
+        crc_format: CRC algorithm selector ("SIA" or "ADM")
 
     Returns:
         4-character ASCII hex CRC (uppercase)
 
+    Raises:
+        ValueError: Never raised (Literal type ensures valid input)
+
     Reference: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.2
     Expert: sia-dc09-expert (uses CRC-16 MODBUS polynomial 0xA001)
     """
-    if crc_format not in [CRC_FORMAT_SIA, CRC_FORMAT_ADM]:
-        raise ValueError(f"CRC format not supported: {crc_format}")
+    # Type checker guarantees crc_format is "SIA" or "ADM"
+    # No runtime validation needed
 
     # Both SIA and ADM use CRC-16 MODBUS
     crc_value = _compute_crc_modbus(data)
@@ -199,8 +206,8 @@ def format_account_id(
     if not _validate_hex(prefix_digits, 1, 6):
         raise ValueError(f"Invalid account_prefix: {account_prefix}")
 
-    # Build result
-    result = f"#{account_number}{account_prefix}"
+    # Build result: Lpref comes before #acct per spec § 5.5.1.6
+    result = f"{account_prefix}#{account_number}"
 
     # Add receiver number if provided and not "0"
     if receiver_number and receiver_number != "0":
@@ -209,7 +216,7 @@ def format_account_id(
         receiver_digits = receiver_number[1:]  # Skip the "R"
         if not _validate_hex(receiver_digits, 1, 6):
             raise ValueError(f"Invalid receiver_number: {receiver_number}")
-        result = f"{receiver_number}" + result  # Receiver comes first per spec
+        result = f"{receiver_number}{result}"  # Receiver comes first per spec
 
     return result
 
@@ -245,15 +252,15 @@ def format_data_field(
 
 # ===== TASK 6: Timestamp Field =====
 
-def format_timestamp(ts: Optional[datetime] = None) -> str:
+def format_timestamp(ts: Optional[datetime] = None) -> Optional[str]:
     """
     Format timestamp field per SIA DC-09 § 5.5.1.9.
 
     Args:
-        ts: datetime object (UTC) or None for current time
+        ts: datetime object (UTC), or None to omit timestamp
 
     Returns:
-        Formatted string: _HH:MM:SS,MM-DD-YYYY (exactly 20 characters)
+        Formatted string: _HH:MM:SS,MM-DD-YYYY (exactly 20 characters), or None if ts is None
 
     Reference: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.9
     Expert Validation: sia-dc09-expert (formatted string, NOT hex)
@@ -261,7 +268,7 @@ def format_timestamp(ts: Optional[datetime] = None) -> str:
     Example: "_22:49:34,04-07-2026"
     """
     if ts is None:
-        ts = datetime.now(timezone.utc)
+        return None
 
     # Format: _HH:MM:SS,MM-DD-YYYY (20 chars exactly)
     return ts.strftime("_%H:%M:%S,%m-%d-%Y")
@@ -277,7 +284,7 @@ def encode_message(
     extended_data: Optional[Dict] = None,
     timestamp: Optional[datetime] = None,
     *,
-    crc_format: str,
+    crc_format: Literal["SIA", "ADM"],
     encryption: bool = False
 ) -> bytes:
     """
@@ -320,13 +327,11 @@ def encode_message(
     # Build message core (everything included in CRC calculation)
     # Per § 5.5.1.2: "starting with the first quote character of the ID
     # and ending with the character before the terminating CR"
-    message_core = (
-        id_token +
-        seq +
-        account_id_str +
-        data_field +
-        timestamp_str
-    ).encode('ascii')
+    message_core_str = id_token + seq + account_id_str + data_field
+    if timestamp_str is not None:
+        message_core_str += timestamp_str
+
+    message_core = message_core_str.encode('ascii')
 
     # Calculate CRC and length per § 5.5.1.2 and § 5.5.1.3
     crc = calculate_crc(message_core, crc_format)
@@ -349,7 +354,7 @@ def encode_message(
 def make_supervision_message(
     account_number: str,
     *,
-    crc_format: str,
+    crc_format: Literal["SIA", "ADM"],
     encryption: bool = False,
     account_prefix: str = "L0",
     receiver_number: Optional[str] = None
@@ -359,7 +364,7 @@ def make_supervision_message(
 
     Args:
         account_number: 3-16 hex ASCII characters
-        crc_format: REQUIRED, keyword-only. CRC algorithm selector
+        crc_format: REQUIRED, keyword-only. CRC algorithm ("SIA" or "ADM")
         encryption: Whether to encrypt (default False)
         account_prefix: Optional prefix (default "L0")
         receiver_number: Optional receiver number

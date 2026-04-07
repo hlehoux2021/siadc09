@@ -19,3 +19,5 @@ Keep the tone high-level and non-technical — it is for a team presentation, no
 - **Component design workflow**: always explain the component first (scope, task grouping, task-by-task rationale and decisions), then ask one targeted question per task, then write the design document
 - **Always use available skills**: invoke in priority the skill — never answer from general knowledge when a skill is available
 - **Design document impact scan**: whenever a document in `docs/design/` is written or a confirmed decision changes a named concept (state name, method name, command name, config key, error code), immediately grep all existing design docs for the old/changed term. Report every hit, discuss the impact, and update affected docs before continuing. Do not wait for the user to point out stale references.
+- **Testing**: Follow `.claude/rules/testing.md` for all test-writing standards and conventions
+- **Code style**: Follow `.claude/rules/code-style.md` — strong typing, explicit inheritance, no magic constants
