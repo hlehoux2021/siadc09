@@ -276,6 +276,9 @@ No background polling while the tab is open. Each panel has its own "Actualiser"
 The status badge is also refreshed whenever any "Actualiser" button is clicked (single
 AJAX call fetches all data: badge + errors + messages together).
 
+**Button rate limit:** After clicking "Actualiser", the button is disabled for 2 seconds (`setTimeout(..., 2000)`)
+to prevent rapid re-clicks during AJAX processing and avoid cascading requests if the daemon is slow to respond.
+
 Rationale: the Diagnostic tab is opened deliberately for troubleshooting, not for
 continuous monitoring. The `supervision_state` INFO command and the Jeedom dashboard widget
 (Component 6) serve the continuous monitoring need.

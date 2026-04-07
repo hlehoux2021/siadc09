@@ -1265,6 +1265,22 @@ Used by:
 - SM2: retries exhausted → `EVENT_FAILED`, any NAK received → `BAD_CSR_RESPONSE`
 See `error-handler-design.md` for full dispatch and tier routing.
 
+#### Task 1.11 — `on_stop()` — clean shutdown sequence
+
+**Order (per architecture.md):**
+
+1. Call `_update_info_commands()` directly — terminal state exception to transition rule; final state push to PHP.
+2. Queue drain: `while not self._queue.empty(): self._queue.get_nowait()` — discard pending items (no callback invocation).
+3. Cancel all tracked tasks: `for task in self._tasks: task.cancel()`.
+4. Wait for all tasks with hard timeout: `await asyncio.wait_for(asyncio.gather(*self._tasks, return_exceptions=True), timeout=5.0)`. Catches and logs `asyncio.TimeoutError` if tasks don't complete within 5 seconds; continues.
+5. Close UDP `DatagramTransport` if open: `if self._transport: self._transport.close()`.
+
+**Supervision loop clean exit:** Supervision loop checks framework stop flag at top of each iteration and exits cleanly after `self.stop()` is called.
+
+**SM2 drain rationale:** In-flight queue items resolved via `callback(False)` without calling `_notify()`. Daemon is terminating; T3 delivery not guaranteed in shutdown path. PHP infers state from `supervision_state=0` + `event_state=3`.
+
+**Terminal `info_update` delivery:** Best-effort — if framework already torn down, `_send_callback()` catches exception and logs. Accepted risk.
+
 ---
 
 ### Testing strategy for Component 1

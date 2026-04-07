@@ -559,6 +559,25 @@ case 'message_trace':
     break;
 ```
 
+### `make_message_entry()` factory
+
+**Canonical construction path** for message buffer entries — defined in daemon module:
+
+```python
+def make_message_entry(type: str, timestamp: str, sia_code: str, zone: str | None, attempt: int | None, result: str) -> dict:
+    """Factory for last_messages entries. All 6 fields mandatory."""
+    return {
+        "type":      type,              # "alarm" | "supervision"
+        "timestamp": timestamp,         # ISO 8601, timezone-aware
+        "sia_code":  sia_code,          # event code string
+        "zone":      zone,              # alarm only; None for supervision
+        "attempt":   attempt,           # alarm only; None for supervision
+        "result":    result,            # "ack" | "nak" | "timeout"
+    }
+```
+
+All 6 fields mandatory. Use `None` for absent optional fields — do not omit keys. `sia_last_messages` stores max 50 entries, newest first.
+
 ---
 
 ## Task 5b.6 — Message externalization (`messages.py`)

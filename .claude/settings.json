@@ -30,13 +30,22 @@
       "Read(//tmp/ioBroker.sia/src/lib/**)",
       "Read(//private/tmp/ioBroker.sia/src/lib/**)",
       "Read(//tmp/ioBroker.sia/src/**)",
-      "Read(//private/tmp/ioBroker.sia/src/**)"
+      "Read(//private/tmp/ioBroker.sia/src/**)",
+      "Bash(/tmp/check_design_docs.sh)",
+      "Bash(/tmp/check_final.sh:*)",
+      "Bash(chmod +x /tmp/check_final.sh)",
+      "Bash(/tmp/check_final.sh)",
+      "Bash(/tmp/summary.txt:*)",
+      "Read(//Users/herve.lehoux/Dev/my-project/**)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ],
     "additionalDirectories": [
       "/Users/herve.lehoux/Dev/my-project/docs",
       "/Users/herve.lehoux/Dev/my-project/_bmad-output/planning-artifacts",
       "/Users/herve.lehoux/Dev/MyHargassner/.claude/commands",
-      "/Users/herve.lehoux/Dev/my-project/.claude/commands"
+      "/Users/herve.lehoux/Dev/my-project/.claude/commands",
+      "/tmp"
     ]
   }
 }

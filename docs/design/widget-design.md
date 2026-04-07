@@ -158,28 +158,36 @@ public function toHtml($_version = 'dashboard') {
     // serves cached HTML — which is exactly the zombie daemon scenario.
     // Stale detection is handled client-side in siaDC09.js after tile render.
 
-    // --- Map state to badge class ---
-    if ($stateValue === null) {
+    // --- Check if equipment is disabled ---
+    // If getIsEnable() === 0 (equipment deactivated), render grey badge with "Désactivé" label.
+    // This overrides all supervision_state values.
+    if ($this->getIsEnable() === 0) {
         $replace['#badge_class#']         = 'text-muted';
-        $replace['#supervision_label#']   = htmlspecialchars('—');
-    } elseif ($stateValue === 2) {
-        $replace['#badge_class#']         = 'text-success';
-        $replace['#supervision_label#']   = htmlspecialchars($labelValue ?: '—');
-    } elseif ($stateValue === 1) {
-        $replace['#badge_class#']         = 'text-warning';
-        $replace['#supervision_label#']   = htmlspecialchars($labelValue ?: '—');
-    } else { // 0 — includes STOPPED, DEGRADED(3), TCP_RECONNECTING, NO_NETWORK
-        $replace['#badge_class#']         = 'text-danger';
-        $replace['#supervision_label#']   = htmlspecialchars($labelValue ?: '—');
+        $replace['#supervision_label#']   = htmlspecialchars(__('Désactivé', __FILE__));
+    } else {
+        // --- Map state to badge class ---
+        if ($stateValue === null) {
+            $replace['#badge_class#']         = 'text-muted';
+            $replace['#supervision_label#']   = htmlspecialchars('—');
+        } elseif ($stateValue === 2) {
+            $replace['#badge_class#']         = 'text-success';
+            $replace['#supervision_label#']   = htmlspecialchars($labelValue ?: '—');
+        } elseif ($stateValue === 1) {
+            $replace['#badge_class#']         = 'text-warning';
+            $replace['#supervision_label#']   = htmlspecialchars($labelValue ?: '—');
+        } else { // 0 — includes STOPPED, DEGRADED(3), TCP_RECONNECTING, NO_NETWORK
+            $replace['#badge_class#']         = 'text-danger';
+            $replace['#supervision_label#']   = htmlspecialchars($labelValue ?: '—');
+        }
     }
 
     $replace['#event_label#'] = htmlspecialchars(
-        $eventValue ?: 'Aucun événement depuis le démarrage'
+        $eventValue ?: __('Aucun événement depuis le démarrage', __FILE__)
     );
 
     // Embed supervision interval so JS stale check (Task 6.4) can read it from
     // the tile's data-supervision-interval attribute without an extra AJAX call.
-    $replace['#supervision_interval#'] = (int)$this->getConfiguration('supervision_interval', 60);
+    $replace['#supervision_interval#'] = (int)$this->getConfiguration('sia_supervision_interval', 60);
 
     return $this->postToHtml(
         $_version,
@@ -224,7 +232,7 @@ function siaDC09_checkStaleness(eqLogicId, supervisionInterval) {
                     .removeClass('text-success text-warning text-danger')
                     .addClass('text-muted');
                 $('#eqLogic' + eqLogicId + ' .siaDC09-label')
-                    .text('Données non disponibles');
+                    .text('<?php echo __("Données non disponibles", __FILE__); ?>');
             }
         }
     });

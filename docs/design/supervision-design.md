@@ -205,7 +205,10 @@ anti-pattern for this protocol:
 - The supervision contract already provides an upper bound via strike=3 (T3 notification).
 - All timing parameters are part of the `CSRPreset` dataclass.
 
-`reconnect_delay_s: float` — preset field (default 5 s). Part of `CSRPreset` loaded at startup via `self._preset.reconnect_delay_s`.
+**Preset timing fields:**
+- `reconnect_delay_s: float` — fixed delay between TCP reconnect attempts (default 5 s)
+- `supervision_interval_s: float` — period between supervision NULL sends (default 60 s)
+Both loaded from `CSRPreset` at startup via `self._preset.reconnect_delay_s` and `self._preset.supervision_interval_s`.
 
 > The full `_update_sm1_from_strike()` implementation is in Task B.1 below — that is
 > the canonical code. This section describes the rationale for the TCP_RECONNECTING
@@ -456,6 +459,8 @@ SUPERVISION queue item. Completes the NAK handling left unspecified by Component
 > daemon-design.md Task 1.7 SM2 dependency matrix: TCP_RECONNECTING → re-queued with
 > 1 s backoff; NO_NETWORK → instant EVENT_FAILED.
 
+**Exception handling:** `_send_raw()` raises `SIATransportError` on network failures (timeout, connection reset, socket closed). These are caught and handled as regular timeouts in the supervision loop — strike increment, state transition, logging. Never crashes the supervisor.
+
 ```python
 async def _send_supervision(self):
     """Send one supervision NULL frame and update SM1."""
@@ -472,7 +477,10 @@ async def _send_supervision(self):
         crc_format=self._preset.crc_format,
     )
     t_start = time.monotonic()
-    result = await self._send_raw(frame)
+    try:
+        result = await self._send_raw(frame)  # raises SIATransportError on network failure
+    except SIATransportError:
+        result = {'status': 'timeout'}  # treat transport error as timeout
     elapsed = time.monotonic() - t_start
 
     if result['status'] == 'ack':
