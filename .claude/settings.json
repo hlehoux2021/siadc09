@@ -43,7 +43,8 @@
       "Bash(python3:*)",
       "Bash(python -m pytest tests/test_sia_protocol.py -v)",
       "Bash(python -m pytest tests/test_sia_protocol.py -v --tb=short)",
-      "Bash(python -m pytest tests/level1/test_sia_protocol.py -v)"
+      "Bash(python -m pytest tests/level1/test_sia_protocol.py -v)",
+      "Bash(python -m pytest tests/level1/test_sia_protocol.py -v --tb=short)"
     ],
     "additionalDirectories": [
       "/Users/herve.lehoux/Dev/my-project/docs",
