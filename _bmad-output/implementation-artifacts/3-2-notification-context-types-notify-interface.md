@@ -1,6 +1,6 @@
 # Story 3.2: Notification Context Types & _notify() Interface
 
-**Status:** review
+**Status:** done
 
 ---
 

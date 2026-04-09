@@ -48,15 +48,15 @@ development_status:
   epic-2: in-progress
   2-1-simulator-framework-udp-tcp-listen: done
   2-2-generate-csr-responses-ack-nak-null: done
-  2-3-cli-tool-for-hex-dump-frame-replay: backlog
+  2-3-cli-tool-for-hex-dump-frame-replay: ready-for-dev
   2-4-pcap-frame-extractor-tool: backlog
   2-5-test-harness-standalone-documentation: backlog
   epic-2-retrospective: optional
 
   # Epic 3: Error Handler (Contract & Boilerplate)
-  epic-3: backlog
-  3-1-errorcode-enum-error-classification: backlog
-  3-2-notification-context-types-notify-interface: backlog
+  epic-3: in-progress
+  3-1-errorcode-enum-error-classification: done
+  3-2-notification-context-types-notify-interface: done
   3-3-error-handler-module-structure-callback-types: backlog
   epic-3-retrospective: optional
 
@@ -132,5 +132,5 @@ summary:
   stories_backlog: 37
   stories_ready_for_dev: 2
   stories_in_progress: 1
-  stories_review: 1
-  stories_done: 1
+  stories_review: 0
+  stories_done: 2
