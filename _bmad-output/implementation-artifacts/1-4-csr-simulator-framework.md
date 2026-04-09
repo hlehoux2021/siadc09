@@ -1,6 +1,6 @@
 # Story 1.4: CSR Simulator Framework
 
-**Status:** review
+**Status:** done
 
 ---
 
