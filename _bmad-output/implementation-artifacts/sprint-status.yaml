@@ -40,12 +40,12 @@ development_status:
   epic-1: in-progress
   1-1-sia-protocol-message-builder: done
   1-2-aes-128-cbc-encryption-module: done
-  1-3-ack-nak-response-parser: backlog
+  1-3-ack-nak-response-parser: ready-for-dev
   epic-1-retrospective: optional
 
   # Epic 2: CSR Simulator (Standalone Tool)
-  epic-2: backlog
-  2-1-simulator-framework-udp-tcp-listen: backlog
+  epic-2: in-progress
+  2-1-simulator-framework-udp-tcp-listen: ready-for-dev
   2-2-generate-csr-responses-ack-nak-null: backlog
   2-3-cli-tool-for-hex-dump-frame-replay: backlog
   2-4-pcap-frame-extractor-tool: backlog
@@ -125,11 +125,11 @@ development_status:
 summary:
   total_epics: 11
   total_stories: 41
-  epics_backlog: 10
-  epics_in_progress: 1
+  epics_backlog: 9
+  epics_in_progress: 2
   epics_done: 0
-  stories_backlog: 39
-  stories_ready_for_dev: 0
+  stories_backlog: 38
+  stories_ready_for_dev: 1
   stories_in_progress: 0
   stories_review: 1
   stories_done: 1
