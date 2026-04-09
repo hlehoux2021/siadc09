@@ -1,0 +1,378 @@
+"""SIA DC-09 Protocol Error Handler — Centralized Error Classification & Notification Contexts
+
+This module defines the canonical 3-tier error classification model for the daemon and PHP plugin.
+
+**Tier 1 (Auto-heal):**
+Transient errors that recover automatically. Examples: supervision timeouts, NAK on invalid timestamp.
+Action: Log to message center only. User sees strike counter in UI.
+
+**Tier 2 (User-actionable):**
+Configuration or CSR issues requiring user intervention. Example: malformed CSR response.
+Action: Log to message center AND fire configured notification command (SMS, push, etc.).
+
+**Tier 3 (Critical):**
+Infrastructure failures. Examples: 3 missed supervision cycles, permanent transport failure.
+Action: Log to message center, fire notification command, prefix with "CRITIQUE —".
+Policy: Every undelivered alarm must trigger critical notification.
+
+**API Surface (Story 3.1):**
+- ErrorTier enum with T1, T2, T3 levels
+- ErrorCode enum with 6 canonical error codes
+- ERROR_TIERS immutable mapping (ErrorCode → ErrorTier)
+- classify_error() helper function
+- T3_PREFIX constant for critical message prefixing
+
+**API Surface (Story 3.2):**
+- 6 context dataclasses (frozen, immutable):
+  - SM1TimeoutCtx: SUPERVISION_TIMEOUT (T1)
+  - SM1NakCtx: SUPERVISION_NAK (T1)
+  - SM1DisconnectedCtx: SUPERVISION_DISCONNECTED (T3)
+  - BadCSRResponseCtx: BAD_CSR_RESPONSE (T2)
+  - TransportPermanentCtx: TRANSPORT_PERMANENT (T3)
+  - EventFailedCtx: EVENT_FAILED (T3)
+- NotificationContext union type
+- _notify() interface signature
+- _validate_context() helper for testing
+
+**USAGE GUIDE — When and How to Call _notify():**
+
+1. **SM1 Supervision — SUPERVISION_TIMEOUT (T1, auto-heal)**
+   - **When:** Supervision NULL message times out waiting for ACK (transient network loss)
+   - **Code:** `_notify(ErrorCode.SUPERVISION_TIMEOUT, SM1TimeoutCtx(elapsed_ms=5000.0, strike_count=1, supervision_interval_s=60.0))`
+   - **Recovery:** Automatic on next successful ACK; strike counter resets
+
+2. **SM1 Supervision — SUPERVISION_NAK (T1, auto-heal, v1.1)**
+   - **When:** CSR responds with NAK to supervision NULL (invalid timestamp)
+   - **Code:** `_notify(ErrorCode.SUPERVISION_NAK, SM1NakCtx(raw_nak_frame=frame, nak_timestamp=parse_or_none(frame), account_number='000001'))`
+   - **Note:** v1.0 always NAKs (static timestamp). v1.1 adds dynamic timestamp parsing for real auto-heal.
+
+3. **SM1 Supervision — SUPERVISION_DISCONNECTED (T3, critical)**
+   - **When:** 3 consecutive supervision NULLs timeout without ACK (connection loss, CSR unreachable)
+   - **Code:** `_notify(ErrorCode.SUPERVISION_DISCONNECTED, SM1DisconnectedCtx(strike_count=3, last_ack_time_utc=last_ack, time_since_last_ack_s=elapsed, supervision_interval_s=60.0))`
+   - **Action:** User notification, daemon termination, Jeedom watchdog restarts
+
+4. **Transport — BAD_CSR_RESPONSE (T2, user-actionable)**
+   - **When:** CSR sends unparseable response (not ACK/NAK). Indicates misconfiguration.
+   - **Code:** `_notify(ErrorCode.BAD_CSR_RESPONSE, BadCSRResponseCtx(raw_frame=frame, parse_error=str(e), csr_host='192.168.1.1', csr_port=5000, transport='tcp'))`
+   - **User Action:** Check CSR IP, port, account number configuration
+
+5. **Transport — TRANSPORT_PERMANENT (T3, critical)**
+   - **When:** TCP max reconnect attempts exceeded OR UDP permanently unreachable
+   - **Code:** `_notify(ErrorCode.TRANSPORT_PERMANENT, TransportPermanentCtx(reason='tcp_max_retries_exceeded', transport='tcp', error_details='Connection refused', retry_count=3))`
+   - **Action:** User notification, daemon termination, Jeedom watchdog restarts
+
+6. **SM2 Event — EVENT_FAILED (T3, critical)**
+   - **When:** Alarm delivery fails after max retry attempts. **MANDATORY per NFR1: Zero Silent Failures**
+   - **Code:** `_notify(ErrorCode.EVENT_FAILED, EventFailedCtx(sia_code='BA', sia_seq=42, zone_name='Living Room', max_retries=3, attempts_made=3, last_error='timeout'))`
+   - **User Action:** Manual verification of alarm delivery (SMS, call, etc.)
+
+**Dependencies:** Python stdlib only — no asyncio, no Jeedom, no sia_protocol.
+This module is a foundation layer imported by all higher layers. Zero circular dependencies.
+"""
+
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
+from types import MappingProxyType
+from typing import Final, Literal, Optional
+
+
+# T3_PREFIX constant — prepended to all critical-tier notification messages
+T3_PREFIX: Final[str] = "CRITIQUE — "
+
+
+class ErrorTier(Enum):
+    """Error classification tier for notification policy.
+
+    Tier values (1, 2, 3) are used by message center deduplication logic.
+    """
+
+    T1 = 1  # Auto-heal — transient, message center only
+    T2 = 2  # User-actionable — configuration issue, message center + command
+    T3 = 3  # Critical — infrastructure failure, message center + command + "CRITIQUE —" prefix
+
+
+class ErrorCode(Enum):
+    """Canonical set of 6 error codes used across daemon and PHP plugin.
+
+    Each code is mapped to an ErrorTier via ERROR_TIERS.
+    No additions without design review and backlog prioritization.
+    """
+
+    # Tier 1 — Auto-heal
+    SUPERVISION_TIMEOUT = "supervision_timeout"
+    SUPERVISION_NAK = "supervision_nak"
+
+    # Tier 2 — User-actionable
+    BAD_CSR_RESPONSE = "bad_csr_response"
+
+    # Tier 3 — Critical
+    SUPERVISION_DISCONNECTED = "supervision_disconnected"
+    EVENT_FAILED = "event_failed"
+    TRANSPORT_PERMANENT = "transport_permanent"
+
+
+# Immutable mapping: ErrorCode → ErrorTier (frozen via MappingProxyType)
+ERROR_TIERS: MappingProxyType[ErrorCode, ErrorTier] = MappingProxyType({
+    ErrorCode.SUPERVISION_TIMEOUT: ErrorTier.T1,
+    ErrorCode.SUPERVISION_NAK: ErrorTier.T1,
+    ErrorCode.BAD_CSR_RESPONSE: ErrorTier.T2,
+    ErrorCode.SUPERVISION_DISCONNECTED: ErrorTier.T3,
+    ErrorCode.EVENT_FAILED: ErrorTier.T3,
+    ErrorCode.TRANSPORT_PERMANENT: ErrorTier.T3,
+})
+
+
+def classify_error(code: ErrorCode) -> ErrorTier:
+    """Return the tier (T1, T2, or T3) for a given error code.
+
+    Args:
+        code: An ErrorCode enum value
+
+    Returns:
+        ErrorTier enum value (T1, T2, or T3)
+
+    Raises:
+        KeyError: If code is not in ERROR_TIERS (should not happen with proper enum usage)
+    """
+    return ERROR_TIERS[code]
+
+
+# ============================================================================
+# NOTIFICATION CONTEXTS (Story 3.2)
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class SM1TimeoutCtx:
+    """Context for SUPERVISION_TIMEOUT (T1 auto-heal) errors.
+
+    Raised when supervision NULL message times out waiting for ACK.
+    Normal during transient network issues. Recovers on next successful ACK.
+
+    Example:
+        ctx = SM1TimeoutCtx(
+            elapsed_ms=5000.0,
+            strike_count=1,
+            supervision_interval_s=60.0
+        )
+        _notify(ErrorCode.SUPERVISION_TIMEOUT, ctx)
+    """
+
+    elapsed_ms: float
+    strike_count: int
+    supervision_interval_s: float
+
+
+@dataclass(frozen=True)
+class SM1NakCtx:
+    """Context for SUPERVISION_NAK (T1 auto-heal) errors.
+
+    Raised when CSR responds with NAK to supervision NULL (invalid timestamp).
+    In v1.0 with static timestamps, NAKs always occur. v1.1 will add dynamic
+    timestamp parsing for actual auto-heal recovery.
+
+    Example:
+        ctx = SM1NakCtx(
+            raw_nak_frame=b'\\x0a\\x00\\x00\\x00\\x0d',
+            nak_timestamp=None,
+            account_number='000001'
+        )
+        _notify(ErrorCode.SUPERVISION_NAK, ctx)
+    """
+
+    raw_nak_frame: bytes
+    nak_timestamp: Optional[str]
+    account_number: str
+
+
+@dataclass(frozen=True)
+class SM1DisconnectedCtx:
+    """Context for SUPERVISION_DISCONNECTED (T3 critical) errors.
+
+    Raised when 3 consecutive supervision NULL messages timeout without ACK.
+    Indicates connection loss or CSR unreachability.
+
+    Example:
+        ctx = SM1DisconnectedCtx(
+            strike_count=3,
+            last_ack_time_utc=datetime(2026, 4, 9, 14, 23, 45, tzinfo=timezone.utc),
+            time_since_last_ack_s=180.0,
+            supervision_interval_s=60.0
+        )
+        _notify(ErrorCode.SUPERVISION_DISCONNECTED, ctx)
+    """
+
+    strike_count: int
+    last_ack_time_utc: Optional[datetime]
+    time_since_last_ack_s: Optional[float]
+    supervision_interval_s: float
+
+
+@dataclass(frozen=True)
+class BadCSRResponseCtx:
+    """Context for BAD_CSR_RESPONSE (T2 user-actionable) errors.
+
+    Raised when CSR sends a response that cannot be parsed as ACK or NAK.
+    Indicates misconfiguration (wrong IP, port, account) or protocol mismatch.
+
+    Example:
+        ctx = BadCSRResponseCtx(
+            raw_frame=b'\\x0aGARBLED\\x0d',
+            parse_error='Expected frame to start with LF, got G',
+            csr_host='192.168.1.100',
+            csr_port=5000,
+            transport='udp'
+        )
+        _notify(ErrorCode.BAD_CSR_RESPONSE, ctx)
+    """
+
+    raw_frame: bytes
+    parse_error: str
+    csr_host: str
+    csr_port: int
+    transport: Literal["udp", "tcp"]
+
+
+@dataclass(frozen=True)
+class TransportPermanentCtx:
+    """Context for TRANSPORT_PERMANENT (T3 critical) errors.
+
+    Raised when TCP max reconnect attempts exceeded or UDP permanently unreachable.
+    Terminal condition — daemon stops and Jeedom watchdog restarts it.
+
+    Example:
+        ctx = TransportPermanentCtx(
+            reason='tcp_max_retries_exceeded',
+            transport='tcp',
+            error_details='Connection refused',
+            retry_count=3
+        )
+        _notify(ErrorCode.TRANSPORT_PERMANENT, ctx)
+    """
+
+    reason: str
+    transport: Literal["udp", "tcp"]
+    error_details: Optional[str]
+    retry_count: Optional[int]
+
+
+@dataclass(frozen=True)
+class EventFailedCtx:
+    """Context for EVENT_FAILED (T3 critical) errors.
+
+    Raised when alarm delivery fails after max retry attempts.
+    Every undelivered alarm must trigger this critical notification (NFR1: Zero Silent Failures).
+
+    Example:
+        ctx = EventFailedCtx(
+            sia_code='BA',
+            sia_seq=42,
+            zone_name='Living Room',
+            max_retries=3,
+            attempts_made=3,
+            last_error='timeout'
+        )
+        _notify(ErrorCode.EVENT_FAILED, ctx)
+    """
+
+    sia_code: Literal["BA", "FA", "PA"]
+    sia_seq: int
+    zone_name: Optional[str]
+    max_retries: int
+    attempts_made: int
+    last_error: str
+
+
+# Union type for all notification context dataclasses
+NotificationContext = (
+    SM1TimeoutCtx
+    | SM1NakCtx
+    | SM1DisconnectedCtx
+    | BadCSRResponseCtx
+    | TransportPermanentCtx
+    | EventFailedCtx
+)
+
+
+def _notify(code: ErrorCode, ctx: NotificationContext) -> None:
+    """Notify PHP and user of an error via message center and/or notification command.
+
+    This is the daemon's central error dispatch point. Called by SM1, SM2, and transport
+    code whenever an error occurs. The context object carries all diagnostic data needed
+    for logging, message center entries, and user notifications.
+
+    Full implementation dispatches to message center, notification commands, and ring buffer
+    logging per tier (T1/T2/T3). See Story 3.3 for dispatcher details.
+
+    Args:
+        code: ErrorCode enum value identifying the error type
+        ctx: NotificationContext object with diagnostic data (SM1TimeoutCtx, etc.)
+
+    Raises:
+        TypeError: If ctx is not a valid NotificationContext subtype
+
+    Example:
+        _notify(ErrorCode.SUPERVISION_TIMEOUT, SM1TimeoutCtx(
+            elapsed_ms=5000.0,
+            strike_count=1,
+            supervision_interval_s=60.0
+        ))
+
+    [Source: error-handler-design.md § Notification Dispatch Contract]
+    [Source: Story 3.3 — Full dispatcher implementation]
+    """
+    # Stub: full implementation in Story 3.3
+    # For now, type checking validates code + ctx match expected pairs
+    pass
+
+
+def _validate_context(code: ErrorCode, ctx: NotificationContext) -> bool:
+    """Validate that context type matches error code (for testing and debugging).
+
+    Args:
+        code: ErrorCode enum value
+        ctx: NotificationContext instance to validate
+
+    Returns:
+        True if valid
+
+    Raises:
+        ValueError: If code is unknown
+        TypeError: If ctx type doesn't match expected type for code
+    """
+    expected_contexts: dict[ErrorCode, type] = {
+        ErrorCode.SUPERVISION_TIMEOUT: SM1TimeoutCtx,
+        ErrorCode.SUPERVISION_NAK: SM1NakCtx,
+        ErrorCode.SUPERVISION_DISCONNECTED: SM1DisconnectedCtx,
+        ErrorCode.BAD_CSR_RESPONSE: BadCSRResponseCtx,
+        ErrorCode.TRANSPORT_PERMANENT: TransportPermanentCtx,
+        ErrorCode.EVENT_FAILED: EventFailedCtx,
+    }
+    expected_type = expected_contexts.get(code)
+    if expected_type is None:
+        raise ValueError(f"Unknown error code: {code}")
+    if not isinstance(ctx, expected_type):
+        raise TypeError(
+            f"Invalid context type for {code.name}: "
+            f"expected {expected_type.__name__}, got {type(ctx).__name__}"
+        )
+    return True
+
+
+__all__ = [
+    "ErrorCode",
+    "ErrorTier",
+    "ERROR_TIERS",
+    "T3_PREFIX",
+    "classify_error",
+    "SM1TimeoutCtx",
+    "SM1NakCtx",
+    "SM1DisconnectedCtx",
+    "BadCSRResponseCtx",
+    "TransportPermanentCtx",
+    "EventFailedCtx",
+    "NotificationContext",
+    "_notify",
+    "_validate_context",
+]
