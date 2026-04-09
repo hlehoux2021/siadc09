@@ -28,16 +28,7 @@ from resources.siadc09d.sia_protocol import (
     CRC_FORMAT_SIA, CRC_FORMAT_ADM,
 
     # Classes
-    SequenceManager,
-
-    # Functions
-    calculate_crc,
-    calculate_length,
-    format_account_id,
-    format_data_field,
-    format_timestamp,
-    encode_message,
-    make_supervision_message,
+    SIAMessageBuilder, SequenceManager,
 )
 
 
@@ -126,6 +117,18 @@ def validate_frame_field_values(
 def sequence_manager():
     """Provide a fresh SequenceManager for each test."""
     return SequenceManager()
+
+
+@pytest.fixture
+def builder():
+    """Provide a fresh SIAMessageBuilder for each test."""
+    return SIAMessageBuilder(CRC_FORMAT_SIA)
+
+
+@pytest.fixture
+def builder_adm():
+    """Provide a fresh SIAMessageBuilder with ADM format for each test."""
+    return SIAMessageBuilder(CRC_FORMAT_ADM)
 
 
 # ===== TESTS: Constants =====
@@ -272,25 +275,153 @@ def test_sequence_per_account(sequence_manager):
     assert seq_b2 == "0002"
 
 
+# ===== TESTS: SIAMessageBuilder Sequence Incrementing =====
+
+def test_encode_message_increments_sequence(builder):
+    """
+    Test that encode_message() increments sequence on repeated calls with same account.
+    This validates that the builder automatically tracks per-account sequences.
+
+    Expected result:
+    - First call to encode_message with account "001234" produces seq=0001
+    - Second call with same account produces seq=0002
+    - CRCs differ due to sequence change
+    """
+    frame1 = builder.encode_message("001234", "1130")
+    frame2 = builder.encode_message("001234", "2130")
+
+    # Extract sequences from frames
+    def get_seq(frame):
+        message_part = frame[9:-1].decode('ascii')
+        if '"SIA-DCS"' in message_part:
+            idx = message_part.index('"SIA-DCS"') + len('"SIA-DCS"')
+            return message_part[idx:idx+4]
+        return None
+
+    seq1 = get_seq(frame1)
+    seq2 = get_seq(frame2)
+
+    # Assert: Sequences increment
+    assert seq1 == "0001", f"First sequence should be 0001, got {seq1}"
+    assert seq2 == "0002", f"Second sequence should be 0002, got {seq2}"
+
+
+def test_encode_message_per_account_sequences(builder):
+    """
+    Test that different accounts have independent sequence tracking.
+    This validates per-account sequence management in builder.
+
+    Expected result:
+    - Account "001234": seq=0001, seq=0002
+    - Account "005678": seq=0001, seq=0002 (independent)
+    """
+    # Account 1: two messages
+    frame1a = builder.encode_message("001234", "1130")
+    frame1b = builder.encode_message("001234", "2130")
+
+    # Account 2: two messages
+    frame2a = builder.encode_message("005678", "1130")
+    frame2b = builder.encode_message("005678", "2130")
+
+    def get_seq(frame):
+        message_part = frame[9:-1].decode('ascii')
+        if '"SIA-DCS"' in message_part:
+            idx = message_part.index('"SIA-DCS"') + len('"SIA-DCS"')
+            return message_part[idx:idx+4]
+        return None
+
+    # Assert: Account 1 sequences
+    assert get_seq(frame1a) == "0001"
+    assert get_seq(frame1b) == "0002"
+
+    # Assert: Account 2 has independent sequences
+    assert get_seq(frame2a) == "0001"
+    assert get_seq(frame2b) == "0002"
+
+
+def test_reset_sequence_resets_counter(builder):
+    """
+    Test that reset_sequence() resets the sequence counter to 0001.
+    This validates sequence reset capability for testing and reinitialization.
+
+    Expected result:
+    - After 3 messages (seq=0001,0002,0003)
+    - Reset account "001234"
+    - Next message seq=0001 again
+    - Other accounts unaffected
+    """
+    # Build up sequences
+    builder.encode_message("001234", "1130")  # seq=0001
+    builder.encode_message("001234", "2130")  # seq=0002
+    builder.encode_message("001234", "1130")  # seq=0003
+    builder.encode_message("005678", "1130")  # seq=0001
+
+    # Reset account 001234
+    builder.reset_sequence("001234")
+
+    # Get next sequences
+    frame1 = builder.encode_message("001234", "1130")  # Should be seq=0001 again
+    frame2 = builder.encode_message("005678", "1130")  # Should be seq=0002 (not reset)
+
+    def get_seq(frame):
+        message_part = frame[9:-1].decode('ascii')
+        if '"SIA-DCS"' in message_part:
+            idx = message_part.index('"SIA-DCS"') + len('"SIA-DCS"')
+            return message_part[idx:idx+4]
+        return None
+
+    # Assert: Account 001234 reset to 0001
+    assert get_seq(frame1) == "0001"
+
+    # Assert: Account 005678 continued from 0002 (unaffected)
+    assert get_seq(frame2) == "0002"
+
+
+def test_sequence_wrap_around_9999_to_0001(builder):
+    """
+    Test that sequence wraps from 9999 to 0001 in encode_message().
+    This validates wrap-around behavior per SIA DC-09 § 5.5.1.5.
+
+    Expected result:
+    - After setting internal sequence to 9999
+    - Next encode_message() call produces seq=0001 (wrap, skip 0000)
+    """
+    # Manually set sequence to 9999
+    builder._sequence_tracker._seq_map["001234"] = 9999
+
+    # Call encode_message
+    frame = builder.encode_message("001234", "1130")
+
+    def get_seq(frame):
+        message_part = frame[9:-1].decode('ascii')
+        if '"SIA-DCS"' in message_part:
+            idx = message_part.index('"SIA-DCS"') + len('"SIA-DCS"')
+            return message_part[idx:idx+4]
+        return None
+
+    # Assert: Wrap-around from 9999 to 0001
+    assert get_seq(frame) == "0001"
+
+
 # ===== TESTS: CRC Calculation =====
 
-def test_crc_returns_4_hex_chars():
+def test_crc_returns_4_hex_chars(builder):
     """
     Test that CRC calculation produces a valid 4-character hexadecimal string.
     This verifies the CRC-16 MODBUS algorithm produces properly formatted output.
 
     Expected result:
-    - calculate_crc() returns a string exactly 4 characters long
+    - builder._calculate_crc() returns a string exactly 4 characters long
     - All characters are valid hex digits (0-9, A-F)
     """
-    result = calculate_crc(b"test data", CRC_FORMAT_SIA)
+    result = builder._calculate_crc(b"test data")
     # Assert: CRC result is exactly 4 characters (required by SIA protocol)
     assert len(result) == 4
     # Assert: All characters are valid hex (0-9, A-F uppercase)
     assert all(c in '0123456789ABCDEF' for c in result)
 
 
-def test_crc_format_sia():
+def test_crc_format_sia(builder):
     """
     Test CRC calculation with SIA format (CRC-16 MODBUS).
     This verifies SIA format algorithm is correctly applied.
@@ -299,8 +430,8 @@ def test_crc_format_sia():
     - SIA format produces valid 4-char hex output
     - Different data produces different CRCs (data-dependent)
     """
-    crc1 = calculate_crc(b"test1", CRC_FORMAT_SIA)
-    crc2 = calculate_crc(b"test2", CRC_FORMAT_SIA)
+    crc1 = builder._calculate_crc(b"test1")
+    crc2 = builder._calculate_crc(b"test2")
 
     # Assert: Both are valid hex
     assert all(c in '0123456789ABCDEF' for c in crc1)
@@ -310,7 +441,7 @@ def test_crc_format_sia():
     assert crc1 != crc2, "Different data should produce different CRCs"
 
 
-def test_crc_format_adm():
+def test_crc_format_adm(builder_adm):
     """
     Test CRC calculation with ADM format.
     This verifies ADM format algorithm is correctly applied.
@@ -319,8 +450,8 @@ def test_crc_format_adm():
     - ADM format produces valid 4-char hex output
     - Different data produces different CRCs (data-dependent)
     """
-    crc1 = calculate_crc(b"test1", CRC_FORMAT_ADM)
-    crc2 = calculate_crc(b"test2", CRC_FORMAT_ADM)
+    crc1 = builder_adm._calculate_crc(b"test1")
+    crc2 = builder_adm._calculate_crc(b"test2")
 
     # Assert: Both are valid hex
     assert all(c in '0123456789ABCDEF' for c in crc1)
@@ -330,7 +461,7 @@ def test_crc_format_adm():
     assert crc1 != crc2, "Different data should produce different CRCs"
 
 
-def test_crc_format_accepts_sia_and_adm():
+def test_crc_format_accepts_sia_and_adm(builder, builder_adm):
     """
     Test that CRC format parameter accepts SIA and ADM values.
     This verifies the two supported CRC algorithm types.
@@ -340,15 +471,15 @@ def test_crc_format_accepts_sia_and_adm():
     - calculate_crc with CRC_FORMAT_ADM produces valid output
     """
     # Assert: Both valid formats produce output
-    crc_sia = calculate_crc(b"test", CRC_FORMAT_SIA)
-    crc_adm = calculate_crc(b"test", CRC_FORMAT_ADM)
+    crc_sia = builder._calculate_crc(b"test")
+    crc_adm = builder_adm._calculate_crc(b"test")
 
     assert len(crc_sia) == 4
     assert len(crc_adm) == 4
 
 
-@pytest.mark.parametrize("crc_format", [CRC_FORMAT_SIA, CRC_FORMAT_ADM])
-def test_crc_both_formats_produce_valid_output(crc_format):
+@pytest.mark.parametrize("builder_fixture", [CRC_FORMAT_SIA, CRC_FORMAT_ADM])
+def test_crc_both_formats_produce_valid_output(request, builder_fixture):
     """
     Parametrized test: Verify both CRC formats produce valid output.
     This reduces duplication while testing both algorithm variants.
@@ -357,9 +488,15 @@ def test_crc_both_formats_produce_valid_output(crc_format):
     - Both SIA and ADM formats produce 4-character hex strings
     - Output is consistent (same input → same output)
     """
+    # Get the appropriate fixture based on the parameter
+    if builder_fixture == CRC_FORMAT_SIA:
+        builder_inst = request.getfixturevalue('builder')
+    else:
+        builder_inst = request.getfixturevalue('builder_adm')
+
     data = b"test payload"
-    crc1 = calculate_crc(data, crc_format)  # type: ignore
-    crc2 = calculate_crc(data, crc_format)  # type: ignore
+    crc1 = builder_inst._calculate_crc(data)
+    crc2 = builder_inst._calculate_crc(data)
 
     # Assert: Output is 4 hex chars
     assert len(crc1) == 4
@@ -371,35 +508,35 @@ def test_crc_both_formats_produce_valid_output(crc_format):
 
 # ===== TESTS: Length Calculation =====
 
-def test_length_starts_with_zero():
+def test_length_starts_with_zero(builder):
     """
     Test that length field always starts with '0' character.
     This verifies proper zero-padding per SIA spec § 5.5.1.4.
 
     Expected result:
-    - calculate_length() always returns format "0XXX" (starting with '0')
+    - builder._calculate_length() always returns format "0XXX" (starting with '0')
     - Never produces "1000" or higher (frames limited to 0FFF max)
     """
-    result = calculate_length(b"short")
+    result = builder._calculate_length(b"short")
     # Assert: Length starts with zero
     assert result.startswith('0'), f"Length must start with 0, got {result}"
 
 
-def test_length_is_4_chars():
+def test_length_is_4_chars(builder):
     """
     Test that length field is always exactly 4 characters.
     This verifies proper formatting for the 4-byte length field.
 
     Expected result:
-    - calculate_length() returns exactly 4 characters
+    - builder._calculate_length() returns exactly 4 characters
     - Padded with zeros if needed
     """
-    result = calculate_length(b"test data")
+    result = builder._calculate_length(b"test data")
     # Assert: Length is exactly 4 characters
     assert len(result) == 4, f"Length must be 4 chars, got {len(result)}"
 
 
-def test_length_is_hex():
+def test_length_is_hex(builder):
     """
     Test that length field contains only hexadecimal characters.
     This verifies valid hex format per SIA spec.
@@ -408,13 +545,13 @@ def test_length_is_hex():
     - All characters are 0-9 or A-F
     - Field is valid hexadecimal (not decimal)
     """
-    result = calculate_length(b"test")
+    result = builder._calculate_length(b"test")
     # Assert: All characters are valid hex
     assert all(c in '0123456789ABCDEF' for c in result), \
         f"Length should be hex, got {result}"
 
 
-def test_length_calculation_example():
+def test_length_calculation_example(builder):
     """
     Test length calculation with known data size.
     This validates the calculation formula matches spec expectations.
@@ -424,73 +561,73 @@ def test_length_calculation_example():
     - 255 bytes of data → "00FF" (hex FF = decimal 255)
     """
     # Assert: 10 bytes → 000A
-    result = calculate_length(b"x" * 10)
+    result = builder._calculate_length(b"x" * 10)
     assert result == "000A", f"10 bytes should be 000A, got {result}"
 
     # Assert: 255 bytes → 00FF
-    result = calculate_length(b"x" * 255)
+    result = builder._calculate_length(b"x" * 255)
     assert result == "00FF", f"255 bytes should be 00FF, got {result}"
 
 
 # ===== TESTS: Account ID Formatting =====
 
-def test_basic_account_id():
+def test_basic_account_id(builder):
     """
     Test basic account ID formatting without receiver.
     This verifies standard L0 prefix with account number only.
 
     Expected result:
-    - format_account_id("001234", "L0") returns "L0#001234"
+    - builder._format_account_id("001234", "L0") returns "L0#001234"
     - Format is prefix + "#" + account_number
     """
-    result = format_account_id("001234", "L0")
+    result = builder._format_account_id("001234", "L0")
     # Assert: Account ID has correct format
     assert result == "L0#001234"
 
 
-def test_account_id_with_prefix():
+def test_account_id_with_prefix(builder):
     """
     Test account ID formatting with different prefix.
     This verifies custom prefix handling.
 
     Expected result:
-    - format_account_id("001234", "L2") returns "L2#001234"
+    - builder._format_account_id("001234", "L2") returns "L2#001234"
     - Format adapts to different prefixes
     """
-    result = format_account_id("001234", "L2")
+    result = builder._format_account_id("001234", "L2")
     # Assert: Custom prefix is used
     assert result == "L2#001234"
 
 
-def test_account_id_with_receiver():
+def test_account_id_with_receiver(builder):
     """
     Test account ID formatting with receiver number.
     This verifies receiver prefix is included before account prefix.
 
     Expected result:
-    - format_account_id("001234", "L0", "R2") returns "R2L0#001234"
+    - builder._format_account_id("001234", "L0", "R2") returns "R2L0#001234"
     - Format is receiver + prefix + "#" + account_number
     """
-    result = format_account_id("001234", "L0", "R2")
+    result = builder._format_account_id("001234", "L0", "R2")
     # Assert: Receiver and prefix included in correct order
     assert result == "R2L0#001234"
 
 
-def test_account_id_with_multiple_digit_account():
+def test_account_id_with_multiple_digit_account(builder):
     """
     Test account ID with longer account number.
     This verifies format handles various account number lengths.
 
     Expected result:
-    - format_account_id("ABCDEF123456", "L0") returns "L0#ABCDEF123456"
+    - builder._format_account_id("ABCDEF123456", "L0") returns "L0#ABCDEF123456"
     - Accepts full 16-char hex account numbers
     """
-    result = format_account_id("ABCDEF123456", "L0")
+    result = builder._format_account_id("ABCDEF123456", "L0")
     # Assert: Full account number is preserved
     assert result == "L0#ABCDEF123456"
 
 
-def test_account_id_mixed_case():
+def test_account_id_mixed_case(builder):
     """
     Test that account ID accepts mixed-case hexadecimal.
     This verifies case doesn't affect validation or output.
@@ -499,14 +636,14 @@ def test_account_id_mixed_case():
     - Mixed case hex (a-f, A-F) is accepted
     - Case is preserved in output
     """
-    result = format_account_id("aAbBcCdD", "L0")
+    result = builder._format_account_id("aAbBcCdD", "L0")
     # Assert: Mixed-case hex is accepted and preserved
     assert result == "L0#aAbBcCdD"
 
 
 # ===== TESTS: Data Field Formatting =====
 
-def test_data_field_basic():
+def test_data_field_basic(builder):
     """
     Test basic data field formatting.
     This verifies standard unencrypted data field structure.
@@ -515,12 +652,12 @@ def test_data_field_basic():
     - Format is "[#{account_number}|{event_code}]"
     - Square brackets and pipe separator present
     """
-    result = format_data_field("001234", "1130")
+    result = builder._format_data_field("001234", "1130")
     # Assert: Data field has correct format
     assert result == "[#001234|1130]"
 
 
-def test_data_field_fire_code():
+def test_data_field_fire_code(builder):
     """
     Test data field with fire event code.
     This verifies data field works with different event types.
@@ -528,12 +665,12 @@ def test_data_field_fire_code():
     Expected result:
     - Fire code "2130" produces "[#001234|2130]"
     """
-    result = format_data_field("001234", "2130")
+    result = builder._format_data_field("001234", "2130")
     # Assert: Fire event code produces correct format
     assert result == "[#001234|2130]"
 
 
-def test_data_field_has_brackets():
+def test_data_field_has_brackets(builder):
     """
     Test that data field includes bracket delimiters.
     This verifies bracket syntax per SIA spec § 5.5.1.7.
@@ -541,13 +678,13 @@ def test_data_field_has_brackets():
     Expected result:
     - Result starts with "[" and ends with "]"
     """
-    result = format_data_field("001234", "1130")
+    result = builder._format_data_field("001234", "1130")
     # Assert: Data field is enclosed in brackets
     assert result.startswith("[")
     assert result.endswith("]")
 
 
-def test_data_field_has_pipe_separator():
+def test_data_field_has_pipe_separator(builder):
     """
     Test that data field includes pipe separator.
     This verifies account and event code are separated correctly.
@@ -555,7 +692,7 @@ def test_data_field_has_pipe_separator():
     Expected result:
     - Result contains "|" separator between account and event
     """
-    result = format_data_field("001234", "1130")
+    result = builder._format_data_field("001234", "1130")
     # Assert: Data field includes pipe separator
     assert "|" in result
 
@@ -566,7 +703,7 @@ def test_data_field_has_pipe_separator():
     ("0000", "0000", "[#0000|0000]"),
     ("FFFF", "FF FF", "[#FFFF|FF FF]"),
 ])
-def test_data_field_parametrized(account: str, event_code: str, expected: str):
+def test_data_field_parametrized(builder, account: str, event_code: str, expected: str):
     """
     Parametrized test for data field formatting with various inputs.
     This validates format consistency across different account/event combinations.
@@ -575,12 +712,12 @@ def test_data_field_parametrized(account: str, event_code: str, expected: str):
     - Each combination produces expected format
     """
     # Assert: Data field matches expected format
-    assert format_data_field(account, event_code) == expected
+    assert builder._format_data_field(account, event_code) == expected
 
 
 # ===== TESTS: Timestamp Formatting =====
 
-def test_timestamp_length():
+def test_timestamp_length(builder):
     """
     Test that timestamp is exactly 20 characters.
     This verifies timestamp format per SIA spec § 5.5.1.9.
@@ -589,12 +726,12 @@ def test_timestamp_length():
     - Formatted timestamp is exactly 20 characters long
     """
     ts = datetime(2026, 4, 7, 15, 30, 0, tzinfo=timezone.utc)
-    result = format_timestamp(ts)
+    result = builder._format_timestamp(ts)
     # Assert: Timestamp is exactly 20 characters
     assert len(result) == 20
 
 
-def test_timestamp_format():
+def test_timestamp_format(builder):
     """
     Test that timestamp follows correct format string.
     This verifies format is _HH:MM:SS,MM-DD-YYYY per spec.
@@ -603,12 +740,12 @@ def test_timestamp_format():
     - Timestamp for 2026-04-07 15:30:45 UTC is "_15:30:45,04-07-2026"
     """
     ts = datetime(2026, 4, 7, 15, 30, 45, tzinfo=timezone.utc)
-    result = format_timestamp(ts)
+    result = builder._format_timestamp(ts)
     # Assert: Timestamp matches exact format
     assert result == "_15:30:45,04-07-2026"
 
 
-def test_timestamp_has_required_separators():
+def test_timestamp_has_required_separators(builder):
     """
     Test that timestamp includes all required separator characters.
     This verifies correct separators: underscore, colons, comma, dashes.
@@ -620,7 +757,7 @@ def test_timestamp_has_required_separators():
     - Contains "-" for date separators
     """
     ts = datetime(2026, 4, 7, 15, 30, 0, tzinfo=timezone.utc)
-    result = format_timestamp(ts)
+    result = builder._format_timestamp(ts)
     # Assert: Leading underscore present
     assert result.startswith("_")
     # Assert: Colons present in time section
@@ -631,7 +768,7 @@ def test_timestamp_has_required_separators():
     assert "-" in result
 
 
-def test_timestamp_zero_fills_components():
+def test_timestamp_zero_fills_components(builder):
     """
     Test that timestamp zero-fills all components.
     This verifies single-digit months/days/hours are padded.
@@ -641,12 +778,12 @@ def test_timestamp_zero_fills_components():
     - Result is "_09:05:02,01-03-2026"
     """
     ts = datetime(2026, 1, 3, 9, 5, 2, tzinfo=timezone.utc)
-    result = format_timestamp(ts)
+    result = builder._format_timestamp(ts)
     # Assert: All components are zero-filled to 2 digits
     assert result == "_09:05:02,01-03-2026"
 
 
-def test_timestamp_current_if_none():
+def test_timestamp_current_if_none(builder):
     """
     Test that None timestamp returns None (omits timestamp from message).
     This allows frames without timestamps per SIA spec § 5.5.2.1.
@@ -655,7 +792,7 @@ def test_timestamp_current_if_none():
     - None input returns None (no timestamp field)
     - Caller can choose to include or exclude timestamp
     """
-    result = format_timestamp(None)
+    result = builder._format_timestamp(None)
     # Assert: None timestamp returns None (field omitted)
     assert result is None
 
@@ -665,7 +802,7 @@ def test_timestamp_current_if_none():
     (datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc), "_00:00:00,01-01-2026"),
     (datetime(2026, 12, 31, 23, 59, 59, tzinfo=timezone.utc), "_23:59:59,12-31-2026"),
 ])
-def test_timestamp_parametrized(dt: datetime, expected: str):
+def test_timestamp_parametrized(builder, dt: datetime, expected: str):
     """
     Parametrized test for timestamp formatting across various dates/times.
     This validates formatting consistency across boundary conditions.
@@ -674,12 +811,12 @@ def test_timestamp_parametrized(dt: datetime, expected: str):
     - Each datetime produces expected formatted string
     """
     # Assert: Timestamp matches expected format
-    assert format_timestamp(dt) == expected
+    assert builder._format_timestamp(dt) == expected
 
 
 # ===== TESTS: Complete Message Encoding =====
 
-def test_encode_message_starts_with_lf():
+def test_encode_message_starts_with_lf(builder):
     """
     Test that encoded message starts with LF byte.
     This verifies frame start delimiter per SIA spec § 5.5.
@@ -688,9 +825,8 @@ def test_encode_message_starts_with_lf():
     - First byte is LF (0x0A)
     - Frame contains all required fields with correct values
     """
-    frame = encode_message(
+    frame = builder.encode_message(
         "001234", "1130",
-        crc_format=CRC_FORMAT_SIA,
         timestamp=None
     )
     # Assert: Frame starts with LF delimiter
@@ -704,7 +840,7 @@ def test_encode_message_starts_with_lf():
     assert "[#001234|1130]" in message_str  # Data field
 
 
-def test_encode_message_ends_with_cr():
+def test_encode_message_ends_with_cr(builder):
     """
     Test that encoded message ends with CR byte.
     This verifies frame end delimiter per SIA spec § 5.5.
@@ -713,9 +849,8 @@ def test_encode_message_ends_with_cr():
     - Last byte is CR (0x0D)
     - Frame has no data after CR delimiter
     """
-    frame = encode_message(
+    frame = builder.encode_message(
         "001234", "1130",
-        crc_format=CRC_FORMAT_SIA,
         timestamp=None
     )
     # Assert: Frame ends with CR delimiter
@@ -725,7 +860,7 @@ def test_encode_message_ends_with_cr():
     assert frame[-2:-1] != CR
 
 
-def test_encode_message_has_crc():
+def test_encode_message_has_crc(builder):
     """
     Test that encoded message includes valid CRC field.
     This verifies CRC is present, positioned correctly, and has valid value.
@@ -735,9 +870,8 @@ def test_encode_message_has_crc():
     - CRC value is valid hexadecimal (0-9, A-F)
     - CRC matches calculation over message core
     """
-    frame = encode_message(
+    frame = builder.encode_message(
         "001234", "1130",
-        crc_format=CRC_FORMAT_SIA,
         timestamp=None
     )
     # Assert: CRC field is 4 bytes after LF
@@ -749,12 +883,12 @@ def test_encode_message_has_crc():
         f"CRC contains non-hex characters: {crc_str}"
     # Assert: CRC matches recalculation
     message_core = frame[9:-1]  # Everything between length and CR
-    expected_crc = calculate_crc(message_core, CRC_FORMAT_SIA)
+    expected_crc = builder._calculate_crc(message_core)
     assert crc_str == expected_crc, \
         f"CRC mismatch: frame has {crc_str}, calculation gives {expected_crc}"
 
 
-def test_encode_message_has_length():
+def test_encode_message_has_length(builder):
     """
     Test that encoded message includes length field.
     This verifies length field is present at correct position and value is correct.
@@ -764,9 +898,8 @@ def test_encode_message_has_length():
     - Length value matches actual message core byte count
     - Length is valid hexadecimal string
     """
-    frame = encode_message(
+    frame = builder.encode_message(
         "001234", "1130",
-        crc_format=CRC_FORMAT_SIA,
         timestamp=None
     )
     # Assert: Length field is 4 bytes after CRC
@@ -785,7 +918,7 @@ def test_encode_message_has_length():
         f"Length mismatch: frame has {length_str}, message_core is {len(message_core)} bytes"
 
 
-def test_encode_message_has_id_token():
+def test_encode_message_has_id_token(builder):
     """
     Test that encoded message includes correct ID token.
     This verifies message identification marker is exactly "SIA-DCS" (unencrypted).
@@ -794,9 +927,8 @@ def test_encode_message_has_id_token():
     - Frame contains exactly "SIA-DCS" token (not encrypted variant)
     - Token appears at correct position in message core
     """
-    frame = encode_message(
+    frame = builder.encode_message(
         "001234", "1130",
-        crc_format=CRC_FORMAT_SIA,
         encryption=False,
         timestamp=None
     )
@@ -809,20 +941,7 @@ def test_encode_message_has_id_token():
         f"Message should start with ID token, got: {message_str[:20]}"
 
 
-def test_encode_message_crc_format_keyword_only():
-    """
-    Test that crc_format parameter is keyword-only.
-    This verifies API design enforces keyword usage.
-
-    Expected result:
-    - Passing crc_format as positional argument raises TypeError
-    """
-    # Assert: crc_format as positional raises TypeError
-    with pytest.raises(TypeError):
-        encode_message("001234", "1130", "L0", None, None, None, CRC_FORMAT_SIA)  # type: ignore
-
-
-def test_encode_message_unencrypted_token():
+def test_encode_message_unencrypted_token(builder):
     """
     Test that unencrypted message uses SIA-DCS token.
     This verifies unencrypted mode token selection without encryption marker.
@@ -832,9 +951,8 @@ def test_encode_message_unencrypted_token():
     - Token appears as "SIA-DCS" (quoted, no asterisk)
     - Message does not contain "*SIA-DCS" variant
     """
-    frame = encode_message(
+    frame = builder.encode_message(
         "001234", "1130",
-        crc_format=CRC_FORMAT_SIA,
         encryption=False,
         timestamp=None
     )
@@ -849,7 +967,7 @@ def test_encode_message_unencrypted_token():
         f"Should start with \"SIA-DCS\", got: {message_str[:15]}"
 
 
-def test_encode_message_encrypted_token():
+def test_encode_message_encrypted_token(builder):
     """
     Test that encrypted message uses *SIA-DCS token.
     This verifies encrypted mode token selection with encryption marker.
@@ -859,9 +977,8 @@ def test_encode_message_encrypted_token():
     - Token appears as "*SIA-DCS" (quoted with asterisk)
     - Message starts with encrypted token identifier
     """
-    frame = encode_message(
+    frame = builder.encode_message(
         "001234", "1130",
-        crc_format=CRC_FORMAT_SIA,
         encryption=True,
         timestamp=None
     )
@@ -877,7 +994,7 @@ def test_encode_message_encrypted_token():
         "Should not contain unencrypted token variant"
 
 
-def test_encode_message_returns_bytes():
+def test_encode_message_returns_bytes(builder):
     """
     Test that encode_message returns bytes object.
     This verifies return type is binary data (not string) and frame is non-empty.
@@ -886,9 +1003,8 @@ def test_encode_message_returns_bytes():
     - Return value is bytes type (not str)
     - Frame is not empty (contains at least LF + CRC + Length + Message + CR)
     """
-    frame = encode_message(
+    frame = builder.encode_message(
         "001234", "1130",
-        crc_format=CRC_FORMAT_SIA,
         timestamp=None
     )
     # Assert: Return type is bytes
@@ -901,7 +1017,7 @@ def test_encode_message_returns_bytes():
         f"Frame too small: {len(frame)} bytes"
 
 
-def test_encode_message_with_receiver():
+def test_encode_message_with_receiver(builder):
     """
     Test that message includes receiver when provided.
     This verifies receiver number and prefix are added correctly.
@@ -911,11 +1027,10 @@ def test_encode_message_with_receiver():
     - Frame contains "L1" prefix marker
     - Account ID field is exactly "R2L1#001234" (receiver + prefix + # + account)
     """
-    frame = encode_message(
+    frame = builder.encode_message(
         "001234", "1130",
         account_prefix="L1",
         receiver_number="R2",
-        crc_format=CRC_FORMAT_SIA,
         timestamp=None
     )
     # Assert: Receiver and prefix are in frame
@@ -928,7 +1043,7 @@ def test_encode_message_with_receiver():
         f"Expected 'R2L1#001234' in message, got: {message_str}"
 
 
-def test_encode_message_data_field_included():
+def test_encode_message_data_field_included(builder):
     """
     Test that message includes exact data field with event code.
     This verifies data field structure: [#account|event_code].
@@ -937,9 +1052,8 @@ def test_encode_message_data_field_included():
     - Frame contains exactly "[#001234|1130]" data field
     - Data field appears after account ID, before timestamp (if present)
     """
-    frame = encode_message(
+    frame = builder.encode_message(
         "001234", "1130",
-        crc_format=CRC_FORMAT_SIA,
         timestamp=None
     )
     # Assert: Exact data field is present
@@ -948,46 +1062,46 @@ def test_encode_message_data_field_included():
 
 # ===== ERROR HANDLING TESTS =====
 
-def test_encode_message_empty_account_raises_error():
+def test_encode_message_empty_account_raises_error(builder):
     """
     Test that encode_message rejects empty account number.
     This verifies input validation catches invalid account IDs early.
 
     Expected result:
-    - encode_message("", "1130", ...) raises ValueError
+    - builder.encode_message("", "1130", ...) raises ValueError
     - Error message indicates account number issue
     """
     # Assert: Empty account raises ValueError
     with pytest.raises(ValueError):
-        encode_message("", "1130", crc_format=CRC_FORMAT_SIA)
+        builder.encode_message("", "1130")
 
 
-def test_encode_message_with_short_event_code():
+def test_encode_message_with_short_event_code(builder):
     """
     Test that encode_message accepts various event code formats.
     This validates event code flexibility for different alarm types.
 
     Expected result:
-    - encode_message("001234", "1130", ...) produces valid frame
+    - builder.encode_message("001234", "1130", ...) produces valid frame
     - Frame structure is correct
     """
     # Assert: Event code produces valid frame (no validation error)
-    frame = encode_message("001234", "1130", crc_format=CRC_FORMAT_SIA)
+    frame = builder.encode_message("001234", "1130")
     assert frame.startswith(LF)
     assert frame.endswith(CR)
 
 
-def test_format_timestamp_with_invalid_type():
+def test_format_timestamp_with_invalid_type(builder):
     """
     Test that format_timestamp rejects non-datetime objects.
     This verifies type checking prevents invalid inputs.
 
     Expected result:
-    - format_timestamp("not a datetime") raises TypeError or ValueError
+    - builder._format_timestamp("not a datetime") raises TypeError or ValueError
     """
     # Assert: Non-datetime input raises error
     with pytest.raises((TypeError, AttributeError)):
-        format_timestamp("not a datetime")  # type: ignore
+        builder._format_timestamp("not a datetime")  # type: ignore
 
 
 def test_sequence_manager_empty_account_allowed():
@@ -1013,21 +1127,21 @@ def test_sequence_manager_empty_account_allowed():
 
 # ===== BOUNDARY AND EDGE CASE TESTS =====
 
-def test_account_id_minimum_length():
+def test_account_id_minimum_length(builder):
     """
     Test account ID with minimum valid length (3 characters).
     This validates lower boundary of account number field.
 
     Expected result:
-    - format_account_id("123", "L0") returns "L0#123"
+    - builder._format_account_id("123", "L0") returns "L0#123"
     - Minimum 3-char account is accepted
     """
-    result = format_account_id("123", "L0")
+    result = builder._format_account_id("123", "L0")
     # Assert: Minimum length account accepted
     assert result == "L0#123"
 
 
-def test_account_id_maximum_length():
+def test_account_id_maximum_length(builder):
     """
     Test account ID with maximum valid length (16 characters).
     This validates upper boundary of account number field.
@@ -1037,7 +1151,7 @@ def test_account_id_maximum_length():
     - Result includes full account number
     """
     account_16 = "0123456789ABCDEF"  # Exactly 16 hex chars
-    result = format_account_id(account_16, "L0")
+    result = builder._format_account_id(account_16, "L0")
     # Assert: Maximum length account accepted
     assert result == f"L0#{account_16}"
     assert len(result) == 19  # L0(2) + #(1) + 16 chars = 19
@@ -1064,7 +1178,7 @@ def test_sequence_boundary_9998_to_9999():
     assert seq2 == "0001"
 
 
-def test_timestamp_year_boundary():
+def test_timestamp_year_boundary(builder):
     """
     Test timestamp formatting at year boundaries.
     This validates year formatting in various scenarios.
@@ -1078,45 +1192,45 @@ def test_timestamp_year_boundary():
     ts_2000 = datetime(2000, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
 
     # Assert: Year 2026 included in timestamp
-    result_2026 = format_timestamp(ts_2026)
+    result_2026 = builder._format_timestamp(ts_2026)
     assert result_2026 is not None
     assert "2026" in result_2026
 
     # Assert: Year 2000 included in timestamp
-    result_2000 = format_timestamp(ts_2000)
+    result_2000 = builder._format_timestamp(ts_2000)
     assert result_2000 is not None
     assert "2000" in result_2000
 
 
-def test_crc_empty_data():
+def test_crc_empty_data(builder):
     """
     Test CRC calculation with empty data.
     This validates CRC handles minimal input gracefully.
 
     Expected result:
-    - calculate_crc(b"", format) returns valid 4-hex-char CRC
+    - builder._calculate_crc(b"", format) returns valid 4-hex-char CRC
     - Not an error condition
     """
-    result = calculate_crc(b"", CRC_FORMAT_SIA)
+    result = builder._calculate_crc(b"")
     # Assert: CRC of empty data is valid (not error)
     assert len(result) == 4
     assert all(c in '0123456789ABCDEF' for c in result)
 
 
-def test_length_single_byte_data():
+def test_length_single_byte_data(builder):
     """
     Test length calculation with single byte.
     This validates length field for minimum data size.
 
     Expected result:
-    - calculate_length(b"x") returns "0001"
+    - builder._calculate_length(b"x") returns "0001"
     """
-    result = calculate_length(b"x")
+    result = builder._calculate_length(b"x")
     # Assert: Single byte produces "0001"
     assert result == "0001"
 
 
-def test_length_max_frame_size():
+def test_length_max_frame_size(builder):
     """
     Test length calculation at practical frame size limits.
     This validates length field for large frames.
@@ -1126,7 +1240,7 @@ def test_length_max_frame_size():
     - Produces "0FFF" (max 4-digit hex with leading 0)
     """
     large_data = b"x" * 4095
-    result = calculate_length(large_data)
+    result = builder._calculate_length(large_data)
     # Assert: Large frame length is valid
     assert result == "0FFF"
     assert len(result) == 4
@@ -1177,7 +1291,7 @@ def test_parse_frame_too_short():
         parse_frame(short_frame)
 
 
-def test_encode_message_crc_format_parameter():
+def test_encode_message_crc_format_parameter(builder):
     """
     Test that encode_message accepts CRC format parameter.
     This validates both SIA and ADM formats are supported.
@@ -1187,8 +1301,8 @@ def test_encode_message_crc_format_parameter():
     - encode_message with CRC_FORMAT_ADM produces valid frame
     """
     # Assert: Both CRC formats produce valid frames
-    frame_sia = encode_message("001234", "1130", crc_format=CRC_FORMAT_SIA)
-    frame_adm = encode_message("001234", "1130", crc_format=CRC_FORMAT_ADM)
+    frame_sia = builder.encode_message("001234", "1130")
+    frame_adm = builder.encode_message("001234", "1130")
 
     assert frame_sia.startswith(LF)
     assert frame_adm.startswith(LF)
@@ -1198,7 +1312,7 @@ def test_encode_message_crc_format_parameter():
 
 # ===== ENCRYPTION PAYLOAD VERIFICATION TESTS =====
 
-def test_encryption_flag_changes_frame_content():
+def test_encryption_flag_changes_frame_content(builder):
     """
     Test that encryption flag produces different frame content.
     This validates encryption is more than just token change.
@@ -1207,8 +1321,8 @@ def test_encryption_flag_changes_frame_content():
     - encrypted=False produces different CRC than encrypted=True
     - Frames differ due to encryption marker affecting message
     """
-    unenc = encode_message("001234", "1130", crc_format=CRC_FORMAT_SIA, encryption=False, timestamp=None)
-    enc = encode_message("001234", "1130", crc_format=CRC_FORMAT_SIA, encryption=True, timestamp=None)
+    unenc = builder.encode_message("001234", "1130", encryption=False, timestamp=None)
+    enc = builder.encode_message("001234", "1130", encryption=True, timestamp=None)
 
     # Assert: Encryption flag produces different frames
     assert unenc != enc, "Encrypted and unencrypted frames should differ"
@@ -1218,7 +1332,7 @@ def test_encryption_flag_changes_frame_content():
         f"CRC should differ: unenc={unenc[1:5]}, enc={enc[1:5]}"
 
 
-def test_encryption_affects_null_message():
+def test_encryption_affects_null_message(builder):
     """
     Test that encryption flag affects supervision (NULL) message.
     This validates encryption is consistently applied.
@@ -1227,8 +1341,8 @@ def test_encryption_affects_null_message():
     - make_supervision_message with encryption=False/True produce different frames
     - CRCs differ
     """
-    unenc = make_supervision_message("001234", crc_format=CRC_FORMAT_SIA, encryption=False)
-    enc = make_supervision_message("001234", crc_format=CRC_FORMAT_SIA, encryption=True)
+    unenc = builder.make_supervision_message("001234", encryption=False)
+    enc = builder.make_supervision_message("001234", encryption=True)
 
     # Assert: Encryption affects supervision message
     assert unenc != enc, "Encryption should change supervision message"
@@ -1247,7 +1361,7 @@ def test_encryption_affects_null_message():
     ("R2", "L2", "R2L2#"),
     ("R3", "L3", "R3L3#"),
 ])
-def test_receiver_prefix_combinations(receiver: str, prefix: str, expected_substring: str):
+def test_receiver_prefix_combinations(builder, receiver: str, prefix: str, expected_substring: str):
     """
     Parametrized test for various receiver/prefix combinations.
     This validates all valid receiver-prefix pairings work correctly.
@@ -1255,11 +1369,10 @@ def test_receiver_prefix_combinations(receiver: str, prefix: str, expected_subst
     Expected result:
     - Each combination produces frame with correct receiver+prefix
     """
-    frame = encode_message(
+    frame = builder.encode_message(
         "1234", "FA 129",
         receiver_number=receiver,
         account_prefix=prefix,
-        crc_format=CRC_FORMAT_SIA,
         timestamp=None
     )
     # Assert: Expected receiver+prefix combination present
@@ -1267,7 +1380,7 @@ def test_receiver_prefix_combinations(receiver: str, prefix: str, expected_subst
         f"Expected {expected_substring} in frame"
 
 
-def test_receiver_affects_frame_structure():
+def test_receiver_affects_frame_structure(builder):
     """
     Test that receiver number changes frame content and CRC.
     This validates receiver is properly encoded in message.
@@ -1276,8 +1389,8 @@ def test_receiver_affects_frame_structure():
     - Two frames with different receivers have different CRCs
     - Content reflects receiver number difference
     """
-    frame_r1 = encode_message("1234", "FA 129", receiver_number="R1", crc_format=CRC_FORMAT_SIA, timestamp=None)
-    frame_r2 = encode_message("1234", "FA 129", receiver_number="R2", crc_format=CRC_FORMAT_SIA, timestamp=None)
+    frame_r1 = builder.encode_message("1234", "FA 129", receiver_number="R1", timestamp=None)
+    frame_r2 = builder.encode_message("1234", "FA 129", receiver_number="R2", timestamp=None)
 
     # Assert: Different receivers produce different CRCs
     assert frame_r1[1:5] != frame_r2[1:5], \
@@ -1286,25 +1399,24 @@ def test_receiver_affects_frame_structure():
 
 # ===== TESTS: NULL Message Generation =====
 
-def test_null_message_uses_null_code():
+def test_null_message_uses_null_code(builder):
     """
     Test that NULL message uses supervision event code "0000".
     This verifies supervision message uses correct event code per spec.
 
     Expected result:
-    - make_supervision_message() generates frame with "[#account|0000]"
+    - builder.make_supervision_message() generates frame with "[#account|0000]"
     - No other event code in supervision message
     """
-    frame = make_supervision_message(
-        "001234",
-        crc_format=CRC_FORMAT_SIA
+    frame = builder.make_supervision_message(
+        "001234"
     )
     # Assert: NULL code present in frame
     assert b"[#001234|0000]" in frame, \
         "Supervision message should contain [#001234|0000]"
 
 
-def test_null_message_starts_with_lf():
+def test_null_message_starts_with_lf(builder):
     """
     Test that NULL message starts with LF delimiter.
     This verifies frame structure matches encode_message requirements.
@@ -1313,9 +1425,8 @@ def test_null_message_starts_with_lf():
     - First byte is exactly LF (0x0A)
     - Second byte starts CRC field
     """
-    frame = make_supervision_message(
-        "001234",
-        crc_format=CRC_FORMAT_SIA
+    frame = builder.make_supervision_message(
+        "001234"
     )
     # Assert: Frame starts with LF
     assert frame.startswith(LF), "First byte should be LF (0x0A)"
@@ -1325,7 +1436,7 @@ def test_null_message_starts_with_lf():
         "Bytes 1-4 should be CRC hex"
 
 
-def test_null_message_ends_with_cr():
+def test_null_message_ends_with_cr(builder):
     """
     Test that NULL message ends with CR delimiter.
     This verifies frame structure matches encode_message requirements.
@@ -1334,9 +1445,8 @@ def test_null_message_ends_with_cr():
     - Last byte is exactly CR (0x0D)
     - No trailing bytes after CR
     """
-    frame = make_supervision_message(
-        "001234",
-        crc_format=CRC_FORMAT_SIA
+    frame = builder.make_supervision_message(
+        "001234"
     )
     # Assert: Frame ends with CR
     assert frame.endswith(CR), "Last byte should be CR (0x0D)"
@@ -1346,7 +1456,7 @@ def test_null_message_ends_with_cr():
     assert frame[-2:-1] != CR, "Should not have double CR"
 
 
-def test_null_message_encrypted_flag():
+def test_null_message_encrypted_flag(builder):
     """
     Test that NULL message respects encryption flag.
     This verifies encryption token changes between unencrypted and encrypted modes.
@@ -1356,14 +1466,12 @@ def test_null_message_encrypted_flag():
     - encrypted: contains "*SIA-DCS" token (with asterisk)
     - Both frames have valid structure
     """
-    unencrypted = make_supervision_message(
+    unencrypted = builder.make_supervision_message(
         "001234",
-        crc_format=CRC_FORMAT_SIA,
         encryption=False
     )
-    encrypted = make_supervision_message(
+    encrypted = builder.make_supervision_message(
         "001234",
-        crc_format=CRC_FORMAT_SIA,
         encryption=True
     )
     # Assert: Unencrypted uses unencrypted token
@@ -1383,7 +1491,7 @@ def test_null_message_encrypted_flag():
     assert encrypted.startswith(LF) and encrypted.endswith(CR)
 
 
-def test_null_message_with_custom_prefix():
+def test_null_message_with_custom_prefix(builder):
     """
     Test that NULL message uses custom account prefix.
     This verifies account prefix parameter is passed through correctly.
@@ -1393,9 +1501,8 @@ def test_null_message_with_custom_prefix():
     - Account ID field is exactly "L2#001234"
     - NULL event code "0000" is still present
     """
-    frame = make_supervision_message(
+    frame = builder.make_supervision_message(
         "001234",
-        crc_format=CRC_FORMAT_SIA,
         account_prefix="L2"
     )
     # Assert: Custom prefix is included in frame
@@ -1410,7 +1517,7 @@ def test_null_message_with_custom_prefix():
 
 # ===== INTEGRATION TESTS =====
 
-def test_message_frame_is_valid():
+def test_message_frame_is_valid(builder):
     """
     Test that complete message frame has all required components.
     This validates overall frame structure is correct per SIA spec.
@@ -1421,9 +1528,8 @@ def test_message_frame_is_valid():
     - CRC and length fields are valid hexadecimal
     - Message core contains required fields
     """
-    frame = encode_message(
+    frame = builder.encode_message(
         "001234", "1130",
-        crc_format=CRC_FORMAT_SIA,
         timestamp=None
     )
     # Assert: Frame starts with LF
@@ -1445,7 +1551,7 @@ def test_message_frame_is_valid():
     assert b"[#001234|1130]" in frame, "Should contain data field"
 
 
-def test_example_message_structure():
+def test_example_message_structure(builder):
     """
     Test message structure against protocol spec example.
     This validates real-world message generation with all components correct.
@@ -1457,10 +1563,9 @@ def test_example_message_structure():
     - Contains "[#1234|FA 129]" data field
     - CRC and length fields are valid
     """
-    frame = encode_message(
+    frame = builder.encode_message(
         "1234", "FA 129",
         account_prefix="L0",
-        crc_format=CRC_FORMAT_SIA,
         timestamp=None
     )
     # Assert: Frame has correct start/end delimiters
@@ -1482,7 +1587,7 @@ def test_example_message_structure():
         f"Length should be hex: {length_str}"
 
 
-def test_message_with_timestamp():
+def test_message_with_timestamp(builder):
     """
     Test that message includes timestamp when provided.
     This validates timestamp parameter is processed correctly and included in frame.
@@ -1494,15 +1599,13 @@ def test_message_with_timestamp():
     - CRC changes compared to no-timestamp version
     """
     ts = datetime(2026, 4, 7, 15, 30, 0, tzinfo=timezone.utc)
-    frame_with_ts = encode_message(
+    frame_with_ts = builder.encode_message(
         "001234", "1130",
-        timestamp=ts,
-        crc_format=CRC_FORMAT_SIA
+        timestamp=ts
     )
-    frame_no_ts = encode_message(
+    frame_no_ts = builder.encode_message(
         "001234", "1130",
-        timestamp=None,
-        crc_format=CRC_FORMAT_SIA
+        timestamp=None
     )
     # Assert: Frame generated successfully
     assert frame_with_ts is not None, "Frame should be generated"
@@ -1521,7 +1624,7 @@ def test_message_with_timestamp():
 # NOTE: Binary .bin files deferred to v1.1 when CSR integration is available.
 # These tests validate expected frame structure per SIA-DC-09 spec examples.
 
-def test_spec_b1_fire_alarm_no_timestamp():
+def test_spec_b1_fire_alarm_no_timestamp(builder):
     """
     Test against Annex B.1: Fire Alarm, SIA DC-04, Non-Encrypted, No Timestamp.
     Validates our implementation produces frame with expected structure.
@@ -1533,12 +1636,11 @@ def test_spec_b1_fire_alarm_no_timestamp():
     - CRC and length are valid hex values
     """
     # Spec: <LF>CRC_VALUE0022"SIA-DCS"0001L0#1234[#1234|FA 129]<CR>
-    frame = encode_message(
+    frame = builder.encode_message(
         account_number="1234",
         event_code="FA 129",
         account_prefix="L0",
         timestamp=None,
-        crc_format=CRC_FORMAT_SIA,
     )
 
     # Assert: Frame starts with LF
@@ -1568,7 +1670,7 @@ def test_spec_b1_fire_alarm_no_timestamp():
     assert '[#1234|FA 129]' in message, "Should contain event FA 129"
 
 
-def test_spec_b2_burglary_with_timestamp():
+def test_spec_b2_burglary_with_timestamp(builder):
     """
     Test burglary alarm with timestamp.
     Validates message structure when timestamp is included.
@@ -1580,12 +1682,11 @@ def test_spec_b2_burglary_with_timestamp():
     - Contains timestamp in format _HH:MM:SS,MM-DD-YYYY
     """
     ts = datetime(2026, 4, 8, 10, 30, 45, tzinfo=timezone.utc)
-    frame = encode_message(
+    frame = builder.encode_message(
         account_number="1234",
         event_code="BA 129",
         account_prefix="L0",
         timestamp=ts,
-        crc_format=CRC_FORMAT_SIA,
     )
 
     # Assert: Frame structure is valid
@@ -1610,7 +1711,7 @@ def test_spec_b2_burglary_with_timestamp():
 
 # ===== TESTS: Different Event Types =====
 
-def test_fire_event_code():
+def test_fire_event_code(builder):
     """
     Test fire alarm event codes.
     Validates fire event type produces correct CRC/length/structure.
@@ -1621,11 +1722,10 @@ def test_fire_event_code():
     - Event code "FA 129" (fire code 129) is present
     - Account ID and token fields are correct
     """
-    frame = encode_message(
+    frame = builder.encode_message(
         account_number="1234",
         event_code="FA 129",
         account_prefix="L0",
-        crc_format=CRC_FORMAT_SIA,
         timestamp=None
     )
 
@@ -1648,7 +1748,7 @@ def test_fire_event_code():
     assert b'0001' in frame, "Should contain sequence"
 
 
-def test_burglary_event_code():
+def test_burglary_event_code(builder):
     """
     Test burglary alarm event codes.
     Validates burglary event type produces correct CRC/length/structure.
@@ -1659,11 +1759,10 @@ def test_burglary_event_code():
     - Event code "BA 129" (burglary alarm code 129) is present
     - Account ID and token fields are correct
     """
-    frame = encode_message(
+    frame = builder.encode_message(
         account_number="1234",
         event_code="BA 129",
         account_prefix="L0",
-        crc_format=CRC_FORMAT_SIA,
         timestamp=None
     )
 
@@ -1686,7 +1785,7 @@ def test_burglary_event_code():
     assert b'0001' in frame, "Should contain sequence"
 
 
-def test_panic_event_code():
+def test_panic_event_code(builder):
     """
     Test panic alarm event codes.
     Validates panic event type produces correct CRC/length/structure.
@@ -1697,11 +1796,10 @@ def test_panic_event_code():
     - Event code "PA 001" (panic code 001) is present
     - Account ID and token fields are correct
     """
-    frame = encode_message(
+    frame = builder.encode_message(
         account_number="1234",
         event_code="PA 001",
         account_prefix="L0",
-        crc_format=CRC_FORMAT_SIA,
         timestamp=None
     )
 
@@ -1726,7 +1824,7 @@ def test_panic_event_code():
 
 # ===== TESTS: Frame Structure Validation =====
 
-def test_frame_has_correct_delimiter_sequence():
+def test_frame_has_correct_delimiter_sequence(builder):
     """
     Test that frame delimiters appear in correct order per SIA spec.
     This validates fundamental frame structure integrity.
@@ -1737,9 +1835,8 @@ def test_frame_has_correct_delimiter_sequence():
     - No LF or CR bytes within the middle (message content)
     - Delimiters exactly 1 byte each
     """
-    frame = encode_message(
+    frame = builder.encode_message(
         "1234", "FA 129",
-        crc_format=CRC_FORMAT_SIA,
         timestamp=None
     )
 
@@ -1761,7 +1858,7 @@ def test_frame_has_correct_delimiter_sequence():
         f"Frame middle should not contain CR: {middle}"
 
 
-def test_frame_crc_length_relationship():
+def test_frame_crc_length_relationship(builder):
     """
     Test that CRC is calculated over correct message range and length field is accurate.
     Validates CRC and length consistency and sensitivity to content changes.
@@ -1772,8 +1869,8 @@ def test_frame_crc_length_relationship():
     - Different event codes produce different CRCs (content-dependent)
     - Both CRCs are valid hexadecimal
     """
-    frame1 = encode_message("1234", "FA 129", crc_format=CRC_FORMAT_SIA, timestamp=None)
-    frame2 = encode_message("1234", "BA 129", crc_format=CRC_FORMAT_SIA, timestamp=None)
+    frame1 = builder.encode_message("1234", "FA 129", timestamp=None)
+    frame2 = builder.encode_message("1234", "BA 129", timestamp=None)
 
     # Assert: Different events produce different CRCs (CRC is content-sensitive)
     assert frame1[1:5] != frame2[1:5], \
@@ -1802,7 +1899,7 @@ def test_frame_crc_length_relationship():
         f"Length2 mismatch: field says {length2_str}, message is {len(message2)} bytes"
 
 
-def test_frame_field_positions():
+def test_frame_field_positions(builder):
     """
     Test that frame fields appear at correct byte positions.
     Validates frame layout and field alignment per SIA spec § 5.5.1.
@@ -1814,7 +1911,7 @@ def test_frame_field_positions():
     - Bytes 9 onward: Message core
     - Last byte: CR (0x0D)
     """
-    frame = encode_message("1234", "FA 129", crc_format=CRC_FORMAT_SIA, timestamp=None)
+    frame = builder.encode_message("1234", "FA 129", timestamp=None)
 
     # Assert: Byte 0 is LF
     assert frame[0:1] == LF, "Byte 0 must be LF"

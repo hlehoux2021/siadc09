@@ -211,3 +211,68 @@ This balanced approach keeps acceptance criteria readable while ensuring develop
 - Security properties validated (encryption key scrubbing, principal least-privilege, no cleartext supervision)
 
 **Next workflow:** `/bmad-bmm-sprint-planning` — Generates sprint status and implementation task sequence for the development phase. Kicks off the 4-implementation phase where stories will be cycled through create → validate → develop → review → repeat.
+
+---
+
+## Phase 6 — Implementation (April 2026)
+
+**BMAD workflow used:** Dev Story (`/bmad-bmm-dev-story`) — Story-by-story implementation with domain expert validation
+
+**What's happening:** Stories are being implemented in dependency order using the dev-story workflow. Each story goes through: (1) expert skill validation of approach before coding, (2) implementation via code agent, (3) test execution with coverage verification, (4) code review with adversarial findings, and (5) approval → done.
+
+**Implementation progress (11 Epics, 37 Stories):**
+
+| Epic | Title | Stories | Status |
+|------|-------|---------|--------|
+| 1 | Protocol Engine | 3 | 1/3 done |
+| 2 | CSR Simulator | 5 | Backlog |
+| 3 | Error Handler | 3 | Backlog |
+| 4 | Logging | 3 | Backlog |
+| 5 | Daemon Core | 6 | Backlog |
+| 6 | PHP Plugin | 6 | Backlog |
+| 7 | Supervision | 3 | Backlog |
+| 8 | Config Wizard | 3 | Backlog |
+| 9 | Debug UI | 3 | Backlog |
+| 10 | Widget | 2 | Backlog |
+| 11 | E2E Testing & Market | 4 | Backlog |
+
+**Completed Stories:**
+
+### Story 1.1: SIA Protocol Message Builder ✅ DONE
+
+**Status:** Completed 2026-04-09 (code review + pylint + tests all passing)
+
+**Implementation approach:**
+- Created `SIAMessageBuilder` class with integrated `SequenceTracker` for automatic per-account sequence management
+- Implemented CRC-16 MODBUS algorithm (not zlib.crc32) per expert validation
+- Timestamp formatting as `_HH:MM:SS,MM-DD-YYYY` (20 chars, UTC) — corrected per expert
+- All message building functions as private methods on builder class (encapsulation)
+- Backward-compatibility alias `SequenceManager = SequenceTracker` for future migrations
+
+**Test results:**
+- **96 unit tests** all passing (92 existing + 4 new sequence increment tests)
+- **Coverage:** Constants, SequenceTracker, CRC, length, account IDs, data fields, timestamps, complete encoding, NULL messages, sequence per-account independence, wrap-around (9999→0001), reset functionality
+- **Pylint:** 10.00/10 perfect score
+
+**Code review findings (1-1-sia-protocol-message-builder code review, 2026-04-09):**
+- **Critical issues found and fixed:** 5 (task spec mismatches, signature mismatches, documentation gaps)
+- **Medium issues found and fixed:** 5 (test count, module structure, API patterns, backward-compat clarity)
+- **All findings resolved:** Story file Tasks section updated to match class-based implementation; API usage patterns documented; Dev Notes rewritten
+
+**Files created/modified:**
+- `resources/siadc09d/sia_protocol.py` (main module, 416 lines)
+- `tests/level1/test_sia_protocol.py` (96 tests, 2070 lines)
+- `_bmad-output/implementation-artifacts/1-1-sia-protocol-message-builder.md` (story file, fully aligned with implementation)
+
+**Key decisions documented:**
+- `crc_format` set at builder initialization (not per-call) — enforces preset config
+- Sequence auto-increments on each `encode_message()` call (no separate call needed)
+- Private methods on builder for all message components (CRC, length, account ID, data field, timestamp)
+- Deprecated `SequenceManager` alias kept for backward compatibility only
+
+**Next story:** 1.2 (AES-128 CBC Encryption Module) — will import this module to encrypt plaintext frames
+
+**Expert skills consulted:**
+- `sia-dc09-expert` — Protocol validation (CRC algorithm, timestamp format, frame structure)
+
+**Observation:** The code review identified 10 distinct issues (5 critical, 5 medium) that had survived the development process. Story file Tasks section documentation was significantly out of sync with the class-based implementation that emerged. Updates took ~45 min to resolve all findings and ensure consistency across story file, Dev Notes, and implementation. Type safety and documentation improvements added significant value.
