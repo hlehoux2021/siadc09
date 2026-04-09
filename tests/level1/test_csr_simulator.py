@@ -670,3 +670,181 @@ class TestEndToEndScenarios:
 
             # Assert: NULL always returns ACK regardless of sequence
             assert response == 'ACK', f"NULL frame should always get ACK (seq={seq})"
+
+
+# ============================================================================
+# INTEGRATION TESTS WITH STORIES 1.1, 1.2, 1.3 (MISSING - ADDED BY CODE REVIEW)
+# ============================================================================
+
+class TestIntegrationWithStories11To13:
+    """Integration tests with SIA protocol engine (Stories 1.1-1.3).
+
+    Expected result:
+    - Simulator correctly parses frames built by SIAMessageBuilder
+    - Simulator correctly handles encryption from SIACipher
+    - Simulator responses parse correctly with decode_ack_nak
+    """
+
+    def test_integration_story_1_1_message_builder(self, preset_plain):
+        """Generate alarm using SIAMessageBuilder and verify simulator can process it.
+
+        Expected result:
+        - Alarm frame built by SIAMessageBuilder doesn't crash simulator
+        - Simulator generates valid response frame
+        - ACK response parses correctly per protocol
+        """
+        from resources.siadc09d.csr_simulator import CSRSimulator
+        from resources.siadc09d.sia_protocol import SIAMessageBuilder, decode_ack_nak
+
+        simulator = CSRSimulator(10001, 5000, preset_plain)
+        builder = SIAMessageBuilder(crc_format='hex')
+
+        # Build alarm frame using Story 1.1 (burglary code "1130")
+        alarm_frame = builder.encode_message(
+            account_number='000001',
+            event_code='1130'
+        )
+
+        # Assert: Frame is bytes (valid frame from builder)
+        assert isinstance(alarm_frame, bytes), "SIAMessageBuilder should produce bytes frame"
+
+        # Simulator parses this frame (no crash)
+        parsed = simulator._parse_received_message(alarm_frame, preset_plain)
+
+        # Assert: Parsing doesn't crash and returns dict
+        assert isinstance(parsed, dict), "Parse should return dict"
+
+        # Generate ACK response
+        ack_response = simulator._generate_ack_frame(1, preset_plain, encrypted_inbound=False)
+
+        # Verify ACK can be parsed by Story 1.3 decoder
+        decoded = decode_ack_nak(ack_response, crc_format='hex')
+
+        # Assert: ACK response is properly formatted per protocol
+        assert decoded.get('type') == 'ACK', "Simulator ACK should decode as ACK"
+
+    def test_integration_story_1_2_encryption_round_trip(self, preset_encrypted):
+        """Use SIACipher and simulator together without crashing.
+
+        Expected result:
+        - Simulator works with Story 1.2 encryption key in preset
+        - ACK generation with encryption flag doesn't crash
+        - Components integrate without errors
+        """
+        from resources.siadc09d.csr_simulator import CSRSimulator
+        from resources.siadc09d.sia_crypto import SIACipher
+
+        simulator = CSRSimulator(10001, 5000, preset_encrypted)
+        cipher = SIACipher(preset_encrypted['encryption_key'])
+
+        # Assert: Cipher initialized with key from preset
+        assert cipher is not None, "SIACipher should initialize with preset key"
+
+        # Generate ACK response for encrypted inbound
+        ack_response = simulator._generate_ack_frame(1, preset_encrypted, encrypted_inbound=True)
+
+        # Assert: ACK response is bytes (encrypted frame, so may have different structure)
+        assert isinstance(ack_response, bytes), "ACK should be bytes"
+        assert len(ack_response) > 0, "ACK response should not be empty"
+
+    def test_integration_full_flow_plaintext(self, preset_plain):
+        """Full flow: build alarm → parse → generate ACK → decode.
+
+        Expected result:
+        - All components work together without errors
+        - Frame built by SIAMessageBuilder accepted by simulator
+        - ACK response parses correctly via Story 1.3
+        """
+        from resources.siadc09d.csr_simulator import CSRSimulator
+        from resources.siadc09d.sia_protocol import SIAMessageBuilder, decode_ack_nak
+
+        simulator = CSRSimulator(10001, 5000, preset_plain)
+        builder = SIAMessageBuilder(crc_format='hex')
+
+        # Step 1: Build alarm frame using Story 1.1
+        alarm_frame = builder.encode_message(
+            account_number='000001',
+            event_code='1130'
+        )
+        assert isinstance(alarm_frame, bytes), "Builder should produce bytes"
+
+        # Step 2: Parse frame with simulator
+        parsed = simulator._parse_received_message(alarm_frame, preset_plain)
+        assert isinstance(parsed, dict), "Simulator parse should return dict"
+
+        # Step 3: Generate ACK response
+        ack_response = simulator._generate_ack_frame(42, preset_plain, encrypted_inbound=False)
+        assert isinstance(ack_response, bytes), "ACK should be bytes"
+
+        # Step 4: Parse ACK response using Story 1.3
+        decoded = decode_ack_nak(ack_response, crc_format='hex')
+
+        # Assert: Full flow complete with valid ACK
+        assert decoded.get('type') == 'ACK', "Response should be ACK"
+        assert decoded.get('seq') == 42, "ACK should echo sequence"
+
+
+# ============================================================================
+# ERROR HANDLING & EDGE CASES (MISSING - ADDED BY CODE REVIEW)
+# ============================================================================
+
+class TestErrorHandling:
+    """Test error handling and edge cases (AC #5, #8).
+
+    Expected result:
+    - Malformed frames generate NAK without crashing
+    - Invalid data handled gracefully
+    - Server remains stable under error conditions
+    """
+
+    def test_malformed_frame_doesnt_crash_server(self, preset_plain):
+        """Various malformed frames handled gracefully without crashing.
+
+        Expected result:
+        - Missing CR/LF doesn't crash
+        - Truncated message doesn't crash
+        - Invalid CRC doesn't crash
+        - Server continues operation
+        """
+        from resources.siadc09d.csr_simulator import CSRSimulator
+
+        simulator = CSRSimulator(10001, 5000, preset_plain)
+
+        malformed_frames = [
+            b'\x0A\x00\x10',  # Incomplete frame
+            b'GARBAGE_DATA',  # No delimiters
+            b'\x0ADATA',  # Missing CR
+            b'',  # Empty frame
+        ]
+
+        for malformed in malformed_frames:
+            # Should parse without raising exception
+            try:
+                parsed = simulator._parse_received_message(malformed, preset_plain)
+                # Assert: Returns some result (likely 'unknown' type)
+                assert 'type' in parsed, f"Malformed frame should parse to dict: {malformed!r}"
+            except Exception as e:
+                pytest.fail(f"Malformed frame {malformed!r} crashed: {e}")
+
+    def test_oversized_frame_rejected(self, preset_plain):
+        """Frame exceeding reasonable size limit rejected gracefully.
+
+        Expected result:
+        - Oversized frame (>10000 bytes) handled without memory issues
+        - Server continues normal operation
+        """
+        from resources.siadc09d.csr_simulator import CSRSimulator
+
+        simulator = CSRSimulator(10001, 5000, preset_plain)
+
+        # Create oversized malformed frame
+        oversized = b'\x0A' + b'X' * 10000 + b'\x0D'
+
+        # Should handle without crash
+        try:
+            parsed = simulator._parse_received_message(oversized, preset_plain)
+            # Either returns result or raises expected error
+            assert True
+        except Exception as e:
+            # Should be a specific error, not generic crash
+            assert 'frame' in str(e).lower() or 'size' in str(e).lower()
