@@ -31,6 +31,16 @@ SIA_NULL_CODE: Final[str] = "NULL"
 # Used for supervision NULL frames only. NOT in _EVENT_SIA_CODES.
 # Test: SIA_NULL_CODE not in any SM2 messages
 
+# ===== SM1 STATE INFO LABELS =====
+# Supervision state labels for INFO commands (ref: supervision-design.md)
+
+SM1_INITIALIZING_FR: Final[str] = "DÉMARRAGE…"
+SM1_HEALTHY_FR: Final[str] = "OK"
+SM1_DEGRADED_1_2_FR: Final[str] = "DÉGRADÉ ({}/3)"  # {} = strike counter
+SM1_DEGRADED_3_FR: Final[str] = "PERDUE"
+SM1_TCP_RECONNECTING_FR: Final[str] = "Reconnexion TCP/UDP…"
+SM1_NO_NETWORK_FR: Final[str] = "HORS RÉSEAU — arrêt"
+
 # ===== SM1 STATE TRANSITIONS =====
 # Supervision connection/health states - 13 messages
 

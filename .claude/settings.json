@@ -17,7 +17,12 @@
       "Bash(grep -n \"ADR-05\\\\|ADR-06\\\\|task lifecycle\\\\|crc_format\" /Users/herve.lehoux/Dev/my-project/docs/design/*.md)",
       "Bash(grep -l \"^Status:.*ready-for-dev\" /Users/herve.lehoux/Dev/my-project/_bmad-output/implementation-artifacts/*-*-*.md)",
       "Bash(grep \"^Status:\" /Users/herve.lehoux/Dev/my-project/_bmad-output/implementation-artifacts/*-*-*.md)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(ls -la /Users/herve.lehoux/Dev/my-project/_bmad-output/implementation-artifacts/3-*)",
+      "Bash(grep -E \"\\\\.md$\")",
+      "Bash(ls -la /Users/herve.lehoux/Dev/my-project/_bmad-output/implementation-artifacts/epic-*-retro-*.md)",
+      "Read(//Users/herve.lehoux/Dev/**)",
+      "Bash(grep \"^class.*Error\\\\|^class.*Exception\" /Users/herve.lehoux/Dev/my-project/resources/siadc09d/sia_*.py)"
     ],
     "additionalDirectories": [
       "/Users/herve.lehoux/Dev/my-project/docs",

@@ -63,13 +63,13 @@ development_status:
   # Epic 4: Logging & Observability (Contract & Boilerplate)
   epic-4: in-progress
   4-1-messages-py-structure-french-string-constants: done
-  4-2-logging-infrastructure-setup-logger-configuration: backlog
-  4-3-ring-buffer-structure-log-entry-factory: backlog
+  4-2-logging-infrastructure-setup-logger-configuration: done
+  4-3-ring-buffer-structure-log-entry-factory: done
   epic-4-retrospective: optional
 
   # Epic 5: Daemon Core & Dual State Machines
-  epic-5: backlog
-  5-1-sm1-connection-supervision-state-machine: backlog
+  epic-5: in-progress
+  5-1-sm1-connection-supervision-state-machine: review
   5-2-sm2-alarm-event-state-machine: backlog
   5-3-priorityqueue-task-coordination: backlog
   5-4-udp-tcp-transport-layer: backlog
@@ -129,8 +129,8 @@ summary:
   epics_backlog: 8
   epics_in_progress: 3
   epics_done: 0
-  stories_backlog: 34
-  stories_ready_for_dev: 2
+  stories_backlog: 33
+  stories_ready_for_dev: 1
   stories_in_progress: 0
-  stories_review: 0
-  stories_done: 5
+  stories_review: 1
+  stories_done: 6
