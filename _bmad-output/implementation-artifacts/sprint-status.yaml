@@ -57,7 +57,7 @@ development_status:
   epic-3: in-progress
   3-1-errorcode-enum-error-classification: done
   3-2-notification-context-types-notify-interface: done
-  3-3-error-handler-module-structure-callback-types: backlog
+  3-3-error-handler-module-structure-callback-types: done
   epic-3-retrospective: optional
 
   # Epic 4: Logging & Observability (Contract & Boilerplate)
@@ -129,8 +129,8 @@ summary:
   epics_backlog: 9
   epics_in_progress: 2
   epics_done: 0
-  stories_backlog: 36
+  stories_backlog: 35
   stories_ready_for_dev: 2
-  stories_in_progress: 1
+  stories_in_progress: 0
   stories_review: 0
-  stories_done: 3
+  stories_done: 4

@@ -2,6 +2,13 @@
 
 This module defines the canonical 3-tier error classification model for the daemon and PHP plugin.
 
+**PURPOSE:**
+This module is a pure Python foundation layer that defines error classification, notification context
+dataclasses, and the contract between daemon and PHP via four callback types. It has zero Jeedom/asyncio
+dependencies and is fully unit-testable in isolation.
+
+**3-TIER ERROR MODEL:**
+
 **Tier 1 (Auto-heal):**
 Transient errors that recover automatically. Examples: supervision timeouts, NAK on invalid timestamp.
 Action: Log to message center only. User sees strike counter in UI.
@@ -15,14 +22,15 @@ Infrastructure failures. Examples: 3 missed supervision cycles, permanent transp
 Action: Log to message center, fire notification command, prefix with "CRITIQUE —".
 Policy: Every undelivered alarm must trigger critical notification.
 
-**API Surface (Story 3.1):**
+**API SURFACE (Story 3.1) — Error Classification:**
 - ErrorTier enum with T1, T2, T3 levels
-- ErrorCode enum with 6 canonical error codes
+- ErrorCode enum with 6 canonical error codes (SUPERVISION_TIMEOUT, SUPERVISION_NAK, BAD_CSR_RESPONSE,
+  SUPERVISION_DISCONNECTED, EVENT_FAILED, TRANSPORT_PERMANENT)
 - ERROR_TIERS immutable mapping (ErrorCode → ErrorTier)
 - classify_error() helper function
-- T3_PREFIX constant for critical message prefixing
+- T3_PREFIX constant for critical message prefixing ("CRITIQUE — ")
 
-**API Surface (Story 3.2):**
+**API SURFACE (Story 3.2) — Notification Contexts:**
 - 6 context dataclasses (frozen, immutable):
   - SM1TimeoutCtx: SUPERVISION_TIMEOUT (T1)
   - SM1NakCtx: SUPERVISION_NAK (T1)
@@ -33,6 +41,47 @@ Policy: Every undelivered alarm must trigger critical notification.
 - NotificationContext union type
 - _notify() interface signature
 - _validate_context() helper for testing
+
+**API SURFACE (Story 3.3) — Callback Types & Dispatch Contract:**
+
+This story defines the **daemon-PHP IPC boundary contract** via four callback types. Each callback
+carries a JSON-serializable payload that describes the error and how PHP should respond.
+
+**Callback 1: `message_center`**
+- Fired for: ALL error codes (T1, T2, T3)
+- Payload: {type, tier, logical_id, title, message, timestamp, context}
+- Timing: Synchronous (immediate when _notify() called)
+- Purpose: Log error to Jeedom message center with deduplication via logical_id
+
+**Callback 2: `notify`**
+- Fired for: T2 and T3 errors ONLY (not T1)
+- Payload: {type, tier, title, message, critical, timestamp}
+- Timing: Synchronous (immediate when _notify() called)
+- Purpose: Fire configured user notification (SMS, push, etc.) via Jeedom notification queue
+
+**Callback 3: `error_update`**
+- Fired for: T2 and T3 errors ONLY (not T1)
+- Payload: {type, action (add|update|resolve), error {code, tier, timestamp, message, context, count}}
+- Timing: Synchronous (immediate when _notify() called)
+- Purpose: Update sia_last_errors config key (max 10 entries, manual clear only)
+
+**Callback 4: `message_trace`**
+- Fired for: ALL error codes (T1, T2, T3) + routine supervision messages
+- Payload: {type, entry {timestamp, level (DEBUG|INFO|WARNING|ERROR), message, code, context_json}}
+- Timing: Asynchronous (enqueue to ring buffer task, do not block _notify())
+- Purpose: Append to sia_last_messages ring buffer (max 50 entries) for protocol inspector debugging
+
+**Dispatch Logic (Story 3.3 Stub):**
+The _notify(code, ctx) function is the daemon's central error dispatch point. It internally calls
+_dispatch_notify(code, ctx), which fires the appropriate callbacks based on error tier:
+
+- **T1 (auto-heal)**: message_center + message_trace (NO notify or error_update)
+- **T2 (user-actionable)**: message_center + notify + error_update + message_trace
+- **T3 (critical)**: message_center + notify + error_update + message_trace + T3_PREFIX prefix
+  + critical=true flag + then call daemon.stop() (for TRANSPORT_PERMANENT)
+
+Full implementation of _dispatch_notify() is deferred to Epic 6 (Error Handler Implementation).
+This story defines the callback contract only.
 
 **USAGE GUIDE — When and How to Call _notify():**
 
@@ -322,9 +371,85 @@ def _notify(code: ErrorCode, ctx: NotificationContext) -> None:
     [Source: error-handler-design.md § Notification Dispatch Contract]
     [Source: Story 3.3 — Full dispatcher implementation]
     """
-    # Stub: full implementation in Story 3.3
-    # For now, type checking validates code + ctx match expected pairs
-    pass
+    # Validate context type matches error code
+    _validate_context(code, ctx)
+    # Dispatch to PHP via four callback types (implementation in _dispatch_notify)
+    _dispatch_notify(code, ctx)
+
+
+def _dispatch_notify(code: ErrorCode, ctx: NotificationContext) -> None:
+    """Dispatch error notification to PHP via four callback types (stub).
+
+    This is the daemon's error dispatch point. Called by _notify() to fire up to four
+    callbacks (message_center, notify, error_update, message_trace) based on error tier.
+
+    DISPATCH LOGIC (full implementation deferred to Epic 6):
+
+    **Tier 1 (Auto-heal — message_center + message_trace only):**
+      - SUPERVISION_TIMEOUT: fire message_center callback, append to message_trace ring buffer
+      - SUPERVISION_NAK: fire message_center callback, append to message_trace ring buffer
+      - Do NOT fire notify callback (no user notification for auto-heal errors)
+      - Do NOT fire error_update callback (no persistence for T1)
+      - Strike counter managed by SM1 (1–3); recovery on next successful ACK
+
+    **Tier 2 (User-actionable — message_center + notify + error_update + message_trace):**
+      - BAD_CSR_RESPONSE: fire all four callbacks
+      - Fire notify callback (triggers configured notification command via queue plugin)
+      - Fire error_update callback with action='add' or 'update' (increment count if duplicate)
+      - Persist to sia_last_errors config key (max 10 entries, manual clear only)
+      - Append to message_trace ring buffer
+
+    **Tier 3 (Critical — all four callbacks + special handling):**
+      - SUPERVISION_DISCONNECTED: fire all four callbacks, call daemon.stop()
+      - EVENT_FAILED: fire all four callbacks, call daemon.stop()
+      - TRANSPORT_PERMANENT: fire all four callbacks, call daemon.stop()
+      - Message prefixed with T3_PREFIX ("CRITIQUE — ") in notify and message_center payloads
+      - notify callback with critical=true (queue plugin marks as high-priority)
+      - error_update action='add' or 'update', persist to sia_last_errors
+      - Append to message_trace with level='ERROR' (not DEBUG/INFO)
+
+    **Callback Firing Contract (Guarantees):**
+      - message_center: fires for ALL error codes (T1/T2/T3)
+      - notify: fires ONLY for T2/T3 (not T1), omitted for T1 auto-heal
+      - error_update: fires ONLY for T2/T3 (not T1), action is 'add' or 'update'
+      - message_trace: fires for all codes + routine supervision NULL→ACK messages
+
+    **Callback Timing Guarantees:**
+      - message_center: synchronous (immediate dispatch, returns before next line executes)
+      - notify: synchronous (immediate dispatch)
+      - error_update: synchronous (immediate dispatch)
+      - message_trace: asynchronous (enqueue to ring buffer task, do not block caller)
+
+    **Deduplication Strategy:**
+      - message_center: Jeedom occurrence counter via logical_id field (automatic)
+      - notify: Jeedom notification queue plugin deduplicates via title field
+      - error_update: compare code + logical_id in sia_last_errors; update count if match
+      - message_trace: append all entries (routine supervision throttled at ring buffer layer)
+
+    **Payload Schemas (JSON-serializable for PHP transmission):**
+
+    message_center: {type, tier, logical_id, title, message, timestamp, context}
+    notify: {type, tier, title, message, critical, timestamp}
+    error_update: {type, action, error {code, tier, timestamp, message, context, count}}
+    message_trace: {type, entry {timestamp, level, message, code, context_json}}
+
+    Args:
+        code: ErrorCode enum value identifying the error type
+        ctx: NotificationContext object with diagnostic data
+
+    Raises:
+        NotImplementedError: This is a stub; full implementation is in Epic 6
+
+    [Source: error-handler-design.md § Tier 1/2/3 Dispatch Logic]
+    [Source: daemon-design.md § Error Handler Integration]
+    [Source: php-core-design.md § Daemon-PHP IPC Protocol]
+    """
+    # Stub: full implementation in Epic 6
+    # For now, this documents the callback contract and dispatch logic
+    raise NotImplementedError(
+        "Full _dispatch_notify() implementation deferred to Epic 6 "
+        "(Error Handler Implementation). Story 3.3 defines the interface only."
+    )
 
 
 def _validate_context(code: ErrorCode, ctx: NotificationContext) -> bool:
@@ -360,6 +485,99 @@ def _validate_context(code: ErrorCode, ctx: NotificationContext) -> bool:
     return True
 
 
+def _context_to_dict(ctx: NotificationContext) -> dict:
+    """Convert context dataclass to JSON-serializable dict for callback payloads.
+
+    Handles serialization of special types:
+    - bytes → hex string (human-readable for debugging)
+    - datetime → ISO 8601 UTC format (e.g., "2026-04-10T14:35:22+00:00")
+    - Optional[T] → value or null (JSON null, not "null" string)
+
+    Privacy Rules:
+    - Encryption key values are NEVER included in output
+    - If encryption key length is needed, use "key_length_bytes" field instead
+
+    Args:
+        ctx: NotificationContext instance (one of six context dataclass types)
+
+    Returns:
+        dict with serializable fields; all values are JSON-safe (str, int, float, bool, null, dict, list)
+
+    Raises:
+        TypeError: If ctx is not a valid NotificationContext subtype
+
+    Example:
+        ctx = SM1TimeoutCtx(elapsed_ms=5000.0, strike_count=1, supervision_interval_s=60.0)
+        payload = context_to_dict(ctx)
+        # Returns: {"elapsed_ms": 5000.0, "strike_count": 1, "supervision_interval_s": 60.0}
+
+    [Source: error-handler-design.md § Privacy Rules]
+    [Source: Story 3.3 — Error Context Serialization]
+    """
+    if ctx is None:
+        return None
+
+    # SM1TimeoutCtx: elapsed time and strike counter
+    if isinstance(ctx, SM1TimeoutCtx):
+        return {
+            "elapsed_ms": ctx.elapsed_ms,
+            "strike_count": ctx.strike_count,
+            "supervision_interval_s": ctx.supervision_interval_s,
+        }
+
+    # SM1NakCtx: NAK frame and timestamp parsing result
+    if isinstance(ctx, SM1NakCtx):
+        return {
+            "raw_nak_frame_hex": ctx.raw_nak_frame.hex(),
+            "nak_timestamp": ctx.nak_timestamp,
+            "account_number": ctx.account_number,
+        }
+
+    # SM1DisconnectedCtx: disconnection and recovery timing
+    if isinstance(ctx, SM1DisconnectedCtx):
+        return {
+            "strike_count": ctx.strike_count,
+            "last_ack_time_utc": (
+                ctx.last_ack_time_utc.isoformat() if ctx.last_ack_time_utc else None
+            ),
+            "time_since_last_ack_s": ctx.time_since_last_ack_s,
+            "supervision_interval_s": ctx.supervision_interval_s,
+        }
+
+    # BadCSRResponseCtx: unparseable response from CSR
+    if isinstance(ctx, BadCSRResponseCtx):
+        return {
+            "raw_frame_hex": ctx.raw_frame.hex(),
+            "parse_error": ctx.parse_error,
+            "csr_host": ctx.csr_host,
+            "csr_port": ctx.csr_port,
+            "transport": ctx.transport,
+        }
+
+    # TransportPermanentCtx: permanent network failure
+    if isinstance(ctx, TransportPermanentCtx):
+        return {
+            "reason": ctx.reason,
+            "transport": ctx.transport,
+            "error_details": ctx.error_details,
+            "retry_count": ctx.retry_count,
+        }
+
+    # EventFailedCtx: alarm delivery failure
+    if isinstance(ctx, EventFailedCtx):
+        return {
+            "sia_code": ctx.sia_code,
+            "sia_seq": ctx.sia_seq,
+            "zone_name": ctx.zone_name,
+            "max_retries": ctx.max_retries,
+            "attempts_made": ctx.attempts_made,
+            "last_error": ctx.last_error,
+        }
+
+    # Unknown context type
+    raise TypeError(f"Unknown context type: {type(ctx).__name__}")
+
+
 __all__ = [
     "ErrorCode",
     "ErrorTier",
@@ -374,5 +592,7 @@ __all__ = [
     "EventFailedCtx",
     "NotificationContext",
     "_notify",
+    "_dispatch_notify",
     "_validate_context",
+    "_context_to_dict",
 ]
