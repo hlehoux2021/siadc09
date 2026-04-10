@@ -12,8 +12,10 @@ Expert Validation: sia-dc09-expert (2026-04-07)
 - Message frame: LF + CRC + Length + Message + CR
 """
 
-from datetime import datetime
-from typing import Dict, Literal, Optional
+from datetime import datetime, timezone
+from typing import Dict, Literal, Optional, TypedDict
+import re
+import struct
 
 # ===== Module-Level Constants =====
 
@@ -43,6 +45,42 @@ ENCRYPTED_MARKER = "*"
 # CRC format types (preset-configured)
 CRC_FORMAT_SIA = "SIA"
 CRC_FORMAT_ADM = "ADM"
+
+# ACK/NAK response type constants
+ACK_RESPONSE = "ACK"
+NAK_RESPONSE = "NAK"
+UNKNOWN_RESPONSE = "unknown"
+
+# Timestamp field constants
+TIMESTAMP_DELIMITER = '_'
+TIMESTAMP_LENGTH = 19  # HH:MM:SS,MM-DD-YYYY = 19 characters
+TIMESTAMP_FORMAT = '%H:%M:%S,%m-%d-%Y'
+TIMESTAMP_PATTERN = r'^\d{2}:\d{2}:\d{2},\d{2}-\d{2}-\d{4}$'
+
+# Message field lengths (characters)
+SEQUENCE_FIELD_LENGTH = 4
+
+
+# ===== Type Definitions =====
+
+class AckNakResponse(TypedDict):
+    """Response from ACK/NAK decoder."""
+    type: Literal["ACK", "NAK", "unknown"]
+    seq: Optional[int]
+    raw_nak: Optional[bytes]
+
+
+# ===== Exception Classes =====
+
+class SIAProtocolError(Exception):
+    """
+    Raised when SIA protocol message violates spec requirements.
+
+    Used for malformed frames, invalid data, or protocol violations.
+    Never raised by defensive parsing functions (decode_ack_nak) — they return
+    type='unknown' instead. Raised by encoding functions or explicit validators.
+    """
+    pass
 
 
 # ===== Sequence Tracker Class =====
@@ -421,3 +459,344 @@ class SIAMessageBuilder:
             return None
 
         return ts.strftime("_%H:%M:%S,%m-%d-%Y")
+
+
+# ===== ACK/NAK Response Parser Module (Story 1.3) =====
+
+# Constants for ACK/NAK frame structure
+ACK_FRAME_MARKER = b'*ACK'
+NAK_FRAME_MARKER = b'*NAK'
+FRAME_LEAD = LF  # Reuse existing constant (0x0A)
+FRAME_TRAIL = CR  # Reuse existing constant (0x0D)
+CRC_MODBUS_POLY = 0xA001  # CRC-16 MODBUS polynomial
+
+
+def _extract_frame_components(raw: bytes) -> Optional[tuple[bytes, str, bytes, bytes]]:
+    """
+    Extract and validate frame structure components.
+
+    Detects CRC format (hex or binary) and validates frame structure:
+    - Hex: 0x0A + CRC(4 ASCII hex) + Length(4 ASCII hex) + message_string + 0x0D
+    - Binary: 0x0A + CRC(2 bytes) + Length(4 ASCII hex) + message_string + 0x0D
+
+    Args:
+        raw: Complete raw frame bytes
+
+    Returns:
+        Tuple (crc_bytes, message_str, length_bytes, trailing_byte) on success
+        None if any structural check fails (never raises)
+
+    Reference: SIA DC-09 § 5.5.1 (frame envelope)
+    """
+    try:
+        if len(raw) < 9:  # Minimum: LF(1) + CRC(min 2) + Length(4) + CR(1) + message(0)
+            return None
+
+        # Check leader (0x0A)
+        if raw[0:1] != b'\x0A':
+            return None
+
+        # Check trailer (0x0D) at end
+        if raw[-1:] != b'\x0D':
+            return None
+
+        # Detect CRC format: hex or binary
+        # Per sia-dc09-expert: data[5]=='0' for hex, data[3]=='0' for binary
+        # If data[5:9] looks like valid hex (4 ASCII hex digits), then hex format
+        # Otherwise binary format (CRC is 2 bytes at [1:3])
+
+        crc_is_hex = False
+        if len(raw) >= 9:
+            try:
+                potential_length = raw[5:9].decode('ascii')
+                # Check if this looks like a valid length field (4 ASCII hex)
+                if all(c in '0123456789ABCDEFabcdef' for c in potential_length):
+                    crc_is_hex = True
+            except (UnicodeDecodeError, ValueError):
+                pass
+
+        if crc_is_hex:
+            # Hex CRC format: CRC is at [1:5], Length at [5:9]
+            if len(raw) < 11:  # LF + CRC(4) + Length(4) + message(min 1) + CR
+                return None
+
+            crc_bytes = raw[1:5]
+            if len(crc_bytes) < 4:
+                return None
+
+            length_bytes = raw[5:9]
+            if len(length_bytes) < 4:
+                return None
+
+            message_start = 9
+        else:
+            # Binary CRC format: CRC is at [1:3], Length at [3:7]
+            if len(raw) < 9:  # LF + CRC(2) + Length(4) + message(min 1) + CR
+                return None
+
+            crc_bytes = raw[1:3]
+            if len(crc_bytes) < 2:
+                return None
+
+            length_bytes = raw[3:7]
+            if len(length_bytes) < 4:
+                return None
+
+            message_start = 7
+
+        # Parse length to determine message_string size
+        try:
+            length_str = length_bytes.decode('ascii')
+            length_value = int(length_str, 16)
+        except (ValueError, UnicodeDecodeError):
+            return None
+
+        # Extract message_string
+        message_end = message_start + length_value
+        if message_end + 1 != len(raw):  # +1 for trailer
+            return None
+
+        message_bytes = raw[message_start:message_end]
+
+        # Decode message_string to str (Windows-1252 encoding per spec)
+        try:
+            message_str = message_bytes.decode('windows-1252')
+        except UnicodeDecodeError:
+            return None
+
+        trailing_byte = raw[-1:]
+
+        return (crc_bytes, message_str, length_bytes, trailing_byte)
+
+    except Exception:
+        return None
+
+
+def _validate_crc(crc_bytes: bytes, message_str: str, crc_format: str = 'hex') -> bool:
+    """
+    Validate CRC matches computed value.
+
+    Args:
+        crc_bytes: CRC bytes from frame (4 ASCII hex or 2 binary)
+        message_str: Message string to compute CRC over
+        crc_format: 'hex' (default) or 'bin'
+
+    Returns:
+        True if CRC valid, False otherwise
+
+    Reference: SIA DC-09 § 5.5.1.2 (CRC calculation)
+    """
+    try:
+        # Encode message_string to bytes (Windows-1252 per spec)
+        message_bytes = message_str.encode('windows-1252')
+
+        # Compute expected CRC using MODBUS algorithm
+        crc_value = _compute_crc_modbus(message_bytes)
+
+        if crc_format == 'hex':
+            # Decode hex CRC from frame
+            try:
+                received_crc = int(crc_bytes.decode('ascii'), 16)
+            except (ValueError, UnicodeDecodeError):
+                return False
+        else:  # bin
+            # Decode binary CRC (little-endian, 2 bytes)
+            if len(crc_bytes) < 2:
+                return False
+            received_crc = struct.unpack('<H', crc_bytes[:2])[0]
+
+        return received_crc == crc_value
+
+    except Exception:
+        return False
+
+
+def _compute_crc_modbus(data: bytes) -> int:
+    """
+    Compute CRC-16 MODBUS (polynomial 0xA001).
+
+    Args:
+        data: Bytes to compute CRC over
+
+    Returns:
+        CRC value as integer (0-65535)
+
+    Reference: SIA DC-09 § 5.5.1.2
+    """
+    crc = 0
+    for byte in data:
+        temp = byte & 0xFF
+        for _ in range(8):
+            temp ^= crc & 1
+            crc >>= 1
+            if temp & 1:
+                crc ^= 0xA001
+            temp >>= 1
+    return crc
+
+
+def _parse_ack_nak_type_and_seq(message_str: str) -> tuple[str, Optional[int]]:
+    """
+    Parse message_string to extract ACK/NAK type and sequence number.
+
+    Args:
+        message_str: Decoded message_string (e.g., '"ACK"0001R0L0A0[]')
+
+    Returns:
+        Tuple (type_str, seq_int) where:
+        - type_str: 'ACK', 'NAK', or 'unknown'
+        - seq_int: Sequence number as int, or None for 'unknown'
+
+    Reference: SIA DC-09 § 5.5.3 (ACK/NAK format)
+    """
+    try:
+        if not message_str or len(message_str) < 6:
+            return (UNKNOWN_RESPONSE, None)
+
+        # Extract id_token (between first two quotes)
+        if not message_str.startswith('"'):
+            return (UNKNOWN_RESPONSE, None)
+
+        end_quote = message_str.find('"', 1)
+        if end_quote < 0:
+            return (UNKNOWN_RESPONSE, None)
+
+        id_token = message_str[1:end_quote]
+
+        # Remove encryption marker if present
+        if id_token.startswith(ENCRYPTED_MARKER):
+            id_token = id_token[1:]
+
+        # Classify as ACK or NAK
+        if id_token.startswith(ACK_TOKEN):
+            ack_type = ACK_RESPONSE
+        elif id_token.startswith(NAK_TOKEN):
+            ack_type = NAK_RESPONSE
+        else:
+            return (UNKNOWN_RESPONSE, None)
+
+        # Extract sequence number (4 digits after id_token)
+        seq_start = end_quote + 1
+        seq_end = seq_start + SEQUENCE_FIELD_LENGTH
+
+        if seq_end > len(message_str):
+            return (UNKNOWN_RESPONSE, None)
+
+        seq_str = message_str[seq_start:seq_end]
+
+        try:
+            seq_int = int(seq_str)
+        except ValueError:
+            return (UNKNOWN_RESPONSE, None)
+
+        return (ack_type, seq_int)
+
+    except Exception:
+        return (UNKNOWN_RESPONSE, None)
+
+
+def decode_ack_nak(raw: bytes, crc_format: str = 'hex') -> AckNakResponse:
+    """
+    Parse and validate ACK/NAK response from CSR.
+
+    Defensive parsing: never raises exceptions. Returns type='unknown' on any error.
+
+    Args:
+        raw: Complete raw response bytes from CSR
+        crc_format: CRC algorithm ('hex' or 'bin'), from CSR preset. Defaults to 'hex'.
+
+    Returns:
+        AckNakResponse with keys:
+        - type: 'ACK', 'NAK', or 'unknown'
+        - seq: Echoed sequence number (int), or None
+        - raw_nak: Full raw bytes if type='NAK', else None
+
+    Reference: docs/design/daemon-design.md § decode_ack_nak()
+    """
+    unknown_response: AckNakResponse = {'type': UNKNOWN_RESPONSE, 'seq': None, 'raw_nak': None}
+
+    try:
+        # Check for frame leader
+        if not raw or raw[0:1] != LF:
+            return unknown_response
+
+        # Extract frame components
+        components = _extract_frame_components(raw)
+        if components is None:
+            return unknown_response
+
+        crc_bytes, message_str, length_bytes, trailing_byte = components
+
+        # Validate CRC using specified format
+        if not _validate_crc(crc_bytes, message_str, crc_format=crc_format):
+            return unknown_response
+
+        # Parse type and sequence
+        ack_type, seq = _parse_ack_nak_type_and_seq(message_str)
+
+        # Populate raw_nak only for NAK frames
+        raw_nak = raw if ack_type == NAK_RESPONSE else None
+
+        return {'type': ack_type, 'seq': seq, 'raw_nak': raw_nak}  # type: ignore
+
+    except Exception:
+        return unknown_response
+
+
+def parse_nak_timestamp(nak_data: bytes) -> datetime:
+    """
+    Extract CSR timestamp from NAK response frame.
+
+    Args:
+        nak_data: Raw NAK frame bytes (full frame, not just message_string)
+
+    Returns:
+        datetime object (UTC, timezone-aware)
+
+    Raises:
+        ValueError: If NAK data is None, missing timestamp field, or malformed
+
+    Reference: SIA DC-09 § 5.5.3.2 (NAK message format with timestamp)
+    """
+    if nak_data is None or not nak_data:
+        raise ValueError("NAK data is None or empty")
+
+    try:
+        # Extract frame components
+        components = _extract_frame_components(nak_data)
+        if components is None:
+            raise ValueError("Invalid NAK frame structure")
+
+        crc_bytes, message_str, length_bytes, trailing_byte = components
+
+        # Find timestamp delimiter (_) - it marks the start of the timestamp
+        # NAK message format: "NAK"0000R0L0A0[]_HH:MM:SS,MM-DD-YYYY
+        delimiter_pos = message_str.find(TIMESTAMP_DELIMITER)
+        if delimiter_pos < 0:
+            raise ValueError("NAK timestamp field not present (no _ delimiter)")
+
+        # Extract timestamp value after the delimiter (19 characters: HH:MM:SS,MM-DD-YYYY)
+        timestamp_start = delimiter_pos + 1
+        timestamp_end = timestamp_start + TIMESTAMP_LENGTH
+
+        if timestamp_end > len(message_str):
+            raise ValueError("NAK timestamp field truncated")
+
+        timestamp_str = message_str[timestamp_start:timestamp_end]
+
+        # Validate timestamp format: HH:MM:SS,MM-DD-YYYY
+        if not re.match(TIMESTAMP_PATTERN, timestamp_str):
+            raise ValueError(f"Invalid timestamp format: {timestamp_str}")
+
+        # Parse timestamp
+        ts = datetime.strptime(timestamp_str, TIMESTAMP_FORMAT)
+
+        # Make timezone-aware (UTC)
+        ts = ts.replace(tzinfo=timezone.utc)
+
+        return ts
+
+    except ValueError:
+        raise
+    except Exception as e:
+        raise ValueError(f"Failed to parse NAK timestamp: {e}") from e

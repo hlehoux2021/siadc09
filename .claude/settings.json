@@ -13,7 +13,11 @@
       "Bash(gh api:*)",
       "Bash(gh repo:*)",
       "Bash(python3:*)",
-      "Bash(python3 -m pytest:*)"
+      "Bash(python3 -m pytest:*)",
+      "Bash(grep -n \"ADR-05\\\\|ADR-06\\\\|task lifecycle\\\\|crc_format\" /Users/herve.lehoux/Dev/my-project/docs/design/*.md)",
+      "Bash(grep -l \"^Status:.*ready-for-dev\" /Users/herve.lehoux/Dev/my-project/_bmad-output/implementation-artifacts/*-*-*.md)",
+      "Bash(grep \"^Status:\" /Users/herve.lehoux/Dev/my-project/_bmad-output/implementation-artifacts/*-*-*.md)",
+      "Read(//tmp/**)"
     ],
     "additionalDirectories": [
       "/Users/herve.lehoux/Dev/my-project/docs",
