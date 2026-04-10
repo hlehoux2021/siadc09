@@ -327,8 +327,8 @@ async def test_tc8_nak_parseable_timestamp(mock_daemon):
         'raw_nak': nak_data,
     }
 
-    # Mock parse_nak_timestamp to succeed
-    with patch('resources.siadc09d.sia_protocol.parse_nak_timestamp') as mock_parse:
+    # Mock parse_nak_timestamp to succeed (patch where it's used, not where it's defined)
+    with patch('resources.siadc09d.daemon.parse_nak_timestamp') as mock_parse:
         mock_parse.return_value = datetime.now(timezone.utc)
 
         await daemon._send_supervision()
@@ -401,7 +401,7 @@ async def test_tc10_nak_while_degraded_strike_2(mock_daemon):
         'raw_nak': nak_data,
     }
 
-    with patch('resources.siadc09d.sia_protocol.parse_nak_timestamp') as mock_parse:
+    with patch('resources.siadc09d.daemon.parse_nak_timestamp') as mock_parse:
         mock_parse.return_value = datetime.now(timezone.utc)
 
         await daemon._send_supervision()

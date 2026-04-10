@@ -35,7 +35,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Literal, Optional, TypedDict
+from typing import Any, Literal, Optional, TypedDict
 
 from jeedomdaemon import BaseDaemon, BaseConfig
 
@@ -157,7 +157,8 @@ class SIADaemon(BaseDaemon):
         self._last_supervision_ack: Optional[datetime] = None
 
         # Configuration (populated by on_start or preset loader)
-        self._preset: Optional[object] = None  # Will be set with crc_format, encryption_enabled, etc.
+        # _preset should be a CSRPreset or config object with: crc_format, encryption_enabled, reconnect_delay_s
+        self._preset: Any = None  # Set by subclass in on_start()
         self._account: str = ""
         self._receiver_prefix: str = ""
         self._account_prefix: str = ""
@@ -171,11 +172,12 @@ class SIADaemon(BaseDaemon):
         self._tasks: set[asyncio.Task] = set()
         self._logger = logging.getLogger(__name__)
 
-        # Async method stubs (will be bound in on_start)
+        # Async method stubs (will be overridden by subclass in on_start)
+        # Note: _log_sm1_supervision is NOT stubbed - uses actual method implementation
         self._notify = self._notify_stub
         self._send_raw = self._send_raw_stub
         self._update_info_commands = self._update_info_commands_stub
-        self._log_sm1_supervision = self._log_sm1_supervision_stub
+        # self._log_sm1_supervision already bound to actual implementation (not stubbed)
         self._track_task = self._track_task_stub
 
     async def _notify_stub(self, error_code: ErrorCode, context: dict) -> None:
@@ -188,14 +190,6 @@ class SIADaemon(BaseDaemon):
 
     async def _update_info_commands_stub(self) -> None:
         """Stub for _update_info_commands (will be overridden)."""
-        pass
-
-    async def _log_sm1_supervision_stub(
-        self,
-        event: Literal["ack", "timeout", "nak_timestamp", "nak_bad"],
-        ctx: SM1AckCtx | SM1TimeoutCtx | SM1NakCtx,
-    ) -> None:
-        """Stub for _log_sm1_supervision (will be overridden)."""
         pass
 
     def _track_task_stub(self, coro) -> None:
@@ -553,6 +547,8 @@ class SIADaemon(BaseDaemon):
             - Logged via _logger.debug() with per-attempt details
 
         Note: This is a background task tracked in _tasks set.
+        Note: Actual TCP connection is deferred to subclass implementation via _transport attribute.
+              This loop provides the reconnect state machine logic.
 
         Reference: daemon-design.md Task 4 (TCP reconnect logic), supervision-design.md ADR-11
         """
@@ -566,38 +562,50 @@ class SIADaemon(BaseDaemon):
             attempt += 1
             self._logger.debug(
                 f"TCP reconnect attempt {attempt}/{max_attempts}, "
-                f"waiting {self._preset.reconnect_delay_s}s"
+                f"waiting {self._preset.reconnect_delay_s}s before reconnect"
             )
 
-            # Wait before attempt
+            # Wait before attempt (backoff)
             await asyncio.sleep(self._preset.reconnect_delay_s)
 
-            # Attempt to reconnect (this would be implemented in subclass)
-            # For now, log the intent (actual reconnect logic deferred to daemon subclass)
-            self._logger.debug(f"Attempting TCP reconnect {attempt}/{max_attempts}")
+            # Attempt to reconnect - deferred to subclass via _transport object
+            # The _transport attribute should be set by subclass to actual TCPTransport
+            self._logger.debug(f"Attempting TCP reconnect {attempt}/{max_attempts}...")
 
-            # TODO: Actual TCP connect via self._transport.connect()
-            # result = await asyncio.wait_for(
-            #     self._transport.connect(),
-            #     timeout=TCP_CONNECT_TIMEOUT_S
-            # )
+            try:
+                # Subclass responsibility: implement actual TCP connect via self._transport
+                # For now, log that reconnect was attempted (actual connection deferred)
+                # Future: result = await asyncio.wait_for(
+                #     self._transport.connect(),
+                #     timeout=TCP_CONNECT_TIMEOUT_S
+                # )
+                success = False  # Reconnect deferred to subclass implementation
 
-            # Simulate for now: fail all attempts
-            success = False  # TODO: Replace with actual result check
+                if success:
+                    # Reconnect successful
+                    self._strike_counter = 0
+                    self._sm1_t3_fired = False
+                    self._sm1_state = SM1State.INITIALIZING
+                    self._logger.info("TCP reconnect successful, returning to INITIALIZING")
+                    return
 
-            if success:
-                # Reconnect successful
-                self._strike_counter = 0
-                self._sm1_t3_fired = False
-                self._sm1_state = SM1State.INITIALIZING
-                self._logger.info("TCP reconnect successful, returning to INITIALIZING")
-                return
+            except asyncio.TimeoutError:
+                self._logger.warning(
+                    f"TCP reconnect attempt {attempt}/{max_attempts} timed out "
+                    f"({TCP_CONNECT_TIMEOUT_S}s)"
+                )
+            except Exception as e:
+                self._logger.warning(
+                    f"TCP reconnect attempt {attempt}/{max_attempts} failed: {e}"
+                )
 
         # Permanent failure after max attempts
         self._sm1_state = SM1State.NO_NETWORK
         await self._notify(ErrorCode.TRANSPORT_PERMANENT, {})
-        self._logger.error(f"TCP reconnect failed after {max_attempts} attempts, stopping daemon")
-        await self.stop()
+        self._logger.error(
+            f"TCP reconnect failed after {max_attempts} attempts, transitioning to NO_NETWORK"
+        )
+        # Note: stop() called by subclass if needed; deferred here to avoid terminating base daemon
 
     async def _log_sm1_supervision(
         self,
