@@ -61,8 +61,8 @@ development_status:
   epic-3-retrospective: optional
 
   # Epic 4: Logging & Observability (Contract & Boilerplate)
-  epic-4: backlog
-  4-1-messages-py-structure-french-string-constants: backlog
+  epic-4: in-progress
+  4-1-messages-py-structure-french-string-constants: done
   4-2-logging-infrastructure-setup-logger-configuration: backlog
   4-3-ring-buffer-structure-log-entry-factory: backlog
   epic-4-retrospective: optional
@@ -126,11 +126,11 @@ development_status:
 summary:
   total_epics: 11
   total_stories: 41
-  epics_backlog: 9
-  epics_in_progress: 2
+  epics_backlog: 8
+  epics_in_progress: 3
   epics_done: 0
-  stories_backlog: 35
+  stories_backlog: 34
   stories_ready_for_dev: 2
   stories_in_progress: 0
   stories_review: 0
-  stories_done: 4
+  stories_done: 5
