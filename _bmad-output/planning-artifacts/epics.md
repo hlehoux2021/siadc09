@@ -83,63 +83,70 @@ NFR8: Clean Installation — Jeedom dependency manager handles all setup; no man
 ## Epic List
 
 ### Epic 1: SIA DC-09 Protocol Engine
-Build core protocol layer with AES-128 encryption, message construction, ACK/NAK parsing, and offline CSR simulator for testing.
+Build core protocol layer with AES-128 encryption, message construction, ACK/NAK parsing.
 **Dependencies:** None
 **FRs covered:** FR1, FR2, FR3
 **Testing:** Unit tests (standalone, no daemon required)
 
-### Epic 2: Daemon Core & Dual State Machines
-Build asyncio daemon with SM1 (connection/supervision) and SM2 (alarm events), PriorityQueue coordination, UDP/TCP transport, async task lifecycle. Integration tests with csr_simulator.
-**Dependencies:** Epic 1, 6, 7
+### Epic 2: CSR Simulator (Standalone Tool)
+Build a standalone CSR simulator that responds to SIA DC-09 protocol frames, usable for testing daemon implementations and other alarm systems without a real CSR.
+**Note:** Internal Testing Infrastructure (not user-facing v1.0 feature); can be deferred if v1.0 uses mock responses
+**Dependencies:** Story 1.1 (Message Builder) + Story 1.2 (AES-128 Encryption)
+**Testing:** Unit tests for simulator ACK/NAK generation, encryption, UDP/TCP modes; hex frame replay; PCAP extraction
+
+### Epic 3: Error Handler (Contract & Boilerplate)
+Define error handling interfaces, ErrorCode enum, notification context types, and dispatcher contract that all daemon and PHP components depend on.
+**Dependencies:** None (foundation)
+**FRs covered:** FR15, NFR1 (zero silent failures)
+**Testing:** Type/interface validation only
+
+### Epic 4: Logging & Observability (Contract & Boilerplate)
+Define logging infrastructure, French user-facing message strings, ring buffer structure, and log output format for consistent observability across all components.
+**Dependencies:** None (foundation)
+**FRs covered:** (cross-cutting infrastructure)
+**Testing:** Message constants validation, logger setup
+
+### Epic 5: Daemon Core & Dual State Machines
+Build asyncio daemon with SM1 (connection/supervision) and SM2 (alarm events) state machines, PriorityQueue coordination, UDP/TCP transport, and async task lifecycle. Integration tests with CSR simulator.
+**Dependencies:** Epic 1, Epic 3, Epic 4
 **FRs covered:** FR4, FR5, FR6, FR7, FR8, FR9, FR10
 **Testing:** State transition integration tests with csr_simulator (no PHP/supervision loop required)
 
-### Epic 3: PHP Plugin Core & Jeedom IPC
-Build PHP eqLogic/cmd scaffolding, auto-equipment creation, JSON callback IPC protocol, INFO command persistence.
-**Dependencies:** Epic 1, 2, 6, 7
+### Epic 6: PHP Plugin Core & Jeedom IPC
+Build PHP eqLogic/cmd classes, auto-equipment creation, JSON callback IPC protocol, and INFO command persistence.
+**Dependencies:** Epic 1, 5, Epic 3, Epic 4
 **FRs covered:** (infrastructure, enables others)
 **Testing:** PHP/daemon callback integration tests
 
-### Epic 4: Supervision Health Monitoring
-Implement continuous supervision loop, 3-strike connection state, real-time INFO command updates. Integration tests with daemon + PHP.
-**Dependencies:** Epic 2, 3, 6, 7
+### Epic 7: Supervision Health Monitoring
+Implement continuous supervision loop with 3-strike connection state, real-time INFO updates, and TCP stall detection.
+**Dependencies:** Epic 5, 6, Epic 3, Epic 4
 **FRs covered:** FR6 (supervision state persistence)
 **Testing:** E2E supervision loop tests (strikes, ACK recovery, TCP reconnect)
 
-### Epic 5: Configuration Wizard & CSR Presets
-Build 4-step wizard (preset, connection test, zone mapping, notifications). Standalone testConnection subprocess. CSR preset JSON architecture.
-**Dependencies:** Epic 1, 2, 3, 4, 6, 7
+### Epic 8: Configuration Wizard & CSR Presets
+Build 4-step zero-jargon wizard for non-technical users to configure CSR connection, test it, map zones, and configure notifications.
+**Dependencies:** Epic 1, 5, 6, 7, Epic 3, Epic 4
 **FRs covered:** FR11, FR12, FR13
 **Testing:** Wizard flow tests, connection test validation, zone mapping logic
 
-### Epic 6: Error Handler (Contract & Boilerplate)
-Define ErrorCode enum, _notify() interface, error classification logic, dispatch tiers. Write stub implementations for use by other epics.
-**Dependencies:** None
-**FRs covered:** FR15, NFR1 (zero silent failures)
-**Scope:** Interface definitions, enums, dispatcher contract — NOT full implementation
-**Testing:** Type/interface validation only
-
-### Epic 7: Logging & Observability (Contract & Boilerplate)
-Define messages.py structure with French user strings, logging helper signatures, ring buffer interface. Document log output format for all components.
-**Dependencies:** None
-**FRs covered:** (cross-cutting infrastructure)
-**Scope:** Message externalization, logger setup, ring buffer contract — NOT full implementation
-**Testing:** Message constants validation, logger setup
-
-### Epic 8: Debug UI & Diagnostics Panel
-Implement diagnostic tab with status badge, error panel, protocol inspector (hex viewer, decryption, field breakdown), manual refresh buttons.
-**Dependencies:** Epic 1, 2, 3, 4, 6, 7
+### Epic 9: Debug UI & Diagnostics Panel
+Implement diagnostic tab with status badge, error panel, protocol inspector (hex viewer, decryption, field breakdown), and manual refresh buttons.
+**Dependencies:** Epic 1-8
 **FRs covered:** (infrastructure for troubleshooting)
 **Testing:** UI component tests, inspector decrypt validation
 
-### Epic 9: Dashboard Widget
-Build supervision health widget (desktop + mobile), Bootstrap 3 panel, color-coded badge, staleness detection via collectDate.
-**Dependencies:** Epic 4, 7
+### Epic 10: Dashboard Widget
+Build supervision health widget for dashboard and mobile with color-coded state, staleness detection, and Bootstrap 3 styling.
+**Dependencies:** Epic 7, 4
 **FRs covered:** FR14
 **Testing:** Widget rendering, staleness detection, responsive design
 
-### Epic 10: End-to-End Testing & Market Preparation
-Full integration testing with real IMA Protect preset (or simulator), documentation, i18n structure, Jeedom Market submission prep.
+### Epic 11: End-to-End Testing & Market Preparation
+Full integration testing with real Ajax alarm system, CSR Simulator validation against real IMA Protect, documentation, and Jeedom Market submission.
+**Dependencies:** Epic 1-10 (all features complete)
+**FRs covered:** (all features)
+**Testing:** Full end-to-end protocol conformance, integration with real CSR, Jeedom Market readiness
 **Dependencies:** Epic 1-9 (all features complete)
 **FRs covered:** (integration of all)
 **Testing:** Full e2e test suite, installation/uninstallation, upgrade paths

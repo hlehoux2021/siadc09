@@ -120,7 +120,7 @@ This module is a foundation layer imported by all higher layers. Zero circular d
 """
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from types import MappingProxyType
 from typing import Final, Literal, Optional
@@ -359,7 +359,9 @@ def _notify(code: ErrorCode, ctx: NotificationContext) -> None:
         ctx: NotificationContext object with diagnostic data (SM1TimeoutCtx, etc.)
 
     Raises:
-        TypeError: If ctx is not a valid NotificationContext subtype
+        ValueError: If code is not a known ErrorCode
+        TypeError: If ctx is not a valid NotificationContext subtype matching the error code
+        NotImplementedError: Full _dispatch_notify() stub (implementation deferred to Epic 6)
 
     Example:
         _notify(ErrorCode.SUPERVISION_TIMEOUT, SM1TimeoutCtx(
@@ -485,7 +487,7 @@ def _validate_context(code: ErrorCode, ctx: NotificationContext) -> bool:
     return True
 
 
-def _context_to_dict(ctx: NotificationContext) -> dict:
+def _context_to_dict(ctx: NotificationContext | None) -> dict | None:
     """Convert context dataclass to JSON-serializable dict for callback payloads.
 
     Handles serialization of special types:
@@ -498,18 +500,22 @@ def _context_to_dict(ctx: NotificationContext) -> dict:
     - If encryption key length is needed, use "key_length_bytes" field instead
 
     Args:
-        ctx: NotificationContext instance (one of six context dataclass types)
+        ctx: NotificationContext instance (one of six context dataclass types), or None
 
     Returns:
-        dict with serializable fields; all values are JSON-safe (str, int, float, bool, null, dict, list)
+        dict with serializable fields; all values are JSON-safe (str, int, float, bool, null, dict, list),
+        or None if ctx is None
 
     Raises:
-        TypeError: If ctx is not a valid NotificationContext subtype
+        TypeError: If ctx is not a valid NotificationContext subtype or None
 
     Example:
         ctx = SM1TimeoutCtx(elapsed_ms=5000.0, strike_count=1, supervision_interval_s=60.0)
-        payload = context_to_dict(ctx)
+        payload = _context_to_dict(ctx)
         # Returns: {"elapsed_ms": 5000.0, "strike_count": 1, "supervision_interval_s": 60.0}
+
+        payload = _context_to_dict(None)
+        # Returns: None
 
     [Source: error-handler-design.md § Privacy Rules]
     [Source: Story 3.3 — Error Context Serialization]
