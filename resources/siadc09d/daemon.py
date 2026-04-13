@@ -92,6 +92,59 @@ class SM1NakCtx(TypedDict):
     t3_just_fired: bool  # True if T3 just fired
 
 
+# ===== TASK 1: SM2 STATE MACHINE CLASS STRUCTURE =====
+
+class SM2State(Enum):
+    """SM2 state machine states (ref: daemon-design.md ADR-14 & story 5-2).
+
+    State transitions:
+    - IDLE: Startup-only state, entered once at daemon init
+    - PENDING: Alarm event in progress, awaiting CSR ACK/NAK
+    - CONFIRMED: Event confirmed by CSR (ACK received)
+    - FAILED: Event failed (NAK, timeout, NO_NETWORK, or max retries exhausted)
+
+    Transition rules:
+    - IDLE → PENDING: First alarm dequeued from PriorityQueue
+    - PENDING → CONFIRMED: ACK received from CSR
+    - PENDING → FAILED: NAK, timeout, NO_NETWORK, or max retries
+    - CONFIRMED → PENDING: Next alarm dequeued (direct, no IDLE)
+    - FAILED → PENDING: Next alarm dequeued (direct, no IDLE)
+    - **CRITICAL:** IDLE never re-entered after first alarm
+    """
+    IDLE = "IDLE"              # Startup-only (no alarm since daemon start)
+    PENDING = "PENDING"        # Alarm send in progress
+    CONFIRMED = "CONFIRMED"    # CSR confirmed alarm reception (ACK)
+    FAILED = "FAILED"          # Event failed (NAK/timeout/NO_NETWORK/max retries)
+
+
+class SM2LogCtx(TypedDict):
+    """Logging context for SM2 state transitions.
+
+    Used by _log_sm2_event() to provide structured logging context.
+    """
+    zone: Optional[str]  # Zone name from alarm command #zone# tag (None if not specified)
+    sia_code: str  # Event SIA code (BA=burglary, FA=fire, PA=panic)
+    attempt: int  # Current attempt number (1, 2, 3, ...)
+    elapsed: float  # Elapsed time in seconds since state entry
+    state_change: bool  # True if this is a transition, False if retried state
+
+
+@dataclass
+class EventItem:
+    """Queue item for alarm event delivery (SM2 processing).
+
+    Attributes:
+        sia_code: Event SIA code (BA=burglary, FA=fire, PA=panic)
+        zone: Zone name from alarm command #zone# tag (None if not specified)
+        timestamp: Event timestamp from make_timestamp()
+        callback: Optional callback function called when event completes (signature: callback(success: bool))
+    """
+    sia_code: str  # BA, FA, or PA
+    zone: Optional[str]  # Zone name or None
+    timestamp: str  # SIA protocol timestamp HH:MM:SS,MM-DD-YYYY
+    callback: Optional[Any] = None  # Callback function(success: bool) when send completes
+
+
 # ===== CONSTANTS =====
 
 SUPERVISION_INTERVAL_S = 60  # Default supervision interval (seconds)
@@ -126,6 +179,14 @@ class SIADaemon(BaseDaemon):
             _sm1_t3_fired: T3 deduplication flag (prevents duplicate SUPERVISION_DISCONNECTED)
             _last_supervision_ack: Datetime of last successful ACK (for timestamp tracking)
 
+        Instance Variables (SM2 state machine - alarm events):
+            _sm2_state: Current SM2 state (IDLE, PENDING, CONFIRMED, FAILED)
+            _event_state: Numeric state for INFO command (0=no alarm, 1=confirmed, 2=failed, 3=pending)
+            _event_label: French label for display (Inactif, En cours, Confirmé, Échoué)
+            _event_sia_code: Latest event SIA code (BA=burglary, FA=fire, PA=panic)
+            _event_zone: Latest zone name from alarm command #zone# tag
+            _event_attempt_count: Current send attempt count for in-flight event
+
         Instance Variables (Configuration):
             _preset: CSR preset config (host, port, encryption_key, crc_format, etc.)
             _account: Account number (3-16 hex chars)
@@ -155,6 +216,14 @@ class SIADaemon(BaseDaemon):
         self._strike_counter: int = 0
         self._sm1_t3_fired: bool = False
         self._last_supervision_ack: Optional[datetime] = None
+
+        # SM2 state machine (alarm event delivery)
+        self._sm2_state: SM2State = SM2State.IDLE  # Startup-only state
+        self._event_state: int = 0  # Persisted: 0=no alarm, 1=confirmed, 2=failed, 3=pending
+        self._event_label: str = "Inactif"  # Persisted: French label for display
+        self._event_sia_code: Optional[str] = None  # Latest event code (BA|FA|PA)
+        self._event_zone: Optional[str] = None  # Latest zone from command #zone# tag
+        self._event_attempt_count: int = 0  # Track send attempts for current event
 
         # Configuration (populated by on_start or preset loader)
         # _preset should be a CSRPreset or config object with: crc_format, encryption_enabled, reconnect_delay_s
@@ -195,6 +264,60 @@ class SIADaemon(BaseDaemon):
     def _track_task_stub(self, coro) -> None:
         """Stub for _track_task (will be overridden)."""
         pass
+
+    # ===== SM2 STATE HELPER METHODS =====
+
+    def _event_state_from_sm2(self) -> int:
+        """Return numeric value for event_state INFO command based on SM2 state.
+
+        Returns:
+            int: 0 (no alarm), 1 (confirmed), 2 (failed), or 3 (pending)
+
+        Logic:
+            - IDLE → 0 (no alarm since daemon start)
+            - PENDING → 3 (alarm send in progress)
+            - CONFIRMED → 1 (CSR acknowledged alarm)
+            - FAILED → 2 (event failed after retries)
+
+        Reference: daemon-design.md SM2 state → INFO command mapping
+        """
+        if self._sm2_state == SM2State.IDLE:
+            return 0
+        elif self._sm2_state == SM2State.PENDING:
+            return 3
+        elif self._sm2_state == SM2State.CONFIRMED:
+            return 1
+        elif self._sm2_state == SM2State.FAILED:
+            return 2
+        else:
+            # Defensive: should not reach here
+            return 0
+
+    def _event_label_from_sm2(self) -> str:
+        """Return French label for event_label INFO command based on SM2 state.
+
+        Returns:
+            str: French-language state label for display
+
+        Logic:
+            - IDLE → "Inactif" (no alarm received)
+            - PENDING → "En cours" (alarm transmission in progress)
+            - CONFIRMED → "Confirmé" (CSR confirmed alarm reception)
+            - FAILED → "Échoué" (alarm failed)
+
+        Reference: daemon-design.md SM2 state → INFO command mapping
+        """
+        if self._sm2_state == SM2State.IDLE:
+            return "Inactif"
+        elif self._sm2_state == SM2State.PENDING:
+            return "En cours"
+        elif self._sm2_state == SM2State.CONFIRMED:
+            return "Confirmé"
+        elif self._sm2_state == SM2State.FAILED:
+            return "Échoué"
+        else:
+            # Defensive: should not reach here
+            return "Inactif"
 
     def _supervision_value(self) -> int:
         """Return numeric value for supervision_state INFO command.
@@ -721,6 +844,161 @@ class SIADaemon(BaseDaemon):
 
         except Exception as e:
             self._logger.error(f"Error logging SM1 supervision event: {e}")
+
+
+# ===== SM2 ALARM EVENT STATE MACHINE METHODS =====
+
+    async def _send_with_retry(
+        self,
+        event_item: EventItem,
+        max_retries: int = 3
+    ) -> SM2State:
+        """Send alarm event with retry logic until ACK/NAK or max retries.
+
+        Implements retry loop with exponential backoff for alarm event delivery.
+        Updates SM2 state and notifies on final failure.
+
+        Args:
+            event_item: EventItem with sia_code, zone, timestamp
+            max_retries: Maximum retry attempts (default 3)
+
+        Returns:
+            Final SM2 state: SM2State.CONFIRMED (ACK) or SM2State.FAILED (NAK/timeout/max retries)
+
+        Raises:
+            No exceptions raised - failures result in SM2State.FAILED with notifications.
+
+        Reference: story 5-2 Task 3 - Send with Retry Logic
+        """
+        # Initialize retry state
+        self._sm2_state = SM2State.PENDING
+        self._event_sia_code = event_item.sia_code
+        self._event_zone = event_item.zone
+        self._event_attempt_count = 0
+
+        for attempt in range(max_retries + 1):
+            self._event_attempt_count = attempt + 1
+
+            try:
+                # Build SIA-DCS message frame
+                # TODO (Task 3.2.2b): Encode message with account, seq, zone, timestamp
+                frame = self._build_event_frame(event_item)
+
+                # Send with timeout
+                # TODO (Task 3.2.2c): Send frame with 10s timeout via _send_raw()
+                result = await asyncio.wait_for(
+                    self._send_raw(frame),
+                    timeout=10.0
+                )
+
+                # Handle response
+                status = result.get("status", "timeout")
+
+                if status == "ack":
+                    # ACK received - event confirmed
+                    # TODO (Task 3.2.2e): Update SM2 to CONFIRMED
+                    self._sm2_state = SM2State.CONFIRMED
+                    await self._update_info_commands({
+                        'event_state': self._event_state_from_sm2(),
+                        'event_label': self._event_label_from_sm2()
+                    })
+                    return SM2State.CONFIRMED
+
+                elif status == "nak":
+                    # NAK received - handle based on parseable timestamp
+                    raw_nak = result.get("raw_nak")
+                    # TODO (Task 5.1): Parse NAK timestamp
+                    # TODO (Task 5.2/5.3): Handle parseable vs undecodable NAK
+                    self._sm2_state = SM2State.FAILED
+                    await self._notify(
+                        ErrorCode.BAD_CSR_RESPONSE,
+                        {"zone": event_item.zone, "sia_code": event_item.sia_code}
+                    )
+                    return SM2State.FAILED
+
+                elif status == "timeout":
+                    # Timeout - retry or fail
+                    if attempt < max_retries:
+                        # TODO (Task 3.2.2d): Backoff before retry
+                        await asyncio.sleep(1.0)  # Fixed 1s backoff for now
+                        continue
+                    else:
+                        # Max retries exhausted
+                        # TODO (Task 3.3): Notify T3 event failure
+                        self._sm2_state = SM2State.FAILED
+                        await self._notify(
+                            ErrorCode.EVENT_FAILED,
+                            {
+                                "zone": event_item.zone,
+                                "sia_code": event_item.sia_code,
+                                "attempts": self._event_attempt_count
+                            }
+                        )
+                        return SM2State.FAILED
+
+            except asyncio.TimeoutError:
+                # Timeout during send
+                if attempt < max_retries:
+                    await asyncio.sleep(1.0)
+                    continue
+                else:
+                    self._sm2_state = SM2State.FAILED
+                    await self._notify(
+                        ErrorCode.EVENT_FAILED,
+                        {
+                            "zone": event_item.zone,
+                            "sia_code": event_item.sia_code,
+                            "attempts": self._event_attempt_count
+                        }
+                    )
+                    return SM2State.FAILED
+
+            except Exception as e:
+                self._logger.error(f"Unexpected error in _send_with_retry: {e}")
+                self._sm2_state = SM2State.FAILED
+                await self._notify(
+                    ErrorCode.EVENT_FAILED,
+                    {
+                        "zone": event_item.zone,
+                        "sia_code": event_item.sia_code,
+                        "attempts": self._event_attempt_count
+                    }
+                )
+                return SM2State.FAILED
+
+        # Fallback (should not reach here)
+        self._sm2_state = SM2State.FAILED
+        return SM2State.FAILED
+
+    def _build_event_frame(self, event_item: EventItem) -> bytes:
+        """Build SIA-DCS frame for alarm event.
+
+        TODO (Task 3.2.2b): Implement full frame building
+        - Use SIAMessageBuilder with account, crc_format from preset
+        - Increment _sia_seq and wrap at 10000
+        - Include zone in frame (extracted from event_item.zone)
+        - Use event_item.timestamp
+
+        Temporary stub: returns empty bytes
+        """
+        # TODO: Replace with actual implementation
+        return b""
+
+    async def _log_sm2_event(
+        self,
+        transition: str,
+        ctx: Optional[SM2LogCtx] = None
+    ) -> None:
+        """Log SM2 state transitions with French INFO + English DEBUG lines.
+
+        TODO (Task 7): Implement full logging
+        - Log to ring buffer
+        - French user-facing message
+        - English technical DEBUG line
+
+        Temporary stub: no-op
+        """
+        pass
 
 
 # ===== ENTRY POINT =====

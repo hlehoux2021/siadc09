@@ -70,7 +70,7 @@ development_status:
   # Epic 5: Daemon Core & Dual State Machines
   epic-5: in-progress
   5-1-sm1-connection-supervision-state-machine: done
-  5-2-sm2-alarm-event-state-machine: ready-for-dev
+  5-2-sm2-alarm-event-state-machine: in-progress
   5-3-priorityqueue-task-coordination: backlog
   5-4-udp-tcp-transport-layer: backlog
   5-5-async-task-lifecycle-management: backlog

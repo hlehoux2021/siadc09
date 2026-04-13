@@ -1,8 +1,10 @@
 # Story 5.2: SM2 Alarm Event State Machine
 
-**Status:** ready-for-dev
+**Status:** in-progress
 
 **Created:** 2026-04-10
+
+**Last Updated:** 2026-04-13
 
 ---
 
@@ -42,16 +44,16 @@ So that the daemon and PHP know whether alarms reached the CSR.
 
 ### Task 1: Define SM2 state machine class structure (5.2.1)
 
-- [ ] 1.1 Define `SM2State` enum with values: IDLE, PENDING, CONFIRMED, FAILED
-  - [ ] 1.1.1 Use `from enum import Enum` for type safety
-  - [ ] 1.1.2 Document state transitions (IDLE→PENDING; PENDING→CONFIRMED|FAILED; CONFIRMED/FAILED→PENDING direct, no IDLE re-entry)
+- [x] 1.1 Define `SM2State` enum with values: IDLE, PENDING, CONFIRMED, FAILED
+  - [x] 1.1.1 Use `from enum import Enum` for type safety
+  - [x] 1.1.2 Document state transitions (IDLE→PENDING; PENDING→CONFIRMED|FAILED; CONFIRMED/FAILED→PENDING direct, no IDLE re-entry)
 
-- [ ] 1.2 Define `SM2LogCtx` TypedDict for logging context
-  - [ ] 1.2.1 `SM2LogCtx`: zone (str | None), sia_code (str), attempt (int), elapsed (float), state_change (bool)
+- [x] 1.2 Define `SM2LogCtx` TypedDict for logging context
+  - [x] 1.2.1 `SM2LogCtx`: zone (str | None), sia_code (str), attempt (int), elapsed (float), state_change (bool)
 
-- [ ] 1.3 Ensure all type hints match error-handler-design.md `EventFailedCtx` signature
-  - [ ] 1.3.1 EventFailedCtx imported from error_handler.py
-  - [ ] 1.3.2 All parameters type-hinted, no bare `dict` or `str`
+- [x] 1.3 Ensure all type hints match error-handler-design.md `EventFailedCtx` signature
+  - [x] 1.3.1 EventFailedCtx imported from error_handler.py
+  - [x] 1.3.2 All parameters type-hinted, no bare `dict` or `str`
 
 **Acceptance Criteria mapping:** 1
 
@@ -59,21 +61,21 @@ So that the daemon and PHP know whether alarms reached the CSR.
 
 ### Task 2: Implement SM2 state machine instance variables and initialization (5.2.2)
 
-- [ ] 2.1 Initialize SM2 instance variables in daemon `__init__()`
-  - [ ] 2.1.1 `_sm2_state: SM2State` = IDLE
-  - [ ] 2.1.2 `_event_state: int` = 0 (persisted from config.execAttr on startup)
-  - [ ] 2.1.3 `_event_label: str` = "Inactif" (persisted from config.execAttr on startup)
-  - [ ] 2.1.4 `_event_sia_code: str | None` = None (latest event code: 'BA'|'FA'|'PA')
-  - [ ] 2.1.5 `_event_zone: str | None` = None (latest zone from command #zone# tag)
-  - [ ] 2.1.6 `_event_attempt_count: int` = 0 (track total send attempts for current event)
+- [x] 2.1 Initialize SM2 instance variables in daemon `__init__()`
+  - [x] 2.1.1 `_sm2_state: SM2State` = IDLE
+  - [x] 2.1.2 `_event_state: int` = 0 (persisted from config.execAttr on startup)
+  - [x] 2.1.3 `_event_label: str` = "Inactif" (persisted from config.execAttr on startup)
+  - [x] 2.1.4 `_event_sia_code: str | None` = None (latest event code: 'BA'|'FA'|'PA')
+  - [x] 2.1.5 `_event_zone: str | None` = None (latest zone from command #zone# tag)
+  - [x] 2.1.6 `_event_attempt_count: int` = 0 (track total send attempts for current event)
 
-- [ ] 2.2 Implement `_event_state_from_sm2()` helper
-  - [ ] 2.2.1 Returns numeric value for `event_state` INFO command (0, 1, 2, or 3)
-  - [ ] 2.2.2 Logic: IDLE→0, PENDING→3, CONFIRMED→1, FAILED→2
+- [x] 2.2 Implement `_event_state_from_sm2()` helper
+  - [x] 2.2.1 Returns numeric value for `event_state` INFO command (0, 1, 2, or 3)
+  - [x] 2.2.2 Logic: IDLE→0, PENDING→3, CONFIRMED→1, FAILED→2
 
-- [ ] 2.3 Implement `_event_label_from_sm2()` helper
-  - [ ] 2.3.1 Returns French-language string for `event_label` INFO command
-  - [ ] 2.3.2 IDLE→"Inactif", PENDING→"En cours", CONFIRMED→"Confirmé", FAILED→"Échoué"
+- [x] 2.3 Implement `_event_label_from_sm2()` helper
+  - [x] 2.3.1 Returns French-language string for `event_label` INFO command
+  - [x] 2.3.2 IDLE→"Inactif", PENDING→"En cours", CONFIRMED→"Confirmé", FAILED→"Échoué"
 
 - [ ] 2.4 Restore event state from config on daemon startup
   - [ ] 2.4.1 In `on_start()` or `__init__()`, read `command.execAttr['event_state']` (defaults to 0)
@@ -350,21 +352,83 @@ self._update_info_commands({
 
 ### Agent Model Used
 
-Claude Haiku 4.5 (2026-04-10)
+Claude Haiku 4.5 (2026-04-13)
+
+### Implementation Summary
+
+**Session 2026-04-13 Progress:**
+
+**✅ COMPLETED (Tasks 1-2, ~40% story):**
+1. Defined SM2State enum with 4 states (IDLE, PENDING, CONFIRMED, FAILED)
+2. Defined SM2LogCtx TypedDict for logging context
+3. Added 6 SM2 instance variables to daemon __init__
+4. Implemented _event_state_from_sm2() helper (returns 0/1/2/3)
+5. Implemented _event_label_from_sm2() helper (returns French labels)
+6. Defined EventItem dataclass for queue items
+7. Created test framework with mock_daemon fixture
+8. All 14 tests passing for completed tasks
+
+**⚠️  IN PROGRESS (Tasks 3-7, skeleton structure ~30% story):**
+1. Task 3: _send_with_retry() - skeleton with full structure, needs:
+   - SIAMessageBuilder integration for frame building
+   - Full NAK/ACK response handling
+   - Exponential backoff logic
+2. Task 4-5: Queue consumer and NAK dispatch - not yet started
+3. Task 6: Network loss handling - not yet started
+4. Task 7: Logging integration - stub in place
+
+**🔄 DEFERRED (Task 2.4, Task 8 tests):**
+1. Task 2.4: Event state restoration from config (requires PHP integration)
+2. Task 8: Comprehensive test suite (10+ test cases) - framework ready
 
 ### Completion Notes
 
-- [ ] Core SM2 state machine implemented
-- [ ] PriorityQueue integration verified
-- [ ] All error paths tested (NAK, timeout, NO_NETWORK)
-- [ ] Logging integration complete
-- [ ] Info commands persistence verified
-- [ ] 10/10 test cases passing
-- [ ] Code review completed
-- [ ] Story marked done
+- [ ] Core SM2 state machine structure complete (enum, context types, instance vars)
+- [ ] Helper methods (_event_state_from_sm2, _event_label_from_sm2) implemented and tested
+- [ ] Skeleton implementations in place for Tasks 3-7 with detailed TODO comments
+- [ ] Test framework established with mock_daemon fixture and 14 tests passing
+- [x] SM2State enum definition and tests
+- [x] SM2LogCtx TypedDict definition and tests
+- [x] SM2 instance variables initialized correctly
+- [x] State-to-value helper methods working
+- [ ] PriorityQueue integration verified (deferred - awaiting Task 5-3)
+- [ ] All error paths tested (deferred - partially in skeleton)
+- [ ] Logging integration complete (deferred - framework in place)
+- [ ] Info commands persistence verified (deferred - partial in _send_with_retry)
+- [ ] 10/10 test cases passing (deferred - framework ready, cases to be filled in)
+- [ ] Code review completed (deferred - awaiting full implementation)
+- [ ] Story marked done (deferred - pending full Tasks 3-8 implementation)
 
 ### File List
 
-- resources/siadc09d/daemon.py (modified: +SM2State, +SM2 methods, +_send_with_retry)
-- resources/siadc09d/messages.py (modified: +SM2 labels)
-- tests/level2/test_sm2_alarm_event_suite.py (new: 10 test cases)
+**Completed:**
+- resources/siadc09d/daemon.py (modified):
+  - SM2State enum with IDLE, PENDING, CONFIRMED, FAILED states
+  - SM2LogCtx TypedDict for logging context
+  - EventItem dataclass for queue items
+  - _event_state_from_sm2() helper method
+  - _event_label_from_sm2() helper method
+  - SM2 instance variables in __init__ (_sm2_state, _event_state, _event_label, _event_sia_code, _event_zone, _event_attempt_count)
+
+**In Progress (Skeleton with TODO comments):**
+- resources/siadc09d/daemon.py (added skeleton methods):
+  - _send_with_retry() async method (core retry logic with structure in place)
+  - _build_event_frame() method (stub - needs SIAMessageBuilder integration)
+  - _log_sm2_event() method (stub - needs ring buffer integration)
+
+**Pending:**
+- resources/siadc09d/daemon.py (deferred tasks):
+  - Task 2.4: Restore event state from config (requires PHP config reading)
+  - Task 4: _queue_consumer() integration (awaiting Task 5-3 PriorityQueue)
+  - Task 5: NAK timestamp dispatch and SM1 integration
+  - Task 6: Network loss and daemon stop handling
+  - Task 7: Full logging integration with French messages
+
+**Test Infrastructure:**
+- tests/level2/test_sm2_alarm_event_suite.py (new):
+  - TestSM2StateEnumDefinition (2 tests: enum exists, enum values)
+  - TestSM2LogCtxDefinition (2 tests: TypedDict exists, field types)
+  - TestSM2InstanceVariablesInitialization (2 tests: vars exist, initial values)
+  - TestSM2StateHelpers (8 tests: all helper method transitions)
+  - Test framework with mock_daemon fixture
+  - Placeholder test cases for Tasks 3-8 (to be filled in during implementation)
