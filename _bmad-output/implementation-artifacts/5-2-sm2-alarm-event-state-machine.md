@@ -6,6 +6,10 @@
 
 **Last Updated:** 2026-04-13
 
+**Current Session:** Session 1 of 2 (Foundation work complete, core implementation deferred to Session 2)
+
+**Checkpoint:** Commit 8e3b1ce - Solid foundation with skeleton structures
+
 ---
 
 ## Story
@@ -381,12 +385,12 @@ Claude Haiku 4.5 (2026-04-13)
 1. Task 2.4: Event state restoration from config (requires PHP integration)
 2. Task 8: Comprehensive test suite (10+ test cases) - framework ready
 
-### Completion Notes
+### Session 1 Completion Notes
 
-- [ ] Core SM2 state machine structure complete (enum, context types, instance vars)
-- [ ] Helper methods (_event_state_from_sm2, _event_label_from_sm2) implemented and tested
-- [ ] Skeleton implementations in place for Tasks 3-7 with detailed TODO comments
-- [ ] Test framework established with mock_daemon fixture and 14 tests passing
+- [x] Core SM2 state machine structure complete (enum, context types, instance vars)
+- [x] Helper methods (_event_state_from_sm2, _event_label_from_sm2) implemented and tested
+- [x] Skeleton implementations in place for Tasks 3-7 with detailed TODO comments
+- [x] Test framework established with mock_daemon fixture and 14 tests passing
 - [x] SM2State enum definition and tests
 - [x] SM2LogCtx TypedDict definition and tests
 - [x] SM2 instance variables initialized correctly
@@ -398,6 +402,107 @@ Claude Haiku 4.5 (2026-04-13)
 - [ ] 10/10 test cases passing (deferred - framework ready, cases to be filled in)
 - [ ] Code review completed (deferred - awaiting full implementation)
 - [ ] Story marked done (deferred - pending full Tasks 3-8 implementation)
+
+### Handoff Guide for Session 2
+
+**Start Point:**
+- Commit: 8e3b1ce "Story 5-2: SM2 Alarm Event State Machine - Foundation & Skeleton"
+- Working directory: clean
+- Story status: in-progress
+- All foundation tests passing (14/14)
+
+**Key Files to Review Before Starting:**
+1. `resources/siadc09d/daemon.py` (lines ~850-970) - Skeleton methods with TODO comments
+2. `tests/level2/test_sm2_alarm_event_suite.py` - Test framework and fixtures
+3. Story Tasks 3-8 sections - Detailed requirements
+
+**Implementation Order (Recommended):**
+
+1. **Task 3: _send_with_retry() - PRIORITY 1**
+   - Replace SIAMessageBuilder stub with real encoder
+   - Implement _build_event_frame() using daemon._sia_builder
+   - Test: Happy path (ACK), NAK handling, timeouts
+
+2. **Task 5: NAK Dispatch - PRIORITY 2** (do before Task 4)
+   - Implement parse_nak_timestamp() or use existing from sia_protocol
+   - Add NAK handling logic in _send_with_retry()
+   - Call _update_sm1_from_nak() for SM1 strike increment
+   - Test: Parseable NAK, undecodable NAK
+
+3. **Task 4: Queue Consumer Integration - PRIORITY 3**
+   - Implement or modify _queue_consumer() to handle EventItem
+   - Check SM1 state before processing
+   - Fail immediately if SM1=NO_NETWORK
+   - Test: Multiple alarms, no IDLE re-entry
+
+4. **Task 6: Network Loss Handling - PRIORITY 4**
+   - Monitor SM1 state transitions
+   - Fail in-flight SM2=PENDING events when SM1→NO_NETWORK
+   - Test: NO_NETWORK scenario
+
+5. **Task 7: Logging Integration - PRIORITY 5**
+   - Implement _log_sm2_event() with ring buffer
+   - Map transitions to messages.py French strings
+   - Test: Log output and ring buffer entries
+
+6. **Task 8: Comprehensive Tests - PRIORITY 6**
+   - Fill in 10+ test cases (framework ready)
+   - Test both happy paths and error scenarios
+   - Run full test suite for regressions
+
+**Critical Code Patterns to Follow:**
+
+```python
+# Frame building (Task 3):
+frame = self._sia_builder.encode_message(
+    account=self._account,
+    seq=self._sia_seq,
+    crc_format=self._crc_format,
+    id_type='SIA-DCS',
+    receiver_prefix=self._receiver_prefix,
+    account_prefix=self._account_prefix,
+    zone=event_item.zone,
+    timestamp=event_item.timestamp
+)
+
+# NAK timestamp parsing (Task 5):
+try:
+    parsed_ts = parse_nak_timestamp(raw_nak)
+    # Handle parseable NAK
+except ValueError:
+    # Handle undecodable NAK
+
+# State updates (all tasks):
+await self._update_info_commands({
+    'event_state': self._event_state_from_sm2(),
+    'event_label': self._event_label_from_sm2()
+})
+```
+
+**Dependency Notes:**
+- Task 3 needs: SIAMessageBuilder (already in daemon)
+- Task 5 needs: parse_nak_timestamp() from sia_protocol
+- Task 4 needs: _queue_consumer() method (may already exist from SM1)
+- Task 7 needs: messages.py SM2 constants (already defined in story 4-1)
+
+**Testing Commands:**
+```bash
+# Run SM2 tests only
+python3 -m pytest tests/level2/test_sm2_alarm_event_suite.py -v
+
+# Run all Level 2 tests for regression
+python3 -m pytest tests/level2/ -v
+
+# Run specific test class
+python3 -m pytest tests/level2/test_sm2_alarm_event_suite.py::TestSM2SendWithRetry -v
+```
+
+**Expected Final State:**
+- All 8 tasks marked [x] complete
+- 10+ test cases in test_sm2_alarm_event_suite.py passing
+- File List updated with all implementation details
+- Story status changed to "review"
+- Ready for code review with /bmad-bmm-code-review workflow
 
 ### File List
 
