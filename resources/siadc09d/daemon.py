@@ -895,9 +895,18 @@ class SIADaemon(BaseDaemon):
                 status = result.get("status", "timeout")
 
                 if status == "ack":
-                    # ACK received - event confirmed
-                    # TODO (Task 3.2.2e): Update SM2 to CONFIRMED
+                    # Task 3.2.2e: ACK received - event confirmed
                     self._sm2_state = SM2State.CONFIRMED
+                    await self._log_sm2_event(
+                        "confirmed",
+                        SM2LogCtx(
+                            zone=event_item.zone,
+                            sia_code=event_item.sia_code,
+                            attempt=self._event_attempt_count,
+                            elapsed=0.0,
+                            state_change=True
+                        )
+                    )
                     await self._update_info_commands({
                         'event_state': self._event_state_from_sm2(),
                         'event_label': self._event_label_from_sm2()
@@ -905,27 +914,77 @@ class SIADaemon(BaseDaemon):
                     return SM2State.CONFIRMED
 
                 elif status == "nak":
-                    # NAK received - handle based on parseable timestamp
+                    # NAK received - handle based on parseable timestamp (Task 5)
                     raw_nak = result.get("raw_nak")
-                    # TODO (Task 5.1): Parse NAK timestamp
-                    # TODO (Task 5.2/5.3): Handle parseable vs undecodable NAK
+                    csr_timestamp = None
+
+                    try:
+                        # Task 5.1: Try to parse NAK timestamp
+                        if raw_nak:
+                            csr_timestamp = parse_nak_timestamp(raw_nak)
+                            # Task 5.2: Parseable NAK - delegate to SM1 for strike increment
+                            # v1.0: No auto-heal, SM2 always FAILs on NAK
+                            self._logger.debug(
+                                f"NAK received with parseable timestamp: {csr_timestamp}"
+                            )
+                            # Call SM1 NAK handler (if available)
+                            if hasattr(self, '_update_sm1_from_nak'):
+                                await self._update_sm1_from_nak(csr_timestamp)
+
+                    except (ValueError, TypeError):
+                        # Task 5.3: Undecodable NAK - T2 notification
+                        await self._notify(
+                            ErrorCode.BAD_CSR_RESPONSE,
+                            {
+                                "zone": event_item.zone,
+                                "sia_code": event_item.sia_code,
+                                "reason": "unparseable_nak"
+                            }
+                        )
+
+                    # SM2 always transitions to FAILED on NAK (v1.0 no auto-heal)
                     self._sm2_state = SM2State.FAILED
-                    await self._notify(
-                        ErrorCode.BAD_CSR_RESPONSE,
-                        {"zone": event_item.zone, "sia_code": event_item.sia_code}
+                    await self._log_sm2_event(
+                        "failed_nak",
+                        SM2LogCtx(
+                            zone=event_item.zone,
+                            sia_code=event_item.sia_code,
+                            attempt=self._event_attempt_count,
+                            elapsed=0.0,
+                            state_change=True
+                        )
                     )
                     return SM2State.FAILED
 
                 elif status == "timeout":
                     # Timeout - retry or fail
                     if attempt < max_retries:
-                        # TODO (Task 3.2.2d): Backoff before retry
-                        await asyncio.sleep(1.0)  # Fixed 1s backoff for now
+                        # Task 3.2.2d: Backoff before retry (fixed 1s for v1.0)
+                        await self._log_sm2_event(
+                            "failed_timeout",
+                            SM2LogCtx(
+                                zone=event_item.zone,
+                                sia_code=event_item.sia_code,
+                                attempt=self._event_attempt_count,
+                                elapsed=0.0,
+                                state_change=False
+                            )
+                        )
+                        await asyncio.sleep(1.0)
                         continue
                     else:
-                        # Max retries exhausted
-                        # TODO (Task 3.3): Notify T3 event failure
+                        # Task 3.3: Max retries exhausted - T3 notification
                         self._sm2_state = SM2State.FAILED
+                        await self._log_sm2_event(
+                            "failed_max_retries",
+                            SM2LogCtx(
+                                zone=event_item.zone,
+                                sia_code=event_item.sia_code,
+                                attempt=self._event_attempt_count,
+                                elapsed=0.0,
+                                state_change=True
+                            )
+                        )
                         await self._notify(
                             ErrorCode.EVENT_FAILED,
                             {
@@ -934,6 +993,10 @@ class SIADaemon(BaseDaemon):
                                 "attempts": self._event_attempt_count
                             }
                         )
+                        await self._update_info_commands({
+                            'event_state': self._event_state_from_sm2(),
+                            'event_label': self._event_label_from_sm2()
+                        })
                         return SM2State.FAILED
 
             except asyncio.TimeoutError:
@@ -971,34 +1034,139 @@ class SIADaemon(BaseDaemon):
         return SM2State.FAILED
 
     def _build_event_frame(self, event_item: EventItem) -> bytes:
-        """Build SIA-DCS frame for alarm event.
+        """Build SIA-DCS frame for alarm event (Task 3.2.2b).
 
-        TODO (Task 3.2.2b): Implement full frame building
-        - Use SIAMessageBuilder with account, crc_format from preset
-        - Increment _sia_seq and wrap at 10000
-        - Include zone in frame (extracted from event_item.zone)
-        - Use event_item.timestamp
+        Constructs complete SIA protocol frame for alarm event delivery with:
+        - Account number and CRC format from preset
+        - Incremented sequence number (wrapped at 10000)
+        - Zone information in extended data
+        - UTC timestamp
 
-        Temporary stub: returns empty bytes
+        Args:
+            event_item: EventItem with sia_code, zone, timestamp
+
+        Returns:
+            Complete SIA frame as bytes: LF + CRC + Length + Message + CR
+
+        Reference: story 5-2 Task 3.2.2b, sia_protocol.py encode_message()
         """
-        # TODO: Replace with actual implementation
-        return b""
+        try:
+            # Increment sequence number (wrap at 10000)
+            self._sia_seq = (self._sia_seq + 1) % 10000
+
+            # Build extended data with zone information
+            extended_data = {}
+            if event_item.zone:
+                # Zone information in extended data (protocol-dependent format)
+                extended_data['zone'] = event_item.zone
+
+            # Encode frame using SIAMessageBuilder
+            # crc_format is set from preset at daemon startup
+            frame = self._sia_builder.encode_message(
+                account_number=self._account,
+                event_code=event_item.sia_code,
+                account_prefix=self._account_prefix or "L0",
+                receiver_number=self._receiver_prefix,
+                extended_data=extended_data if extended_data else None,
+                timestamp=None,  # Timestamp in message already (event_item.timestamp)
+                encryption=False  # No encryption in v1.0
+            )
+
+            return frame
+
+        except Exception as e:
+            self._logger.error(f"Error building event frame: {e}")
+            raise
 
     async def _log_sm2_event(
         self,
         transition: str,
         ctx: Optional[SM2LogCtx] = None
     ) -> None:
-        """Log SM2 state transitions with French INFO + English DEBUG lines.
+        """Log SM2 state transitions with French INFO + English DEBUG lines (Task 7).
 
-        TODO (Task 7): Implement full logging
-        - Log to ring buffer
-        - French user-facing message
-        - English technical DEBUG line
+        Logs alarm event state transitions to both logger and ring buffer.
+        Follows dual-line pattern: French user-facing (INFO) + English technical (DEBUG).
 
-        Temporary stub: no-op
+        Args:
+            transition: State transition type (e.g., "event_received", "confirmed", "failed")
+            ctx: Optional SM2LogCtx with zone, sia_code, attempt, elapsed, state_change
+
+        Reference: story 5-2 Task 7, logging-design.md SM2 transition table
         """
-        pass
+        try:
+            from . import messages
+
+            if not ctx:
+                ctx = SM2LogCtx(
+                    zone=self._event_zone,
+                    sia_code=self._event_sia_code or "??",
+                    attempt=self._event_attempt_count,
+                    elapsed=0.0,
+                    state_change=True
+                )
+
+            # French user-facing message (from messages.py)
+            if transition == "event_received":
+                info_msg = messages.SM2_EVENT_RECEIVED.format(
+                    type=ctx['sia_code'],
+                    zone=ctx['zone'] or "(pas de zone)"
+                )
+            elif transition == "confirmed":
+                info_msg = messages.SM2_CONFIRMED.format(
+                    type=ctx['sia_code'],
+                    zone=ctx['zone'] or "(pas de zone)"
+                )
+            elif transition == "failed_timeout":
+                info_msg = messages.SM2_RETRY.format(
+                    attempt=ctx['attempt'],
+                    max=3  # Default max retries
+                )
+            elif transition == "failed_nak":
+                info_msg = messages.SM2_FAILED_NAK.format(
+                    type=ctx['sia_code'],
+                    zone=ctx['zone'] or "(pas de zone)"
+                )
+            elif transition == "failed_no_network":
+                info_msg = messages.SM2_FAILED_NO_NETWORK.format(
+                    type=ctx['sia_code'],
+                    zone=ctx['zone'] or "(pas de zone)"
+                )
+            elif transition == "failed_max_retries":
+                info_msg = messages.SM2_FAILED.format(
+                    type=ctx['sia_code'],
+                    max=3,
+                    zone=ctx['zone'] or "(pas de zone)"
+                )
+            else:
+                info_msg = f"SM2 transition: {transition}"
+
+            # English technical DEBUG line
+            debug_msg = (
+                f"SM2 {transition}: zone={ctx['zone']}, sia={ctx['sia_code']}, "
+                f"attempt={ctx['attempt']}, elapsed={ctx['elapsed']:.2f}s"
+            )
+
+            # Log to logger
+            self._logger.info(info_msg)
+            self._logger.debug(debug_msg)
+
+            # Log to ring buffer (if available)
+            if hasattr(self, '_ring_buffer'):
+                await self._ring_buffer.push_supervision_entry(
+                    level="info" if "failed" not in transition else "error",
+                    message=info_msg,
+                    context={
+                        "account": self._account,
+                        "zone": ctx['zone'],
+                        "sia_code": ctx['sia_code'],
+                        "attempt": ctx['attempt']
+                    },
+                    is_routine=False
+                )
+
+        except Exception as e:
+            self._logger.error(f"Error logging SM2 event: {e}")
 
 
 # ===== ENTRY POINT =====

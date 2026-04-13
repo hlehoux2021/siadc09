@@ -20,7 +20,8 @@ from datetime import datetime, timezone
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from typing import Optional
 
-from resources.siadc09d.daemon import SIADaemon, SM2State, SM2LogCtx
+from resources.siadc09d.daemon import SIADaemon, SM2State, SM2LogCtx, EventItem
+from resources.siadc09d.error_handler import ErrorCode
 from resources.siadc09d.ring_buffer import RingBuffer
 
 
@@ -198,32 +199,97 @@ class TestSM2StateHelpers:
 class TestSM2SendWithRetry:
     """Test _send_with_retry async method."""
 
-    @pytest.mark.asyncio
-    async def test_send_with_retry_method_exists(self):
+    def test_send_with_retry_method_exists(self, mock_daemon):
         """Verify _send_with_retry method exists."""
-        from resources.siadc09d.daemon import SIADaemon
-
-        daemon = SIADaemon()
-        assert hasattr(daemon, '_send_with_retry')
-        assert callable(daemon._send_with_retry)
+        assert hasattr(mock_daemon, '_send_with_retry')
+        assert callable(mock_daemon._send_with_retry)
 
     @pytest.mark.asyncio
-    async def test_happy_path_ack_response(self):
-        """Test: alarm → PENDING → ACK → CONFIRMED."""
-        # Test placeholder - will implement after SM2 code added
-        pass
+    async def test_happy_path_ack_response(self, mock_daemon):
+        """Test: alarm → PENDING → ACK → CONFIRMED.
+
+        Expected result:
+        - SM2 transitions to PENDING, then CONFIRMED on ACK
+        - event_state updates to 1 (confirmed)
+        - No notifications sent for success
+        """
+        # Create event item
+        event = EventItem(sia_code="BA", zone="Salon", timestamp="12:30:45,04-13-2026")
+
+        # Mock _send_raw to return ACK
+        mock_daemon._send_raw = AsyncMock(return_value={"status": "ack"})
+
+        # Execute _send_with_retry
+        result = await mock_daemon._send_with_retry(event, max_retries=3)
+
+        # Assert: Result is CONFIRMED
+        assert result == SM2State.CONFIRMED
+        # Assert: SM2 state updated
+        assert mock_daemon._sm2_state == SM2State.CONFIRMED
+        # Assert: event_state reflects confirmation (1)
+        assert mock_daemon._event_state_from_sm2() == 1
 
     @pytest.mark.asyncio
-    async def test_nak_undecodable_response(self):
-        """Test: alarm → PENDING → bad NAK → FAILED with T2 notification."""
-        # Test placeholder
-        pass
+    async def test_nak_undecodable_response(self, mock_daemon):
+        """Test: alarm → PENDING → bad NAK → FAILED with T2 notification.
+
+        Expected result:
+        - SM2 transitions to PENDING, then FAILED on NAK
+        - BAD_CSR_RESPONSE notification sent (T2)
+        - event_state updates to 2 (failed)
+        """
+        event = EventItem(sia_code="FA", zone="Cuisine", timestamp="12:30:45,04-13-2026")
+
+        # Mock _send_raw to return undecodable NAK
+        mock_daemon._send_raw = AsyncMock(
+            return_value={"status": "nak", "raw_nak": b"invalid"}
+        )
+
+        # Execute _send_with_retry
+        result = await mock_daemon._send_with_retry(event, max_retries=3)
+
+        # Assert: Result is FAILED
+        assert result == SM2State.FAILED
+        # Assert: SM2 state is FAILED
+        assert mock_daemon._sm2_state == SM2State.FAILED
+        # Assert: event_state is 2 (failed)
+        assert mock_daemon._event_state_from_sm2() == 2
+        # Assert: T2 notification sent (BAD_CSR_RESPONSE)
+        mock_daemon._notify.assert_called()
 
     @pytest.mark.asyncio
-    async def test_timeout_with_retries(self):
-        """Test: alarm → 3 timeouts → FAILED with T3 notification."""
-        # Test placeholder
-        pass
+    async def test_timeout_with_retries(self, mock_daemon):
+        """Test: alarm → 3 timeouts → FAILED with T3 notification.
+
+        Expected result:
+        - Retries 3 times on timeout
+        - Final state is FAILED
+        - EVENT_FAILED notification sent (T3)
+        - Attempt count equals max_retries + 1
+        """
+        event = EventItem(sia_code="PA", zone="Bureau", timestamp="12:30:45,04-13-2026")
+
+        # Mock _send_raw to always timeout
+        mock_daemon._send_raw = AsyncMock(return_value={"status": "timeout"})
+
+        # Execute _send_with_retry with 2 retries
+        result = await mock_daemon._send_with_retry(event, max_retries=2)
+
+        # Assert: Result is FAILED
+        assert result == SM2State.FAILED
+        # Assert: SM2 state is FAILED
+        assert mock_daemon._sm2_state == SM2State.FAILED
+        # Assert: Attempted 3 times (max_retries + 1)
+        assert mock_daemon._event_attempt_count == 3
+        # Assert: T3 notification sent (EVENT_FAILED)
+        mock_daemon._notify.assert_called_with(
+            ErrorCode.EVENT_FAILED,
+            {
+                "zone": "Bureau",
+                "sia_code": "PA",
+                "attempts": 3
+            }
+        )
 
 
 # ===== Task 4: PriorityQueue Integration Tests =====
@@ -279,14 +345,10 @@ class TestNetworkLossHandling:
 class TestSM2LoggingIntegration:
     """Test _log_sm2_event helper and logging output."""
 
-    @pytest.mark.asyncio
-    async def test_log_sm2_event_method_exists(self):
+    def test_log_sm2_event_method_exists(self, mock_daemon):
         """Verify _log_sm2_event method exists."""
-        from resources.siadc09d.daemon import SIADaemon
-
-        daemon = SIADaemon()
-        assert hasattr(daemon, '_log_sm2_event')
-        assert callable(daemon._log_sm2_event)
+        assert hasattr(mock_daemon, '_log_sm2_event')
+        assert callable(mock_daemon._log_sm2_event)
 
     @pytest.mark.asyncio
     async def test_sm2_transitions_are_logged(self):
