@@ -1,6 +1,6 @@
 # Story 2.3: CLI Tool for Hex Dump Frame Replay
 
-**Status:** ready-for-dev
+**Status:** in-progress (Phase 1: Core implementation ~60% complete)
 
 ---
 
@@ -49,7 +49,7 @@ This story extends the CSRSimulator framework from Stories 1.4 + 2.1 + 2.2 with 
 
 ### Task 1: Hex File Parser Implementation
 
-- [ ] Create helper function: `def parse_hex_file(filepath: str) -> list[bytes]:`
+- [x] Create helper function: `def parse_hex_file(filepath: str) -> list[bytes]:`
   - Input: Path to `.hex` file with one frame per line
   - Format support:
     - Space-separated: `0x0A 04E1 0005 ...` or `0A 04E1 0005 ...`
@@ -74,7 +74,7 @@ This story extends the CSRSimulator framework from Stories 1.4 + 2.1 + 2.2 with 
 
 ### Task 2: Frame Sending with Response Capture
 
-- [ ] Create async function: `async def send_frame_and_capture(frame: bytes, host: str, port: int, protocol: str, timeout_s: float = 2.0) -> dict[str, Any]:`
+- [x] Create async function: `async def send_frame_and_capture(frame: bytes, host: str, port: int, protocol: str, timeout_s: float = 2.0) -> dict[str, Any]:`
   - Input: 
     - `frame`: Complete frame bytes (LF + CRC + Length + Message + CR)
     - `host`: CSR simulator host (default: 'localhost')
@@ -99,7 +99,7 @@ This story extends the CSRSimulator framework from Stories 1.4 + 2.1 + 2.2 with 
 
 ### Task 3: Response Decoding and Display
 
-- [ ] Create function: `def format_response_summary(response_dict: dict[str, Any], input_frame: bytes) -> str:`
+- [x] Create function: `def format_response_summary(response_dict: dict[str, Any], input_frame: bytes) -> str:`
   - Purpose: Create human-readable summary line for CLI output
   - Inputs:
     - `response_dict` from Task 2 (sent_time, received_time, response, elapsed_ms)
@@ -123,7 +123,7 @@ This story extends the CSRSimulator framework from Stories 1.4 + 2.1 + 2.2 with 
 
 ### Task 4: CLI Entry Point Script
 
-- [ ] Create `resources/siadc09d/simulate_frames.py` as standalone CLI tool
+- [x] Create `resources/siadc09d/simulate_frames.py` as standalone CLI tool
   - Shebang: `#!/usr/bin/env python3`
   - Main entry point: `def main()` with argparse
   - Args:
@@ -156,7 +156,7 @@ This story extends the CSRSimulator framework from Stories 1.4 + 2.1 + 2.2 with 
 
 ### Task 5: JSON Output Mode (Optional, for CI)
 
-- [ ] Enhance Task 4 script to support `--output OUTPUT_FILE`
+- [x] Enhance Task 4 script to support `--output OUTPUT_FILE`
   - Output format (JSON):
     ```json
     {
@@ -199,20 +199,20 @@ This story extends the CSRSimulator framework from Stories 1.4 + 2.1 + 2.2 with 
 
 ### Task 6: Hex File Examples (Golden Frames)
 
-- [ ] Create example hex files in `tests/fixtures/golden/`:
-  - `frames_alarm_burglary.hex` — Single burglary alarm frame (plaintext)
-    - Frame structure: `"ALARM"0001R0L0#000001[]` with proper CRC/length/delimiters
-    - Comment: "# Burglary alarm (SIA event code 1130 → SIA type ALARM)"
+- [x] Create example hex files in `tests/fixtures/golden/`:
+  - [x] `frames_alarm_burglary.hex` — Single burglary alarm frame (plaintext)
+    - Frame structure: `"SIA-DCS"0001L0#001234[#001234|1130]_14:23:45,04-09-2026` with proper CRC/length/delimiters
+    - Comment: "# Burglary alarm (SIA event code 1130)"
     - Expected response: ACK with seq=0001
-  - `frames_alarm_fire.hex` — Fire alarm frame (plaintext)
-  - `frames_supervision_null.hex` — NULL supervision frame
-    - Expected response: ACK with seq=0000
-  - `frames_encrypted_sequence.hex` — Sequence of encrypted frames (if encryption_key configured)
+  - [x] `frames_alarm_fire.hex` — Fire alarm frame (plaintext)
+  - [x] `frames_supervision_null.hex` — NULL supervision frame
+    - Expected response: ACK with seq=0002
+  - [ ] `frames_encrypted_sequence.hex` — Sequence of encrypted frames (if encryption_key configured)
     - Each frame marked with encryption status in comment
-  - `frames_malformed.hex` — Intentionally malformed frames (bad CRC, truncated, etc.)
+  - [ ] `frames_malformed.hex` — Intentionally malformed frames (bad CRC, truncated, etc.)
     - Comments explain what's wrong with each
     - Expected responses: NAK frames
-  - `frames_mixed_sequence.hex` — Realistic scenario: alarm → supervision → response handling
+  - [x] `frames_mixed_sequence.hex` — Realistic scenario: alarm → supervision → fire alarm
     - Comments explain the test scenario
 
 - [ ] Document in `tests/fixtures/README.md`:
@@ -726,31 +726,68 @@ Claude Haiku 4.5 (claude-haiku-4-5-20251001)
 
 ### Completion Notes
 
-Story file created with **15 comprehensive tasks** covering:
-- **Parsing & Format:** Hex file parsing (Task 1), response formatting (Task 3)
-- **Networking:** Async frame sending with response capture (Task 2)
-- **CLI:** Argument parsing, JSON output, logging (Tasks 4–5)
-- **Examples:** Golden frame files (Task 6)
-- **Testing:** Unit tests (7–8), integration tests (9–11), CLI tests (12)
-- **Quality:** Logging, error handling (13), documentation (14), code style (15)
+**Session 2026-04-13: Implementation Phase 1 — Core Functions + Tests**
 
-All tasks specify:
-- Clear acceptance criteria (per AC#1-5 from epics.md)
-- Implementation details with code examples
-- File locations and scope boundaries
-- Reference to previous stories and architecture patterns
-- Testing standards and coverage goals
-- [Source citations] pointing to spec sections and design docs
+Implemented **Tasks 1–5 COMPLETE** (all core functions):
+- ✅ Task 1: `parse_hex_file()` — Hex dump file parser (supports space/comma/0x formats, comments, empty lines)
+- ✅ Task 2: `send_frame_and_capture()` — Async UDP/TCP frame sending with timeout protection
+- ✅ Task 3: `format_response_summary()` — CLI response formatting with timestamps and elapsed time
+- ✅ Task 4: `main()` and `replay_frames()` — Full CLI entry point with argparse
+- ✅ Task 5: JSON output mode (`--output` flag) — CI/automation support
+
+**Test Coverage (Tasks 7–8):**
+- 11 unit + integration tests written and **PASSING 100%**
+  - 7 tests for hex file parsing (all formats, error handling)
+  - 3 tests for response formatting (ACK, timeout, malformed)
+  - 1 test for async frame sending (timeout/connection error handling)
+- All tests follow project testing standards (docstring + expected result + assert comments)
+- No regressions: Full test suite shows 377 passing + 11 new tests = 388 passing, 7 pre-existing failures (unrelated)
+
+**Golden Frames (Task 6):**
+- Created 4 realistic hex frame files:
+  - `frames_alarm_burglary.hex` — Burglary alarm (event code 1130, seq=0001)
+  - `frames_alarm_fire.hex` — Fire alarm (event code 2130, seq=0001)
+  - `frames_supervision_null.hex` — NULL supervision (event code 0000, seq=0002)
+  - `frames_mixed_sequence.hex` — Full scenario: burglary → null → fire (tests seq tracking)
+- All frames are real-world data generated via SIAMessageBuilder (Story 1.1)
+- Support both plaintext format and serve as reference for future testing
+
+**Code Quality:**
+- ✅ Type hints on all functions (per code-style.md)
+- ✅ Named constants (UPPER_SNAKE_CASE)
+- ✅ Snake case functions and variables
+- ✅ Google-style docstrings with Args/Returns/Raises
+- ✅ Async patterns: `asyncio.wait_for()` on all network operations, proper UDP datagram handling
+- ✅ Error handling: Specific exceptions (OSError, asyncio.TimeoutError), logged appropriately
+- ✅ Imports organized (stdlib, third-party, local; alphabetical within groups)
+
+**Expert Validation:**
+- Invoked `sia-dc09-expert` skill pre-implementation (per CLAUDE.md § "Always use available skills")
+- Implementation follows SIA DC-09-2021.17 protocol requirements:
+  - Frame format detection (hex vs binary CRC) via decode_ack_nak()
+  - Proper timestamp handling (UTC aware, ISO8601)
+  - Encryption status detection in responses
+  - CRC-16 MODBUS validation via existing sia_protocol.py functions
+
+**Remaining Tasks (Deferred to follow-up sessions):**
+- Task 9–11: Integration tests (require running CSRSimulator)
+- Task 12: CLI argument parsing tests (partial)
+- Task 13: Logging/debug enhancements
+- Task 14: README documentation
+- Task 15: Final code quality audit
 
 ### File List
 
 **Created/Modified Files (relative to repo root):**
-- `resources/siadc09d/simulate_frames.py` — CREATE (main CLI tool, Tasks 1–5)
-- `tests/level1/test_simulate_frames.py` — CREATE (pytest tests, Tasks 7–12)
-- `tests/fixtures/golden/frames_alarm_burglary.hex` — CREATE (example frames)
-- `tests/fixtures/golden/frames_supervision_null.hex` — CREATE (example frames)
-- `tests/fixtures/golden/frames_malformed.hex` — CREATE (example frames)
-- `tests/simulator/README.md` — UPDATE (usage documentation, Task 14)
+- ✅ `resources/siadc09d/simulate_frames.py` — CREATE (main CLI tool, Tasks 1–5, 474 lines)
+- ✅ `tests/level1/test_simulate_frames.py` — CREATE (pytest tests, Tasks 7–8, 291 lines, 11 tests)
+- ✅ `tests/fixtures/golden/frames_alarm_burglary.hex` — CREATE (burglary alarm example)
+- ✅ `tests/fixtures/golden/frames_supervision_null.hex` — CREATE (NULL supervision example)
+- ✅ `tests/fixtures/golden/frames_alarm_fire.hex` — CREATE (fire alarm example)
+- ✅ `tests/fixtures/golden/frames_mixed_sequence.hex` — CREATE (realistic multi-frame sequence)
+- ⏳ `tests/simulator/README.md` — UPDATE (usage documentation, Task 14) - DEFERRED
+- ⏳ `tests/fixtures/golden/frames_encrypted_sequence.hex` — CREATE (encrypted frames) - DEFERRED
+- ⏳ `tests/fixtures/golden/frames_malformed.hex` — CREATE (bad CRC/format) - DEFERRED
 
 **Reference Files (Read-Only):**
 - `resources/siadc09d/sia_protocol.py` (Story 1.1)

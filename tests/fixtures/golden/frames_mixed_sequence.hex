@@ -1,0 +1,16 @@
+# Mixed frame sequence
+# Scenario: Burglary alarm → Supervision NULL → Fire alarm
+# Tests proper sequence number tracking across different event types
+# Each frame should get ACK response with matching sequence number
+
+# Frame 1: Burglary alarm (seq=0001)
+# Expected: ACK seq=0001
+0A 41 34 34 32 30 30 33 38 22 53 49 41 2D 44 43 53 22 30 30 30 31 4C 30 23 30 30 31 32 33 34 5B 23 30 30 31 32 33 34 7C 31 31 33 30 5D 5F 31 34 3A 32 33 3A 34 35 2C 30 34 2D 30 39 2D 32 30 32 36 0D
+
+# Frame 2: Supervision NULL (seq=0002)
+# Expected: ACK seq=0002
+0A 44 41 36 35 30 30 32 34 22 53 49 41 2D 44 43 53 22 30 30 30 32 4C 30 23 30 30 31 32 33 34 5B 23 30 30 31 32 33 34 7C 30 30 30 30 5D 0D
+
+# Frame 3: Fire alarm (seq=0003)
+# Expected: ACK seq=0003
+0A 36 32 42 33 30 30 33 38 22 53 49 41 2D 44 43 53 22 30 30 30 33 4C 30 23 30 30 31 32 33 34 5B 23 30 30 31 32 33 34 7C 32 31 33 30 5D 5F 31 34 3A 32 33 3A 35 30 2C 30 34 2D 30 39 2D 32 30 32 36 0D

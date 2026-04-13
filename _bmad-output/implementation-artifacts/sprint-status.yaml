@@ -48,7 +48,7 @@ development_status:
   epic-2: in-progress
   2-1-simulator-framework-udp-tcp-listen: done
   2-2-generate-csr-responses-ack-nak-null: done
-  2-3-cli-tool-for-hex-dump-frame-replay: ready-for-dev
+  2-3-cli-tool-for-hex-dump-frame-replay: in-progress
   2-4-pcap-frame-extractor-tool: backlog
   2-5-test-harness-standalone-documentation: backlog
   epic-2-retrospective: optional

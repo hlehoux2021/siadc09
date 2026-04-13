@@ -1,0 +1,6 @@
+# Supervision NULL frame
+# Event code 0000 (NULL/supervision)
+# Account: 001234, Sequence: 0002
+# Expected response: ACK with seq=0002
+
+0A 44 41 36 35 30 30 32 34 22 53 49 41 2D 44 43 53 22 30 30 30 32 4C 30 23 30 30 31 32 33 34 5B 23 30 30 31 32 33 34 7C 30 30 30 30 5D 0D
