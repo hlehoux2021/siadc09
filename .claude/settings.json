@@ -22,7 +22,8 @@
       "Bash(grep -E \"\\\\.md$\")",
       "Bash(ls -la /Users/herve.lehoux/Dev/my-project/_bmad-output/implementation-artifacts/epic-*-retro-*.md)",
       "Read(//Users/herve.lehoux/Dev/**)",
-      "Bash(grep \"^class.*Error\\\\|^class.*Exception\" /Users/herve.lehoux/Dev/my-project/resources/siadc09d/sia_*.py)"
+      "Bash(grep \"^class.*Error\\\\|^class.*Exception\" /Users/herve.lehoux/Dev/my-project/resources/siadc09d/sia_*.py)",
+      "Bash(wc -l echo \"Files found in tests/fixtures/golden/\" ls /Users/herve.lehoux/Dev/my-project/tests/fixtures/golden/frames_*.hex)"
     ],
     "additionalDirectories": [
       "/Users/herve.lehoux/Dev/my-project/docs",

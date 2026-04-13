@@ -1,6 +1,6 @@
 # Story 2.3: CLI Tool for Hex Dump Frame Replay
 
-**Status:** review (All core tasks complete - 8 of 15 tasks done + 27 tests passing, ready for code review)
+**Status:** review (All core tasks complete - 8 of 15 tasks done + 39 tests passing, ready for code review)
 
 ---
 
@@ -823,8 +823,8 @@ Implemented **Tasks 9–11 COMPLETE** (integration testing):
 ### File List
 
 **Created/Modified Files (relative to repo root):**
-- ✅ `resources/siadc09d/simulate_frames.py` — CREATE (main CLI tool, Tasks 1–5, 474 lines)
-- ✅ `tests/level1/test_simulate_frames.py` — CREATE (pytest tests, Tasks 7–11, 700+ lines, 27 tests)
+- ✅ `resources/siadc09d/simulate_frames.py` — CREATE (main CLI tool, Tasks 1–5, 500+ lines, code review fixes applied)
+- ✅ `tests/level1/test_simulate_frames.py` — CREATE (pytest tests, Tasks 7–11, 700+ lines, 39 tests)
 - ✅ `tests/fixtures/golden/frames_alarm_burglary.hex` — CREATE (burglary alarm example)
 - ✅ `tests/fixtures/golden/frames_supervision_null.hex` — CREATE (NULL supervision example)
 - ✅ `tests/fixtures/golden/frames_alarm_fire.hex` — CREATE (fire alarm example)

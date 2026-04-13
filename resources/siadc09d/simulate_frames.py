@@ -33,6 +33,7 @@ PROTOCOL_TCP = "tcp"
 HOST_DEFAULT = "localhost"
 PORT_MIN, PORT_MAX = 1, 65535
 DELAY_DEFAULT_MS = 0
+TCP_BUFFER_SIZE_BYTES = 1024
 
 logger = logging.getLogger(__name__)
 
@@ -240,15 +241,31 @@ async def send_frame_and_capture(
                 transport.close()
 
         elif protocol == PROTOCOL_TCP:
-            # TCP: open_connection, send, wait for response
-            reader, writer = await asyncio.open_connection(host, port)
+            # TCP: open_connection with timeout, send, wait for response
+            try:
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection(host, port),
+                    timeout=timeout_s
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"TCP connection timeout after {timeout_s}s ({host}:{port})"
+                )
+                return {
+                    "sent_time_utc": sent_time_utc,
+                    "received_time_utc": None,
+                    "response": None,
+                    "elapsed_ms": timeout_s * 1000,
+                    "protocol": protocol,
+                }
+
             try:
                 writer.write(frame)
                 await writer.drain()
 
-                # Wait for response with timeout (read up to 1024 bytes, don't assume fixed length)
+                # Wait for response with timeout (read up to TCP_BUFFER_SIZE_BYTES, don't assume fixed length)
                 response_bytes = await asyncio.wait_for(
-                    reader.read(1024),
+                    reader.read(TCP_BUFFER_SIZE_BYTES),
                     timeout=timeout_s,
                 )
 
@@ -417,6 +434,54 @@ async def replay_frames(
     return results, successful_count, timeout_count
 
 
+def _build_json_results(
+    frames: list[bytes], results: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Build JSON results array with frame_type and seq fields.
+
+    Args:
+        frames: List of sent frame bytes
+        results: List of response dicts from replay_frames()
+
+    Returns:
+        List of result objects with all JSON fields populated
+    """
+    json_results = []
+    for i, (frame, result) in enumerate(zip(frames, results)):
+        response = result["response"]
+        frame_type = None
+        seq = None
+
+        # Decode response to extract frame type and sequence number
+        if response is not None:
+            try:
+                crc_format = detect_crc_format(response)
+                decoded = decode_ack_nak(response, crc_format=crc_format)
+                frame_type = decoded["type"].upper()
+                seq = decoded.get("seq")
+            except Exception:
+                # If decoding fails, leave frame_type and seq as None
+                pass
+
+        json_results.append({
+            "frame_index": i,
+            "sent_hex": frame.hex().upper(),
+            "sent_time_utc": result["sent_time_utc"].isoformat(),
+            "response_hex": response.hex().upper() if response else None,
+            "received_time_utc": (
+                result["received_time_utc"].isoformat()
+                if result["received_time_utc"]
+                else None
+            ),
+            "elapsed_ms": result["elapsed_ms"],
+            "frame_type": frame_type,
+            "seq": seq,
+            "status": "ok" if result["received_time_utc"] else "timeout",
+        })
+
+    return json_results
+
+
 def main() -> None:
     """CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -510,24 +575,7 @@ def main() -> None:
                     "successful": successful,
                     "timeouts": timeouts,
                 },
-                "results": [
-                    {
-                        "frame_index": i,
-                        "sent_hex": frame.hex().upper(),
-                        "sent_time_utc": result["sent_time_utc"].isoformat(),
-                        "response_hex": result["response"].hex().upper()
-                        if result["response"]
-                        else None,
-                        "received_time_utc": (
-                            result["received_time_utc"].isoformat()
-                            if result["received_time_utc"]
-                            else None
-                        ),
-                        "elapsed_ms": result["elapsed_ms"],
-                        "status": "ok" if result["received_time_utc"] else "timeout",
-                    }
-                    for i, (frame, result) in enumerate(zip(frames, results))
-                ],
+                "results": _build_json_results(frames, results),
             }
 
             try:
