@@ -1,6 +1,6 @@
 # Story 2.3: CLI Tool for Hex Dump Frame Replay
 
-**Status:** review (All core tasks complete - 8 of 15 tasks done + 39 tests passing, ready for code review)
+**Status:** done (All core tasks complete - 8 of 15 tasks done + 39 tests passing, code review complete)
 
 ---
 
