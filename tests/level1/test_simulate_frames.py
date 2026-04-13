@@ -803,8 +803,14 @@ async def test_replay_from_burglary_hex_file(
     )
 
     # Assert: Frames processed
-    assert len(results) == 1
-    assert successful + timeouts == 1
+    assert len(results) == 1, f"Expected 1 result, got {len(results)}"
+    assert successful + timeouts == 1, f"Expected 1 total (successful + timeouts), got {successful + timeouts}"
+
+    # Assert: Result has required fields (content validation)
+    result = results[0]
+    assert "sent_time_utc" in result and result["sent_time_utc"] is not None
+    assert "elapsed_ms" in result and result["elapsed_ms"] > 0
+    assert "protocol" in result and result["protocol"] == "udp"
 
 
 @pytest.mark.asyncio

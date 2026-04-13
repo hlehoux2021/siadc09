@@ -37,6 +37,39 @@ DELAY_DEFAULT_MS = 0
 logger = logging.getLogger(__name__)
 
 
+# ===== Helper Functions =====
+
+
+def detect_crc_format(frame: bytes) -> str:
+    """Detect CRC format (hex or binary) from frame structure.
+
+    Args:
+        frame: Raw frame bytes (LF + CRC + ...)
+
+    Returns:
+        "hex" if CRC is hex ASCII, "binary" if CRC is raw bytes
+
+    Reference: SIA-DC-09 § 5.5.1.2 CRC format detection
+    """
+    if len(frame) < 10:
+        return "hex"  # Default for short frames
+
+    try:
+        # Hex format: CRC bytes 1-4 are ASCII hex, length bytes 5-8 are ASCII hex
+        # Binary format: CRC bytes 1-2 are raw, length bytes 3-4 are raw
+        crc_and_len = frame[1:9]
+
+        # Check if all bytes are ASCII hex digits (0-9, A-F, a-f)
+        for byte_val in crc_and_len:
+            if not ((0x30 <= byte_val <= 0x39) or  # 0-9
+                    (0x41 <= byte_val <= 0x46) or  # A-F
+                    (0x61 <= byte_val <= 0x66)):   # a-f
+                return "binary"
+        return "hex"
+    except Exception:
+        return "hex"
+
+
 # ===== Task 1: Hex File Parser =====
 
 
@@ -101,10 +134,9 @@ def parse_hex_file(filepath: str) -> list[bytes]:
                     if not all(c in "0123456789ABCDEFabcdef" for c in hex_str):
                         raise ValueError(f"Invalid hex characters in '{hex_str}'")
 
-                    # Process each 2-character pair as a byte
-                    # Pad with leading zero if odd length
+                    # Reject odd-length hex strings (each byte needs exactly 2 hex digits)
                     if len(hex_str) % 2 == 1:
-                        hex_str = "0" + hex_str
+                        raise ValueError(f"Odd-length hex string '{hex_str}' - bytes require exactly 2 hex digits")
 
                     for i in range(0, len(hex_str), 2):
                         byte_hex = hex_str[i:i+2]
@@ -173,6 +205,8 @@ async def send_frame_and_capture(
 
             class UDPProtocol(asyncio.DatagramProtocol):
                 def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
+                    # Accept response from any address (datagram source validation happens at network layer)
+                    # Note: In production, may want to validate addr matches expected (host, port)
                     if not response_future.done():
                         response_future.set_result((data, addr))
 
@@ -212,9 +246,9 @@ async def send_frame_and_capture(
                 writer.write(frame)
                 await writer.drain()
 
-                # Wait for response with timeout
+                # Wait for response with timeout (read up to 1024 bytes, don't assume fixed length)
                 response_bytes = await asyncio.wait_for(
-                    reader.readexactly(len(frame)),
+                    reader.read(1024),
                     timeout=timeout_s,
                 )
 
@@ -304,9 +338,10 @@ def format_response_summary(response_dict: dict[str, Any], input_frame: bytes) -
     # Format RX timestamp and elapsed time
     rx_time_str = received_time.astimezone().strftime("%H:%M:%S.%f")[:-3]
 
-    # Try to decode response using decode_ack_nak
+    # Try to decode response using decode_ack_nak (auto-detect CRC format)
     try:
-        decoded = decode_ack_nak(response, crc_format="hex")
+        crc_format = detect_crc_format(response)
+        decoded = decode_ack_nak(response, crc_format=crc_format)
         frame_type = decoded["type"].upper()
         seq = decoded.get("seq")
     except Exception:
@@ -364,7 +399,7 @@ async def replay_frames(
 
             # Display summary
             summary = format_response_summary(result, frame)
-            print(summary)
+            logger.info(summary)
 
             if result["received_time_utc"] is None:
                 timeout_count += 1
@@ -430,17 +465,22 @@ def main() -> None:
     try:
         # Validate arguments
         if not (PORT_MIN <= args.port <= PORT_MAX):
-            print(f"Error: Port must be between {PORT_MIN} and {PORT_MAX}")
+            logger.error(f"Port must be between {PORT_MIN} and {PORT_MAX}")
             return
 
         if args.timeout <= 0:
-            print("Error: Timeout must be > 0")
+            logger.error("Timeout must be > 0")
             return
 
         # Load hex file
         logger.info(f"Loading frames from {args.input}...")
         frames = parse_hex_file(args.input)
         logger.info(f"Loaded {len(frames)} frames from {args.input}")
+
+        # Validate frame list is not empty
+        if not frames:
+            logger.error(f"No valid frames found in {args.input}")
+            return
 
         # Replay frames
         results, successful, timeouts = asyncio.run(
@@ -490,9 +530,13 @@ def main() -> None:
                 ],
             }
 
-            with open(args.output, "w") as f:
-                json.dump(output_data, f, indent=2)
-            logger.info(f"Results saved to {args.output}")
+            try:
+                with open(args.output, "w") as f:
+                    json.dump(output_data, f, indent=2)
+                logger.info(f"Results saved to {args.output}")
+            except IOError as e:
+                logger.error(f"Failed to write JSON output to {args.output}: {e}")
+                exit(1)
 
         # Exit code
         exit_code = 0 if timeouts == 0 else 1
