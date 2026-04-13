@@ -1,6 +1,6 @@
 # Story 2.3: CLI Tool for Hex Dump Frame Replay
 
-**Status:** in-progress (Phase 1: Core implementation ~60% complete)
+**Status:** in-progress (Phase 2: 75% complete - 6 of 15 tasks done + 22 tests passing)
 
 ---
 
@@ -769,9 +769,33 @@ Implemented **Tasks 1–5 COMPLETE** (all core functions):
   - Encryption status detection in responses
   - CRC-16 MODBUS validation via existing sia_protocol.py functions
 
+**Session 2026-04-13 (continued): Phase 2 — CLI Tests + Edge Case Coverage**
+
+Expanded test coverage with **11 additional tests**:
+
+**Task 12 (CLI Argument Parsing) - COMPLETE:**
+- ✅ test_cli_missing_required_input_arg — Error handling for missing --input
+- ✅ test_cli_missing_required_port_arg — Error handling for missing --port
+- ✅ test_cli_help_displays — Help text displays all options
+- ✅ test_cli_invalid_protocol_rejected — Rejects invalid --protocol values
+- ✅ test_cli_valid_protocol_options — Both UDP/TCP listed
+- ✅ test_cli_invalid_port_non_integer — Rejects non-integer ports
+- ✅ test_cli_default_values — Correct defaults shown
+
+**Edge Case Tests:**
+- ✅ test_parse_hex_file_mixed_separators — Space, comma, 0x combinations
+- ✅ test_parse_hex_file_large_frame — Real 66-byte protocol frame
+- ✅ test_parse_hex_file_leading_trailing_whitespace — Whitespace handling
+- ✅ test_format_response_summary_with_sequence_number — Seq number formatting
+
+**Test Suite Summary:**
+- **Phase 1 (11 tests):** Hex parsing (7), response formatting (3), async sending (1) ✅
+- **Phase 2 (11 tests):** CLI validation (7), edge cases (4) ✅
+- **Total: 22/22 passing (100%)**
+- **Full test suite: 395 tests passing** (no regressions)
+
 **Remaining Tasks (Deferred to follow-up sessions):**
 - Task 9–11: Integration tests (require running CSRSimulator)
-- Task 12: CLI argument parsing tests (partial)
 - Task 13: Logging/debug enhancements
 - Task 14: README documentation
 - Task 15: Final code quality audit
