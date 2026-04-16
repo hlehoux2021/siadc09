@@ -30,12 +30,13 @@ Reference: docs/design/error-handler-design.md T1/T2/T3 error tiers
 """
 
 import asyncio
+import itertools
 import logging
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Literal, Optional, TypedDict
+from typing import Any, Coroutine, Final, Iterator, Literal, Optional, TypedDict
 
 from jeedomdaemon import BaseDaemon, BaseConfig
 
@@ -49,7 +50,7 @@ from .messages import (
     SM1_NO_NETWORK_FR,
 )
 from .ring_buffer import RingBuffer, make_message_entry
-from .sia_protocol import SIAMessageBuilder, parse_nak_timestamp, SIAProtocolError
+from .sia_protocol import SIAMessageBuilder, parse_nak_timestamp, SIAProtocolError, TIMESTAMP_FORMAT
 from .sia_crypto import AESEncryptionError
 
 
@@ -154,6 +155,56 @@ TCP_CONNECT_TIMEOUT_S = 10  # Timeout for asyncio.wait_for() on TCP connect
 STRIKE_CAP = 3  # Strike counter capped at 3
 
 
+# ===== TASK 1 (Story 5-3): PRIORITY QUEUE CONSTANTS AND TYPES =====
+
+# Priority values for asyncio.PriorityQueue (min-heap: lower number = higher priority).
+# EVENT (alarms) always win — alarm delivery is safety-critical (daemon-design.md line 503).
+QUEUE_PRIORITY_EVENT: Final[int] = 0        # Alarms dequeued first
+QUEUE_PRIORITY_SUPERVISION: Final[int] = 1  # Supervision dequeued second
+
+# Queue item type string identifiers (narrowed to Literal so the PriorityQueue
+# type annotation tuple[int, int, QueueItemType, QueuePayload] is satisfied).
+QUEUE_TYPE_EVENT: Final[Literal["EVENT"]] = "EVENT"
+QUEUE_TYPE_SUPERVISION: Final[Literal["SUPERVISION"]] = "SUPERVISION"
+
+# Type alias for the item_type field (Literal for static analysis)
+QueueItemType = Literal["EVENT", "SUPERVISION"]
+
+# Default retry budget when enqueuing a new alarm event
+MAX_RETRY_DEFAULT: Final[int] = 3
+
+
+class EventQueuePayload(TypedDict):
+    """Payload for EVENT items in the priority queue.
+
+    Carried from on_message() → _queue_consumer() → _send_with_retry().
+    """
+    sia_code: str            # SIA event code: "BA" (burglary), "FA" (fire), "PA" (panic)
+    zone: Optional[str]      # Zone name from PHP #zone# tag, or None
+    media_url: Optional[str] # Verification media URL for SIA [V...] field, or None
+    retries_left: int        # Retry budget; reset to MAX_RETRY_DEFAULT on TCP reconnect
+
+
+class SupervisionQueuePayload(TypedDict):
+    """Payload for SUPERVISION items in the priority queue (empty in v1.0).
+
+    Reserved for future extended supervision data (v1.1: supervision category, etc.).
+    """
+    pass  # No payload needed for v1.0 NULL supervision frames
+
+
+# Union of all queue payload types (AC1: 4-tuple type safety).
+QueuePayload = EventQueuePayload | SupervisionQueuePayload
+
+# Map PHP alarm command names → SIA event codes (M2: no magic strings).
+# Used by on_message() to convert PHP sendToDaemon() commands to SIA codes.
+_EVENT_SIA_CODES: Final[dict[str, str]] = {
+    "burglarAlarm": "BA",
+    "fireAlarm": "FA",
+    "panicAlarm": "PA",
+}
+
+
 # ===== TASK 2: STRIKE COUNTER AND SM1 STATE MANAGEMENT =====
 
 class SIADaemon(BaseDaemon):
@@ -181,11 +232,11 @@ class SIADaemon(BaseDaemon):
 
         Instance Variables (SM2 state machine - alarm events):
             _sm2_state: Current SM2 state (IDLE, PENDING, CONFIRMED, FAILED)
-            _event_state: Numeric state for INFO command (0=no alarm, 1=confirmed, 2=failed, 3=pending)
-            _event_label: French label for display (Inactif, En cours, Confirmé, Échoué)
             _event_sia_code: Latest event SIA code (BA=burglary, FA=fire, PA=panic)
             _event_zone: Latest zone name from alarm command #zone# tag
             _event_attempt_count: Current send attempt count for in-flight event
+            Note: event_state/event_label are derived via _event_state_from_sm2() /
+                  _event_label_from_sm2() helpers — not stored as separate instance vars
 
         Instance Variables (Configuration):
             _preset: CSR preset config (host, port, encryption_key, crc_format, etc.)
@@ -201,6 +252,15 @@ class SIADaemon(BaseDaemon):
             _ring_buffer: RingBuffer for message history
             _tasks: Set of tracked asyncio.Task objects
             _logger: Module logger
+
+        Instance Variables (Queue coordination — Story 5-3):
+            _queue: asyncio.PriorityQueue of 4-tuples (priority, counter, item_type, payload).
+                    EVENT priority=0 (dequeued first); SUPERVISION priority=1.
+            _queue_counter: Monotonic int iterator (itertools.count) — tie-breaker within
+                    same priority; prevents TypeError on heapq dict comparison.
+            _sm1_state_changed: asyncio.Event set on every SM1 state transition via
+                    _set_sm1_state(). Consumer waits on this before dequeuing while
+                    SM1=TCP_RECONNECTING — items stay in queue (no spin, no re-enqueue).
 
         Instance Variables (Async methods - provided by subclass or injected):
             _notify: async method to dispatch error notifications
@@ -219,8 +279,6 @@ class SIADaemon(BaseDaemon):
 
         # SM2 state machine (alarm event delivery)
         self._sm2_state: SM2State = SM2State.IDLE  # Startup-only state
-        self._event_state: int = 0  # Persisted: 0=no alarm, 1=confirmed, 2=failed, 3=pending
-        self._event_label: str = "Inactif"  # Persisted: French label for display
         self._event_sia_code: Optional[str] = None  # Latest event code (BA|FA|PA)
         self._event_zone: Optional[str] = None  # Latest zone from command #zone# tag
         self._event_attempt_count: int = 0  # Track send attempts for current event
@@ -241,13 +299,25 @@ class SIADaemon(BaseDaemon):
         self._tasks: set[asyncio.Task] = set()
         self._logger = logging.getLogger(__name__)
 
+        # Queue coordination (Story 5-3): PriorityQueue + monotonic counter.
+        # 4-tuple items: (priority: int, counter: int, item_type: QueueItemType, payload: QueuePayload)
+        # priority=0 (EVENT) dequeued before priority=1 (SUPERVISION) — min-heap semantics.
+        # counter from itertools.count() guarantees FIFO within same priority and
+        # prevents TypeError when heapq would otherwise compare payload dicts.
+        self._queue: asyncio.PriorityQueue[tuple[int, int, QueueItemType, QueuePayload]] = asyncio.PriorityQueue()
+        self._queue_counter: Iterator[int] = itertools.count()
+
+        # SM1 state change notification event (Story 5-3 H1 fix).
+        # Set by _set_sm1_state() on every SM1 state transition.
+        # _queue_consumer awaits this before each dequeue when SM1=TCP_RECONNECTING:
+        # items stay in the queue (no re-enqueue) and the consumer wakes naturally.
+        self._sm1_state_changed: asyncio.Event = asyncio.Event()
+
         # Async method stubs (will be overridden by subclass in on_start)
         # Note: _log_sm1_supervision is NOT stubbed - uses actual method implementation
         self._notify = self._notify_stub
         self._send_raw = self._send_raw_stub
         self._update_info_commands = self._update_info_commands_stub
-        # self._log_sm1_supervision already bound to actual implementation (not stubbed)
-        self._track_task = self._track_task_stub
 
     async def _notify_stub(self, error_code: ErrorCode, context: dict) -> None:
         """Stub for _notify (will be overridden)."""
@@ -257,13 +327,60 @@ class SIADaemon(BaseDaemon):
         """Stub for _send_raw (will be overridden)."""
         return {"status": "timeout"}
 
-    async def _update_info_commands_stub(self) -> None:
+    async def _update_info_commands_stub(self, data: dict | None = None) -> None:
         """Stub for _update_info_commands (will be overridden)."""
         pass
 
-    def _track_task_stub(self, coro) -> None:
-        """Stub for _track_task (will be overridden)."""
-        pass
+    def _set_sm1_state(self, new_state: SM1State) -> None:
+        """Set SM1 state and notify the queue consumer via _sm1_state_changed event.
+
+        All SM1 state transitions MUST go through this method so that
+        _queue_consumer() wakes up when it is waiting on _sm1_state_changed
+        (i.e., while SM1=TCP_RECONNECTING, items stay in the queue without
+        spinning — the consumer only dequeues once SM1 has transitioned).
+
+        The consumer's gate loop clears the event before re-checking state,
+        so we only call set() here — never clear(). This way, if multiple
+        transitions happen while the consumer is dispatching, the event stays
+        set and the consumer can re-evaluate on its next gate pass.
+
+        Args:
+            new_state: The new SM1State to transition to.
+
+        Reference: daemon-design.md Component 1 — queue consumer gate (H1 fix)
+        """
+        self._sm1_state = new_state
+        self._sm1_state_changed.set()
+
+    def _track_task(self, coro: Coroutine[Any, Any, Any], name: str = "") -> asyncio.Task:
+        """Create a tracked asyncio.Task from a coroutine.
+
+        Wraps asyncio.create_task() to ensure all tasks are tracked in _tasks and
+        any unhandled exceptions are logged via _logger.error() on completion.
+
+        Args:
+            coro: Coroutine to schedule as a task
+            name: Optional descriptive name (visible in tracebacks and logs).
+                  If empty, asyncio assigns Task-N (less useful).
+
+        Returns:
+            The created asyncio.Task (already scheduled)
+
+        Reference: daemon-design.md Component 1 — task tracking pattern (Story 5-5 refines)
+        """
+        task: asyncio.Task = asyncio.create_task(coro, name=name or None)
+        self._tasks.add(task)
+
+        def _done_cb(t: asyncio.Task) -> None:
+            """Remove completed task from set; log exceptions."""
+            self._tasks.discard(t)
+            if not t.cancelled() and t.exception() is not None:
+                self._logger.error(
+                    f"Unhandled exception in tracked task '{t.get_name()}': {t.exception()}"
+                )
+
+        task.add_done_callback(_done_cb)
+        return task
 
     # ===== SM2 STATE HELPER METHODS =====
 
@@ -402,7 +519,7 @@ class SIADaemon(BaseDaemon):
         Reference: supervision-design.md ADR-11, daemon-design.md Component 1
         """
         # Any strike level >= 1 transitions to DEGRADED
-        self._sm1_state = SM1State.DEGRADED
+        self._set_sm1_state(SM1State.DEGRADED)
 
         t3_just_fired = False
 
@@ -412,7 +529,7 @@ class SIADaemon(BaseDaemon):
                 # Force socket close to escape half-open stall
                 # (TCP connection may be in half-open state, blocking indefinitely)
                 # Transition to TCP_RECONNECTING and start reconnect loop
-                self._sm1_state = SM1State.TCP_RECONNECTING
+                self._set_sm1_state(SM1State.TCP_RECONNECTING)
                 self._track_task(self._tcp_reconnect_loop())
 
             # Fire T3 notification (once only, via _sm1_t3_fired deduplication)
@@ -521,7 +638,7 @@ class SIADaemon(BaseDaemon):
         self._sm1_t3_fired = False
 
         # Set state to HEALTHY
-        self._sm1_state = SM1State.HEALTHY
+        self._set_sm1_state(SM1State.HEALTHY)
 
         # Update last ACK timestamp
         self._last_supervision_ack = datetime.now(timezone.utc)
@@ -649,7 +766,7 @@ class SIADaemon(BaseDaemon):
 
         Reference: daemon-design.md Task 3 (TCP drop path)
         """
-        self._sm1_state = SM1State.TCP_RECONNECTING
+        self._set_sm1_state(SM1State.TCP_RECONNECTING)
         self._track_task(self._tcp_reconnect_loop())
         self._logger.warning("TCP connection dropped by OS, initiating reconnect")
 
@@ -708,7 +825,7 @@ class SIADaemon(BaseDaemon):
                     # Reconnect successful
                     self._strike_counter = 0
                     self._sm1_t3_fired = False
-                    self._sm1_state = SM1State.INITIALIZING
+                    self._set_sm1_state(SM1State.INITIALIZING)
                     self._logger.info("TCP reconnect successful, returning to INITIALIZING")
                     return
 
@@ -723,7 +840,7 @@ class SIADaemon(BaseDaemon):
                 )
 
         # Permanent failure after max attempts
-        self._sm1_state = SM1State.NO_NETWORK
+        self._set_sm1_state(SM1State.NO_NETWORK)
         await self._notify(ErrorCode.TRANSPORT_PERMANENT, {})
         self._logger.error(
             f"TCP reconnect failed after {max_attempts} attempts, transitioning to NO_NETWORK"
@@ -876,16 +993,18 @@ class SIADaemon(BaseDaemon):
         self._event_zone = event_item.zone
         self._event_attempt_count = 0
 
+        # Increment sequence number ONCE before the loop.
+        # SIA DC-09 § 5.5.1.5: "The PE shall NOT increment the sequence number
+        # when repeating a message due to a communication failure or no response
+        # from a CSR." All retry attempts reuse the same seq.
+        self._sia_seq = (self._sia_seq + 1) % 10000
+
         for attempt in range(max_retries + 1):
             self._event_attempt_count = attempt + 1
 
             try:
-                # Build SIA-DCS message frame
-                # TODO (Task 3.2.2b): Encode message with account, seq, zone, timestamp
+                # Build SIA-DCS message frame and send with timeout
                 frame = self._build_event_frame(event_item)
-
-                # Send with timeout
-                # TODO (Task 3.2.2c): Send frame with 10s timeout via _send_raw()
                 result = await asyncio.wait_for(
                     self._send_raw(frame),
                     timeout=10.0
@@ -914,35 +1033,30 @@ class SIADaemon(BaseDaemon):
                     return SM2State.CONFIRMED
 
                 elif status == "nak":
-                    # NAK received - handle based on parseable timestamp (Task 5)
+                    # NAK received: per daemon-design.md any NAK in v1.0 →
+                    # _notify(BAD_CSR_RESPONSE) → SM2 FAILED, stop retrying.
+                    # Parse timestamp for diagnostic logging only; v1.1 will use it
+                    # for auto-heal resync (SIA DC-09 § 5.5.3.2 / daemon-design.md line 724).
                     raw_nak = result.get("raw_nak")
-                    csr_timestamp = None
-
                     try:
-                        # Task 5.1: Try to parse NAK timestamp
                         if raw_nak:
                             csr_timestamp = parse_nak_timestamp(raw_nak)
-                            # Task 5.2: Parseable NAK - delegate to SM1 for strike increment
-                            # v1.0: No auto-heal, SM2 always FAILs on NAK
                             self._logger.debug(
-                                f"NAK received with parseable timestamp: {csr_timestamp}"
+                                f"Event NAK: parseable CSR timestamp {csr_timestamp} "
+                                f"(v1.1 auto-heal candidate)"
                             )
-                            # Call SM1 NAK handler (if available)
-                            if hasattr(self, '_update_sm1_from_nak'):
-                                await self._update_sm1_from_nak(csr_timestamp)
-
                     except (ValueError, TypeError):
-                        # Task 5.3: Undecodable NAK - T2 notification
-                        await self._notify(
-                            ErrorCode.BAD_CSR_RESPONSE,
-                            {
-                                "zone": event_item.zone,
-                                "sia_code": event_item.sia_code,
-                                "reason": "unparseable_nak"
-                            }
-                        )
+                        self._logger.debug("Event NAK: unparseable timestamp (protocol anomaly)")
 
-                    # SM2 always transitions to FAILED on NAK (v1.0 no auto-heal)
+                    # Always T2 notification on event NAK (no parseable/undecodable split for SM2)
+                    await self._notify(
+                        ErrorCode.BAD_CSR_RESPONSE,
+                        {
+                            "zone": event_item.zone,
+                            "sia_code": event_item.sia_code,
+                            "reason": "event_nak"
+                        }
+                    )
                     self._sm2_state = SM2State.FAILED
                     await self._log_sm2_event(
                         "failed_nak",
@@ -954,6 +1068,10 @@ class SIADaemon(BaseDaemon):
                             state_change=True
                         )
                     )
+                    await self._update_info_commands({
+                        'event_state': self._event_state_from_sm2(),
+                        'event_label': self._event_label_from_sm2()
+                    })
                     return SM2State.FAILED
 
                 elif status == "timeout":
@@ -1000,12 +1118,32 @@ class SIADaemon(BaseDaemon):
                         return SM2State.FAILED
 
             except asyncio.TimeoutError:
-                # Timeout during send
+                # Timeout raised by asyncio.wait_for (network-level hang)
                 if attempt < max_retries:
+                    await self._log_sm2_event(
+                        "failed_timeout",
+                        SM2LogCtx(
+                            zone=event_item.zone,
+                            sia_code=event_item.sia_code,
+                            attempt=self._event_attempt_count,
+                            elapsed=0.0,
+                            state_change=False
+                        )
+                    )
                     await asyncio.sleep(1.0)
                     continue
                 else:
                     self._sm2_state = SM2State.FAILED
+                    await self._log_sm2_event(
+                        "failed_max_retries",
+                        SM2LogCtx(
+                            zone=event_item.zone,
+                            sia_code=event_item.sia_code,
+                            attempt=self._event_attempt_count,
+                            elapsed=0.0,
+                            state_change=True
+                        )
+                    )
                     await self._notify(
                         ErrorCode.EVENT_FAILED,
                         {
@@ -1014,11 +1152,25 @@ class SIADaemon(BaseDaemon):
                             "attempts": self._event_attempt_count
                         }
                     )
+                    await self._update_info_commands({
+                        'event_state': self._event_state_from_sm2(),
+                        'event_label': self._event_label_from_sm2()
+                    })
                     return SM2State.FAILED
 
-            except Exception as e:
-                self._logger.error(f"Unexpected error in _send_with_retry: {e}")
+            except (SIAProtocolError, AESEncryptionError) as e:
+                self._logger.error(f"Protocol/transport error in _send_with_retry: {e}")
                 self._sm2_state = SM2State.FAILED
+                await self._log_sm2_event(
+                    "failed_max_retries",
+                    SM2LogCtx(
+                        zone=event_item.zone,
+                        sia_code=event_item.sia_code,
+                        attempt=self._event_attempt_count,
+                        elapsed=0.0,
+                        state_change=True
+                    )
+                )
                 await self._notify(
                     ErrorCode.EVENT_FAILED,
                     {
@@ -1027,20 +1179,38 @@ class SIADaemon(BaseDaemon):
                         "attempts": self._event_attempt_count
                     }
                 )
+                await self._update_info_commands({
+                    'event_state': self._event_state_from_sm2(),
+                    'event_label': self._event_label_from_sm2()
+                })
                 return SM2State.FAILED
 
-        # Fallback (should not reach here)
+        # Fallback: loop exhausted without explicit return (defensive — should not reach here
+        # under normal flow; all paths above return explicitly)
         self._sm2_state = SM2State.FAILED
+        await self._notify(
+            ErrorCode.EVENT_FAILED,
+            {
+                "zone": event_item.zone,
+                "sia_code": event_item.sia_code,
+                "attempts": self._event_attempt_count
+            }
+        )
+        await self._update_info_commands({
+            'event_state': self._event_state_from_sm2(),
+            'event_label': self._event_label_from_sm2()
+        })
         return SM2State.FAILED
 
     def _build_event_frame(self, event_item: EventItem) -> bytes:
         """Build SIA-DCS frame for alarm event (Task 3.2.2b).
 
         Constructs complete SIA protocol frame for alarm event delivery with:
-        - Account number and CRC format from preset
-        - Incremented sequence number (wrapped at 10000)
+        - Account number and CRC format from preset (synced at call time)
+        - Current sequence number (incremented once per event by _send_with_retry,
+          NOT here — SIA DC-09 § 5.5.1.5)
         - Zone information in extended data
-        - UTC timestamp
+        - UTC timestamp (from event_item.timestamp or current UTC if unparseable)
 
         Args:
             event_item: EventItem with sia_code, zone, timestamp
@@ -1051,37 +1221,53 @@ class SIADaemon(BaseDaemon):
         Reference: story 5-2 Task 3.2.2b, sia_protocol.py encode_message()
         """
         try:
-            # Increment sequence number (wrap at 10000)
-            self._sia_seq = (self._sia_seq + 1) % 10000
+            # H4: Sync crc_format from preset (preset is set by subclass after __init__).
+            # Builder defaults to "SIA" but preset may specify "ADM" (ADR-06).
+            # _preset is None only before on_start(); _build_event_frame is only called
+            # from _send_with_retry() which runs after on_start() sets _preset.
+            if self._preset is not None:
+                self._sia_builder.crc_format = self._preset.crc_format
 
             # Build extended data with zone information
+            # Note: _sia_seq is incremented once by _send_with_retry before the loop.
             extended_data = {}
             if event_item.zone:
-                # Zone information in extended data (protocol-dependent format)
                 extended_data['zone'] = event_item.zone
 
-            # Encode frame using SIAMessageBuilder
-            # crc_format is set from preset at daemon startup
+            # Parse event timestamp for the SIA frame (M1).
+            # event_item.timestamp is a string "HH:MM:SS,MM-DD-YYYY"; pass None on parse failure
+            # to let encode_message use current UTC time.
+            event_ts: datetime | None = None
+            if event_item.timestamp:
+                try:
+                    event_ts = datetime.strptime(event_item.timestamp, TIMESTAMP_FORMAT).replace(
+                        tzinfo=timezone.utc
+                    )
+                except (ValueError, AttributeError):
+                    pass  # Fall through: encode_message will stamp with current UTC
+
             frame = self._sia_builder.encode_message(
                 account_number=self._account,
                 event_code=event_item.sia_code,
                 account_prefix=self._account_prefix or "L0",
                 receiver_number=self._receiver_prefix,
                 extended_data=extended_data if extended_data else None,
-                timestamp=None,  # Timestamp in message already (event_item.timestamp)
+                timestamp=event_ts,
                 encryption=False  # No encryption in v1.0
             )
 
             return frame
 
+        except SIAProtocolError:
+            raise
         except Exception as e:
             self._logger.error(f"Error building event frame: {e}")
-            raise
+            raise SIAProtocolError(f"Frame build failed: {e}") from e
 
     async def _log_sm2_event(
         self,
         transition: str,
-        ctx: Optional[SM2LogCtx] = None
+        ctx: SM2LogCtx | None = None
     ) -> None:
         """Log SM2 state transitions with French INFO + English DEBUG lines (Task 7).
 
@@ -1151,9 +1337,8 @@ class SIADaemon(BaseDaemon):
             self._logger.info(info_msg)
             self._logger.debug(debug_msg)
 
-            # Log to ring buffer (if available)
-            if hasattr(self, '_ring_buffer'):
-                await self._ring_buffer.push_supervision_entry(
+            # Log to ring buffer (_ring_buffer always initialized in __init__)
+            await self._ring_buffer.push_supervision_entry(
                     level="info" if "failed" not in transition else "error",
                     message=info_msg,
                     context={
@@ -1167,6 +1352,242 @@ class SIADaemon(BaseDaemon):
 
         except Exception as e:
             self._logger.error(f"Error logging SM2 event: {e}")
+
+
+    # ===== TASK 3 (Story 5-3): ENQUEUE HELPER METHODS =====
+
+    async def _enqueue_event(
+        self,
+        sia_code: str,
+        zone: Optional[str],
+        media_url: Optional[str],
+        retries_left: int = MAX_RETRY_DEFAULT,
+    ) -> None:
+        """Enqueue an alarm event for SM2 processing at EVENT priority.
+
+        Places a 4-tuple into the priority queue with QUEUE_PRIORITY_EVENT (0).
+        The queue consumer dequeues this and dispatches to _send_with_retry().
+        The enqueue is fire-and-forget: on_message() returns immediately after calling this.
+
+        Args:
+            sia_code: SIA event code — "BA" (burglary), "FA" (fire), "PA" (panic)
+            zone: Zone name from PHP #zone# tag, or None if not specified
+            media_url: Optional camera/media URL for SIA [V...] extended field, or None
+            retries_left: Retry budget (default MAX_RETRY_DEFAULT=3). Reset to full
+                          when re-enqueuing after TCP_RECONNECTING.
+
+        Reference: daemon-design.md Component 1 — Task 1.6 on_message()
+        """
+        counter: int = next(self._queue_counter)
+        payload: EventQueuePayload = {
+            "sia_code": sia_code,
+            "zone": zone,
+            "media_url": media_url,
+            "retries_left": retries_left,
+        }
+        await self._queue.put((QUEUE_PRIORITY_EVENT, counter, QUEUE_TYPE_EVENT, payload))
+        self._logger.debug(
+            f"EVENT enqueued: sia_code={sia_code}, zone={zone}, counter={counter}"
+        )
+
+    async def _enqueue_supervision(self) -> None:
+        """Enqueue a supervision NULL frame at SUPERVISION priority.
+
+        Places a 4-tuple into the priority queue with QUEUE_PRIORITY_SUPERVISION (1).
+        Because QUEUE_PRIORITY_SUPERVISION > QUEUE_PRIORITY_EVENT, any queued alarm
+        will be dequeued and sent before the next supervision frame.
+        The consumer calls _send_supervision() which handles the full ACK/NAK cycle.
+
+        Reference: daemon-design.md Component 1 — _supervision_loop() / Task B.3
+        Reference: SIA DC-09-2021 § 5.5.2 (Supervision Message)
+        """
+        counter: int = next(self._queue_counter)
+        await self._queue.put((QUEUE_PRIORITY_SUPERVISION, counter, QUEUE_TYPE_SUPERVISION, {}))
+        self._logger.debug(f"SUPERVISION enqueued (counter={counter})")
+
+    # ===== TASK 4 (Story 5-3): QUEUE CONSUMER COROUTINE =====
+
+    async def _queue_consumer(self) -> None:
+        """Single-consumer coroutine: dequeue and dispatch SM1/SM2 tasks.
+
+        Loops forever awaiting items from _queue. Routes:
+        - SUPERVISION items → _send_supervision() (full ACK/NAK cycle, updates SM1)
+        - EVENT items → _send_with_retry() (full retry cycle, updates SM2)
+
+        SM1 state guards applied before dispatch:
+        - TCP_RECONNECTING: consumer waits on _sm1_state_changed gate (items stay in queue,
+          no dequeue, no re-enqueue, no spin). Resumes when SM1 transitions out.
+        - NO_NETWORK + any: drop silently (daemon stopping, queue abandoned)
+
+        One-at-a-time guarantee: consumer awaits each dispatch before dequeuing next.
+        Satisfies SIA DC-09 § 5.3 "send one, wait for acknowledgement" per-account rule.
+
+        TCP_RECONNECTING gate detail: before each queue.get(), the consumer checks SM1 state.
+        While TCP_RECONNECTING it clears _sm1_state_changed and awaits it. When the reconnect
+        loop calls _set_sm1_state() (→ INITIALIZING on success, → NO_NETWORK on failure),
+        the event fires and the consumer re-evaluates and dequeues normally.
+
+        Reference: daemon-design.md Component 1 — _queue_consumer() / Priority Queue coordination
+        Reference: SIA DC-09-2021 § 5.3 Communication Sequence
+        """
+        while True:
+            # Gate: wait for SM1 to leave TCP_RECONNECTING before dequeuing.
+            # Items stay in the queue — no spin, no re-enqueue, no sleep.
+            while self._sm1_state == SM1State.TCP_RECONNECTING:
+                self._sm1_state_changed.clear()
+                # Re-check after clear to avoid a missed-wakeup race (set() between
+                # the while condition check and clear() would be lost without this).
+                if self._sm1_state == SM1State.TCP_RECONNECTING:
+                    self._logger.debug(
+                        "SM1 TCP_RECONNECTING: queue consumer waiting for state change"
+                    )
+                    await self._sm1_state_changed.wait()
+
+            priority, counter, item_type, payload = await self._queue.get()
+            self._logger.debug(
+                f"Dequeued {item_type} (priority={priority}, counter={counter})"
+            )
+            try:
+                if item_type == QUEUE_TYPE_SUPERVISION:
+                    if self._sm1_state == SM1State.NO_NETWORK:
+                        # Daemon stopping: drop silently
+                        self._logger.debug(
+                            f"SM1 NO_NETWORK: SUPERVISION dropped (daemon stopping, "
+                            f"counter={counter})"
+                        )
+                    else:
+                        await self._send_supervision()
+
+                elif item_type == QUEUE_TYPE_EVENT:
+                    event_payload: EventQueuePayload = payload  # type: ignore[assignment]
+
+                    if self._sm1_state == SM1State.NO_NETWORK:
+                        # Daemon stopping: drop EVENT (SM2 will stay FAILED — see NO_NETWORK handler)
+                        self._logger.debug(
+                            f"SM1 NO_NETWORK: EVENT dropped (daemon stopping, counter={counter})"
+                        )
+
+                    else:
+                        # Normal send path (HEALTHY, INITIALIZING, DEGRADED):
+                        # build EventItem and dispatch to SM2.
+                        # Per SIA DC-09 § 5.5.1.5: fresh timestamp at actual send time.
+                        timestamp_str = datetime.now(timezone.utc).strftime(TIMESTAMP_FORMAT)
+                        event_item = EventItem(
+                            sia_code=event_payload["sia_code"],
+                            zone=event_payload.get("zone"),
+                            timestamp=timestamp_str,
+                        )
+                        await self._send_with_retry(
+                            event_item,
+                            max_retries=event_payload.get("retries_left", MAX_RETRY_DEFAULT),
+                        )
+
+            except Exception as e:
+                # Log and swallow: consumer must not exit on transient dispatch errors.
+                # task_done() is guaranteed by the finally block below regardless.
+                self._logger.error(
+                    f"Queue consumer: unhandled exception dispatching {item_type} "
+                    f"(counter={counter}): {e}"
+                )
+            finally:
+                self._queue.task_done()
+
+    # ===== TASK 5/6 (Story 5-3): SUPERVISION LOOP =====
+
+    async def _supervision_loop(self) -> None:
+        """Periodically enqueue supervision NULL frames for SM1 keep-alive.
+
+        Sleeps for supervision_interval_s, then enqueues a SUPERVISION item.
+        The queue consumer dequeues it and calls _send_supervision() for the full
+        send/ACK/NAK cycle. If an alarm is queued, it will be processed first
+        (EVENT priority=0 wins over SUPERVISION priority=1 — safety-critical).
+
+        The timer is reset each cycle regardless of ACK/NAK result — the SM1 handler
+        (_send_supervision) manages strike counter and state transitions independently.
+
+        Reference: daemon-design.md Component 1 — _supervision_loop() / Task B.3
+        Reference: SIA DC-09-2021 § 5.5.2 Supervision Message
+        """
+        interval: int = int(getattr(self._preset, 'supervision_interval_s', SUPERVISION_INTERVAL_S))
+        while True:
+            await asyncio.sleep(interval)
+            self._logger.debug(
+                f"Supervision interval fired ({interval}s), enqueueing NULL frame"
+            )
+            await self._enqueue_supervision()
+
+    # ===== TASK 7 (Story 5-3): on_message — ALARM DISPATCH FROM PHP =====
+
+    async def on_message(self, cmd: str, params: dict) -> None:
+        """Receive alarm command from PHP and enqueue for SM2 processing.
+
+        Called by jeedomdaemon framework when PHP invokes sendToDaemon().
+        Extracts alarm type, zone, and media_url from params and enqueues
+        an EVENT item into the priority queue. Returns immediately (fire-and-forget):
+        the actual send happens asynchronously in _queue_consumer() → _send_with_retry().
+
+        Args:
+            cmd: Command name from PHP — "burglarAlarm", "fireAlarm", or "panicAlarm"
+            params: PHP payload dict with optional keys:
+                - "zone": str — zone name from #zone# tag (None if absent)
+                - "media_url": str — camera/media URL (None if absent)
+
+        Reference: daemon-design.md Component 1 — Task 1.6 on_message()
+        Reference: daemon-design.md — "Forbidden char policy" for media_url
+        """
+        sia_code: Optional[str] = _EVENT_SIA_CODES.get(cmd)
+        if sia_code is None:
+            self._logger.warning(f"on_message: unknown alarm command '{cmd}' — ignored")
+            return
+
+        zone: Optional[str] = params.get("zone")
+        media_url: Optional[str] = params.get("media_url")
+
+        self._logger.debug(
+            f"on_message: cmd={cmd} → sia_code={sia_code}, zone={zone}, "
+            f"media_url={'<set>' if media_url else None}"
+        )
+        await self._enqueue_event(sia_code, zone, media_url)
+
+    # ===== TASK 5 (Story 5-3): on_start — DAEMON STARTUP =====
+
+    async def on_start(self) -> None:
+        """Start daemon: initialize queue state and launch background tasks.
+
+        Resets queue, counters, and SM states for a clean start (idempotent across restarts).
+        Launches two background tasks tracked in _tasks:
+        - queue_consumer: dequeues EVENT/SUPERVISION items and dispatches
+        - supervision_loop: periodically enqueues supervision NULL frames
+
+        Reference: daemon-design.md Component 1 — Daemon lifecycle / Task 1.1–1.7
+        """
+        # Cancel any previously running tasks before resetting (idempotent restart safety).
+        # Prevents orphaned tasks if on_start() is called again without on_stop().
+        if self._tasks:
+            for task in list(self._tasks):
+                task.cancel()
+            # Await all tasks to completion (CancelledError swallowed via return_exceptions)
+            await asyncio.gather(*self._tasks, return_exceptions=True)
+            self._tasks.clear()
+
+        # Reset queue state (fresh start on every on_start call)
+        self._queue = asyncio.PriorityQueue()
+        self._queue_counter = itertools.count()
+        self._sm1_state_changed.clear()
+
+        # Initialize SM states
+        self._sm1_state = SM1State.INITIALIZING
+        self._sm2_state = SM2State.IDLE
+        self._strike_counter = 0
+        self._sm1_t3_fired = False
+
+        from . import messages
+        self._logger.info(messages.SM1_STARTING)
+        self._logger.debug("on_start: launching queue_consumer and supervision_loop")
+
+        # Launch consumer and supervision loop — both tracked in _tasks
+        self._track_task(self._queue_consumer(), name="queue_consumer")
+        self._track_task(self._supervision_loop(), name="supervision_loop")
 
 
 # ===== ENTRY POINT =====
