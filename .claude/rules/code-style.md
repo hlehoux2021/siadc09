@@ -907,6 +907,36 @@ class Daemon:
         # ...
 ```
 
+### No `hasattr()` Guards on `self`
+
+Never use `hasattr(self, 'name')` to guard against a missing attribute or method on the current instance.
+
+**Why:** If an attribute is missing on `self`, the class is incomplete — `__init__` should have initialized it. A `hasattr` guard silently swallows the `AttributeError` that would have exposed the design gap during testing. The bug then surfaces silently in production as a no-op.
+
+**❌ Avoid:**
+```python
+async def _log_event(self) -> None:
+    if hasattr(self, '_ring_buffer'):           # ❌ hides missing __init__ setup
+        await self._ring_buffer.push(...)
+    if hasattr(self, '_update_info_commands'):  # ❌ hides unimplemented interface
+        await self._update_info_commands()
+```
+
+**✅ Prefer: initialize everything in `__init__`, use explicit stubs for deferred implementations**
+```python
+def __init__(self) -> None:
+    self._ring_buffer: RingBuffer = RingBuffer()            # always present
+    self._update_info_commands = self._info_commands_stub   # stub, never missing
+
+async def _info_commands_stub(self, data: dict | None = None) -> None:
+    """Stub: full implementation in Epic 6."""
+    pass
+```
+
+This way, a missing attribute raises `AttributeError` immediately and loudly — caught in tests, not silently ignored in production.
+
+**Exception:** `hasattr()` is acceptable when inspecting third-party or framework objects you do not own, where optional attribute presence is an intentional part of their API contract.
+
 ### Use Dataclass for Simple Value Objects
 
 For simple classes that mainly hold data, use `@dataclass`:
