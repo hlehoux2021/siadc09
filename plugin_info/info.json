@@ -1,27 +1,27 @@
 {
-	"id": "aiodemo",
-	"name": "AsyncIO Demo",
+	"id": "siaDC09",
+	"name": "Télésurveillance",
 	"description": {
-		"fr_FR": "AsyncIO Demo"
+		"fr_FR": "Plugin SIA DC-09 pour la transmission d'événements d'alarme vers une centrale de télésurveillance"
 	},
 	"licence": "AGPL",
-	"author": "Jeedom SAS",
-	"require": "4.2.0",
-	"category": "programming",
+	"author": "Herve Lehoux",
+	"require": "4.5",
+	"category": "security",
 	"hasDependency": true,
 	"hasOwnDeamon": true,
 	"maxDependancyInstallTime": 60,
+	"os": {
+		"min": 12
+	},
 	"link": {
-		"forum": "Lien vers le forum",
-		"video": "Lien vers une video"
+		"forum": "",
+		"video": ""
 	},
 	"language": [
-		"de_DE",
-		"en_US",
-		"es_ES",
 		"fr_FR",
-		"it_IT",
-		"pt_PT"
+		"en_US",
+		"de_DE"
 	],
 	"compatibility": [
 		"smart",
