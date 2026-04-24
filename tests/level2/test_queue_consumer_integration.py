@@ -14,6 +14,8 @@ Reference: story 5-3-priorityqueue-task-coordination.md Task 10
 
 import asyncio
 import pytest
+from resources.siadc09d.sia_transport import SIATransportResult
+from tests.conftest import make_daemon_preset
 from datetime import datetime, timezone
 from unittest.mock import patch, MagicMock, AsyncMock
 
@@ -27,6 +29,7 @@ from resources.siadc09d.daemon import (
     QUEUE_TYPE_SUPERVISION,
     MAX_RETRY_DEFAULT,
 )
+from resources.siadc09d.error_handler import ErrorCode
 
 
 # ===== FIXTURES =====
@@ -35,7 +38,7 @@ from resources.siadc09d.daemon import (
 def mock_daemon():
     """Create a SIADaemon instance with mocked transport and callbacks."""
     with patch('sys.argv', ['test']):
-        daemon = SIADaemon()
+        daemon = SIADaemon(preset=make_daemon_preset())
 
     daemon._logger = MagicMock()
     daemon._preset = MagicMock(
@@ -48,8 +51,8 @@ def mock_daemon():
     daemon._receiver_prefix = None
     daemon._account_prefix = 'L0'
     daemon._sia_seq = 0
-    daemon._notify = AsyncMock()
-    daemon._send_raw = AsyncMock(return_value={"status": "ack"})
+    daemon._notify = MagicMock()
+    daemon._send_raw = AsyncMock(return_value=SIATransportResult(status="ack", raw_nak=None))
     daemon._update_info_commands = AsyncMock()
     daemon._encryption_key = b''
     daemon._transport = 'UDP'
@@ -458,18 +461,18 @@ class TestNoNetworkBehavior:
     """TC-NEW-A: Consumer drops all items silently when SM1=NO_NETWORK."""
 
     @pytest.mark.asyncio
-    async def test_no_network_drops_supervision_and_event(self, mock_daemon):
-        """Both SUPERVISION and EVENT items are dropped when SM1=NO_NETWORK.
+    async def test_no_network_drops_supervision_and_fails_event(self, mock_daemon):
+        """SUPERVISION dropped and EVENT failed with notification when SM1=NO_NETWORK.
 
         Expected result:
         - SM1 state = NO_NETWORK (terminal — daemon stopping)
         - Consumer dequeues SUPERVISION → does NOT call _send_supervision()
         - Consumer dequeues EVENT → does NOT call _send_with_retry()
-        - Both items logged as dropped (DEBUG includes 'NO_NETWORK')
+        - EVENT fires _notify(EVENT_FAILED) and sets SM2=FAILED (ADR-04: zero silent failures)
         - Queue empty after processing both items
         - task_done() called for each item (queue.join() completes)
 
-        Covers AC8: NO_NETWORK (terminal) — all items dropped silently.
+        Covers AC8: NO_NETWORK (terminal) — supervision dropped, events failed with notification.
         """
         # Arrange: SM1 in NO_NETWORK (terminal state)
         mock_daemon._sm1_state = SM1State.NO_NETWORK
@@ -494,21 +497,32 @@ class TestNoNetworkBehavior:
             except asyncio.CancelledError:
                 pass
 
-        # Assert: neither handler was called
+        # Assert: neither send handler was called
         mock_daemon._send_supervision.assert_not_called()
         mock_daemon._send_with_retry.assert_not_called()
 
         # Assert: queue is empty (items not re-enqueued)
         assert mock_daemon._queue.empty()
 
-        # Assert: drop logged for both items
+        # Assert: supervision drop logged
         debug_calls = [str(c) for c in mock_daemon._logger.debug.call_args_list]
         assert any(
             "NO_NETWORK" in m and "SUPERVISION dropped" in m for m in debug_calls
         ), f"Expected 'NO_NETWORK: SUPERVISION dropped' in debug log, got: {debug_calls}"
+
+        # Assert: event failed with notification (ADR-04: zero silent failures)
         assert any(
-            "NO_NETWORK" in m and "EVENT dropped" in m for m in debug_calls
-        ), f"Expected 'NO_NETWORK: EVENT dropped' in debug log, got: {debug_calls}"
+            "NO_NETWORK" in m and "EVENT failed" in m for m in debug_calls
+        ), f"Expected 'NO_NETWORK: EVENT failed' in debug log, got: {debug_calls}"
+
+        # Assert: SM2 set to FAILED
+        assert mock_daemon._sm2_state == SM2State.FAILED
+
+        # Assert: _notify called with EVENT_FAILED
+        mock_daemon._notify.assert_called_once()
+        call_args = mock_daemon._notify.call_args[0]
+        assert call_args[0] == ErrorCode.EVENT_FAILED
+        assert call_args[1].last_error == "no_network"
 
 
 # ===== TC-NEW-B: Consumer exception resilience =====

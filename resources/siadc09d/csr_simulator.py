@@ -14,13 +14,26 @@ import asyncio
 import logging
 import socket
 from datetime import datetime, timezone
-from typing import Optional
+from typing import TypedDict
 
-from resources.siadc09d.sia_protocol import SIAMessageBuilder, decode_ack_nak, _compute_crc_modbus
+from resources.siadc09d.sia_protocol import CrcFormat, SIAMessageBuilder, decode_ack_nak, _compute_crc_modbus
 from resources.siadc09d.sia_crypto import SIACipher
 
 
 logger = logging.getLogger(__name__)
+
+
+class CSRSimulatorPreset(TypedDict):
+    """CSR Simulator preset configuration.
+
+    Defines the shape of the dict passed to CSRSimulator and _validate_preset().
+    Separate from CSRPreset (daemon-side PE→CSR config) because the simulator
+    IS the CSR: it needs the actual encryption key bytes and has no use for
+    supervision intervals or connect timeouts.
+    """
+    crc_format: CrcFormat
+    account_number: str
+    encryption_key: bytes | None
 
 
 class CSRSimulatorError(Exception):
@@ -28,17 +41,14 @@ class CSRSimulatorError(Exception):
     pass
 
 
-def _validate_preset(preset: dict) -> None:
+def _validate_preset(preset: CSRSimulatorPreset) -> None:
     """
     Validate CSR preset configuration.
 
     Validates required fields and raises CSRSimulatorError if invalid.
 
     Args:
-        preset: Configuration dict with keys:
-            - crc_format: 'hex' or 'bin'
-            - account_number: 3-16 hex characters
-            - encryption_key: Optional[bytes] (None or 16-byte AES-128 key)
+        preset: CSRSimulatorPreset with keys crc_format, account_number, encryption_key
 
     Raises:
         CSRSimulatorError: If preset is invalid
@@ -83,7 +93,7 @@ class CSRSimulator:
     Instance Variables:
         udp_port: Port for UDP listening
         tcp_port: Port for TCP listening
-        preset: CSR preset configuration dict (crc_format, account_number, encryption_key)
+        preset: CSRSimulatorPreset (crc_format, account_number, encryption_key)
         response_delay_ms: Simulated response latency in milliseconds
         _udp_socket: UDP socket instance (None until started)
         _tcp_server: TCP server instance (None until started)
@@ -95,7 +105,7 @@ class CSRSimulator:
         self,
         udp_port: int,
         tcp_port: int,
-        preset: dict,
+        preset: CSRSimulatorPreset,
         response_delay_ms: float = 0
     ) -> None:
         """
@@ -104,7 +114,7 @@ class CSRSimulator:
         Args:
             udp_port: UDP port to listen on
             tcp_port: TCP port to listen on
-            preset: CSR preset configuration with required fields
+            preset: CSRSimulatorPreset configuration
             response_delay_ms: Simulated response latency (default 0)
 
         Raises:
@@ -118,8 +128,8 @@ class CSRSimulator:
         self.preset = preset
         self.response_delay_ms = response_delay_ms
 
-        self._udp_socket: Optional[socket.socket] = None
-        self._tcp_server: Optional[asyncio.Server] = None
+        self._udp_socket: socket.socket | None = None
+        self._tcp_server: asyncio.Server | None = None
         self._running: bool = False
         self._logger = logging.getLogger(__name__)
 
@@ -350,7 +360,7 @@ class CSRSimulator:
                 self._logger.debug(f"TCP frame reception: {e}")
             return None
 
-    def _decide_response(self, parsed_frame: dict, preset: dict) -> str:
+    def _decide_response(self, parsed_frame: dict, preset: CSRSimulatorPreset) -> str:
         """
         Decide whether to respond with ACK or NAK based on frame type.
 
@@ -403,7 +413,7 @@ class CSRSimulator:
         except Exception:
             return False
 
-    def _parse_received_message(self, raw_frame: bytes, preset: dict) -> dict[str, object]:
+    def _parse_received_message(self, raw_frame: bytes, preset: CSRSimulatorPreset) -> dict[str, object]:
         """
         Parse received frame and extract message info.
 
@@ -426,7 +436,7 @@ class CSRSimulator:
     def _generate_ack_frame(
         self,
         received_seq: int,
-        preset: dict,
+        preset: CSRSimulatorPreset,
         encrypted_inbound: bool
     ) -> bytes:
         """
@@ -474,7 +484,7 @@ class CSRSimulator:
             self._logger.error(f"ACK generation error: {e}")
             return b''
 
-    def _generate_nak_frame(self, preset: dict) -> bytes:
+    def _generate_nak_frame(self, preset: CSRSimulatorPreset) -> bytes:
         """
         Generate NAK response frame.
 

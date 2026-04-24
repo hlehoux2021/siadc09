@@ -17,6 +17,8 @@ Test organization:
 
 import asyncio
 import pytest
+from resources.siadc09d.sia_transport import SIATransportResult
+from tests.conftest import make_daemon_preset
 from unittest.mock import AsyncMock, MagicMock, patch, call
 from typing import Optional
 
@@ -31,7 +33,7 @@ from resources.siadc09d.ring_buffer import RingBuffer
 def daemon():
     """SIADaemon with SM2 wired for extended coverage tests."""
     with patch('sys.argv', ['test']):
-        d = SIADaemon()
+        d = SIADaemon(preset=make_daemon_preset())
 
     d._preset = MagicMock(
         crc_format='SIA',
@@ -45,7 +47,7 @@ def daemon():
     d._sia_seq = 0
     d._ring_buffer = RingBuffer()
     d._logger = MagicMock()
-    d._notify = AsyncMock()
+    d._notify = MagicMock()
     d._send_raw = AsyncMock()
     d._update_info_commands = AsyncMock()
     d._track_task = MagicMock()
@@ -107,7 +109,7 @@ class TestEventItemDataclass:
         """
         cb = MagicMock()
         event = EventItem(sia_code="BA", zone="Salon", timestamp="12:30:45,04-13-2026", callback=cb)
-        daemon._send_raw = AsyncMock(return_value={"status": "ack"})
+        daemon._send_raw = AsyncMock(return_value=SIATransportResult(status="ack", raw_nak=None))
 
         # Note: this is sync wrapper — we verify callback not called via inspect
         # (callback invocation not in _send_with_retry per current design)
@@ -128,7 +130,7 @@ class TestRetryMechanics:
         - No retry occurs after success
         """
         event = EventItem(sia_code="BA", zone="Salon", timestamp="12:30:45,04-13-2026")
-        daemon._send_raw = AsyncMock(return_value={"status": "ack"})
+        daemon._send_raw = AsyncMock(return_value=SIATransportResult(status="ack", raw_nak=None))
 
         await daemon._send_with_retry(event, max_retries=5)
 
@@ -144,7 +146,7 @@ class TestRetryMechanics:
         - Final state is FAILED
         """
         event = EventItem(sia_code="BA", zone="Salon", timestamp="12:30:45,04-13-2026")
-        daemon._send_raw = AsyncMock(return_value={"status": "timeout"})
+        daemon._send_raw = AsyncMock(return_value=SIATransportResult(status="timeout", raw_nak=None))
 
         with patch('asyncio.sleep'):  # Skip actual sleep delay in tests
             await daemon._send_with_retry(event, max_retries=2)
@@ -164,7 +166,7 @@ class TestRetryMechanics:
         - Final state is FAILED
         """
         event = EventItem(sia_code="BA", zone="Salon", timestamp="12:30:45,04-13-2026")
-        daemon._send_raw = AsyncMock(return_value={"status": "nak", "raw_nak": b"bad"})
+        daemon._send_raw = AsyncMock(return_value=SIATransportResult(status="nak", raw_nak=b"bad"))
 
         await daemon._send_with_retry(event, max_retries=5)
 
@@ -182,7 +184,7 @@ class TestRetryMechanics:
         - EVENT_FAILED (T3) notification sent
         """
         event = EventItem(sia_code="PA", zone="Bureau", timestamp="12:30:45,04-13-2026")
-        daemon._send_raw = AsyncMock(return_value={"status": "timeout"})
+        daemon._send_raw = AsyncMock(return_value=SIATransportResult(status="timeout", raw_nak=None))
 
         await daemon._send_with_retry(event, max_retries=0)
 
@@ -205,9 +207,9 @@ class TestRetryMechanics:
         """
         event = EventItem(sia_code="FA", zone="Cuisine", timestamp="12:30:45,04-13-2026")
         daemon._send_raw = AsyncMock(side_effect=[
-            {"status": "timeout"},
-            {"status": "timeout"},
-            {"status": "ack"},
+            SIATransportResult(status="timeout", raw_nak=None),
+            SIATransportResult(status="timeout", raw_nak=None),
+            SIATransportResult(status="ack", raw_nak=None),
         ])
 
         with patch('asyncio.sleep'):  # Skip sleep between retries
@@ -223,7 +225,7 @@ class TestRetryMechanics:
     async def test_asyncio_timeout_error_triggers_failed(self, daemon):
         """Test: asyncio.TimeoutError exception path (from wait_for) → FAILED.
 
-        This is a DISTINCT path from {"status": "timeout"} return value.
+        This is a DISTINCT path from SIATransportResult(status="timeout", raw_nak=None) return value.
         asyncio.TimeoutError is raised by asyncio.wait_for() when _send_raw
         takes too long. Both paths should result in SM2 FAILED.
 
@@ -259,7 +261,7 @@ class TestSequenceNumberBehavior:
         - Sending alarm 1: sia_seq goes from 0 → 1
         - Sending alarm 2: sia_seq goes from 1 → 2
         """
-        daemon._send_raw = AsyncMock(return_value={"status": "ack"})
+        daemon._send_raw = AsyncMock(return_value=SIATransportResult(status="ack", raw_nak=None))
 
         event1 = EventItem(sia_code="BA", zone="Salon", timestamp="12:30:45,04-13-2026")
         await daemon._send_with_retry(event1, max_retries=1)
@@ -286,7 +288,7 @@ class TestSequenceNumberBehavior:
         - Starting at sia_seq=9999, after one send: sia_seq == 0
         """
         daemon._sia_seq = 9999
-        daemon._send_raw = AsyncMock(return_value={"status": "ack"})
+        daemon._send_raw = AsyncMock(return_value=SIATransportResult(status="ack", raw_nak=None))
 
         event = EventItem(sia_code="BA", zone="Salon", timestamp="12:30:45,04-13-2026")
         await daemon._send_with_retry(event, max_retries=1)
@@ -310,9 +312,9 @@ class TestSequenceNumberBehavior:
         """
         initial_seq = daemon._sia_seq  # 0
         daemon._send_raw = AsyncMock(side_effect=[
-            {"status": "timeout"},
-            {"status": "timeout"},
-            {"status": "ack"},
+            SIATransportResult(status="timeout", raw_nak=None),
+            SIATransportResult(status="timeout", raw_nak=None),
+            SIATransportResult(status="ack", raw_nak=None),
         ])
 
         with patch('asyncio.sleep'):
@@ -338,7 +340,7 @@ class TestInfoCommandPayloads:
         - Final call payload has event_state=1 (CONFIRMED) and event_label='Confirmé'
         """
         event = EventItem(sia_code="BA", zone="Salon", timestamp="12:30:45,04-13-2026")
-        daemon._send_raw = AsyncMock(return_value={"status": "ack"})
+        daemon._send_raw = AsyncMock(return_value=SIATransportResult(status="ack", raw_nak=None))
 
         await daemon._send_with_retry(event, max_retries=1)
 
@@ -364,7 +366,7 @@ class TestInfoCommandPayloads:
         - Payload has event_state=2 (FAILED) and event_label='Échoué'
         """
         event = EventItem(sia_code="PA", zone="Bureau", timestamp="12:30:45,04-13-2026")
-        daemon._send_raw = AsyncMock(return_value={"status": "timeout"})
+        daemon._send_raw = AsyncMock(return_value=SIATransportResult(status="timeout", raw_nak=None))
 
         with patch('asyncio.sleep'):
             await daemon._send_with_retry(event, max_retries=0)
@@ -403,7 +405,7 @@ class TestAllAlarmTypes:
         - _event_zone set to the correct zone
         """
         event = EventItem(sia_code=sia_code, zone=zone, timestamp="12:30:45,04-13-2026")
-        daemon._send_raw = AsyncMock(return_value={"status": "ack"})
+        daemon._send_raw = AsyncMock(return_value=SIATransportResult(status="ack", raw_nak=None))
 
         result = await daemon._send_with_retry(event, max_retries=1)
 
@@ -429,7 +431,7 @@ class TestAllAlarmTypes:
         - EVENT_FAILED (T3) notification sent with correct sia_code
         """
         event = EventItem(sia_code=sia_code, zone=zone, timestamp="12:30:45,04-13-2026")
-        daemon._send_raw = AsyncMock(return_value={"status": "timeout"})
+        daemon._send_raw = AsyncMock(return_value=SIATransportResult(status="timeout", raw_nak=None))
 
         with patch('asyncio.sleep'):
             result = await daemon._send_with_retry(event, max_retries=0)
@@ -443,7 +445,7 @@ class TestAllAlarmTypes:
                         if c.args and c.args[0] == ErrorCode.EVENT_FAILED]
         assert len(notify_calls) == 1
         notify_ctx = notify_calls[0].args[1]
-        assert notify_ctx.get('sia_code') == sia_code
+        assert notify_ctx.sia_code == sia_code
 
 
 # ===== LOGGING QUALITY TESTS =====
@@ -545,7 +547,7 @@ class TestEdgeCases:
         - Frame building succeeds
         """
         event = EventItem(sia_code="BA", zone="", timestamp="12:30:45,04-13-2026")
-        daemon._send_raw = AsyncMock(return_value={"status": "ack"})
+        daemon._send_raw = AsyncMock(return_value=SIATransportResult(status="ack", raw_nak=None))
 
         result = await daemon._send_with_retry(event, max_retries=1)
 
@@ -562,9 +564,9 @@ class TestEdgeCases:
         """
         # Event 1: 3 attempts (2 timeouts + 1 ACK)
         daemon._send_raw = AsyncMock(side_effect=[
-            {"status": "timeout"},
-            {"status": "timeout"},
-            {"status": "ack"},
+            SIATransportResult(status="timeout", raw_nak=None),
+            SIATransportResult(status="timeout", raw_nak=None),
+            SIATransportResult(status="ack", raw_nak=None),
         ])
         event1 = EventItem(sia_code="BA", zone="Salon", timestamp="12:30:45,04-13-2026")
         with patch('asyncio.sleep'):
@@ -573,7 +575,7 @@ class TestEdgeCases:
         assert daemon._event_attempt_count == 3
 
         # Event 2: 1 attempt (immediate ACK)
-        daemon._send_raw = AsyncMock(return_value={"status": "ack"})
+        daemon._send_raw = AsyncMock(return_value=SIATransportResult(status="ack", raw_nak=None))
         event2 = EventItem(sia_code="FA", zone="Cuisine", timestamp="12:30:45,04-13-2026")
         await daemon._send_with_retry(event2, max_retries=1)
 
@@ -593,7 +595,7 @@ class TestEdgeCases:
 
         async def capture_state(*args, **kwargs):
             states_during_send.append(daemon._sm2_state)
-            return {"status": "ack"}
+            return SIATransportResult(status="ack", raw_nak=None)
 
         daemon._send_raw = capture_state
 
@@ -613,7 +615,7 @@ class TestEdgeCases:
         - Context dict has 'zone' == event zone and 'sia_code' == event sia_code
         """
         event = EventItem(sia_code="FA", zone="Cave", timestamp="12:30:45,04-13-2026")
-        daemon._send_raw = AsyncMock(return_value={"status": "timeout"})
+        daemon._send_raw = AsyncMock(return_value=SIATransportResult(status="timeout", raw_nak=None))
 
         await daemon._send_with_retry(event, max_retries=0)
 
@@ -625,9 +627,9 @@ class TestEdgeCases:
         assert len(event_failed_calls) == 1
 
         ctx = event_failed_calls[0].args[1]
-        assert ctx.get('zone') == "Cave"
-        assert ctx.get('sia_code') == "FA"
-        assert ctx.get('attempts') == 1
+        assert ctx.zone_name == "Cave"
+        assert ctx.sia_code == "FA"
+        assert ctx.attempts_made == 1
 
     @pytest.mark.asyncio
     async def test_bad_csr_notification_context_on_undecodable_nak(self, daemon):
@@ -640,7 +642,7 @@ class TestEdgeCases:
 
         event = EventItem(sia_code="PA", zone="Garage", timestamp="12:30:45,04-13-2026")
         daemon._send_raw = AsyncMock(
-            return_value={"status": "nak", "raw_nak": b"corrupt"}
+            return_value=SIATransportResult(status="nak", raw_nak=b"corrupt")
         )
 
         with patch("resources.siadc09d.daemon.parse_nak_timestamp",
@@ -654,6 +656,6 @@ class TestEdgeCases:
         assert len(bad_csr_calls) == 1
 
         ctx = bad_csr_calls[0].args[1]
-        # Context should carry zone and sia_code for diagnostics
-        assert ctx.get('zone') == "Garage"
-        assert ctx.get('sia_code') == "PA"
+        # BadCSRResponseCtx carries protocol diagnostic info, not event zone/sia_code
+        assert ctx.raw_frame == b"corrupt"
+        assert "unparseable" in ctx.parse_error.lower() or "NAK" in ctx.parse_error

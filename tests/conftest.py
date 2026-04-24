@@ -7,8 +7,32 @@ and encryption test utilities.
 
 import pytest
 from datetime import datetime, timezone
+from resources.siadc09d.csr_simulator import CSRSimulatorPreset
+from resources.siadc09d.presets import CSRPreset
 from resources.siadc09d.sia_protocol import SIAMessageBuilder, _compute_crc_modbus
 from resources.siadc09d.sia_crypto import SIACipher
+
+
+def make_daemon_preset(transport: str = 'UDP') -> CSRPreset:
+    """Create a minimal CSRPreset for daemon tests.
+
+    Args:
+        transport: 'UDP' or 'TCP' (string — CSRPreset converts to TransportType)
+    """
+    return CSRPreset(
+        csr_provider='test',
+        schema_version=1,
+        host='192.168.1.100',
+        port=5000,
+        account_number='001234',
+        transport=transport,
+        crc_format='hex',
+        encryption_enabled=False,
+        connect_timeout_s=10.0,
+        receive_timeout_s=20.0,
+        supervision_interval_s=60.0,
+        reconnect_delay_s=0.01,
+    )
 
 
 # ============================================================================
@@ -56,7 +80,7 @@ def _build_frame(message_string: str, crc_format: str) -> bytes:
 # ============================================================================
 
 @pytest.fixture
-def preset_plain() -> dict:
+def preset_plain() -> CSRSimulatorPreset:
     """Preset configuration without encryption."""
     return {
         'crc_format': 'hex',
@@ -66,7 +90,7 @@ def preset_plain() -> dict:
 
 
 @pytest.fixture
-def preset_encrypted() -> dict:
+def preset_encrypted() -> CSRSimulatorPreset:
     """Preset configuration with fixed AES-128 test key (reproducibility)."""
     return {
         'crc_format': 'hex',
@@ -76,7 +100,7 @@ def preset_encrypted() -> dict:
 
 
 @pytest.fixture
-def preset_bin_crc() -> dict:
+def preset_bin_crc() -> CSRSimulatorPreset:
     """Preset configuration with binary CRC format."""
     return {
         'crc_format': 'bin',

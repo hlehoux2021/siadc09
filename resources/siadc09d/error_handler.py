@@ -123,7 +123,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from types import MappingProxyType
-from typing import Final, Literal, Optional
+from typing import Final, Literal
 
 
 # T3_PREFIX constant — prepended to all critical-tier notification messages
@@ -231,7 +231,7 @@ class SM1NakCtx:
     """
 
     raw_nak_frame: bytes
-    nak_timestamp: Optional[str]
+    nak_timestamp: str | None
     account_number: str
 
 
@@ -253,8 +253,8 @@ class SM1DisconnectedCtx:
     """
 
     strike_count: int
-    last_ack_time_utc: Optional[datetime]
-    time_since_last_ack_s: Optional[float]
+    last_ack_time_utc: datetime | None
+    time_since_last_ack_s: float | None
     supervision_interval_s: float
 
 
@@ -302,8 +302,8 @@ class TransportPermanentCtx:
 
     reason: str
     transport: Literal["udp", "tcp"]
-    error_details: Optional[str]
-    retry_count: Optional[int]
+    error_details: str | None
+    retry_count: int | None
 
 
 @dataclass(frozen=True)
@@ -327,7 +327,7 @@ class EventFailedCtx:
 
     sia_code: Literal["BA", "FA", "PA"]
     sia_seq: int
-    zone_name: Optional[str]
+    zone_name: str | None
     max_retries: int
     attempts_made: int
     last_error: str

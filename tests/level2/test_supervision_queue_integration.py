@@ -14,6 +14,8 @@ Reference: story 5-3-priorityqueue-task-coordination.md Task 11
 
 import asyncio
 import pytest
+from resources.siadc09d.sia_transport import SIATransportResult
+from tests.conftest import make_daemon_preset
 from unittest.mock import patch, MagicMock, AsyncMock
 
 from resources.siadc09d.daemon import (
@@ -34,7 +36,7 @@ from resources.siadc09d.daemon import (
 def daemon():
     """SIADaemon with mocked preset and callbacks for supervision tests."""
     with patch('sys.argv', ['test']):
-        d = SIADaemon()
+        d = SIADaemon(preset=make_daemon_preset())
 
     d._logger = MagicMock()
     d._preset = MagicMock(
@@ -47,8 +49,8 @@ def daemon():
     d._receiver_prefix = None
     d._account_prefix = 'L0'
     d._sia_seq = 0
-    d._notify = AsyncMock()
-    d._send_raw = AsyncMock(return_value={"status": "ack"})
+    d._notify = MagicMock()
+    d._send_raw = AsyncMock(return_value=SIATransportResult(status="ack", raw_nak=None))
     d._update_info_commands = AsyncMock()
     d._encryption_key = b''
     d._transport = 'UDP'

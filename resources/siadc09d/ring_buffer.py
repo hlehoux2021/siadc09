@@ -46,7 +46,6 @@ import logging
 import time
 from collections import deque
 from datetime import datetime, timezone
-from typing import Optional
 
 
 # Constants
@@ -136,7 +135,7 @@ class RingBuffer:
     def __init__(self) -> None:
         """Initialize empty ring buffer with no throttle history."""
         self._buffer: deque[dict] = deque(maxlen=MAX_BUFFER_ENTRIES)
-        self._last_routine_supervision_time: Optional[float] = None
+        self._last_routine_supervision_time: float | None = None
 
     def push(self, level: str, message: str, context: dict) -> None:
         """Push a log entry to the buffer.

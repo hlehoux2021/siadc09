@@ -13,6 +13,7 @@ import pytest
 import struct
 from datetime import datetime, timezone
 from resources.siadc09d.sia_protocol import (
+    _compute_crc_modbus,
     decode_ack_nak,
     parse_nak_timestamp,
     SIAMessageBuilder,
@@ -32,10 +33,7 @@ def build_frame(message: bytes, crc_format: str = 'hex') -> bytes:
     Returns:
         Complete frame: 0x0A + CRC + Length + message + 0x0D
     """
-    builder = SIAMessageBuilder(crc_format=crc_format)
-
-    # Compute CRC using builder's internal method
-    crc_value = builder._compute_crc_modbus(message)
+    crc_value = _compute_crc_modbus(message)
 
     # Format CRC
     if crc_format == 'hex':

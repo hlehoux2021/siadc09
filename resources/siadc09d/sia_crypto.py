@@ -25,7 +25,7 @@ concept), provides clear namespacing, and mirrors the `SIAMessageBuilder` patter
 [Source: SIA DC-09-2021 spec § 5.4 – 5.4.7; daemon-design.md § Encryption Contract]
 """
 
-from typing import ClassVar, Optional
+from typing import ClassVar
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
@@ -53,7 +53,7 @@ class AESDecryptionError(Exception):
 # Private Module-Level Validation Helper
 # ============================================================================
 
-def _validate_key(key: Optional[bytes]) -> None:
+def _validate_key(key: bytes | None) -> None:
     """
     Validate encryption key is exactly 16 bytes (128-bit).
 

@@ -13,9 +13,12 @@ Expert Validation: sia-dc09-expert (2026-04-07)
 """
 
 from datetime import datetime, timezone
-from typing import Dict, Literal, Optional, TypedDict
+from typing import Literal, TypedDict
 import re
 import struct
+
+# CRC encoding format for SIA DC-09 frames (canonical definition — re-exported by sia_transport)
+CrcFormat = Literal['hex', 'bin']
 
 # ===== Module-Level Constants =====
 
@@ -49,7 +52,7 @@ CRC_FORMAT_ADM = "ADM"
 # ACK/NAK response type constants
 ACK_RESPONSE = "ACK"
 NAK_RESPONSE = "NAK"
-UNKNOWN_RESPONSE = "unknown"
+UNKNOWN_RESPONSE: Literal["unknown"] = "unknown"
 
 # Timestamp field constants
 TIMESTAMP_DELIMITER = '_'
@@ -66,21 +69,24 @@ SEQUENCE_FIELD_LENGTH = 4
 class AckNakResponse(TypedDict):
     """Response from ACK/NAK decoder."""
     type: Literal["ACK", "NAK", "unknown"]
-    seq: Optional[int]
-    raw_nak: Optional[bytes]
+    seq: int | None
+    raw_nak: bytes | None
 
 
 # ===== Exception Classes =====
 
-class SIAProtocolError(Exception):
+class SIATransportError(OSError):
+    """Network/socket failure — TCP timeout, UDP timeout, socket closed."""
+
+
+class SIAProtocolError(ValueError):
     """
-    Raised when SIA protocol message violates spec requirements.
+    SIA DC-09 protocol violation — malformed frame, decode failure.
 
     Used for malformed frames, invalid data, or protocol violations.
     Never raised by defensive parsing functions (decode_ack_nak) — they return
     type='unknown' instead. Raised by encoding functions or explicit validators.
     """
-    pass
 
 
 # ===== Sequence Tracker Class =====
@@ -100,7 +106,7 @@ class SequenceTracker:
             _seq_map: Dictionary mapping account numbers (str) to their current sequence
                       number (int). Used to track per-account sequence counters.
         """
-        self._seq_map: Dict[str, int] = {}
+        self._seq_map: dict[str, int] = {}
 
     def next_seq(self, account_number: str) -> str:
         """
@@ -132,7 +138,7 @@ class SequenceTracker:
         current = self._seq_map.get(account_number, 0)
         return f"{current:04d}"
 
-    def reset(self, account_number: Optional[str] = None) -> None:
+    def reset(self, account_number: str | None = None) -> None:
         """
         Reset sequence counter for specified account or all accounts.
 
@@ -144,19 +150,6 @@ class SequenceTracker:
         else:
             self._seq_map[account_number] = 0
 
-
-# Backward compatibility alias
-class SequenceManager(SequenceTracker):
-    """
-    Deprecated: Use SequenceTracker or SIAMessageBuilder instead.
-
-    This class exists only for backward compatibility with code that may have
-    imported SequenceManager directly. In v1.0+, use:
-    - SIAMessageBuilder: For full message building with integrated sequence tracking
-    - SequenceTracker: If you need only sequence management without message building
-
-    SequenceManager and SequenceTracker are identical; this is just a renamed alias.
-    """
 
 
 # ===== SIA Message Builder Class =====
@@ -199,9 +192,9 @@ class SIAMessageBuilder:
         account_number: str,
         event_code: str,
         account_prefix: str = "L0",
-        receiver_number: Optional[str] = None,
-        extended_data: Optional[Dict] = None,
-        timestamp: Optional[datetime] = None,
+        receiver_number: str | None = None,
+        extended_data: dict[str, str] | None = None,
+        timestamp: datetime | None = None,
         encryption: bool = False
     ) -> bytes:
         """
@@ -212,7 +205,7 @@ class SIAMessageBuilder:
             event_code: 4-digit event code (e.g., "1130" for burglary)
             account_prefix: 1-6 hex digits (default "L0")
             receiver_number: Optional 1-6 hex digits
-            extended_data: Optional additional fields
+            extended_data: Optional additional string fields
             timestamp: Optional datetime (UTC); None = omit timestamp
             encryption: Whether to encrypt (default False)
 
@@ -267,7 +260,7 @@ class SIAMessageBuilder:
         self,
         account_number: str,
         account_prefix: str = "L0",
-        receiver_number: Optional[str] = None,
+        receiver_number: str | None = None,
         encryption: bool = False
     ) -> bytes:
         """
@@ -292,7 +285,7 @@ class SIAMessageBuilder:
             encryption=encryption
         )
 
-    def reset_sequence(self, account_number: Optional[str] = None) -> None:
+    def reset_sequence(self, account_number: str | None = None) -> None:
         """
         Reset sequence counter for specified account or all accounts.
 
@@ -307,29 +300,6 @@ class SIAMessageBuilder:
 
     # ===== Private Helper Methods =====
 
-    def _compute_crc_modbus(self, data: bytes) -> int:
-        """
-        Compute CRC-16 MODBUS (polynomial 0xA001).
-
-        Per expert validation, SIA DC-09 uses CRC-16 MODBUS, NOT CRC-32.
-
-        Args:
-            data: Bytes to compute CRC over
-
-        Returns:
-            CRC value as integer
-        """
-        crc = 0
-        for byte in data:
-            temp = byte & 0xFF
-            for _ in range(8):
-                temp ^= crc & 1
-                crc >>= 1
-                if temp & 1:
-                    crc ^= 0xA001
-                temp >>= 1
-        return crc
-
     def _calculate_crc(self, data: bytes) -> str:
         """
         Calculate CRC for SIA protocol message.
@@ -342,7 +312,7 @@ class SIAMessageBuilder:
 
         Reference: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.2
         """
-        crc_value = self._compute_crc_modbus(data)
+        crc_value = _compute_crc_modbus(data)
         return f"{crc_value:04X}"
 
     def _calculate_length(self, data: bytes) -> str:
@@ -361,7 +331,7 @@ class SIAMessageBuilder:
         return f"0{length:03X}"
 
     @staticmethod
-    def _validate_hex(value: str, min_len: int = 1, max_len: Optional[int] = None) -> bool:
+    def _validate_hex(value: str, min_len: int = 1, max_len: int | None = None) -> bool:
         """Validate string contains only hex characters."""
         if not isinstance(value, str) or len(value) < min_len:
             return False
@@ -373,7 +343,7 @@ class SIAMessageBuilder:
         self,
         account_number: str,
         account_prefix: str = "L0",
-        receiver_number: Optional[str] = None
+        receiver_number: str | None = None
     ) -> str:
         """
         Format account identification fields.
@@ -420,7 +390,7 @@ class SIAMessageBuilder:
         self,
         account_number: str,
         event_code: str,
-        extended_data: Optional[Dict] = None
+        extended_data: dict[str, str] | None = None
     ) -> str:
         """
         Format unencrypted data field.
@@ -442,7 +412,7 @@ class SIAMessageBuilder:
         return f"[#{account_number}|{event_code}]"
 
     @staticmethod
-    def _format_timestamp(ts: Optional[datetime] = None) -> Optional[str]:
+    def _format_timestamp(ts: datetime | None = None) -> str | None:
         """
         Format timestamp field per SIA DC-09 § 5.5.1.9.
 
@@ -471,7 +441,7 @@ FRAME_TRAIL = CR  # Reuse existing constant (0x0D)
 CRC_MODBUS_POLY = 0xA001  # CRC-16 MODBUS polynomial
 
 
-def _extract_frame_components(raw: bytes) -> Optional[tuple[bytes, str, bytes, bytes]]:
+def _extract_frame_components(raw: bytes) -> tuple[bytes, str, bytes, bytes] | None:
     """
     Extract and validate frame structure components.
 
@@ -488,91 +458,87 @@ def _extract_frame_components(raw: bytes) -> Optional[tuple[bytes, str, bytes, b
 
     Reference: SIA DC-09 § 5.5.1 (frame envelope)
     """
-    try:
-        if len(raw) < 9:  # Minimum: LF(1) + CRC(min 2) + Length(4) + CR(1) + message(0)
-            return None
-
-        # Check leader (0x0A)
-        if raw[0:1] != b'\x0A':
-            return None
-
-        # Check trailer (0x0D) at end
-        if raw[-1:] != b'\x0D':
-            return None
-
-        # Detect CRC format: hex or binary
-        # Per sia-dc09-expert: data[5]=='0' for hex, data[3]=='0' for binary
-        # If data[5:9] looks like valid hex (4 ASCII hex digits), then hex format
-        # Otherwise binary format (CRC is 2 bytes at [1:3])
-
-        crc_is_hex = False
-        if len(raw) >= 9:
-            try:
-                potential_length = raw[5:9].decode('ascii')
-                # Check if this looks like a valid length field (4 ASCII hex)
-                if all(c in '0123456789ABCDEFabcdef' for c in potential_length):
-                    crc_is_hex = True
-            except (UnicodeDecodeError, ValueError):
-                pass
-
-        if crc_is_hex:
-            # Hex CRC format: CRC is at [1:5], Length at [5:9]
-            if len(raw) < 11:  # LF + CRC(4) + Length(4) + message(min 1) + CR
-                return None
-
-            crc_bytes = raw[1:5]
-            if len(crc_bytes) < 4:
-                return None
-
-            length_bytes = raw[5:9]
-            if len(length_bytes) < 4:
-                return None
-
-            message_start = 9
-        else:
-            # Binary CRC format: CRC is at [1:3], Length at [3:7]
-            if len(raw) < 9:  # LF + CRC(2) + Length(4) + message(min 1) + CR
-                return None
-
-            crc_bytes = raw[1:3]
-            if len(crc_bytes) < 2:
-                return None
-
-            length_bytes = raw[3:7]
-            if len(length_bytes) < 4:
-                return None
-
-            message_start = 7
-
-        # Parse length to determine message_string size
-        try:
-            length_str = length_bytes.decode('ascii')
-            length_value = int(length_str, 16)
-        except (ValueError, UnicodeDecodeError):
-            return None
-
-        # Extract message_string
-        message_end = message_start + length_value
-        if message_end + 1 != len(raw):  # +1 for trailer
-            return None
-
-        message_bytes = raw[message_start:message_end]
-
-        # Decode message_string to str (Windows-1252 encoding per spec)
-        try:
-            message_str = message_bytes.decode('windows-1252')
-        except UnicodeDecodeError:
-            return None
-
-        trailing_byte = raw[-1:]
-
-        return (crc_bytes, message_str, length_bytes, trailing_byte)
-
-    except Exception:
+    if len(raw) < 9:  # Minimum: LF(1) + CRC(min 2) + Length(4) + CR(1) + message(0)
         return None
 
+    # Check leader (0x0A)
+    if raw[0:1] != b'\x0A':
+        return None
 
-def _validate_crc(crc_bytes: bytes, message_str: str, crc_format: str = 'hex') -> bool:
+    # Check trailer (0x0D) at end
+    if raw[-1:] != b'\x0D':
+        return None
+
+    # Detect CRC format: hex or binary
+    # Per sia-dc09-expert: data[5]=='0' for hex, data[3]=='0' for binary
+    # If data[5:9] looks like valid hex (4 ASCII hex digits), then hex format
+    # Otherwise binary format (CRC is 2 bytes at [1:3])
+
+    crc_is_hex = False
+    if len(raw) >= 9:
+        try:
+            potential_length = raw[5:9].decode('ascii')
+            # Check if this looks like a valid length field (4 ASCII hex)
+            if all(c in '0123456789ABCDEFabcdef' for c in potential_length):
+                crc_is_hex = True
+        except (UnicodeDecodeError, ValueError):
+            pass
+
+    if crc_is_hex:
+        # Hex CRC format: CRC is at [1:5], Length at [5:9]
+        if len(raw) < 11:  # LF + CRC(4) + Length(4) + message(min 1) + CR
+            return None
+
+        crc_bytes = raw[1:5]
+        if len(crc_bytes) < 4:
+            return None
+
+        length_bytes = raw[5:9]
+        if len(length_bytes) < 4:
+            return None
+
+        message_start = 9
+    else:
+        # Binary CRC format: CRC is at [1:3], Length at [3:7]
+        if len(raw) < 9:  # LF + CRC(2) + Length(4) + message(min 1) + CR
+            return None
+
+        crc_bytes = raw[1:3]
+        if len(crc_bytes) < 2:
+            return None
+
+        length_bytes = raw[3:7]
+        if len(length_bytes) < 4:
+            return None
+
+        message_start = 7
+
+    # Parse length to determine message_string size
+    try:
+        length_str = length_bytes.decode('ascii')
+        length_value = int(length_str, 16)
+    except (ValueError, UnicodeDecodeError):
+        return None
+
+    # Extract message_string
+    message_end = message_start + length_value
+    if message_end + 1 != len(raw):  # +1 for trailer
+        return None
+
+    message_bytes = raw[message_start:message_end]
+
+    # Decode message_string to str (Windows-1252 encoding per spec)
+    try:
+        message_str = message_bytes.decode('windows-1252')
+    except UnicodeDecodeError:
+        return None
+
+    trailing_byte = raw[-1:]
+
+    return (crc_bytes, message_str, length_bytes, trailing_byte)
+
+
+def _validate_crc(crc_bytes: bytes, message_str: str, crc_format: CrcFormat = 'hex') -> bool:
     """
     Validate CRC matches computed value.
 
@@ -586,29 +552,25 @@ def _validate_crc(crc_bytes: bytes, message_str: str, crc_format: str = 'hex') -
 
     Reference: SIA DC-09 § 5.5.1.2 (CRC calculation)
     """
-    try:
-        # Encode message_string to bytes (Windows-1252 per spec)
-        message_bytes = message_str.encode('windows-1252')
+    # Encode message_string to bytes (Windows-1252 per spec)
+    message_bytes = message_str.encode('windows-1252')
 
-        # Compute expected CRC using MODBUS algorithm
-        crc_value = _compute_crc_modbus(message_bytes)
+    # Compute expected CRC using MODBUS algorithm
+    crc_value = _compute_crc_modbus(message_bytes)
 
-        if crc_format == 'hex':
-            # Decode hex CRC from frame
-            try:
-                received_crc = int(crc_bytes.decode('ascii'), 16)
-            except (ValueError, UnicodeDecodeError):
-                return False
-        else:  # bin
-            # Decode binary CRC (little-endian, 2 bytes)
-            if len(crc_bytes) < 2:
-                return False
-            received_crc = struct.unpack('<H', crc_bytes[:2])[0]
+    if crc_format == 'hex':
+        # Decode hex CRC from frame
+        try:
+            received_crc = int(crc_bytes.decode('ascii'), 16)
+        except (ValueError, UnicodeDecodeError):
+            return False
+    else:  # bin
+        # Decode binary CRC (little-endian, 2 bytes)
+        if len(crc_bytes) < 2:
+            return False
+        received_crc = struct.unpack('<H', crc_bytes[:2])[0]
 
-        return received_crc == crc_value
-
-    except Exception:
-        return False
+    return received_crc == crc_value
 
 
 def _compute_crc_modbus(data: bytes) -> int:
@@ -635,7 +597,7 @@ def _compute_crc_modbus(data: bytes) -> int:
     return crc
 
 
-def _parse_ack_nak_type_and_seq(message_str: str) -> tuple[str, Optional[int]]:
+def _parse_ack_nak_type_and_seq(message_str: str) -> tuple[str, int | None]:
     """
     Parse message_string to extract ACK/NAK type and sequence number.
 
@@ -691,11 +653,11 @@ def _parse_ack_nak_type_and_seq(message_str: str) -> tuple[str, Optional[int]]:
 
         return (ack_type, seq_int)
 
-    except Exception:
+    except (IndexError, AttributeError, UnicodeDecodeError):
         return (UNKNOWN_RESPONSE, None)
 
 
-def decode_ack_nak(raw: bytes, crc_format: str = 'hex') -> AckNakResponse:
+def decode_ack_nak(raw: bytes, crc_format: CrcFormat = 'hex') -> AckNakResponse:
     """
     Parse and validate ACK/NAK response from CSR.
 
@@ -725,7 +687,7 @@ def decode_ack_nak(raw: bytes, crc_format: str = 'hex') -> AckNakResponse:
         if components is None:
             return unknown_response
 
-        crc_bytes, message_str, length_bytes, trailing_byte = components
+        crc_bytes, message_str, _length_bytes, _trailing_byte = components
 
         # Validate CRC using specified format
         if not _validate_crc(crc_bytes, message_str, crc_format=crc_format):
@@ -739,7 +701,7 @@ def decode_ack_nak(raw: bytes, crc_format: str = 'hex') -> AckNakResponse:
 
         return {'type': ack_type, 'seq': seq, 'raw_nak': raw_nak}  # type: ignore
 
-    except Exception:
+    except (IndexError, AttributeError, UnicodeDecodeError):
         return unknown_response
 
 
@@ -767,7 +729,7 @@ def parse_nak_timestamp(nak_data: bytes) -> datetime:
         if components is None:
             raise ValueError("Invalid NAK frame structure")
 
-        crc_bytes, message_str, length_bytes, trailing_byte = components
+        _crc_bytes, message_str, _length_bytes, _trailing_byte = components
 
         # Find timestamp delimiter (_) - it marks the start of the timestamp
         # NAK message format: "NAK"0000R0L0A0[]_HH:MM:SS,MM-DD-YYYY

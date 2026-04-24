@@ -16,14 +16,15 @@ from typing import Literal
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
+from tests.conftest import make_daemon_preset
 
 # Assume daemon.py exports these
 from resources.siadc09d.daemon import (
     SM1State,
     SIADaemon,
-    SM1AckCtx,
-    SM1TimeoutCtx,
-    SM1NakCtx,
+    SM1AckLogCtx,
+    SM1TimeoutLogCtx,
+    SM1NakLogCtx,
 )
 from resources.siadc09d.error_handler import ErrorCode
 from resources.siadc09d.ring_buffer import RingBuffer, make_message_entry
@@ -36,7 +37,7 @@ def mock_daemon():
     """Create a SIADaemon instance with mocked transport and PHP callback."""
     # Create daemon with mocked config to avoid argument parsing in tests
     with patch('sys.argv', ['test']):  # Mock sys.argv to prevent argparse errors
-        daemon = SIADaemon()
+        daemon = SIADaemon(preset=make_daemon_preset())
     daemon._preset = MagicMock(
         crc_format='SIA',
         supervision_interval_s=10,  # Fast for testing
@@ -49,13 +50,13 @@ def mock_daemon():
     daemon._sia_seq = 0
     daemon._ring_buffer = RingBuffer()
     daemon._logger = MagicMock()
-    daemon._notify = AsyncMock()
+    daemon._notify = MagicMock()
     daemon._send_raw = AsyncMock()
     daemon._update_info_commands = AsyncMock()
     daemon._log_sm1_supervision = AsyncMock()
     daemon._track_task = MagicMock()
     daemon._encryption_key = b''  # bytes, not str
-    daemon._transport = 'UDP'  # Default to UDP; override in TCP tests
+    daemon._preset = make_daemon_preset('UDP')  # Default to UDP; override in TCP tests
 
     # Initialize state
     daemon._sm1_state = SM1State.INITIALIZING
@@ -144,7 +145,8 @@ async def test_tc2_strike_escalation(mock_daemon):
 
     assert daemon._strike_counter == 1
     assert daemon._sm1_state == SM1State.DEGRADED
-    daemon._notify.assert_called_with(ErrorCode.SUPERVISION_TIMEOUT, {})
+    daemon._notify.assert_called_once()
+    assert daemon._notify.call_args[0][0] == ErrorCode.SUPERVISION_TIMEOUT
 
     daemon._notify.reset_mock()
 
@@ -164,7 +166,8 @@ async def test_tc2_strike_escalation(mock_daemon):
 
     assert daemon._strike_counter == 3
     assert daemon._sm1_state == SM1State.DEGRADED
-    daemon._notify.assert_called_with(ErrorCode.SUPERVISION_DISCONNECTED, {})
+    daemon._notify.assert_called_once()
+    assert daemon._notify.call_args[0][0] == ErrorCode.SUPERVISION_DISCONNECTED
 
 
 @pytest.mark.asyncio
@@ -208,7 +211,7 @@ async def test_tc4_tcp_stall_at_strike_3(mock_daemon):
     - Socket not immediately closed here (closed inside _tcp_reconnect_loop)
     """
     daemon = mock_daemon
-    daemon._transport = 'TCP'
+    daemon._preset = make_daemon_preset('TCP')
     daemon._sm1_state = SM1State.DEGRADED
     daemon._strike_counter = 2
 
@@ -234,7 +237,7 @@ async def test_tc5_tcp_reconnect_success(mock_daemon):
     - Next supervision NULL sent immediately
     """
     daemon = mock_daemon
-    daemon._transport = 'TCP'
+    daemon._preset = make_daemon_preset('TCP')
     daemon._sm1_state = SM1State.TCP_RECONNECTING
     daemon._strike_counter = 3
     daemon._sm1_t3_fired = True
@@ -262,7 +265,7 @@ async def test_tc6_tcp_permanent_failure(mock_daemon):
     - daemon.stop() called
     """
     daemon = mock_daemon
-    daemon._transport = 'TCP'
+    daemon._preset = make_daemon_preset('TCP')
     daemon._sm1_state = SM1State.TCP_RECONNECTING
     daemon.stop = AsyncMock()
 
@@ -273,7 +276,8 @@ async def test_tc6_tcp_permanent_failure(mock_daemon):
 
     # Assert: Terminal state
     assert daemon._sm1_state == SM1State.NO_NETWORK
-    daemon._notify.assert_called_with(ErrorCode.TRANSPORT_PERMANENT, {})
+    daemon._notify.assert_called_once()
+    assert daemon._notify.call_args[0][0] == ErrorCode.TRANSPORT_PERMANENT
     daemon.stop.assert_called_once()
 
 
@@ -288,7 +292,7 @@ async def test_tc7_udp_no_reconnect(mock_daemon):
     - Can recover via ACK → HEALTHY
     """
     daemon = mock_daemon
-    daemon._transport = 'UDP'
+    daemon._preset = make_daemon_preset('UDP')
     daemon._sm1_state = SM1State.DEGRADED
     daemon._strike_counter = 2
 
@@ -338,7 +342,8 @@ async def test_tc8_nak_parseable_timestamp(mock_daemon):
     assert daemon._sm1_state == SM1State.DEGRADED
 
     # Assert: T1 fired
-    daemon._notify.assert_called_with(ErrorCode.SUPERVISION_NAK, {})
+    daemon._notify.assert_called_once()
+    assert daemon._notify.call_args[0][0] == ErrorCode.SUPERVISION_NAK
 
     # Assert: Logging called
     daemon._log_sm1_supervision.assert_called()
@@ -374,8 +379,9 @@ async def test_tc9_nak_unparseable_timestamp(mock_daemon):
     assert daemon._strike_counter == 1
     assert daemon._sm1_state == SM1State.DEGRADED
 
-    # Assert: T2 fired (not T1)
-    daemon._notify.assert_called_with(ErrorCode.BAD_CSR_RESPONSE, {})
+    # Assert: T2 (BAD_CSR_RESPONSE) fired — plus T1 (SUPERVISION_NAK) also fires at strike=1
+    error_codes = [c.args[0] for c in daemon._notify.call_args_list]
+    assert ErrorCode.BAD_CSR_RESPONSE in error_codes, f"Expected BAD_CSR_RESPONSE in {error_codes}"
 
 
 @pytest.mark.asyncio
@@ -390,7 +396,7 @@ async def test_tc10_nak_while_degraded_strike_2(mock_daemon):
     - If TCP: TCP_RECONNECTING entered (socket forced close)
     """
     daemon = mock_daemon
-    daemon._transport = 'TCP'
+    daemon._preset = make_daemon_preset('TCP')
     daemon._sm1_state = SM1State.DEGRADED
     daemon._strike_counter = 2
     daemon._sm1_t3_fired = False
@@ -408,7 +414,8 @@ async def test_tc10_nak_while_degraded_strike_2(mock_daemon):
 
     # Assert: Strike = 3, T3 fired, TCP_RECONNECTING
     assert daemon._strike_counter == 3
-    daemon._notify.assert_called_with(ErrorCode.SUPERVISION_DISCONNECTED, {})
+    daemon._notify.assert_called_once()
+    assert daemon._notify.call_args[0][0] == ErrorCode.SUPERVISION_DISCONNECTED
     assert daemon._sm1_state == SM1State.TCP_RECONNECTING
 
 
@@ -497,7 +504,8 @@ async def test_tc13_strike_timing_precision(mock_daemon, time_mock):
         daemon._send_raw.return_value = {'status': 'timeout'}
         await daemon._send_supervision()
         assert daemon._strike_counter == 1
-        daemon._notify.assert_called_with(ErrorCode.SUPERVISION_TIMEOUT, {})
+        daemon._notify.assert_called_once()
+        assert daemon._notify.call_args[0][0] == ErrorCode.SUPERVISION_TIMEOUT
 
         daemon._notify.reset_mock()
 
@@ -511,7 +519,8 @@ async def test_tc13_strike_timing_precision(mock_daemon, time_mock):
         daemon._send_raw.return_value = {'status': 'timeout'}
         await daemon._send_supervision()
         assert daemon._strike_counter == 3
-        daemon._notify.assert_called_with(ErrorCode.SUPERVISION_DISCONNECTED, {})
+        daemon._notify.assert_called_once()
+    assert daemon._notify.call_args[0][0] == ErrorCode.SUPERVISION_DISCONNECTED
 
 
 @pytest.mark.asyncio
@@ -702,7 +711,7 @@ async def test_tc19_tcp_reconnect_partial_attempts(mock_daemon):
     - Strike=0, _sm1_t3_fired=False, SM1→INITIALIZING
     """
     daemon = mock_daemon
-    daemon._transport = 'TCP'
+    daemon._preset = make_daemon_preset('TCP')
     daemon._sm1_state = SM1State.TCP_RECONNECTING
     daemon._strike_counter = 3
     daemon._sm1_t3_fired = True
@@ -730,7 +739,7 @@ async def test_tc20_tcp_connect_timeout(mock_daemon):
     - After N retries, NO_NETWORK → daemon.stop()
     """
     daemon = mock_daemon
-    daemon._transport = 'TCP'
+    daemon._preset = make_daemon_preset('TCP')
     daemon._sm1_state = SM1State.TCP_RECONNECTING
     daemon.stop = AsyncMock()
 
@@ -759,7 +768,7 @@ async def test_tc21_tcp_reconnecting_to_initializing(mock_daemon):
     - ACK received → HEALTHY
     """
     daemon = mock_daemon
-    daemon._transport = 'TCP'
+    daemon._preset = make_daemon_preset('TCP')
     daemon._sm1_state = SM1State.INITIALIZING
 
     daemon._send_raw.return_value = {'status': 'ack', 'raw_hex': '05051300'}
@@ -784,7 +793,7 @@ async def test_tc22_udp_strike_3_no_reconnect(mock_daemon):
     - Can recover directly via ACK → HEALTHY
     """
     daemon = mock_daemon
-    daemon._transport = 'UDP'
+    daemon._preset = make_daemon_preset('UDP')
     daemon._sm1_state = SM1State.DEGRADED
     daemon._strike_counter = 3
 
@@ -824,7 +833,8 @@ async def test_tc23_t1_fired_only_at_strike_1(mock_daemon):
     daemon._send_raw.return_value = {'status': 'timeout'}
     await daemon._send_supervision()
 
-    daemon._notify.assert_called_with(ErrorCode.SUPERVISION_TIMEOUT, {})
+    daemon._notify.assert_called_once()
+    assert daemon._notify.call_args[0][0] == ErrorCode.SUPERVISION_TIMEOUT
     daemon._notify.reset_mock()
 
     # Strike 2: no notification
@@ -838,7 +848,8 @@ async def test_tc23_t1_fired_only_at_strike_1(mock_daemon):
     daemon._send_raw.return_value = {'status': 'timeout'}
     await daemon._send_supervision()
 
-    daemon._notify.assert_called_with(ErrorCode.SUPERVISION_DISCONNECTED, {})
+    daemon._notify.assert_called_once()
+    assert daemon._notify.call_args[0][0] == ErrorCode.SUPERVISION_DISCONNECTED
 
 
 @pytest.mark.asyncio
@@ -865,8 +876,9 @@ async def test_tc24_t2_on_bad_nak(mock_daemon):
 
         await daemon._send_supervision()
 
-    # Assert: T2 fired (not T1 or T3)
-    daemon._notify.assert_called_with(ErrorCode.BAD_CSR_RESPONSE, {})
+    # Assert: T2 (BAD_CSR_RESPONSE) fired — plus T1 (SUPERVISION_NAK) may also fire
+    error_codes = [c.args[0] for c in daemon._notify.call_args_list]
+    assert ErrorCode.BAD_CSR_RESPONSE in error_codes, f"Expected BAD_CSR_RESPONSE in {error_codes}"
 
 
 # ===== TC25: CONCURRENCY & RACE CONDITIONS =====

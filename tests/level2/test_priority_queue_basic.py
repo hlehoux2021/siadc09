@@ -14,6 +14,7 @@ Reference: story 5-3-priorityqueue-task-coordination.md Tasks 9, Design Decision
 import asyncio
 import itertools
 import pytest
+from tests.conftest import make_daemon_preset
 from unittest.mock import patch
 
 from resources.siadc09d.daemon import (
@@ -33,7 +34,7 @@ from resources.siadc09d.daemon import (
 def daemon():
     """Create a fresh SIADaemon instance with fresh queue and counter."""
     with patch('sys.argv', ['test']):
-        d = SIADaemon()
+        d = SIADaemon(preset=make_daemon_preset())
     from unittest.mock import MagicMock, AsyncMock
     d._logger = MagicMock()
     d._preset = MagicMock(

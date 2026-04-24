@@ -28,7 +28,7 @@ from resources.siadc09d.sia_protocol import (
     CRC_FORMAT_SIA, CRC_FORMAT_ADM,
 
     # Classes
-    SIAMessageBuilder, SequenceManager,
+    SIAMessageBuilder, SequenceTracker,
 )
 
 
@@ -115,8 +115,8 @@ def validate_frame_field_values(
 
 @pytest.fixture
 def sequence_manager():
-    """Provide a fresh SequenceManager for each test."""
-    return SequenceManager()
+    """Provide a fresh SequenceTracker for each test."""
+    return SequenceTracker()
 
 
 @pytest.fixture
@@ -185,7 +185,7 @@ def test_event_codes():
     assert PANIC == "3"
 
 
-# ===== TESTS: SequenceManager =====
+# ===== TESTS: SequenceTracker =====
 
 def test_sequence_first_is_0001(sequence_manager):
     """
@@ -1106,14 +1106,14 @@ def test_format_timestamp_with_invalid_type(builder):
 
 def test_sequence_manager_empty_account_allowed():
     """
-    Test that SequenceManager handles empty account ID gracefully.
+    Test that SequenceTracker handles empty account ID gracefully.
     This verifies the manager can track arbitrary account identifiers.
 
     Expected result:
     - next_seq("") returns valid sequence (or raises specific error)
     - Behavior is explicit and documented
     """
-    sm = SequenceManager()
+    sm = SequenceTracker()
     # Empty account should either work or raise clear error (not crash)
     try:
         seq = sm.next_seq("")
@@ -1166,7 +1166,7 @@ def test_sequence_boundary_9998_to_9999():
     - Sequence at 9998 → next is 9999
     - Sequence at 9999 → next is 0001 (wrap, skip 0000)
     """
-    sm = SequenceManager()
+    sm = SequenceTracker()
     sm._seq_map["test"] = 9998
 
     # Assert: 9998 → 9999

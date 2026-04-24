@@ -15,7 +15,7 @@ import logging
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 # Handle imports for both direct execution and module import
 try:

@@ -16,6 +16,8 @@ Test organization:
 
 import asyncio
 import pytest
+from resources.siadc09d.sia_transport import SIATransportResult
+from tests.conftest import make_daemon_preset
 from datetime import datetime, timezone
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from typing import Optional
@@ -32,7 +34,7 @@ def mock_daemon():
     """Create a SIADaemon instance with mocked transport and PHP callback."""
     # Create daemon with mocked config to avoid argument parsing in tests
     with patch('sys.argv', ['test']):  # Mock sys.argv to prevent argparse errors
-        daemon = SIADaemon()
+        daemon = SIADaemon(preset=make_daemon_preset())
 
     # Configure preset and connection settings
     daemon._preset = MagicMock(
@@ -47,7 +49,7 @@ def mock_daemon():
     daemon._sia_seq = 0
     daemon._ring_buffer = RingBuffer()
     daemon._logger = MagicMock()
-    daemon._notify = AsyncMock()
+    daemon._notify = MagicMock()
     daemon._send_raw = AsyncMock()
     daemon._update_info_commands = AsyncMock()
     daemon._track_task = MagicMock()
@@ -220,7 +222,7 @@ class TestSM2SendWithRetry:
         event = EventItem(sia_code="BA", zone="Salon", timestamp="12:30:45,04-13-2026")
 
         # Mock _send_raw to return ACK
-        mock_daemon._send_raw = AsyncMock(return_value={"status": "ack"})
+        mock_daemon._send_raw = AsyncMock(return_value=SIATransportResult(status="ack", raw_nak=None))
 
         # Execute _send_with_retry
         result = await mock_daemon._send_with_retry(event, max_retries=3)
@@ -273,7 +275,7 @@ class TestSM2SendWithRetry:
         event = EventItem(sia_code="PA", zone="Bureau", timestamp="12:30:45,04-13-2026")
 
         # Mock _send_raw to always timeout
-        mock_daemon._send_raw = AsyncMock(return_value={"status": "timeout"})
+        mock_daemon._send_raw = AsyncMock(return_value=SIATransportResult(status="timeout", raw_nak=None))
 
         # Execute _send_with_retry with 2 retries
         result = await mock_daemon._send_with_retry(event, max_retries=2)
@@ -285,14 +287,13 @@ class TestSM2SendWithRetry:
         # Assert: Attempted 3 times (max_retries + 1)
         assert mock_daemon._event_attempt_count == 3
         # Assert: T3 notification sent (EVENT_FAILED)
-        mock_daemon._notify.assert_called_with(
-            ErrorCode.EVENT_FAILED,
-            {
-                "zone": "Bureau",
-                "sia_code": "PA",
-                "attempts": 3
-            }
-        )
+        event_failed_calls = [c for c in mock_daemon._notify.call_args_list
+                              if c.args and c.args[0] == ErrorCode.EVENT_FAILED]
+        assert len(event_failed_calls) == 1
+        ctx = event_failed_calls[0].args[1]
+        assert ctx.zone_name == "Bureau"
+        assert ctx.sia_code == "PA"
+        assert ctx.attempts_made == 3
 
 
 # ===== Task 4: PriorityQueue Integration Tests =====
@@ -331,7 +332,7 @@ class TestSM2QueueConsumerIntegration:
         mock_daemon._sm2_state = SM2State.CONFIRMED
 
         # Mock _send_raw to return ACK immediately for the next alarm
-        mock_daemon._send_raw = AsyncMock(return_value={"status": "ack"})
+        mock_daemon._send_raw = AsyncMock(return_value=SIATransportResult(status="ack", raw_nak=None))
 
         event = EventItem(sia_code="FA", zone="Cuisine", timestamp="12:30:45,04-13-2026")
 
@@ -620,7 +621,7 @@ class TestSM2ZoneExtraction:
         event = EventItem(sia_code="BA", zone="Salon", timestamp="12:30:45,04-13-2026")
 
         # Mock _send_raw to return ACK immediately
-        mock_daemon._send_raw = AsyncMock(return_value={"status": "ack"})
+        mock_daemon._send_raw = AsyncMock(return_value=SIATransportResult(status="ack", raw_nak=None))
 
         await mock_daemon._send_with_retry(event, max_retries=1)
 
@@ -644,7 +645,7 @@ class TestSM2ZoneExtraction:
         event = EventItem(sia_code="BA", zone="Salon", timestamp="12:30:45,04-13-2026")
 
         # Mock _send_raw to return ACK
-        mock_daemon._send_raw = AsyncMock(return_value={"status": "ack"})
+        mock_daemon._send_raw = AsyncMock(return_value=SIATransportResult(status="ack", raw_nak=None))
 
         # Act: call _send_with_retry and verify no errors (zone is passed through)
         result = await mock_daemon._send_with_retry(event, max_retries=1)
@@ -666,7 +667,7 @@ class TestSM2ZoneExtraction:
         """
         event = EventItem(sia_code="FA", zone=None, timestamp="12:30:45,04-13-2026")
 
-        mock_daemon._send_raw = AsyncMock(return_value={"status": "ack"})
+        mock_daemon._send_raw = AsyncMock(return_value=SIATransportResult(status="ack", raw_nak=None))
 
         result = await mock_daemon._send_with_retry(event, max_retries=1)
 
