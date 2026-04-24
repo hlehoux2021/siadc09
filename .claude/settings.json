@@ -23,7 +23,20 @@
       "Bash(ls -la /Users/herve.lehoux/Dev/my-project/_bmad-output/implementation-artifacts/epic-*-retro-*.md)",
       "Read(//Users/herve.lehoux/Dev/**)",
       "Bash(grep \"^class.*Error\\\\|^class.*Exception\" /Users/herve.lehoux/Dev/my-project/resources/siadc09d/sia_*.py)",
-      "Bash(wc -l echo \"Files found in tests/fixtures/golden/\" ls /Users/herve.lehoux/Dev/my-project/tests/fixtures/golden/frames_*.hex)"
+      "Bash(wc -l echo \"Files found in tests/fixtures/golden/\" ls /Users/herve.lehoux/Dev/my-project/tests/fixtures/golden/frames_*.hex)",
+      "Bash(git checkout *)",
+      "Bash(git stash *)",
+      "Bash(sed -i '' 's/daemon\\\\._notify = AsyncMock\\(\\)/daemon._notify = MagicMock\\(\\)/g' tests/level2/test_sm1_extended_suite.py)",
+      "Bash(sed -i '' 's/daemon\\\\._notify = AsyncMock\\(\\)/daemon._notify = MagicMock\\(\\)/g' tests/level2/test_queue_consumer_integration.py)",
+      "Bash(sed -i '' 's/daemon\\\\._notify = AsyncMock\\(\\)/daemon._notify = MagicMock\\(\\)/g' tests/level2/test_sia_transport_daemon_wiring.py)",
+      "Bash(sed -i '' 's/d\\\\._notify = AsyncMock\\(\\)/d._notify = MagicMock\\(\\)/g' tests/level2/test_supervision_queue_integration.py)",
+      "Bash(sed -i '' 's/d\\\\._notify = AsyncMock\\(\\)/d._notify = MagicMock\\(\\)/g' tests/level2/test_sm2_extended_coverage.py)",
+      "Read(//Users/herve.lehoux/.vscode/extensions/ms-python.vscode-pylance-2026.2.1/**)",
+      "Bash(PYTHONPATH=/Users/herve.lehoux/.vscode/extensions/ms-python.mypy-type-checker-2025.2.0/bundled/libs python3 -m mypy resources/siadc09d/daemon.py --ignore-missing-imports --no-error-summary --python-version 3.13)",
+      "Bash(PYTHONPATH=/Users/herve.lehoux/.vscode/extensions/ms-python.mypy-type-checker-2025.2.0/bundled/libs python3 -m mypy resources/siadc09d/daemon.py resources/siadc09d/sia_transport.py resources/siadc09d/presets.py resources/siadc09d/error_handler.py resources/siadc09d/ring_buffer.py resources/siadc09d/sia_protocol.py resources/siadc09d/sia_crypto.py --ignore-missing-imports --no-error-summary --python-version 3.13)",
+      "Bash(PYTHONPATH=/Users/herve.lehoux/.vscode/extensions/ms-python.mypy-type-checker-2025.2.0/bundled/libs python3 -m mypy resources/siadc09d/daemon.py resources/siadc09d/sia_transport.py resources/siadc09d/sia_protocol.py resources/siadc09d/presets.py resources/siadc09d/error_handler.py resources/siadc09d/ring_buffer.py --ignore-missing-imports --no-error-summary --python-version 3.13)",
+      "Bash(git -C /Users/herve.lehoux/Dev/my-project log --oneline -8)",
+      "Read(//Users/herve.lehoux/.vscode/extensions/**)"
     ],
     "additionalDirectories": [
       "/Users/herve.lehoux/Dev/my-project/docs",
