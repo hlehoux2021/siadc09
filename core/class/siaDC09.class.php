@@ -38,12 +38,23 @@ class siaDC09 extends eqLogic {
         return $eqLogics[0];
     }
 
-    public static function dependancy_info(): array {
-        $installOk = dirname(__FILE__) . '/../../resources/siadc09d/.install_ok';
-        return [
-            'state' => file_exists($installOk) ? 'ok' : 'nok',
-            'nb_try' => 0,
-        ];
+    private static function _getAutoEquipment(): self {
+        $eqLogics = eqLogic::byType(__CLASS__);
+        if (is_array($eqLogics) && count($eqLogics) > 0) {
+            if (count($eqLogics) > 1) {
+                log::add(__CLASS__, 'error', __('Plusieurs équipements détectés — un seul attendu', __FILE__));
+            }
+            return $eqLogics[0];
+        }
+        log::add(__CLASS__, 'warning', __('Équipement absent — création automatique', __FILE__));
+        $eq = new self();
+        $eq->setName('Télésurveillance');
+        $eq->setEqType_name(__CLASS__);
+        $eq->setIsEnable(1);
+        $eq->setIsVisible(1);
+        $eq->setObject_id(null);
+        $eq->save();
+        return $eq;
     }
 
     public static function deamon_info(): array {
@@ -89,8 +100,7 @@ class siaDC09 extends eqLogic {
             throw new Exception(__('Veuillez vérifier la configuration', __FILE__));
         }
 
-        // launchable=='ok' guarantees equipment exists with valid config
-        $eqLogic = self::_getAutoEquipmentSafe();
+        $eqLogic = self::_getAutoEquipment();
 
         $path = realpath(dirname(__FILE__) . '/../../resources/siadc09d');
         $socketport = (int) config::byKey('socketport', __CLASS__, 55009);
@@ -98,7 +108,7 @@ class siaDC09 extends eqLogic {
         $cmd = self::getPython3() . $path . '/siadc09d.py';
         $cmd .= ' --loglevel ' . log::convertLogLevel(log::getLogLevel(__CLASS__));
         $cmd .= ' --socketport ' . $socketport;
-        $cmd .= ' --callback ' . network::getNetworkAccess('internal', 'proto:127.0.0.1:port:comp') . '/plugins/siaDC09/core/php/jeesiaDC09.php';
+        $cmd .= ' --callback ' . network::getNetworkAccess('internal', 'http:127.0.0.1:port:comp') . '/plugins/siaDC09/core/php/jeesiaDC09.php';
         $cmd .= ' --apikey ' . jeedom::getApiKey(__CLASS__);
         $cmd .= ' --pid ' . jeedom::getTmpFolder(__CLASS__) . '/daemon.pid';
 
@@ -141,7 +151,7 @@ class siaDC09 extends eqLogic {
 
         $cmdLog = preg_replace('/--encryption-key\s+\S+/', '--encryption-key [REDACTED]', $cmd);
         log::add(__CLASS__, 'info', __('Lancement démon', __FILE__) . ': ' . $cmdLog);
-        $result = exec($cmd . ' >> ' . log::getPathToLog(__CLASS__ . '_daemon') . ' 2>&1 &');
+        exec($cmd . ' >> ' . log::getPathToLog(__CLASS__ . '_daemon') . ' 2>&1 &');
 
         $i = 0;
         while ($i < 10) {
@@ -196,6 +206,127 @@ class siaDC09 extends eqLogic {
         @socket_close($socket);
     }
 
+    public static function message($message): void {
+        $eqLogic = self::_getAutoEquipmentSafe();
+        if (!$eqLogic) {
+            log::add(__CLASS__, 'warning',
+                __('Message daemon reçu mais équipement absent — ignoré jusqu\'à réactivation du plugin.', __FILE__)
+            );
+            return;
+        }
+
+        switch ($message['type'] ?? '') {
+            case 'info_update':
+                self::_handleInfoUpdate($eqLogic, $message);
+                break;
+
+            case 'message_center':
+                // No null guard — daemon is sole caller, always sends well-formed payloads
+                message::add(
+                    __CLASS__,
+                    $message['message'],
+                    '',
+                    $message['logical_id']
+                );
+                break;
+
+            case 'notify':
+                $notifyCmdId = (int) $eqLogic->getConfiguration('sia_notify_cmd_id', 0);
+                if ($notifyCmdId <= 0) {
+                    log::add(__CLASS__, 'warning',
+                        __('Commande notification non configurée — alerte ignorée', __FILE__)
+                    );
+                    break;
+                }
+                $notifyCmd = cmd::byId($notifyCmdId);
+                if (!is_object($notifyCmd)) {
+                    log::add(__CLASS__, 'warning',
+                        __('Commande notification non configurée — alerte ignorée', __FILE__)
+                    );
+                    break;
+                }
+                try {
+                    $notifyCmd->execCmd([
+                        'title'   => $message['title'],
+                        'message' => $message['message'],
+                    ]);
+                } catch (Exception $e) {
+                    log::add(__CLASS__, 'error',
+                        __('Impossible d\'envoyer la notification : ', __FILE__) . $e->getMessage()
+                    );
+                }
+                break;
+
+            case 'error_update':
+                $errors = json_decode(config::byKey('sia_last_errors', __CLASS__, '[]'), true) ?: [];
+                if (!empty($message['resolve_t1'])) {
+                    $errors = array_values(array_filter($errors, fn($e) =>
+                        !in_array($e['code'] ?? '', ['SUPERVISION_TIMEOUT', 'SUPERVISION_NAK'])
+                    ));
+                }
+                // No null guard on message/timestamp — daemon is sole caller, always sends all 5 fields
+                if (isset($message['code'])) {
+                    array_unshift($errors, [
+                        'code'      => $message['code'],
+                        'message'   => $message['message'],
+                        'timestamp' => $message['timestamp'],
+                        'context'   => $message['context'] ?? null,
+                        'count'     => $message['count'] ?? 1,
+                    ]);
+                }
+                $errors = array_slice($errors, 0, 10);
+                config::save('sia_last_errors', json_encode($errors), __CLASS__);
+                break;
+
+            case 'message_trace':
+                $messages = json_decode(config::byKey('sia_last_messages', __CLASS__, '[]'), true) ?: [];
+                $dialog = $message['dialog'] ?? null;
+                if (!is_array($dialog)) {
+                    break;
+                }
+                if (($dialog['dialog_type'] ?? '') === 'supervision' && !empty($dialog['routine'])) {
+                    $idx = null;
+                    foreach ($messages as $i => $entry) {
+                        if (!empty($entry['routine'])) {
+                            $idx = $i;
+                            break;
+                        }
+                    }
+                    if ($idx !== null) {
+                        $messages[$idx] = $dialog;
+                    } else {
+                        array_unshift($messages, $dialog);
+                        $messages = array_slice($messages, 0, 50);
+                    }
+                } else {
+                    array_unshift($messages, $dialog);
+                    $messages = array_slice($messages, 0, 50);
+                }
+                config::save('sia_last_messages', json_encode($messages), __CLASS__);
+                break;
+
+            default:
+                log::add(__CLASS__, 'warning',
+                    'Message daemon de type inconnu ignoré : ' . ($message['type'] ?? '<null>')
+                );
+                break;
+        }
+    }
+
+    private static function _handleInfoUpdate($eqLogic, array $data): void {
+        $map = [
+            'supervision_state' => 'supervision_state',
+            'supervision_label' => 'supervision_label',
+            'event_state'       => 'event_state',
+            'event_label'       => 'event_label',
+        ];
+        foreach ($map as $key => $logicalId) {
+            if (isset($data[$key])) {
+                $eqLogic->checkAndUpdateCmd($logicalId, $data[$key]);
+            }
+        }
+    }
+
     public function postSave(): void {
         $actionCmds = [
             'burglarAlarm' => ['name' => __('Alarme intrusion', __FILE__), 'subType' => 'message'],
@@ -212,6 +343,8 @@ class siaDC09 extends eqLogic {
                 $cmd->setType('action');
                 $cmd->setSubType($spec['subType']);
                 $cmd->setIsVisible(0);
+                $cmd->setConfiguration('returnStateTime', 30);
+                $cmd->setConfiguration('returnStateValue', 0);
                 $cmd->save();
             }
         }
@@ -232,6 +365,8 @@ class siaDC09 extends eqLogic {
                 $cmd->setType('info');
                 $cmd->setSubType($spec['subType']);
                 $cmd->setIsVisible(0);
+                $cmd->setConfiguration('returnStateTime', 30);
+                $cmd->setConfiguration('returnStateValue', 0);
                 $cmd->save();
                 $this->checkAndUpdateCmd($logicalId, $spec['default']);
             }
@@ -240,5 +375,7 @@ class siaDC09 extends eqLogic {
 
     public function preRemove(): void {
         self::deamon_stop();
+        config::save('sia_last_errors', '[]', __CLASS__);
+        config::save('sia_last_messages', '[]', __CLASS__);
     }
 }

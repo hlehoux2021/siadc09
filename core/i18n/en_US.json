@@ -36,7 +36,17 @@
         "État supervision": "Supervision state",
         "Supervision": "Supervision",
         "État alarme": "Alarm state",
-        "Alarme": "Alarm"
+        "Alarme": "Alarm",
+        "Équipement absent — création automatique": "Equipment missing — auto-creating",
+        "Message daemon reçu mais équipement absent — ignoré jusqu'à réactivation du plugin.": "Daemon message received but equipment missing — ignored until plugin reactivation.",
+        "Commande notification non configurée — alerte ignorée": "Notification command not configured — alert ignored",
+        "Impossible d'envoyer la notification : ": "Unable to send notification: "
+    },
+    "plugins\/siaDC09\/core\/php\/jeesiaDC09.php": {
+        "Vous n'êtes pas autorisé à effectuer cette action": "You are not authorized to perform this action"
+    },
+    "plugins\/siaDC09\/plugin_info\/install.php": {
+        "Suppression du plugin — démon arrêté": "Plugin removed — daemon stopped"
     },
     "plugins\/siaDC09\/core\/ajax\/siaDC09.ajax.php": {
         "401 - Accès non autorisé": "401 - Unauthorized access",
