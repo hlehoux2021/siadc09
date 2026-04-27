@@ -80,10 +80,10 @@ development_status:
   # Epic 6: PHP Plugin Core & Jeedom IPC
   epic-6: in-progress
   6-1-php-eqlogic-cmd-classes: done
-  6-2-auto-equipment-creation: ready-for-dev
-  6-3-json-callback-ipc-protocol: backlog
-  6-4-info-command-persistence-real-time-updates: backlog
-  6-5-jeedom-dependency-manager-installation: backlog
+  6-2-auto-equipment-creation: done
+  6-3-json-callback-ipc-protocol: done
+  6-4-info-command-persistence-real-time-updates: done
+  6-5-jeedom-dependency-manager-installation: done
   6-6-php-core-integration-ipc-tests: backlog
   epic-6-retrospective: optional
 
@@ -123,15 +123,15 @@ development_status:
   epic-11-retrospective: optional
 
 # Summary Statistics
-# Updated: 2026-04-24 (6-2 story created → ready-for-dev)
+# Updated: 2026-04-27 (6-3 → done; 6-4 → done; 6-5 → review)
 summary:
   total_epics: 11
   total_stories: 41
   epics_backlog: 5
   epics_in_progress: 6
   epics_done: 0
-  stories_backlog: 20
-  stories_ready_for_dev: 1
+  stories_backlog: 17
+  stories_ready_for_dev: 0
   stories_in_progress: 0
   stories_review: 0
-  stories_done: 20
+  stories_done: 24

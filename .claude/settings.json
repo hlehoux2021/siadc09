@@ -36,7 +36,11 @@
       "Bash(PYTHONPATH=/Users/herve.lehoux/.vscode/extensions/ms-python.mypy-type-checker-2025.2.0/bundled/libs python3 -m mypy resources/siadc09d/daemon.py resources/siadc09d/sia_transport.py resources/siadc09d/presets.py resources/siadc09d/error_handler.py resources/siadc09d/ring_buffer.py resources/siadc09d/sia_protocol.py resources/siadc09d/sia_crypto.py --ignore-missing-imports --no-error-summary --python-version 3.13)",
       "Bash(PYTHONPATH=/Users/herve.lehoux/.vscode/extensions/ms-python.mypy-type-checker-2025.2.0/bundled/libs python3 -m mypy resources/siadc09d/daemon.py resources/siadc09d/sia_transport.py resources/siadc09d/sia_protocol.py resources/siadc09d/presets.py resources/siadc09d/error_handler.py resources/siadc09d/ring_buffer.py --ignore-missing-imports --no-error-summary --python-version 3.13)",
       "Bash(git -C /Users/herve.lehoux/Dev/my-project log --oneline -8)",
-      "Read(//Users/herve.lehoux/.vscode/extensions/**)"
+      "Read(//Users/herve.lehoux/.vscode/extensions/**)",
+      "Bash(sed -i * /Users/herve.lehoux/Dev/my-project/*)",
+      "Bash(sed -i '' * /Users/herve.lehoux/Dev/my-project/*)",
+      "Bash(git -C /Users/herve.lehoux/Dev/my-project *)",
+      "Bash(sed -n * /Users/herve.lehoux/Dev/my-project/*)"
     ],
     "additionalDirectories": [
       "/Users/herve.lehoux/Dev/my-project/docs",
