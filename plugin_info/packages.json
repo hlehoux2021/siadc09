@@ -1,14 +1,9 @@
 {
-  "pre-install": {},
   "apt": {
     "python3-pip": {}
   },
   "pip3": {
-    "jeedomdaemon": {},
+    "jeedomdaemon": {"reinstall": true},
     "pycryptodome": {}
-  },
-  "npm": {},
-  "yarn": {},
-  "plugin": {},
-  "post-install": {}
+  }
 }

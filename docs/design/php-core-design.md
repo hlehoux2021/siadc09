@@ -49,8 +49,7 @@ resources/
     ├── siadc09d.py                  ← Daemon entry point (Component 1)
     ├── sia_protocol.py              ← Protocol module (Component 0)
     ├── sia_crypto.py                ← Crypto module (Component 0)
-    ├── install_dep.sh               ← pip3 install script; writes .install_ok on success (Task 2.8)
-    └── .install_ok                  ← Sentinel: created by install_dep.sh, deleted on reinstall (Task 2.8)
+    └── (no install_dep.sh — Method 1 via packages.json, Story 6.5)
 ```
 
 > **Note:** Jeedom plugin convention places daemon scripts in `resources/<daemon-name>/`. The `jeedomdaemon` framework is installed via `pip3` (declared in `packages.json`) — not bundled directly.
@@ -117,7 +116,7 @@ See `wizard-design.md` §"CSR Presets Configuration File" for the full preset fo
 | `testConnection` mechanism | **Option A: standalone subprocess** — daemon must be stopped; PHP `exec()` returns result synchronously | No polling, no cache; daemon lifecycle stays explicit |
 | Daemon restart on save | **None** — `postSave()` only manages commands. Config changes take effect on next daemon start (watchdog or manual). | Matches z2m/zwavejs pattern. Jeedom watchdog handles crashed→restart; config changes require manual restart or wizard re-run. |
 | Daemon start guard | `launchable: false` if config incomplete | Standard Jeedom pattern — shown as NOK in plugin manager |
-| `preRemove` config cleanup | **Not needed** — eqLogic config deleted automatically by Jeedom | |
+| `preRemove` config cleanup | **Required** — `sia_last_errors`/`sia_last_messages` are plugin-level (`config::save`), not eqLogic config, so Jeedom's auto-delete does not clean them up | |
 | Multiple equipments | Log error + return null | Should never happen in plugin-centric design |
 | Auto-recreate if deleted | **Yes** + log warning | Plugin-centric: equipment must always exist |
 | Zone not in mapping | **Send alarm anyway** + log warning | Never block an alarm for a config issue |
@@ -532,23 +531,22 @@ public function postSave() {
 
 ```php
 public function preRemove() {
-    // Step 1: stop daemon FIRST — ordering matters.
-    // deamon_running() does not exist in Jeedom — use deamon_info()['state'].
-    if (siaDC09::deamon_info()['state'] == 'ok') {
-        siaDC09::deamon_stop();  // includes its own graceful shutdown polling
-    }
-    // Step 2: clear ring-buffer config keys explicitly.
-    // Although Jeedom deletes the eqLogic row (and all config) automatically,
-    // clearing here ensures no stale entries survive in any cache layer.
-    $this->setConfiguration('sia_last_errors',   []);
-    $this->setConfiguration('sia_last_messages', []);
-    $this->save();
+    self::deamon_stop();
+    // Clear plugin-level ring-buffer config keys.
+    // These are stored via config::save(..., __CLASS__) — NOT eqLogic config —
+    // so Jeedom's automatic eqLogic row deletion does not clean them up.
+    // Must use config::save() to match the storage API used by message().
+    config::save('sia_last_errors', '[]', __CLASS__);
+    config::save('sia_last_messages', '[]', __CLASS__);
 }
 ```
 
 > **`preRemove()` ordering rule (from architecture.md):** (1) `deamon_stop()`, (2) clear
-> `sia_last_errors` / `sia_last_messages`. Jeedom handles `eqLogic` row deletion after
-> `preRemove()` returns.
+> `sia_last_errors` / `sia_last_messages` via `config::save(..., __CLASS__)`.
+> These keys live in the plugin-level config table (not eqLogic config) because
+> `message()` writes them via `config::save()` to avoid triggering `postSave()`.
+> Jeedom handles eqLogic row deletion after `preRemove()` returns, but that only
+> cleans up equipment-level config — plugin-level keys require explicit cleanup.
 
 ---
 
@@ -660,23 +658,21 @@ private static function _handleInfoUpdate($eqLogic, $data) {
     ];
     foreach ($map as $key => $logicalId) {
         if (isset($data[$key])) {
-            $cmd = $eqLogic->getCmd(null, $logicalId);  // null type = type-agnostic (Jeedom best practice)
-            if ($cmd) {
-                $cmd->checkAndUpdateCmd($data[$key]);
-                // checkAndUpdateCmd: persists if changed, fires scenario events
-            }
+            $eqLogic->checkAndUpdateCmd($logicalId, $data[$key]);
         }
     }
 }
 ```
 
-**Why `checkAndUpdateCmd()` and not a direct setValue:** `checkAndUpdateCmd()` is the correct Jeedom API. It:
+**Why `$eqLogic->checkAndUpdateCmd()` (Pattern A):** This is the idiomatic Jeedom convenience wrapper. Internally it calls `$this->getCmd(null, $logicalId)` (type-agnostic) then `$cmd->event($value)`. It is null-safe — returns `false` if the command doesn't exist. Pattern B (`getCmd()` + `$cmd->checkAndUpdateCmd()`) is equivalent but adds unnecessary verbosity. Pattern A is what zwavejs, z2m, and other standard plugins use.
+
+`checkAndUpdateCmd()` is the correct Jeedom API. It:
 1. Checks if value actually changed (avoids unnecessary DB writes)
 2. Fires the event bus so subscribed scenarios are triggered
 3. Updates `collectDate` timestamp
 4. Handles history recording if enabled
 
-✅ **Decision:** Always call `checkAndUpdateCmd()`. The method internally updates `collectDate` on every call (regardless of value change) and only updates `valueDate` + fires scenarios when the value changes. This is the correct behavior: the widget shows "last seen at HH:MM" via `collectDate`, and scenarios trigger only on real state changes.
+✅ **Decision:** Always call `$eqLogic->checkAndUpdateCmd($logicalId, $value)` (Pattern A). The method internally updates `collectDate` on every call (regardless of value change) and only updates `valueDate` + fires scenarios when the value changes. This is the correct behavior: the widget shows "last seen at HH:MM" via `collectDate`, and scenarios trigger only on real state changes.
 
 ---
 
@@ -834,7 +830,9 @@ public static function deamon_stop() {
 
 ### Task 2.8 — `siaDC09::dependancy_info()` / `dependancy_install()`
 
-**What:** Lets Jeedom check and install Python dependencies. Shown in plugin management page with a progress bar during install.
+> **OVERRIDDEN by Story 6.5 (Method 1 adoption):** This task's procedural dependency pattern (sentinel file, `dependancy_install()`, `install_dep.sh`) was replaced by Method 1 (`packages.json` only). The plugin has NO `dependancy_info()` override, NO `dependancy_install()`, and NO `install_dep.sh`. Jeedom's core handles everything via `packages.json` + `hasDependency: true` in `info.json`. The reference plugin (aiodemo) confirms this pattern. See Story 6.5 for rationale.
+
+**What (original, retained for historical context):** Lets Jeedom check and install Python dependencies. Shown in plugin management page with a progress bar during install.
 
 #### Why not `exec('python3 -c "import ..."')`
 
@@ -1006,7 +1004,7 @@ The reference plugin (`core/ajax/jeeaiodemo.ajax.php`) uses this exact structure
 | `getZones` | Wizard step 3 | — | `[{name: str}, ...]` |
 | `getCameraCommands` | Wizard step 3 | — | `[{id: int, name: str, type: 'CAMERA_TAKE'|'CAMERA_URL'}, ...]` |
 | `getDiagnosticData` | Diagnostic tab "Actualiser" | — | `{errors: [...], messages: [...], supervision_state: int, supervision_label: str, event_state: int, event_label: str}` — one call refreshes all three panels |
-| `clearDiagnosticData` | Diagnostic tab "Vider" | `target=errors\|messages` | `{success: true}` — clears the corresponding equipment config key via `$eqLogic->setConfiguration('sia_last_errors'\|'sia_last_messages', [])` + `$eqLogic->save()` |
+| `clearDiagnosticData` | Diagnostic tab "Vider" | `target=errors\|messages` | `{success: true}` — clears the corresponding plugin-level config key via `config::save('sia_last_errors'\|'sia_last_messages', '[]', __CLASS__)` |
 | `decodeFrame` | Protocol inspector (5c) expand row | `raw_hex=<hex>`, `key_hex=<hex>\|''` | JSON-encoded `ParsedMessage` dict on success; `{error: str}` on failure — see subprocess contract below |
 
 ✅ **Decision: Option A — standalone subprocess, no running daemon required.**

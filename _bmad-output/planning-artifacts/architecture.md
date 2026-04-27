@@ -73,7 +73,7 @@ The plugin delivers 12 functional capabilities across four domains:
 
 - **Platform:** Jeedom 4.5+, PHP 8.x, Python 3.10+, Debian 12+
 - **Daemon framework:** `jeedom-daemon-py` (`jeedomdaemon` pip package) — asyncio base class,
-  JSON callback protocol, dependency_info sentinel
+  JSON callback protocol, packages.json Method 1 dependency management
 - **External protocol:** SIA DC-09-2021 (fixed; spec at `docs/SIA-DC-09-...`)
 - **Single CSR, no failover:** v1.0 architecture assumes one CSR endpoint; multi-CSR deferred to v1.5
 - **No epics/stories yet:** Architecture is derived from PRD + 8 component design documents;
@@ -1066,7 +1066,7 @@ public function activate(): void {
 #### Other PHP Rules
 
 - `returnStateTime = 30`, `returnStateValue = 0` on all commands — prevents stuck PENDING if daemon stops mid-execution
-- `dependancy_info()` **never throws** — always returns `['state' => ..., 'progression' => ...]`
+- No `dependancy_info()` override — Method 1 (`packages.json` + `hasDependency: true`), Jeedom core handles it
 - `cmd::execute()` subclass override always calls `parent::execute($options)` **first**
 - All commands: `isVisible = 0` — display via widget only, not in Jeedom dashboard command list
 - `install.php` contains dependency installation only — no plugin logic, no config mutation
@@ -1176,7 +1176,7 @@ New callback types require: (1) add to this table, (2) add to `ipc_schema.py`, (
 | `toHtml()` with stubbed `sia_last_errors` | Rendered HTML contains expected error entries |
 | `isVisible=0` on all commands | No commands appear in dashboard command list |
 | PHP i18n keys round-trip | All `__('key', __FILE__)` keys exist in `core/i18n/fr_FR.json` |
-| `dependancy_info()` never throws | Returns valid array under all mock states |
+| No `dependancy_info()` override | Method 1 — core handles via `packages.json` |
 
 #### Test Infrastructure Rules
 

@@ -1,22 +1,20 @@
 {
 	"id": "siaDC09",
-	"name": "Télésurveillance",
+	"name": "Télésurveillance SIA DC-09",
 	"description": {
-		"fr_FR": "Plugin SIA DC-09 pour la transmission d'événements d'alarme vers une centrale de télésurveillance"
+		"fr_FR": "Transmission d'alarmes vers centrale de télésurveillance via protocole SIA DC-09"
 	},
 	"licence": "AGPL",
 	"author": "Herve Lehoux",
 	"require": "4.5",
 	"category": "security",
+	"changelog": "https://hlehoux2021.github.io/my-project/#language#/changelog",
+	"documentation": "https://hlehoux2021.github.io/my-project/#language#/",
 	"hasDependency": true,
 	"hasOwnDeamon": true,
-	"maxDependancyInstallTime": 60,
+	"maxDependancyInstallTime": 10,
 	"os": {
 		"min": 12
-	},
-	"link": {
-		"forum": "",
-		"video": ""
 	},
 	"language": [
 		"fr_FR",

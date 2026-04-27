@@ -32,8 +32,5 @@ function siaDC09_remove(): void {
         }
     }
     system::kill('siadc09d.py');
-    $installOk = dirname(__FILE__) . '/../resources/siadc09d/.install_ok';
-    if (file_exists($installOk)) {
-        unlink($installOk);
-    }
+    @log::add('siaDC09', 'info', __('Suppression du plugin — démon arrêté', __FILE__));
 }
