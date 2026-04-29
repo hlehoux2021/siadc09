@@ -306,11 +306,8 @@ class SIADaemon(BaseDaemon):
             _sia_transport: Active SIABaseTransport instance (SIAUDPTransport
                     or SIATCPTransport); None before on_start()
 
-        Instance Variables (Method stubs — replaced by real implementations later):
-            _update_info_commands: async stub for PHP INFO command updates (Epic 3)
-
-        Note: _notify() is a synchronous class method (def, not async def).
-              Epic 6 will dispatch via _track_task(_dispatch_notification(...)).
+        Note: _notify() is a synchronous class method (def, not async def) —
+              dispatches via _track_task(_dispatch_notify(...)).
         Note: _track_task() and _log_sm1_supervision() are class methods defined
               directly on SIADaemon — not stubs or subclass-injected.
         """
@@ -362,8 +359,6 @@ class SIADaemon(BaseDaemon):
         # items stay in the queue (no re-enqueue) and the consumer wakes naturally.
         self._sm1_state_changed: asyncio.Event = asyncio.Event()
 
-        # _update_info_commands points to real implementation (no stub from Story 6.6)
-        self._update_info_commands = self._update_info_commands_impl
 
     def _notify(self, error_code: ErrorCode, context: NotificationContext) -> None:
         """Dispatch error notification as a non-blocking background task.
@@ -432,7 +427,7 @@ class SIADaemon(BaseDaemon):
         except Exception as e:
             self._logger.error(f"_send_callback: send_to_jeedom failed: {e!r}")
 
-    async def _update_info_commands_impl(self, data: InfoCommandsPayload | None = None) -> None:
+    async def _update_info_commands(self, data: InfoCommandsPayload | None = None) -> None:
         """Send PHP INFO command update via _send_callback().
 
         If data is None, builds full payload from current SM1/SM2 state.
