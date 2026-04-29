@@ -1,23 +1,36 @@
-# Project Context
+# SIA DC-09 Jeedom Plugin
 
-This project implements the **SIA DC-09-2021.17** protocol (*Internet Protocol Event Reporting*).
+SIA DC-09-2021.17 protocol implementation (Internet Protocol Event Reporting).
 
-The full protocol reference is at `docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md`.
+## Commands
+- Test: `python3 -m pytest tests/level1/`
+- Lint: `python3 -m pylint resources/siadc09d/`
 
-## Experimentation Log
+## Architecture
+- Daemon: `resources/siadc09d/` (Python async)
+- Plugin: `core/` + `desktop/` (PHP/JS, Jeedom framework)
 
-`docs/experimentation.md` is a high-level presentation document describing the BMAD experimentation on this project for a team audience. Keep it updated whenever:
-- A new file is created in `docs/design/` (add a row to the component design table)
-- A new file is created in `_bmad-output/` (add or update the relevant phase section)
-- A new BMAD workflow is run (note it under the relevant phase with its output)
-- A major design decision is confirmed (update the Key Observations section if noteworthy)
+## Key References (read on demand, not pre-loaded)
+- Protocol spec: `docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md`
+- Architecture decisions: `_bmad-output/planning-artifacts/architecture.md`
+- PRD (product goals): `_bmad-output/planning-artifacts/prd.md`
+- Sprint status: `_bmad-output/implementation-artifacts/sprint-status.yaml`
+- Epics: `_bmad-output/planning-artifacts/epics.md`
 
-Keep the tone high-level and non-technical — it is for a team presentation, not for developers.
+## Domain Skills (invoke for expert questions)
+- `/sia-dc09-expert` — protocol format, CRC, encryption, timestamps, ACK/NAK
+- `/jeedom-plugin` — plugin structure, eqLogic/cmd, daemon framework, Market
+- `/jeedom-alarm` — alarm plugin zones, modes, triggers, scenario integration
+- `/jeedom-camera` — camera URLs, RTSP, snapshots, Synology integration
 
-## Working Preferences
-
-- **Component design workflow**: always explain the component first (scope, task grouping, task-by-task rationale and decisions), then ask one targeted question per task, then write the design document
-- **Always use available skills**: invoke in priority the skill — never answer from general knowledge when a skill is available
-- **Design document impact scan**: whenever a document in `docs/design/` is written or a confirmed decision changes a named concept (state name, method name, command name, config key, error code), immediately grep all existing design docs for the old/changed term. Report every hit, discuss the impact, and update affected docs before continuing. Do not wait for the user to point out stale references.
-- **Testing**: Follow `.claude/rules/testing.md` for all test-writing standards and conventions
-- **Code style**: Follow `.claude/rules/code-style.md` — strong typing, explicit inheritance, no magic constants
+## Design Docs (load the relevant one for the task)
+| Component | File |
+|-----------|------|
+| Daemon core + protocol | `docs/design/daemon-design.md` |
+| PHP plugin core | `docs/design/php-core-design.md` |
+| Supervision & health | `docs/design/supervision-design.md` |
+| Error handler | `docs/design/error-handler-design.md` |
+| Logging | `docs/design/logging-design.md` |
+| Config wizard | `docs/design/wizard-design.md` |
+| Widget | `docs/design/widget-design.md` |
+| Debug UI | `docs/design/debug-ui-design.md` |
