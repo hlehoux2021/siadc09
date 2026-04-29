@@ -314,7 +314,12 @@ class SIADaemon(BaseDaemon):
         Note: _track_task() and _log_sm1_supervision() are class methods defined
               directly on SIADaemon — not stubs or subclass-injected.
         """
-        super().__init__(config=config or BaseConfig())
+        super().__init__(
+            config=config or BaseConfig(),
+            on_start_cb=self.on_start,
+            on_message_cb=self._on_message_dispatch,
+            on_stop_cb=self.on_stop,
+        )
         self._preset: CSRPreset = preset
 
         # SM1 state machine
@@ -357,20 +362,14 @@ class SIADaemon(BaseDaemon):
         # items stay in the queue (no re-enqueue) and the consumer wakes naturally.
         self._sm1_state_changed: asyncio.Event = asyncio.Event()
 
-        # Async method stubs (will be overridden by subclass in on_start)
-        # Note: _log_sm1_supervision is NOT stubbed - uses actual method implementation
-        # Note: _notify() is a class method (def, not async def) — see below
-        self._update_info_commands = self._update_info_commands_stub
+        # _update_info_commands points to real implementation (no stub from Story 6.6)
+        self._update_info_commands = self._update_info_commands_impl
 
     def _notify(self, error_code: ErrorCode, context: NotificationContext) -> None:
         """Dispatch error notification as a non-blocking background task.
 
-        Synchronous wrapper — never blocks the caller. In v1.0 this logs at DEBUG
-        only (stub). Epic 6 will replace the body with:
-            self._track_task(
-                self._dispatch_notification(error_code, context),
-                name=f"notify_{error_code.name}"
-            )
+        Synchronous wrapper — never blocks the caller. Schedules _dispatch_notify()
+        as a tracked task so exceptions are logged and the task is GC-safe.
 
         Args:
             error_code: ErrorCode enum value identifying the error tier
@@ -379,9 +378,9 @@ class SIADaemon(BaseDaemon):
         Reference: error-handler-design.md — T1/T2/T3 dispatch contract
         Reference: daemon-design.md Component 1 — _notify() synchronous wrapper
         """
-        # v1.0 stub: log only, no PHP dispatch (Epic 6 replaces with _track_task call)
-        self._logger.debug(
-            f"_notify: {error_code.name} (stub — Epic 6 implements dispatch)"
+        self._track_task(
+            self._dispatch_notify(error_code, context),
+            name=f"notify_{error_code.name}",
         )
 
     async def _send_raw(self, frame: bytes) -> SIATransportResult:
@@ -397,9 +396,159 @@ class SIADaemon(BaseDaemon):
             raise SIATransportError("Transport not initialized — on_start() not called")
         return await self._sia_transport.send_frame(frame)
 
-    async def _update_info_commands_stub(self, data: InfoCommandsPayload | None = None) -> None:
-        """Stub for _update_info_commands (will be overridden)."""
-        pass
+    async def _send_callback(self, payload: dict[str, Any]) -> None:
+        """Send callback payload to PHP via send_to_jeedom() — defensive wrapper.
+
+        Validates payload structure before sending:
+        - 'type' field must be present
+        - No Python bool values (use int 0/1 per IPC contract)
+
+        Catches ALL exceptions, logs ERROR, returns — never re-raises.
+        Failure to deliver a callback is non-fatal to daemon operation.
+
+        Args:
+            payload: JSON-serializable dict with 'type' field at top level.
+
+        Reference: architecture.md § Communication Patterns — IPC payload rules
+        Reference: story 6-6 AC3
+        """
+        # Validate 'type' field present
+        if "type" not in payload:
+            self._logger.error(
+                f"_send_callback: payload missing 'type' field — dropped: {payload!r}"
+            )
+            return
+
+        # Validate no bool values (IPC contract: use int 0/1)
+        for key, value in payload.items():
+            if isinstance(value, bool):
+                self._logger.error(
+                    f"_send_callback: payload contains bool value at key '{key}' — dropped"
+                )
+                return
+
+        try:
+            await self.send_to_jeedom(payload)
+        except Exception as e:
+            self._logger.error(f"_send_callback: send_to_jeedom failed: {e!r}")
+
+    async def _update_info_commands_impl(self, data: InfoCommandsPayload | None = None) -> None:
+        """Send PHP INFO command update via _send_callback().
+
+        If data is None, builds full payload from current SM1/SM2 state.
+        If data is provided, uses it directly (partial update path).
+
+        Args:
+            data: Optional partial payload. None triggers full state refresh.
+
+        Reference: story 6-6 AC1/AC5, daemon-design.md Component 1
+        """
+        if data is None:
+            payload: dict[str, Any] = {
+                "type": "info_update",
+                "supervision_state": self._supervision_value(),
+                "supervision_label": self._supervision_label(),
+                "event_state": self._event_state_from_sm2(),
+                "event_label": self._event_label_from_sm2(),
+            }
+        else:
+            payload = dict(data)
+            payload["type"] = "info_update"
+        await self._send_callback(payload)
+
+    @staticmethod
+    def _error_tier(code: ErrorCode) -> Literal[1, 2, 3]:
+        """Return tier number (1, 2, or 3) for a given ErrorCode.
+
+        Args:
+            code: ErrorCode enum value
+
+        Returns:
+            1 for T1 (auto-heal), 2 for T2 (user-actionable), 3 for T3 (critical)
+        """
+        from .error_handler import ErrorTier, classify_error
+        tier = classify_error(code)
+        if tier == ErrorTier.T1:
+            return 1
+        elif tier == ErrorTier.T2:
+            return 2
+        else:
+            return 3
+
+    async def _dispatch_notify(self, code: ErrorCode, ctx: NotificationContext) -> None:
+        """Dispatch error to PHP via tier-appropriate callbacks.
+
+        Tier → callback mapping:
+          T1: message_center only
+          T2: message_center + notify + error_update
+          T3: message_center + notify (CRITIQUE prefix) + error_update
+
+        Each channel is wrapped in its own try/except — failure of one never
+        prevents the others.
+
+        Args:
+            code: ErrorCode enum value
+            ctx: Typed notification context dataclass
+
+        Reference: story 6-6 AC2/AC7, error-handler-design.md § Tier dispatch
+        """
+        from .error_handler import build_notification, T3_PREFIX, _context_to_dict
+        import dataclasses
+
+        tier = self._error_tier(code)
+        ctx_dict = _context_to_dict(ctx)
+
+        # Build base context for build_notification (design doc contract)
+        transport_str = "tcp" if self._preset.transport is TransportType.TCP else "udp"
+        csr_address = f"{self._preset.host}:{self._preset.port}"
+        build_ctx: dict[str, Any] = {
+            "csr_address": csr_address,
+            "transport": transport_str,
+            "strike_count": self._strike_counter,
+        }
+        if ctx_dict:
+            build_ctx.update(ctx_dict)
+
+        notification = build_notification(code, build_ctx)
+        title: str = notification["title"]
+        message: str = notification["message"]
+        logical_id: str = notification["logical_id"]
+        timestamp = datetime.now(timezone.utc).isoformat()
+
+        # Channel 1: message_center (all tiers)
+        try:
+            await self._send_callback({
+                "type": "message_center",
+                "message": message,
+                "logical_id": logical_id,
+            })
+        except Exception as e:
+            self._logger.error(f"_dispatch_notify: message_center failed: {e!r}")
+
+        # Channel 2+3: notify + error_update (T2 and T3 only)
+        if tier >= 2:
+            notify_title = title if tier < 3 else T3_PREFIX + title if not title.startswith(T3_PREFIX) else title
+
+            try:
+                await self._send_callback({
+                    "type": "notify",
+                    "title": notify_title,
+                    "message": message,
+                })
+            except Exception as e:
+                self._logger.error(f"_dispatch_notify: notify failed: {e!r}")
+
+            try:
+                await self._send_callback({
+                    "type": "error_update",
+                    "code": code.name,
+                    "message": message,
+                    "timestamp": timestamp,
+                    "context": ctx_dict,
+                    "count": 1,
+                })
+            except Exception as e:
+                self._logger.error(f"_dispatch_notify: error_update failed: {e!r}")
 
     def _set_sm1_state(self, new_state: SM1State) -> None:
         """Set SM1 state and notify the queue consumer via _sm1_state_changed event.
@@ -733,6 +882,10 @@ class SIADaemon(BaseDaemon):
             "prev_strike": prev_strike,
         }
 
+        # Emit resolve_t1 when recovering from degraded state (clears T1 errors on PHP side)
+        if prev_strike > 0:
+            await self._send_callback({"type": "error_update", "resolve_t1": 1})
+
         # Log supervision event (may be throttled for routine ACKs)
         await self._log_sm1_supervision("ack", ctx)
 
@@ -987,6 +1140,15 @@ class SIADaemon(BaseDaemon):
                     context={"account": self._account, "seq": ack_ctx["seq"]},
                     is_routine=True,
                 )
+                await self._send_callback({
+                    "type": "message_trace",
+                    "dialog": {
+                        "dialog_type": "supervision",
+                        "routine": 1,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "elapsed_ms": int(ack_ctx["elapsed_ms"]),
+                    },
+                })
 
             elif event == "timeout":
                 t_ctx = cast(SM1TimeoutLogCtx, ctx)
@@ -1010,6 +1172,15 @@ class SIADaemon(BaseDaemon):
                     context={"account": self._account, "seq": t_ctx["seq"], "strike": strike},
                     is_routine=False,
                 )
+                await self._send_callback({
+                    "type": "message_trace",
+                    "dialog": {
+                        "dialog_type": "supervision",
+                        "routine": 0,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "elapsed_ms": int(t_ctx["elapsed_ms"]),
+                    },
+                })
 
             elif event == "nak_timestamp":
                 n_ctx = cast(SM1NakLogCtx, ctx)
@@ -1028,6 +1199,16 @@ class SIADaemon(BaseDaemon):
                     context={"account": self._account, "seq": n_ctx["seq"], "strike": strike},
                     is_routine=False,
                 )
+                await self._send_callback({
+                    "type": "message_trace",
+                    "dialog": {
+                        "dialog_type": "supervision",
+                        "routine": 0,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "raw_hex": n_ctx["raw_hex"],
+                        "elapsed_ms": int(n_ctx["elapsed_ms"]),
+                    },
+                })
 
             elif event == "nak_bad":
                 n_ctx = cast(SM1NakLogCtx, ctx)
@@ -1046,6 +1227,16 @@ class SIADaemon(BaseDaemon):
                     context={"account": self._account, "seq": n_ctx["seq"], "strike": strike},
                     is_routine=False,
                 )
+                await self._send_callback({
+                    "type": "message_trace",
+                    "dialog": {
+                        "dialog_type": "supervision",
+                        "routine": 0,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "raw_hex": n_ctx["raw_hex"],
+                        "elapsed_ms": int(n_ctx["elapsed_ms"]),
+                    },
+                })
 
         except Exception as e:
             self._logger.error(f"Error logging SM1 supervision event: {e}")
@@ -1446,6 +1637,17 @@ class SIADaemon(BaseDaemon):
                 is_routine=False,
             )
 
+            # Emit message_trace callback for protocol inspector
+            await self._send_callback({
+                "type": "message_trace",
+                "dialog": {
+                    "dialog_type": "alarm",
+                    "routine": 0,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "elapsed_ms": int(ctx["elapsed"] * 1000),
+                },
+            })
+
         except asyncio.CancelledError:
             raise  # propagate task cancellation (daemon-design.md § CancelledError safety rule)
         except (KeyError, AttributeError, TypeError) as e:
@@ -1630,10 +1832,27 @@ class SIADaemon(BaseDaemon):
 
     # ===== TASK 7 (Story 5-3): on_message — ALARM DISPATCH FROM PHP =====
 
+    async def _on_message_dispatch(self, message: dict) -> None:
+        """Framework callback adapter: normalize raw PHP message dict → on_message().
+
+        The jeedomdaemon framework passes the full parsed JSON dict including 'apikey'.
+        This adapter strips 'apikey', extracts 'cmd', and delegates to on_message().
+
+        Args:
+            message: Full parsed JSON dict from PHP sendToDaemon() socket.
+                     Expected shape: {"cmd": "burglarAlarm", "zone": "...", "apikey": "..."}
+
+        Reference: story 6-6 AC4, Dev Notes § on_message() framework contract
+        """
+        message.pop("apikey", None)
+        cmd: str = message.pop("cmd", "")
+        params: OnMessageParams = cast(OnMessageParams, message)
+        await self.on_message(cmd, params)
+
     async def on_message(self, cmd: str, params: OnMessageParams) -> None:
         """Receive alarm command from PHP and enqueue for SM2 processing.
 
-        Called by jeedomdaemon framework when PHP invokes sendToDaemon().
+        Called by _on_message_dispatch() after apikey/cmd extraction.
         Extracts alarm type, zone, and media_url from params and enqueues
         an EVENT item into the priority queue. Returns immediately (fire-and-forget):
         the actual send happens asynchronously in _queue_consumer() → _send_with_retry().

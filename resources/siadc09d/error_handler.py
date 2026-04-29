@@ -123,7 +123,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from types import MappingProxyType
-from typing import Final, Literal
+from typing import Any, Final, Literal, TypedDict
 
 
 # T3_PREFIX constant — prepended to all critical-tier notification messages
@@ -344,6 +344,127 @@ NotificationContext = (
 )
 
 
+class NotificationPayload(TypedDict):
+    """Typed return value of build_notification()."""
+    tier: Literal[1, 2, 3]
+    logical_id: str
+    title: str
+    message: str
+
+
+def event_type_fr(event_type: str) -> str:
+    """Convert SIA alarm command name to French label.
+
+    Args:
+        event_type: PHP command or SIA code — "burglarAlarm"/"BA", "fireAlarm"/"FA", "panicAlarm"/"PA"
+
+    Returns:
+        French label string
+    """
+    mapping = {
+        "burglarAlarm": "intrusion",
+        "BA": "intrusion",
+        "fireAlarm": "incendie",
+        "FA": "incendie",
+        "panicAlarm": "panique",
+        "PA": "panique",
+    }
+    return mapping.get(event_type, event_type)
+
+
+def build_notification(code: ErrorCode, context: dict[str, Any]) -> NotificationPayload:
+    """Build notification payload for a given error code and runtime context.
+
+    All context fields accessed via .get('field', '<inconnu>') for missing-field resilience.
+    A degraded message is always preferable to a KeyError in a safety-critical context.
+
+    Args:
+        code: ErrorCode enum value
+        context: Runtime dict with fields: csr_address, transport, strike_count, etc.
+
+    Returns:
+        NotificationPayload TypedDict with tier, logical_id, title, message.
+    """
+    tier_map: dict[ErrorCode, Literal[1, 2, 3]] = {
+        ErrorCode.SUPERVISION_TIMEOUT: 1,
+        ErrorCode.SUPERVISION_NAK: 1,
+        ErrorCode.BAD_CSR_RESPONSE: 2,
+        ErrorCode.SUPERVISION_DISCONNECTED: 3,
+        ErrorCode.EVENT_FAILED: 3,
+        ErrorCode.TRANSPORT_PERMANENT: 3,
+    }
+
+    title_map: dict[ErrorCode, str] = {
+        ErrorCode.SUPERVISION_TIMEOUT: "siaDC09 — Timeout supervision (auto-résolu)",
+        ErrorCode.SUPERVISION_NAK: "siaDC09 — NAK supervision (horodatage rejeté — auto-résolu)",
+        ErrorCode.BAD_CSR_RESPONSE: "siaDC09 — Réponse incompréhensible de la centrale",
+        ErrorCode.SUPERVISION_DISCONNECTED: (
+            "siaDC09 — " + T3_PREFIX + "Supervision perdue"
+        ),
+        ErrorCode.EVENT_FAILED: "siaDC09 — " + T3_PREFIX + "Alarme non transmise",
+        ErrorCode.TRANSPORT_PERMANENT: (
+            "siaDC09 — " + T3_PREFIX
+            + f"Connexion {context.get('transport', '<inconnu>')} impossible"
+        ),
+    }
+
+    csr_address = context.get("csr_address", "<inconnu>")
+    transport = context.get("transport", "<inconnu>").upper()
+    strike_count = context.get("strike_count", "?")
+
+    message_map: dict[ErrorCode, str] = {
+        ErrorCode.SUPERVISION_TIMEOUT: (
+            f"Timeout supervision auto-résolu (strike {strike_count}/3).\n"
+            f"Centrale: {csr_address} ({transport})."
+        ),
+        ErrorCode.SUPERVISION_NAK: (
+            f"NAK supervision (strike {strike_count}/3) — la centrale a rejeté "
+            f"l'horodatage du message.\nCentrale: {csr_address} ({transport})."
+        ),
+        ErrorCode.BAD_CSR_RESPONSE: (
+            "La centrale a renvoyé une réponse que le plugin ne peut pas interpréter.\n"
+            "Cela peut indiquer un problème de version de protocole ou de configuration réseau.\n"
+            "Contactez le support siaDC09 si le problème persiste.\n"
+            f"Centrale: {csr_address} ({transport})."
+        ),
+        ErrorCode.SUPERVISION_DISCONNECTED: (
+            T3_PREFIX
+            + "La supervision vers la centrale est perdue\n"
+            "(3 tentatives sans réponse). La centrale de télésurveillance ne reçoit plus\n"
+            "les signaux de vie. Vérifiez votre connexion réseau et le service IMA Protect.\n"
+            f"Centrale: {csr_address} ({transport})."
+        ),
+        ErrorCode.EVENT_FAILED: (
+            T3_PREFIX
+            + "L'alarme "
+            + event_type_fr(str(context.get("sia_code", context.get("event_type", "<inconnu>"))))
+            + " (zone: "
+            + str(context.get("zone_name", context.get("zone", "<inconnu>")))
+            + ") n'a pas pu être transmise\nà la centrale après "
+            + str(context.get("attempts_made", context.get("retry_count", "?")))
+            + " tentative(s). La centrale de\ntélésurveillance n'a PAS reçu l'alarme.\n"
+            "Vérifiez votre connexion réseau et le service IMA Protect.\n"
+            f"Centrale: {csr_address} ({transport})."
+        ),
+        ErrorCode.TRANSPORT_PERMANENT: (
+            T3_PREFIX
+            + f"Impossible de rétablir la connexion {context.get('transport', '<inconnu>')} "
+            "avec la centrale\naprès "
+            + str(context.get("retry_count", "?"))
+            + " tentative(s). La supervision et la transmission d'alarmes\n"
+            "sont interrompues. Vérifiez votre réseau.\n"
+            f"Centrale: {csr_address} ({transport})."
+        ),
+    }
+
+    tier: Literal[1, 2, 3] = tier_map.get(code, 1)  # type: ignore[assignment]
+    title = title_map.get(code, f"siaDC09 — Erreur {code.name}")
+    message = message_map.get(code, f"Erreur inconnue: {code.name}")
+    logical_id = code.value  # e.g. "supervision_timeout"
+
+    return NotificationPayload(tier=tier, logical_id=logical_id, title=title, message=message)
+
+
 def _notify(code: ErrorCode, ctx: NotificationContext) -> None:
     """Notify PHP and user of an error via message center and/or notification command.
 
@@ -446,12 +567,9 @@ def _dispatch_notify(code: ErrorCode, ctx: NotificationContext) -> None:
     [Source: daemon-design.md § Error Handler Integration]
     [Source: php-core-design.md § Daemon-PHP IPC Protocol]
     """
-    # Stub: full implementation in Epic 6
-    # For now, this documents the callback contract and dispatch logic
-    raise NotImplementedError(
-        "Full _dispatch_notify() implementation deferred to Epic 6 "
-        "(Error Handler Implementation). Story 3.3 defines the interface only."
-    )
+    # Module-level stub — actual dispatch implemented in SIADaemon._dispatch_notify()
+    # This function documents the callback contract (see Story 3.3 docstring).
+    pass
 
 
 def _validate_context(code: ErrorCode, ctx: NotificationContext) -> bool:
@@ -597,6 +715,9 @@ __all__ = [
     "TransportPermanentCtx",
     "EventFailedCtx",
     "NotificationContext",
+    "NotificationPayload",
+    "build_notification",
+    "event_type_fr",
     "_notify",
     "_dispatch_notify",
     "_validate_context",

@@ -321,13 +321,14 @@ async def test_on_stop_awaits_tasks_with_timeout(daemon_factory):
 
 # ===== TC9: _notify() is a synchronous method =====
 
-def test_notify_is_synchronous():
+@pytest.mark.asyncio
+async def test_notify_is_synchronous():
     """
     _notify() must be a regular def, not async def.
 
     Expected result:
     - inspect.iscoroutinefunction(SIADaemon._notify) returns False
-    - Calling daemon._notify() returns None (not a coroutine object)
+    - Calling daemon._notify() returns None immediately (schedules task, does not await)
     """
     # Assert: _notify is defined as def, not async def
     assert not inspect.iscoroutinefunction(SIADaemon._notify)
@@ -335,6 +336,7 @@ def test_notify_is_synchronous():
     preset = make_daemon_preset()
     with patch('sys.argv', ['test']):
         daemon = SIADaemon(preset=preset)
+    daemon._dispatch_notify = AsyncMock()
     ctx = SM1TimeoutCtx(
         elapsed_ms=30000.0,
         strike_count=1,
@@ -347,20 +349,25 @@ def test_notify_is_synchronous():
     # Assert: not a coroutine (no await needed)
     assert not asyncio.iscoroutine(result)
 
+    # Drain scheduled task
+    await asyncio.gather(*daemon._tasks, return_exceptions=True)
 
-# ===== TC10: _notify() stub does not raise =====
 
-def test_notify_stub_does_not_raise():
+# ===== TC10: _notify() does not raise =====
+
+@pytest.mark.asyncio
+async def test_notify_stub_does_not_raise():
     """
-    v1.0 _notify() stub should complete without raising any exception.
+    _notify() should complete without raising any exception.
 
     Expected result:
-    - Calling _notify() with any valid ErrorCode/context completes silently
+    - Calling _notify() with any valid ErrorCode/context schedules a task silently
     - No exception raised regardless of error code
     """
     preset = make_daemon_preset()
     with patch('sys.argv', ['test']):
         daemon = SIADaemon(preset=preset)
+    daemon._dispatch_notify = AsyncMock()
 
     # Assert: T1 code does not raise
     daemon._notify(ErrorCode.SUPERVISION_TIMEOUT, SM1TimeoutCtx(
@@ -383,6 +390,9 @@ def test_notify_stub_does_not_raise():
         attempts_made=3,
         last_error='timeout',
     ))
+
+    # Drain scheduled tasks
+    await asyncio.gather(*daemon._tasks, return_exceptions=True)
 
 
 # ===== TC11: _tasks initialized in __init__ as empty set =====
@@ -638,17 +648,19 @@ async def test_on_start_idempotent_restart(daemon_factory):
 
 # ===== G6: _notify() stub does not raise for ALL ErrorCode values =====
 
-def test_notify_stub_handles_all_error_codes():
+@pytest.mark.asyncio
+async def test_notify_stub_handles_all_error_codes():
     """
-    v1.0 _notify() stub must not raise for any ErrorCode + its matching context.
+    _notify() must not raise for any ErrorCode + its matching context.
 
     Expected result:
-    - Every ErrorCode/context combination completes without exception
-    - Covers all 6 codes (TC10 only tested 3)
+    - Every ErrorCode/context combination schedules a task without exception
+    - Covers all 6 codes
     """
     preset = make_daemon_preset()
     with patch('sys.argv', ['test']):
         daemon = SIADaemon(preset=preset)
+    daemon._dispatch_notify = AsyncMock()
 
     code_ctx_pairs = [
         (ErrorCode.SUPERVISION_TIMEOUT, SM1TimeoutCtx(
@@ -680,38 +692,38 @@ def test_notify_stub_handles_all_error_codes():
         # Assert: no exception for any error code
         daemon._notify(code, ctx)
 
+    # Drain all scheduled tasks
+    await asyncio.gather(*daemon._tasks, return_exceptions=True)
 
-# ===== G7: _notify() stub logs at DEBUG level =====
 
-def test_notify_stub_logs_debug(caplog):
+# ===== G7: _notify() schedules _dispatch_notify task =====
+
+@pytest.mark.asyncio
+async def test_notify_stub_logs_debug():
     """
-    v1.0 _notify() stub must produce a DEBUG log containing the error code name.
+    _notify() must schedule _dispatch_notify as a tracked task.
 
     Expected result:
-    - A DEBUG-level log record is emitted
-    - The log message contains the ErrorCode name
+    - _notify() is synchronous (def, not async def)
+    - A task named 'notify_SUPERVISION_TIMEOUT' is tracked in _tasks
+    - _dispatch_notify is called with the correct code and context
     """
     preset = make_daemon_preset()
     with patch('sys.argv', ['test']):
         daemon = SIADaemon(preset=preset)
-    daemon._logger = logging.getLogger("test_notify_debug")
+    daemon._dispatch_notify = AsyncMock()
 
     ctx = SM1TimeoutCtx(
         elapsed_ms=1000.0, strike_count=1, supervision_interval_s=60.0
     )
+    daemon._notify(ErrorCode.SUPERVISION_TIMEOUT, ctx)
 
-    with caplog.at_level(logging.DEBUG, logger="test_notify_debug"):
-        daemon._notify(ErrorCode.SUPERVISION_TIMEOUT, ctx)
+    # Assert: a task was added to _tasks
+    assert len(daemon._tasks) >= 1, "Expected a tracked task after _notify()"
 
-    # Assert: at least one DEBUG record was emitted
-    debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]
-    assert len(debug_records) >= 1, "Expected at least one DEBUG log from _notify stub"
-
-    # Assert: the log mentions the error code name
-    assert any("SUPERVISION_TIMEOUT" in r.message for r in debug_records), (
-        f"Expected 'SUPERVISION_TIMEOUT' in DEBUG log, got: "
-        f"{[r.message for r in debug_records]}"
-    )
+    # Drain and verify _dispatch_notify was called
+    await asyncio.gather(*daemon._tasks, return_exceptions=True)
+    daemon._dispatch_notify.assert_called_once_with(ErrorCode.SUPERVISION_TIMEOUT, ctx)
 
 
 # ===== G8: on_start() with TCP transport creates same two tasks =====
