@@ -27,3 +27,6 @@ venv/
 env/
 ENV/
 _bmad/
+.claude/commands/bmad-*
+.claude/commands/bmad_*
+.claude/skills/bmad-*/
