@@ -49,6 +49,7 @@ def daemon_factory():
         mock_transport.send_frame = AsyncMock(return_value={'status': 'ack', 'raw_nak': None})
         mock_transport.close = AsyncMock()
         daemon._sia_transport = mock_transport
+        daemon.send_to_jeedom = AsyncMock()
         return daemon
 
     return factory
@@ -825,27 +826,27 @@ def _find_enclosing_function(tree: "ast.Module", target_line: int) -> str:
 @pytest.mark.asyncio
 async def test_on_stop_swallows_info_push_failure(daemon_factory, caplog):
     """
-    If _update_info_commands() raises during on_stop(), the exception must be
+    If _send_callback() raises during on_stop() STOPPED push, the exception must be
     caught and logged, not propagated. Shutdown must continue.
 
     Expected result:
     - on_stop() completes without raising
-    - The exception is logged as ERROR
+    - The exception is logged as WARNING
     - Transport is still closed (shutdown continued past Step 1 failure)
     """
     daemon = daemon_factory()
     daemon._logger = logging.getLogger("test_on_stop_info_push")
-    daemon._update_info_commands = AsyncMock(
+    daemon._send_callback = AsyncMock(
         side_effect=RuntimeError("PHP callback failed")
     )
     mock_transport = daemon._sia_transport
 
-    with caplog.at_level(logging.ERROR, logger="test_on_stop_info_push"):
+    with caplog.at_level(logging.WARNING, logger="test_on_stop_info_push"):
         await daemon.on_stop()
 
-    # Assert: error was logged (not propagated)
-    assert any("terminal INFO push failed" in r.message for r in caplog.records), (
-        f"Expected INFO push failure log, got: {[r.message for r in caplog.records]}"
+    # Assert: warning was logged (not propagated)
+    assert any("STOPPED push failed" in r.message for r in caplog.records), (
+        f"Expected STOPPED push failure log, got: {[r.message for r in caplog.records]}"
     )
 
     # Assert: shutdown continued — transport was still closed

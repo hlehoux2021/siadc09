@@ -498,8 +498,8 @@ async def test_tc13_strike_timing_precision(mock_daemon, time_mock):
     daemon._sm1_state = SM1State.HEALTHY
     daemon._send_raw.return_value = {'status': 'timeout'}
 
-    # Mock time.monotonic to advance by 10s per call
-    with patch('time.monotonic', side_effect=[0, 10, 20, 30]):
+    # Mock time.monotonic to advance by 10s per call (2 calls per _send_supervision: start + elapsed)
+    with patch('time.monotonic', side_effect=[0, 10, 20, 30, 40, 50]):
         # Strike 1 at T=10
         daemon._send_raw.return_value = {'status': 'timeout'}
         await daemon._send_supervision()

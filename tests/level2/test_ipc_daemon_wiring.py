@@ -35,6 +35,7 @@ def _make_daemon(transport: str = "UDP") -> SIADaemon:
     daemon._account = "001234"
     daemon._receiver_prefix = ""
     daemon._account_prefix = "L0"
+    daemon.send_to_jeedom = AsyncMock()
 
     mock_t = MagicMock()
     mock_t.start = AsyncMock()
@@ -186,8 +187,8 @@ async def test_send_callback_does_not_block_queue_consumer():
     daemon._account_prefix = "L0"
     daemon._receiver_prefix = ""
 
-    # Make send_to_jeedom raise on every call
-    daemon.send_to_jeedom = AsyncMock(side_effect=ConnectionError("PHP down"))
+    # Allow on_start() INITIALIZING push to succeed, then make subsequent calls raise
+    daemon.send_to_jeedom = AsyncMock()
 
     with patch("resources.siadc09d.daemon.SIAUDPTransport") as MockT:
         mock_t = MagicMock()
@@ -198,6 +199,9 @@ async def test_send_callback_does_not_block_queue_consumer():
         MockT.return_value = mock_t
         await daemon.on_start()
         daemon._sia_transport = mock_t
+
+    # Now make send_to_jeedom raise on every subsequent call (_send_callback uses it)
+    daemon.send_to_jeedom = AsyncMock(side_effect=ConnectionError("PHP down"))
 
     # Enqueue 2 supervision items
     await daemon._enqueue_supervision()

@@ -81,6 +81,7 @@ async def _make_started_daemon(transport: str = 'UDP') -> tuple[SIADaemon, Magic
     daemon._account = '001234'
     daemon._receiver_prefix = ''
     daemon._account_prefix = 'L0'
+    daemon.send_to_jeedom = AsyncMock()
 
     transport_cls = 'SIAUDPTransport' if transport == 'UDP' else 'SIATCPTransport'
     with patch(f'resources.siadc09d.daemon.{transport_cls}') as MockT:

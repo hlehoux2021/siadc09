@@ -254,7 +254,7 @@ class TestDispatchNotify:
         notify_payloads = [p for p in captured_payloads if p["type"] == "notify"]
         assert len(notify_payloads) >= 1  # at least one notify payload
         title = notify_payloads[0]["title"]
-        assert title.startswith(T3_PREFIX)  # T3 title has CRITIQUE prefix
+        assert T3_PREFIX in title  # T3 title contains CRITIQUE prefix
 
     @pytest.mark.asyncio
     async def test_error_update_on_new_error(

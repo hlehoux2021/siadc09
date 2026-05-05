@@ -37,6 +37,7 @@ def daemon():
     with patch('sys.argv', ['test']):
         d = SIADaemon(preset=make_daemon_preset())
     d._logger = MagicMock()
+    d.send_to_jeedom = AsyncMock()
     return d
 
 
