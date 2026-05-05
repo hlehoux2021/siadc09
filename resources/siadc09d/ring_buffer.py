@@ -187,7 +187,10 @@ class RingBuffer:
             self._last_routine_supervision_time = self._get_monotonic_time()
 
         # Log immediately (either non-routine or routine that passed throttle)
-        self.push(level, message, context)
+        # Tag is_routine onto the entry so callers can distinguish state-change vs routine entries.
+        entry = make_message_entry(level, message, context)
+        entry["is_routine"] = is_routine
+        self._buffer.appendleft(entry)
         return True
 
     def _should_log_routine_supervision(self) -> bool:

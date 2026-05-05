@@ -447,7 +447,7 @@ class SIADaemon(BaseDaemon):
                 "event_label": self._event_label_from_sm2(),
             }
         else:
-            payload = dict(data)
+            payload = {k: v for k, v in data.items() if v is not None}
             payload["type"] = "info_update"
         await self._send_callback(payload)
 
@@ -522,7 +522,7 @@ class SIADaemon(BaseDaemon):
 
         # Channel 2+3: notify + error_update (T2 and T3 only)
         if tier >= 2:
-            notify_title = title if tier < 3 else T3_PREFIX + title if not title.startswith(T3_PREFIX) else title
+            notify_title = title if tier < 3 else title if title.startswith(T3_PREFIX) else T3_PREFIX + title
 
             try:
                 await self._send_callback({
@@ -742,9 +742,11 @@ class SIADaemon(BaseDaemon):
             if self._preset.transport is TransportType.TCP:
                 # Force socket close to escape half-open stall
                 # (TCP connection may be in half-open state, blocking indefinitely)
-                # Transition to TCP_RECONNECTING and start reconnect loop
+                # Transition to TCP_RECONNECTING and start reconnect loop (D-3 guard:
+                # only spawn if no loop already running — prevents dual-task race).
                 self._set_sm1_state(SM1State.TCP_RECONNECTING)
-                self._track_task(self._tcp_reconnect_loop(), name="tcp_reconnect_loop")
+                if not any(t.get_name() == "tcp_reconnect_loop" for t in self._tasks):
+                    self._track_task(self._tcp_reconnect_loop(), name="tcp_reconnect_loop")
 
             # Fire T3 notification (once only, via _sm1_t3_fired deduplication)
             if not self._sm1_t3_fired:
@@ -877,9 +879,11 @@ class SIADaemon(BaseDaemon):
             "prev_strike": prev_strike,
         }
 
-        # Emit resolve_t1 when recovering from degraded state (clears T1 errors on PHP side)
+        # Emit resolve_t1 when recovering from degraded state (clears T1 errors on PHP side).
+        # Both codes resolved unconditionally — PHP handler is idempotent (no-op if code not in last_errors).
         if prev_strike > 0:
-            await self._send_callback({"type": "error_update", "resolve_t1": 1})
+            await self._send_callback({"type": "error_update", "resolve_t1": 1, "code": ErrorCode.SUPERVISION_TIMEOUT.value})
+            await self._send_callback({"type": "error_update", "resolve_t1": 1, "code": ErrorCode.SUPERVISION_NAK.value})
 
         # Log supervision event (may be throttled for routine ACKs)
         await self._log_sm1_supervision("ack", ctx)
@@ -927,8 +931,8 @@ class SIADaemon(BaseDaemon):
                 transport="tcp" if self._preset.transport is TransportType.TCP else "udp",
             ))
 
-        # Fire T1 only at strike < 3 (not at strike=3, which fires T3)
-        if self._strike_counter < 3:
+        # Fire T1 only at strike < 3 and only when NAK was parseable (unparseable → T2 already fired)
+        if self._strike_counter < 3 and is_parseable:
             self._notify(ErrorCode.SUPERVISION_NAK, SM1NakCtx(
                 raw_nak_frame=nak_data,
                 nak_timestamp=csr_time.isoformat() if csr_time else None,
@@ -1009,6 +1013,14 @@ class SIADaemon(BaseDaemon):
 
         Reference: daemon-design.md Task 3 (TCP drop path)
         """
+        # State regression guard: late TCP drop callback must not regress terminal states.
+        # TCP_RECONNECTING: reconnect already in progress — ignore duplicate.
+        # NO_NETWORK: terminal state — ignore entirely (daemon stopped/watchdog handles).
+        if self._sm1_state in (SM1State.TCP_RECONNECTING, SM1State.NO_NETWORK):
+            self._logger.debug(
+                f"TCP drop ignored: SM1 already {self._sm1_state.name}"
+            )
+            return
         self._set_sm1_state(SM1State.TCP_RECONNECTING)
         self._track_task(self._tcp_reconnect_loop(), name="tcp_reconnect_loop")
         self._logger.warning("TCP connection dropped by OS, initiating reconnect")
@@ -1055,7 +1067,7 @@ class SIADaemon(BaseDaemon):
             try:
                 _reader, writer = await asyncio.wait_for(
                     asyncio.open_connection(self._preset.host, self._preset.port),
-                    timeout=TCP_CONNECT_TIMEOUT_S,
+                    timeout=self._preset.connect_timeout_s,
                 )
                 # Reachable — close probe connection immediately
                 try:
@@ -1817,7 +1829,7 @@ class SIADaemon(BaseDaemon):
         Reference: daemon-design.md Component 1 — _supervision_loop() / Task B.3
         Reference: SIA DC-09-2021 § 5.5.2 Supervision Message
         """
-        interval: int = int(getattr(self._preset, 'supervision_interval_s', SUPERVISION_INTERVAL_S))
+        interval: float = float(getattr(self._preset, 'supervision_interval_s', SUPERVISION_INTERVAL_S))
         while True:
             await asyncio.sleep(interval)
             self._logger.debug(
@@ -1910,6 +1922,14 @@ class SIADaemon(BaseDaemon):
         from . import messages
         self._logger.info(messages.SM1_STARTING)
 
+        # Push INITIALIZING to PHP before any task starts — fail-fast if unreachable.
+        # event_state/event_label intentionally NOT included (retained across restarts).
+        await self.send_to_jeedom({
+            "type": "info_update",
+            "supervision_state": 1,
+            "supervision_label": SM1_INITIALIZING_FR,
+        })
+
         # Create and start transport before launching queue consumer
         if self._preset.transport is TransportType.UDP:
             t: SIABaseTransport = SIAUDPTransport(
@@ -1949,13 +1969,17 @@ class SIADaemon(BaseDaemon):
 
         Reference: daemon-design.md Task 1.11
         """
-        # Step 1 — Terminal INFO push (best-effort)
+        # Step 1 — STOPPED push (best-effort, event_state/event_label retained across restarts)
         try:
-            await self._update_info_commands()
+            await self._send_callback({
+                "type": "info_update",
+                "supervision_state": 0,
+                "supervision_label": "ARRÊTÉ",
+            })
         except asyncio.CancelledError:
-            raise  # never swallow cancellation (daemon-design.md § CancelledError safety rule)
+            raise
         except Exception as e:
-            self._logger.error(f"on_stop: terminal INFO push failed: {e!r}")
+            self._logger.warning(f"on_stop: STOPPED push failed: {e!r}")
 
         # Step 2 — Queue drain (discard pending items, no callbacks)
         while not self._queue.empty():
