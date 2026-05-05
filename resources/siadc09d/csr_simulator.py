@@ -16,7 +16,16 @@ import socket
 from datetime import datetime, timezone
 from typing import TypedDict
 
-from resources.siadc09d.sia_protocol import CrcFormat, SIAMessageBuilder, decode_ack_nak, _compute_crc_modbus
+from resources.siadc09d.sia_protocol import (
+    CrcFormat,
+    SIAMessageBuilder,
+    SIA_DCS_TOKEN,
+    SIA_NULL_CODE,
+    ENCRYPTED_MARKER,
+    _compute_crc_modbus,
+    _extract_frame_components,
+    decode_ack_nak,
+)
 from resources.siadc09d.sia_crypto import SIACipher
 
 
@@ -216,7 +225,7 @@ class CSRSimulator:
                 # Log inbound frame
                 frame_type = parsed_frame.get('type', 'unknown')
                 seq = parsed_frame.get('seq', 0)
-                self._log_frame_exchange('RX', frame_type, seq, encrypted_inbound, datetime.now(timezone.utc))
+                self._log_frame_exchange('RX', frame_type, seq or 0, encrypted_inbound, datetime.now(timezone.utc))
 
                 # Decide response type
                 response_type = self._decide_response(parsed_frame, self.preset)
@@ -279,7 +288,7 @@ class CSRSimulator:
                     # Log inbound frame
                     frame_type = parsed_frame.get('type', 'unknown')
                     seq = parsed_frame.get('seq', 0)
-                    self._log_frame_exchange('RX', frame_type, seq, encrypted_inbound, datetime.now(timezone.utc))
+                    self._log_frame_exchange('RX', frame_type, seq or 0, encrypted_inbound, datetime.now(timezone.utc))
 
                     # Decide response type
                     response_type = self._decide_response(parsed_frame, self.preset)
@@ -417,6 +426,10 @@ class CSRSimulator:
         """
         Parse received frame and extract message info.
 
+        Handles both SIA-DCS alarm/supervision frames (PE → CSR) and ACK/NAK
+        response frames (CSR → PE). decode_ack_nak only handles ACK/NAK; SIA-DCS
+        frames are parsed by extracting the id_token directly from the message string.
+
         Args:
             raw_frame: Raw frame bytes
             preset: CSR preset with crc_format
@@ -426,9 +439,46 @@ class CSRSimulator:
                            seq (int | None), raw_nak (bytes | None)
         """
         try:
-            # Use Story 1.3 decode_ack_nak to parse frame
+            # Try decode_ack_nak first (handles ACK/NAK frames)
             result = decode_ack_nak(raw_frame, crc_format=preset['crc_format'])
-            return result
+            if result['type'] != 'unknown':
+                return result
+
+            # Fallback: parse SIA-DCS frame type from id_token
+            components = _extract_frame_components(raw_frame)
+            if components is None:
+                return {'type': 'unknown', 'seq': None, 'raw_nak': None}
+
+            _crc_bytes, message_str, _length_bytes, _trailing = components
+            if not message_str.startswith('"'):
+                return {'type': 'unknown', 'seq': None, 'raw_nak': None}
+
+            end_quote = message_str.find('"', 1)
+            if end_quote < 0:
+                return {'type': 'unknown', 'seq': None, 'raw_nak': None}
+
+            id_token = message_str[1:end_quote]
+            # Strip encryption marker if present
+            if id_token.startswith(ENCRYPTED_MARKER):
+                id_token = id_token[1:]
+
+            # Extract sequence number (4 digits after id_token closing quote)
+            seq_str = message_str[end_quote + 1: end_quote + 5]
+            seq: int | None = int(seq_str) if seq_str.isdigit() else None
+
+            if id_token == SIA_DCS_TOKEN:
+                # Determine if NULL (supervision) or ALARM by event code in data block
+                # NULL code is '0000'; alarm codes are non-zero
+                frame_type = 'NULL'
+                bracket_start = message_str.find('[')
+                if bracket_start >= 0:
+                    data_block = message_str[bracket_start:]
+                    if SIA_NULL_CODE not in data_block:
+                        frame_type = 'ALARM'
+                return {'type': frame_type, 'seq': seq, 'raw_nak': None}
+
+            return {'type': 'unknown', 'seq': seq, 'raw_nak': None}
+
         except Exception as e:
             self._logger.debug(f"Frame parsing error: {e}")
             return {'type': 'unknown', 'seq': None, 'raw_nak': None}
