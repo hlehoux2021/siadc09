@@ -29,7 +29,8 @@
 # - SM typically creates next story ONLY after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then Dev runs code-review (fresh context, ideally different LLM)
 
-generated: "2026-04-09"
+last_updated: "2026-05-05" # 7-3 → done
+generated: "2026-05-04"
 project: "my-project"
 project_key: "NOKEY"
 tracking_system: "file-system"
@@ -37,7 +38,7 @@ story_location: "/Users/herve.lehoux/Dev/my-project/_bmad-output/implementation-
 
 development_status:
   # Epic 1: SIA DC-09 Protocol Engine
-  epic-1: in-progress
+  epic-1: done
   1-1-sia-protocol-message-builder: done
   1-2-aes-128-cbc-encryption-module: done
   1-3-ack-nak-response-parser: done
@@ -54,21 +55,21 @@ development_status:
   epic-2-retrospective: optional
 
   # Epic 3: Error Handler (Contract & Boilerplate)
-  epic-3: in-progress
+  epic-3: done
   3-1-errorcode-enum-error-classification: done
   3-2-notification-context-types-notify-interface: done
   3-3-error-handler-module-structure-callback-types: done
   epic-3-retrospective: optional
 
   # Epic 4: Logging & Observability (Contract & Boilerplate)
-  epic-4: in-progress
+  epic-4: done
   4-1-messages-py-structure-french-string-constants: done
   4-2-logging-infrastructure-setup-logger-configuration: done
   4-3-ring-buffer-structure-log-entry-factory: done
   epic-4-retrospective: optional
 
   # Epic 5: Daemon Core & Dual State Machines
-  epic-5: in-progress
+  epic-5: done
   5-1-sm1-connection-supervision-state-machine: done
   5-2-sm2-alarm-event-state-machine: done
   5-3-priorityqueue-task-coordination: done
@@ -78,20 +79,20 @@ development_status:
   epic-5-retrospective: optional
 
   # Epic 6: PHP Plugin Core & Jeedom IPC
-  epic-6: in-progress
+  epic-6: done
   6-1-php-eqlogic-cmd-classes: done
   6-2-auto-equipment-creation: done
   6-3-json-callback-ipc-protocol: done
   6-4-info-command-persistence-real-time-updates: done
   6-5-jeedom-dependency-manager-installation: done
-  6-6-php-core-integration-ipc-tests: review
+  6-6-php-core-integration-ipc-tests: done
   epic-6-retrospective: optional
 
   # Epic 7: Supervision Health Monitoring
-  epic-7: backlog
-  7-1-supervision-loop-strike-management-info-updates: backlog
-  7-2-tcp-stall-detection-reconnect-ring-buffer-logging: backlog
-  7-3-supervision-integration-testing: backlog
+  epic-7: in-progress
+  7-1-supervision-loop-strike-management-info-updates: done
+  7-2-tcp-stall-detection-reconnect-ring-buffer-logging: done
+  7-3-supervision-integration-testing: done
   epic-7-retrospective: optional
 
   # Epic 8: Configuration Wizard & CSR Presets
@@ -123,15 +124,15 @@ development_status:
   epic-11-retrospective: optional
 
 # Summary Statistics
-# Updated: 2026-04-28 (6-6 → ready-for-dev)
+# Updated: 2026-05-04 (7-1 → ready-for-dev; epic-7 → in-progress)
 summary:
   total_epics: 11
   total_stories: 41
-  epics_backlog: 5
-  epics_in_progress: 6
-  epics_done: 0
-  stories_backlog: 16
+  epics_backlog: 4
+  epics_in_progress: 2
+  epics_done: 5
+  stories_backlog: 15
   stories_ready_for_dev: 1
   stories_in_progress: 0
   stories_review: 0
-  stories_done: 24
+  stories_done: 26

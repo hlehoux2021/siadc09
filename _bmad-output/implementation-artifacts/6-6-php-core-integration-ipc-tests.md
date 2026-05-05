@@ -1,6 +1,6 @@
 # Story 6.6: PHP Core Integration & IPC Tests
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -275,6 +275,36 @@ Unchanged (reference only):
 - [Source: tests/fixtures/ipc_schema.py — authoritative callback schemas]
 - [Source: resources/aiodemod/aiodemod.py — reference plugin send_to_jeedom() usage]
 - [Source: _bmad-output/implementation-artifacts/6-5-jeedom-dependency-manager-installation.md — previous story learnings]
+
+---
+
+## Review Findings
+
+### Decision Needed
+
+- [x] [Review][Decision] **DN-1: `logical_id = code.value` vs `code.name`** — resolved: use `code.name`. Fixed in `error_handler.py`. [error_handler.py — `build_notification()`]
+
+- [x] [Review][Decision] **DN-2: `resolve_t1` payload missing `code` field** — resolved: emit two separate callbacks (one per T1 code: SUPERVISION_TIMEOUT, SUPERVISION_NAK). Fixed in `daemon.py`. [daemon.py — `_handle_supervision_ack()`]
+
+### Patches
+
+- [x] [Review][Patch] **P-1: T3_PREFIX double-prepend in `_dispatch_notify`** — Fixed: guard changed to `T3_PREFIX in title`. Test updated to `assert T3_PREFIX in title`. [daemon.py — `_dispatch_notify()`]
+
+- [x] [Review][Patch] **P-2: Double notification (T1 + T2) fires on unparseable NAK at strike < 3** — Fixed: T1 notification now skipped when `not is_parseable` (T2 already dispatched). [daemon.py — `_handle_supervision_nak()`]
+
+- [x] [Review][Patch] **P-3: `_update_info_commands` data branch may pass `None` values to IPC** — Fixed: `payload = {k: v for k, v in data.items() if v is not None}`. [daemon.py — `_update_info_commands()`]
+
+### Deferred
+
+- [x] [Review][Defer] **D-1: Docstring schema for `message_center`/`notify` lists more fields than `ipc_schema.py`** [error_handler.py docstring vs tests/fixtures/ipc_schema.py] — deferred, pre-existing docstring/schema inconsistency; authoritative schema is `ipc_schema.py`
+
+- [x] [Review][Defer] **D-2: SM2 `elapsed_ms` always 0 in `message_trace`** [daemon.py — `_log_sm2_event` call sites] — deferred, pre-existing: actual elapsed is never measured and passed into SM2LogCtx
+
+- [x] [Review][Defer] **D-3: Dual `_tcp_reconnect_loop` tasks can spawn concurrently if TCP drop arrives during active reconnect** [daemon.py — `_handle_supervision_tcp_drop` + `_update_sm1_from_strike`] — deferred, pre-existing architectural gap; not introduced by this story
+
+- [x] [Review][Defer] **D-4: Two tier classification paths (`_error_tier` via `classify_error` vs inline `tier_map` in `build_notification`) can diverge** [daemon.py — `_error_tier`; error_handler.py — `build_notification`] — deferred, low risk today (both tables match), but should be consolidated in a future cleanup story
+
+- [x] [Review][Defer] **D-5: `prev_strike` in logging context misreputed when counter was already at cap** [daemon.py — `_handle_supervision_nak`] — deferred, logging-only, no operational impact
 
 ---
 
