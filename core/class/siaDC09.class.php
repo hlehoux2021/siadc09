@@ -60,8 +60,9 @@ class siaDC09 extends eqLogic {
     public static function deamon_info(): array {
         $return = [
             'log' => __CLASS__ . '_daemon',
-            'launchable' => 'nok',
             'state' => 'nok',
+            'launchable' => 'ok',
+            'auto' => config::byKey('autoStartDeamon', __CLASS__, 1),
         ];
 
         $pidFile = jeedom::getTmpFolder(__CLASS__) . '/daemon.pid';
@@ -74,20 +75,93 @@ class siaDC09 extends eqLogic {
             }
         }
 
+        // Guard 1 — equipment exists
         $eqLogic = self::_getAutoEquipmentSafe();
-        if ($eqLogic === null) {
-            $return['launchable_message'] = __('Aucun équipement configuré', __FILE__);
+        if (!$eqLogic) {
+            $return['launchable'] = 'nok';
+            $return['launchable_message'] = __("L'équipement n'existe pas — activez le plugin.", __FILE__);
             return $return;
         }
 
-        $csrIp = $eqLogic->getConfiguration('csr_ip', '');
-        $csrPort = (int) $eqLogic->getConfiguration('csr_port', 0);
-        $transport = $eqLogic->getConfiguration('transport', '');
+        // Guard 2 — wizard complete
+        if ((int) $eqLogic->getConfiguration('wizard_step', 0) < 4) {
+            $return['launchable'] = 'nok';
+            $return['launchable_message'] = __(
+                "L'assistant de configuration n'est pas terminé — complétez les 4 étapes.", __FILE__
+            );
+            return $return;
+        }
 
-        if ($csrIp !== '' && $csrPort > 0 && $transport !== '') {
-            $return['launchable'] = 'ok';
-        } else {
-            $return['launchable_message'] = __('Veuillez vérifier la configuration', __FILE__);
+        // Guard 3 — CSR IP
+        if (empty($eqLogic->getConfiguration('csr_ip'))) {
+            $return['launchable'] = 'nok';
+            $return['launchable_message'] = __(
+                "Adresse IP de la centrale non configurée (étape 1 de l'assistant).", __FILE__
+            );
+            return $return;
+        }
+
+        // Guard 3b — CSR port
+        if ((int) $eqLogic->getConfiguration('csr_port', 0) <= 0) {
+            $return['launchable'] = 'nok';
+            $return['launchable_message'] = __(
+                "Port de la centrale non configuré (étape 1 de l'assistant).", __FILE__
+            );
+            return $return;
+        }
+
+        // Guard 3c — transport protocol
+        if (!in_array($eqLogic->getConfiguration('transport', ''), ['udp', 'tcp'], true)) {
+            $return['launchable'] = 'nok';
+            $return['launchable_message'] = __(
+                "Protocole de transport non configuré (étape 1 de l'assistant).", __FILE__
+            );
+            return $return;
+        }
+
+        // Guard 3d — supervision interval must be positive
+        if ((int) $eqLogic->getConfiguration('supervision_interval', 0) <= 0) {
+            $return['launchable'] = 'nok';
+            $return['launchable_message'] = __(
+                "Intervalle de supervision invalide (étape 1 de l'assistant).", __FILE__
+            );
+            return $return;
+        }
+
+        // Guard 4 — account number format (3–16 hex chars per SIA DC-09 § 5.5.1.3)
+        $account = $eqLogic->getConfiguration('account_number');
+        if (empty($account)) {
+            $return['launchable'] = 'nok';
+            $return['launchable_message'] = __(
+                "Numéro de compte non configuré (étape 1 de l'assistant).", __FILE__
+            );
+            return $return;
+        }
+        if (!preg_match('/^[0-9A-Fa-f]{3,16}$/', $account)) {
+            $return['launchable'] = 'nok';
+            $return['launchable_message'] = __(
+                "Numéro de compte invalide — doit contenir 3 à 16 caractères hexadécimaux (étape 1 de l'assistant).", __FILE__
+            );
+            return $return;
+        }
+
+        // Guard 5 — encryption key when encryption enabled
+        if ($eqLogic->getConfiguration('encryption_enabled')
+            && empty($eqLogic->getConfiguration('encryption_key'))) {
+            $return['launchable'] = 'nok';
+            $return['launchable_message'] = __(
+                "Clé de chiffrement manquante (étape 1 de l'assistant).", __FILE__
+            );
+            return $return;
+        }
+
+        // Guard 6 — notification command
+        if (empty($eqLogic->getConfiguration('sia_notify_cmd_id'))) {
+            $return['launchable'] = 'nok';
+            $return['launchable_message'] = __(
+                "Commande de notification non configurée (étape 4 de l'assistant).", __FILE__
+            );
+            return $return;
         }
 
         return $return;
@@ -179,6 +253,82 @@ class siaDC09 extends eqLogic {
         sleep(1);
         system::kill('siadc09d.py');
         sleep(1);
+    }
+
+    public static function cron5(): void {
+        $eqLogic = self::_getAutoEquipmentSafe();
+
+        if (!$eqLogic || !$eqLogic->getIsEnable()) {
+            return;
+        }
+
+        if (self::deamon_info()['state'] === 'ok') {
+            self::_checkSupervisionFreshness($eqLogic);
+        }
+    }
+
+    private static function _checkSupervisionFreshness($eqLogic): void {
+        $supervisionInterval = (int) $eqLogic->getConfiguration('supervision_interval', 60);
+        $staleThreshold = $supervisionInterval * 3;
+        $alertRateLimit = 30 * 60;
+
+        $stateCmd = $eqLogic->getCmd('info', 'supervision_state');
+        if (!$stateCmd) {
+            return;
+        }
+
+        $collectDate = $stateCmd->getCollectDate();
+        if (empty($collectDate)) {
+            return;
+        }
+
+        $ts = strtotime($collectDate);
+        if ($ts === false) {
+            return;
+        }
+
+        $staleSince = time() - $ts;
+
+        if ($staleSince <= $staleThreshold) {
+            if (config::byKey('_freshness_alert_ts', __CLASS__, 0)) {
+                config::save('_freshness_alert_ts', 0, __CLASS__);
+            }
+            return;
+        }
+
+        $lastAlertTs = (int) config::byKey('_freshness_alert_ts', __CLASS__, 0);
+        if ((time() - $lastAlertTs) < $alertRateLimit) {
+            return;
+        }
+
+        $msg = sprintf(
+            'ALERTE siaDC09 : Le démon est actif mais ne répond plus depuis %ds. '
+            . 'La supervision vers la centrale est interrompue. '
+            . 'Le système de télésurveillance est potentiellement compromis.',
+            $staleSince
+        );
+
+        log::add(__CLASS__, 'error', $msg);
+        message::add(__CLASS__, $msg);
+
+        $notifyCmdId = (int) $eqLogic->getConfiguration('sia_notify_cmd_id', 0);
+        if ($notifyCmdId > 0) {
+            $notifyCmd = cmd::byId($notifyCmdId);
+            if ($notifyCmd) {
+                try {
+                    $notifyCmd->execCmd([
+                        'title'   => 'siaDC09 — Démon bloqué',
+                        'message' => $msg,
+                    ]);
+                } catch (\Exception $e) {
+                    log::add(__CLASS__, 'error',
+                        __('Impossible d\'envoyer la notification d\'urgence : ', __FILE__) . $e->getMessage()
+                    );
+                }
+            }
+        }
+
+        config::save('_freshness_alert_ts', time(), __CLASS__);
     }
 
     public static function isConnect(): bool {
