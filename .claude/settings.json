@@ -1,4 +1,7 @@
 {
+  "env": {
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "60"
+  },
   "permissions": {
     "allow": [
       "Read(//Users/herve.lehoux/Dev/my-project/**)",
@@ -40,7 +43,8 @@
       "Bash(sed -i * /Users/herve.lehoux/Dev/my-project/*)",
       "Bash(sed -i '' * /Users/herve.lehoux/Dev/my-project/*)",
       "Bash(git -C /Users/herve.lehoux/Dev/my-project *)",
-      "Bash(sed -n * /Users/herve.lehoux/Dev/my-project/*)"
+      "Bash(sed -n * /Users/herve.lehoux/Dev/my-project/*)",
+      "Bash(grep *)"
     ],
     "additionalDirectories": [
       "/Users/herve.lehoux/Dev/my-project/docs",
