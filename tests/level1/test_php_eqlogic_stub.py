@@ -1,5 +1,5 @@
 """
-PHP eqLogic & cmd source-validation tests for Stories 6.1, 6.2, 6.3, and 6.4.
+PHP eqLogic & cmd source-validation tests for Stories 6.1, 6.2, 6.3, 6.4, and 8.2.
 
 Parses core/class/siaDC09.class.php and core/class/siaDC09Cmd.class.php to
 verify that the implementation matches the design specification. These tests
@@ -9,6 +9,7 @@ or security guards are removed — they do not require a Jeedom instance.
 Reference: _bmad-output/implementation-artifacts/6-1-php-eqlogic-cmd-classes.md
 Reference: _bmad-output/implementation-artifacts/6-2-auto-equipment-creation.md
 Reference: _bmad-output/implementation-artifacts/6-3-json-callback-ipc-protocol.md
+Reference: _bmad-output/implementation-artifacts/8-2-wizard-steps-3-4-zone-mapping.md
 """
 import re
 import sys
@@ -1041,4 +1042,51 @@ def test_deamon_info_does_not_call_dependancy_info(deamon_info_body: str) -> Non
     assert "dependancy_info" not in deamon_info_body, (
         "deamon_info() must NOT call dependancy_info() — "
         "the Jeedom core wrapper adds it automatically"
+    )
+
+
+# ── Story 8.2 — Wizard Guards ─────────────────────────────────────────────────
+
+
+def test_guard2_uses_sia_wizard_step_key(deamon_info_body: str) -> None:
+    """
+    Guard 2 in deamon_info() must use 'sia_wizard_step' (not the old 'wizard_step' key).
+    The config key was renamed in story 8-2 to avoid conflicts with other plugins.
+
+    Expected result:
+    - 'sia_wizard_step' appears in deamon_info() body
+    """
+    # Assert: correct prefixed key is used (Guards 2/3 live in deamon_info, not deamon_start)
+    assert "sia_wizard_step" in deamon_info_body, (
+        "deamon_info() Guard 2 must use 'sia_wizard_step' config key"
+    )
+
+
+def test_guard3_blocks_tbd_ip(deamon_info_body: str) -> None:
+    """
+    Guard 3 in deamon_info() must explicitly block the 'TBD' placeholder IP
+    from the IMA Protect preset. Without this guard, a daemon start would be
+    attempted against the literal hostname 'TBD'.
+
+    Expected result:
+    - 'TBD' appears in deamon_info() body as a rejected value
+    """
+    # Assert: TBD placeholder is explicitly blocked
+    assert "'TBD'" in deamon_info_body or '"TBD"' in deamon_info_body, (
+        "deamon_info() Guard 3 must block csr_ip == 'TBD' (IMA Protect placeholder)"
+    )
+
+
+def test_guard6_blocks_missing_notify_cmd(deamon_info_body: str) -> None:
+    """
+    Guard 6 in deamon_info() must validate that sia_notify_cmd_id is non-empty
+    before allowing daemon start. Missing notify cmd id would cause critical
+    notifications to be silently dropped.
+
+    Expected result:
+    - 'sia_notify_cmd_id' appears in deamon_info() body
+    """
+    # Assert: notify command guard is present
+    assert "sia_notify_cmd_id" in deamon_info_body, (
+        "deamon_info() Guard 6 must validate sia_notify_cmd_id is non-empty"
     )

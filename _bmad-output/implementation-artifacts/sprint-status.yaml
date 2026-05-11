@@ -29,7 +29,7 @@
 # - SM typically creates next story ONLY after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then Dev runs code-review (fresh context, ideally different LLM)
 
-last_updated: "2026-05-05" # 7-3 → done
+last_updated: "2026-05-11" # Story 8-3 → ready-for-dev
 generated: "2026-05-04"
 project: "my-project"
 project_key: "NOKEY"
@@ -89,17 +89,17 @@ development_status:
   epic-6-retrospective: optional
 
   # Epic 7: Supervision Health Monitoring
-  epic-7: in-progress
+  epic-7: done
   7-1-supervision-loop-strike-management-info-updates: done
   7-2-tcp-stall-detection-reconnect-ring-buffer-logging: done
   7-3-supervision-integration-testing: done
-  epic-7-retrospective: optional
+  epic-7-retrospective: done
 
   # Epic 8: Configuration Wizard & CSR Presets
-  epic-8: backlog
-  8-1-wizard-steps-1-2-csr-preset-selection: backlog
-  8-2-wizard-steps-3-4-zone-mapping: backlog
-  8-3-wizard-integration-testing: backlog
+  epic-8: in-progress
+  8-1-wizard-steps-1-2-csr-preset-selection: done
+  8-2-wizard-steps-3-4-zone-mapping: done
+  8-3-wizard-integration-testing: ready-for-dev
   epic-8-retrospective: optional
 
   # Epic 9: Debug UI & Diagnostics Panel
@@ -124,7 +124,7 @@ development_status:
   epic-11-retrospective: optional
 
 # Summary Statistics
-# Updated: 2026-05-04 (7-1 → ready-for-dev; epic-7 → in-progress)
+# Updated: 2026-05-11 (8-2 → done)
 summary:
   total_epics: 11
   total_stories: 41
@@ -132,7 +132,7 @@ summary:
   epics_in_progress: 2
   epics_done: 5
   stories_backlog: 15
-  stories_ready_for_dev: 1
+  stories_ready_for_dev: 0
   stories_in_progress: 0
   stories_review: 0
-  stories_done: 26
+  stories_done: 28
