@@ -26,9 +26,18 @@
       "Bash(grep *)",
       "Bash(ls *)",
       "Bash(wc *)",
+      "Bash(cat /Users/herve.lehoux/Dev/my-project/*)",
+      "Bash(php -l /Users/herve.lehoux/Dev/my-project/**)",
+      "Bash(find /Users/herve.lehoux/Dev/my-project/core /Users/herve.lehoux/Dev/my-project/desktop -name '*.php' -type f)",
       "Bash(sed -n * /Users/herve.lehoux/Dev/my-project/*)",
       "Bash(sed -i * /Users/herve.lehoux/Dev/my-project/*)",
-      "Bash(sed -i '' * /Users/herve.lehoux/Dev/my-project/*)"
+      "Bash(sed -i '' * /Users/herve.lehoux/Dev/my-project/*)",
+      "Bash(xargs -n1 php -l)",
+      "Bash(php --version)",
+      "Bash(php /Users/herve.lehoux/Dev/jeedom/vendor/bin/phpunit --version)",
+      "Read(//dev/**)",
+      "Bash(python3 -c *)",
+      "Bash(php -r *)"
     ],
     "additionalDirectories": [
       "/Users/herve.lehoux/Dev/my-project/docs",
