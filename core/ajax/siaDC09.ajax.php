@@ -25,10 +25,88 @@ try {
 
     ajax::init();
 
-    /* Future wizard AJAX actions (Story 6.3+):
-     *   if (init('action') == 'testConnection') { ... }
-     *   if (init('action') == 'getPresets') { ... }
-     */
+    if (init('action') == 'testConnection') {
+        $eqLogics = eqLogic::byType('siaDC09');
+        if (!is_array($eqLogics) || count($eqLogics) === 0) {
+            ajax::success(['status' => 'error', 'detail' => __("Équipement introuvable — activez le plugin.", __FILE__)]);
+            return;
+        }
+        $eqLogic = $eqLogics[0];
+
+        $configData = $eqLogic->getConfiguration();
+        $encKey = $configData['encryption_key'] ?? '';
+        unset($configData['encryption_key']);
+
+        if (method_exists('system', 'getCmdPython3')) {
+            $python3 = system::getCmdPython3('siaDC09');
+        } else {
+            $python3 = 'python3 ';
+        }
+
+        $script = realpath(__DIR__ . '/../../resources/siadc09d/siadc09d.py');
+        if (!$script) {
+            ajax::success(['status' => 'error', 'detail' => __('Script de test non trouvé — réinstallez le plugin', __FILE__)]);
+            return;
+        }
+
+        $encoded = json_encode($configData);
+        if ($encoded === false) {
+            ajax::success(['status' => 'error', 'detail' => __('Erreur lors du codage de la configuration', __FILE__)]);
+            return;
+        }
+
+        $cmd = $python3 . escapeshellarg($script)
+            . ' --test-only --timeout 15 --config ' . escapeshellarg($encoded);
+        $envPrefix = 'SIA_ENCRYPTION_KEY=' . escapeshellarg($encKey) . ' ';
+
+        set_time_limit(30);
+        exec($envPrefix . $cmd . ' 2>/dev/null', $output, $retCode);
+
+        $jsonOutput = implode('', $output);
+        $result = json_decode($jsonOutput, true);
+        if (!is_array($result)) {
+            ajax::success([
+                'status' => 'error',
+                'detail' => __('Impossible de lancer le test — vérifiez que Python 3 et les dépendances sont installés', __FILE__),
+            ]);
+            return;
+        }
+        ajax::success($result);
+    }
+
+    if (init('action') == 'getZones') {
+        $alarmEqLogics = eqLogic::byType('alarm');
+        if (empty($alarmEqLogics)) {
+            ajax::success(['error' => 'alarm_plugin_not_found']);
+            return;
+        }
+        $zones = $alarmEqLogics[0]->getConfiguration('zones', []);
+        if (!is_array($zones)) {
+            $zones = [];
+        }
+        if (empty($zones)) {
+            ajax::success(['error' => 'no_zones_configured']);
+            return;
+        }
+        ajax::success(['zones' => array_column($zones, 'name')]);
+    }
+
+    if (init('action') == 'getCameraCommands') {
+        $format = function ($cmd) {
+            $eqLogic = $cmd->getEqLogic();
+            if (!is_object($eqLogic)) {
+                return null;
+            }
+            return [
+                'id'    => (int) $cmd->getId(),
+                'label' => $eqLogic->getName() . ' > ' . $cmd->getName(),
+            ];
+        };
+        ajax::success([
+            'camera_take' => array_values(array_filter(array_map($format, cmd::byGenericType('CAMERA_TAKE') ?? []))),
+            'camera_url'  => array_values(array_filter(array_map($format, cmd::byGenericType('CAMERA_URL') ?? []))),
+        ]);
+    }
 
     throw new Exception(__('Aucune méthode correspondante à', __FILE__) . ' : ' . init('action'));
 } catch (Exception $e) {

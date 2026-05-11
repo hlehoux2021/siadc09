@@ -112,25 +112,25 @@ are saved to eqLogic on every save. Editability depends on mode:
 
 | Field | HTML binding | IMA Protect preset | Notes |
 |---|---|---|---|
-| `sia_csr_provider` | `data-l2key="sia_csr_provider"` (hidden) | `ima_protect` | Card selection writes this |
-| Adresse IP / Nom de domaine | `data-l2key="sia_host"` | _(from csr_presets.json)_ | `readonly` in preset mode |
-| Port | `data-l2key="sia_port"` | _(from csr_presets.json)_ | `readonly` in preset mode |
-| Transport | `data-l2key="sia_transport"` | _(from csr_presets.json)_ | `readonly` in preset mode |
-| Numéro de compte | `data-l2key="sia_account_number"` | _(empty, user fills)_ | Always editable — subscriber-specific |
-| Chiffrement | `data-l2key="sia_encryption_enabled"` | _(from csr_presets.json)_ | `readonly` in preset mode |
-| Clé de chiffrement (AES) | `data-l2key="sia_encryption_key"` | _(empty, user fills)_ | Always editable — subscriber-specific; visible only if encryption enabled; 32/48/64 hex chars (AES-128/192/256) |
-| Intervalle supervision | `data-l2key="sia_supervision_interval_s"` | _(from csr_presets.json)_ | `readonly` in preset mode |
-| Nombre de tentatives | `data-l2key="sia_retry_count"` | _(from csr_presets.json)_ | `readonly` in preset mode |
+| `csr_provider` | `data-l2key="csr_provider"` (hidden) | `ima_protect` | Card selection writes this |
+| Adresse IP / Nom de domaine | `data-l2key="csr_ip"` | _(from csr_presets.json)_ | `readonly` in preset mode |
+| Port | `data-l2key="csr_port"` | _(from csr_presets.json)_ | `readonly` in preset mode |
+| Transport | `data-l2key="transport"` | _(from csr_presets.json)_ | `readonly` in preset mode |
+| Numéro de compte | `data-l2key="account_number"` | _(empty, user fills)_ | Always editable — subscriber-specific |
+| Chiffrement | `data-l2key="encryption_enabled"` | _(from csr_presets.json)_ | `readonly` in preset mode |
+| Clé de chiffrement (AES) | `data-l2key="encryption_key"` | _(empty, user fills)_ | Always editable — subscriber-specific; visible only if encryption enabled; 32/48/64 hex chars (AES-128/192/256) |
+| Intervalle supervision | `data-l2key="supervision_interval"` | _(from csr_presets.json)_ | `readonly` in preset mode |
+| Nombre de tentatives | `data-l2key="retry_count"` | _(from csr_presets.json)_ | `readonly` in preset mode |
 
-> **Note:** `sia_account_number` and `sia_encryption_key` are always editable even in
+> **Note:** `account_number` and `encryption_key` are always editable even in
 > "IMA Protect" mode — they are subscriber-specific values that the preset cannot know.
 
 ### Validation before "Suivant"
 
-- `sia_account_number` non-empty, 3–16 hex chars
-- If `sia_encryption_enabled`: `sia_encryption_key` non-empty, **32, 48, or 64 hex chars** (AES-128 / AES-192 / AES-256 respectively — per section 5.4.5, CSR must support all three lengths)
-- `sia_host` non-empty
-- `sia_port` numeric, 1–65535
+- `account_number` non-empty, 3–16 hex chars
+- If `encryption_enabled`: `encryption_key` non-empty, **32, 48, or 64 hex chars** (AES-128 / AES-192 / AES-256 respectively — per section 5.4.5, CSR must support all three lengths)
+- `csr_ip` non-empty
+- `csr_port` numeric, 1–65535
 
 Errors shown inline (red border + message under the field). No advance if validation fails.
 
@@ -141,19 +141,19 @@ saved, eqLogic always contains fully resolved values regardless of whether the u
 a preset or entered values manually.
 
 **How preset values reach eqLogic:** PHP renders the step 1 page by reading `csr_presets.json`
-server-side and pre-filling all CSR fields (`sia_host`, `sia_port`, etc.) with the preset
+server-side and pre-filling all CSR fields (`csr_ip`, `csr_port`, etc.) with the preset
 values. Those fields carry `data-l2key` bindings and `readonly` attribute — they submit
 their values on save just like editable fields. The standard Jeedom save writes them to
 eqLogic directly. No server-side resolution step is needed.
 
-`sia_csr_provider` is saved to eqLogic to allow the wizard to restore the correct card
+`csr_provider` is saved to eqLogic to allow the wizard to restore the correct card
 selection on page reload, and to control whether the "Personnaliser" button is shown.
 It is not used by the daemon.
 
 `csr_presets.json` is read **only** at wizard page render time — it is never read by the
 daemon or by `deamon_start()`.
 
-| `sia_csr_provider` | CSR field values come from | Daemon reads from |
+| `csr_provider` | CSR field values come from | Daemon reads from |
 |---|---|---|
 | Any preset ID | PHP pre-fills from `csr_presets.json` → saved to eqLogic | eqLogic |
 | `"manual"` | User fills form fields → saved to eqLogic | eqLogic |
@@ -329,7 +329,7 @@ No mandatory validation — empty mapping is allowed.
 |                                                           |
 |  Commande de notification :                               |
 |  [#[Salon][Téléphone][Envoyer SMS]       ] [Rechercher]   |
-|  (hidden: notify_cmd_id = 42)                             |
+|  (hidden: sia_notify_cmd_id = 42)                         |
 |                                                           |
 |  [Terminer]                                               |
 +-----------------------------------------------------------+
@@ -360,15 +360,15 @@ jeedom.cmd.getSelectModal(
 
 ### Validation before "Terminer"
 
-- `notify_cmd_id` must be non-empty. If empty, a red inline message:
+- `sia_notify_cmd_id` must be non-empty. If empty, a red inline message:
   "Veuillez sélectionner une commande. Vous pouvez toujours utiliser la messagerie Jeedom."
 - No advance until a command is selected.
 
 ### On "Terminer"
 
-1. Validates `notify_cmd_id` non-empty
+1. Validates `sia_notify_cmd_id` non-empty
 2. Triggers standard Jeedom save
-3. Sets `wizard_step = 4` (via save)
+3. Sets `sia_wizard_step = 4` (via save)
 4. Page reloads in **config mode** (standard flat layout)
 
 > No daemon start is triggered here by the wizard itself. The daemon is still stopped at
@@ -384,7 +384,7 @@ jeedom.cmd.getSelectModal(
 
 ## Post-wizard: config mode layout
 
-Once `wizard_step == 4`, the equipment config panel shows the standard Jeedom layout:
+Once `sia_wizard_step == 4`, the equipment config panel shows the standard Jeedom layout:
 
 ```
 [Relancer l'assistant]
@@ -441,10 +441,10 @@ All stored in `eqLogic->getConfiguration()`. Fields introduced by the wizard:
 | `encryption_key` | string | Step 1 |
 | `supervision_interval` | int | Step 1 |
 | `retry_count` | int | Step 1 |
-| `zoneMapping` | array | Step 3 |
-| `notify_cmd_id` | int | Step 4 |
-| `notify_cmd_human` | string | Step 4 (display only) |
-| `wizard_step` | int | Updated at each step completion |
+| `sia_zone_mappings` | array | Step 3 |
+| `sia_notify_cmd_id` | int | Step 4 |
+| `sia_notify_cmd_human` | string | Step 4 (display only) |
+| `sia_wizard_step` | int | Updated at each step completion |
 
 ---
 
@@ -546,18 +546,18 @@ function addCmdToTable(_cmd) {
 ### `printEqLogic(_eqLogic)` hook
 
 Called by `plugin.template.js` when the equipment is loaded. Handles:
-1. Determine display mode from `_eqLogic.configuration.wizard_step`
-2. If wizard mode: show step `Math.max(1, wizard_step)`, hide config section
+1. Determine display mode from `_eqLogic.configuration.sia_wizard_step`
+2. If wizard mode: show step `Math.max(1, sia_wizard_step)`, hide config section
 3. If config mode: hide wizard section, populate config summary cards
 4. Set active provider card based on `_eqLogic.configuration.csr_provider`
-5. Populate zone table from `_eqLogic.configuration.zoneMapping`
-6. Populate notify command display from `_eqLogic.configuration.notify_cmd_human`
+5. Populate zone table from `_eqLogic.configuration.sia_zone_mappings`
+6. Populate notify command display from `_eqLogic.configuration.sia_notify_cmd_human`
 
 ### `saveEqLogic(_eqLogic)` hook
 
 Called by `plugin.template.js` before save (and explicitly from `siaDC09_nextStep()`). Handles:
-1. Serialize zone table rows into `_eqLogic.configuration.zoneMapping` JSON array — **only when on step 3 or config mode** (zone table is loaded). At steps 1 and 2 the table is empty; writing it would overwrite a previously saved mapping with an empty array.
-2. Update `wizard_step` to the current step (if in wizard mode)
+1. Serialize zone table rows into `_eqLogic.configuration.sia_zone_mappings` JSON array — **only when on step 3 or config mode** (zone table is loaded). At steps 1 and 2 the table is empty; writing it would overwrite a previously saved mapping with an empty array.
+2. Update `sia_wizard_step` to the current step (if in wizard mode)
 
 ### Wizard navigation
 
@@ -649,8 +649,8 @@ config summary section (hidden in wizard mode), `#table_cmd`, mandatory
 `plugin.template.js` include at the very end.
 
 **Two root divs inside the eqLogic panel:**
-- `#siaDC09-wizard` (shown when `wizard_step < 4`)
-- `#siaDC09-config-summary` (shown when `wizard_step == 4`)
+- `#siaDC09-wizard` (shown when `sia_wizard_step < 4`)
+- `#siaDC09-config-summary` (shown when `sia_wizard_step == 4`)
 
 Both are rendered server-side. JS controls visibility on `printEqLogic()`.
 
@@ -699,13 +699,13 @@ auto-trigger on step arrival, "Relancer le test" / "Ignorer" / "Suivant" buttons
 1. Call `getCameraCommands` AJAX → build option lists for both selects
 2. Call `getZones` AJAX → if error, show warning banner, keep "Suivant" enabled
 3. On success: call `siaDC09_loadZoneTable(zones, savedMapping, cameraCommands)`
-4. Rehydrate saved selections from `zoneMapping` config
+4. Rehydrate saved selections from `sia_zone_mappings` config
 
 **`saveEqLogic` hook:**
-- Guard: only serialize when `siaDC09_currentStep() >= 3` (or in config mode). At steps 1–2 the zone table is not loaded — skip writing `zoneMapping` to avoid overwriting a previously saved mapping with an empty array.
+- Guard: only serialize when `siaDC09_currentStep() >= 3` (or in config mode). At steps 1–2 the zone table is not loaded — skip writing `sia_zone_mappings` to avoid overwriting a previously saved mapping with an empty array.
 - Read each table row: `zone_name` (text), `camera_action_cmd_id` (select value),
   `media_url_cmd_id` (select value)
-- Build array and write to `_eqLogic.configuration.zoneMapping`
+- Build array and write to `_eqLogic.configuration.sia_zone_mappings`
 
 ---
 
@@ -720,7 +720,7 @@ auto-trigger on step arrival, "Relancer le test" / "Ignorer" / "Suivant" buttons
     <input type="text"
            class="eqLogicAttr form-control"
            data-l1key="configuration"
-           data-l2key="notify_cmd_human"
+           data-l2key="sia_notify_cmd_human"
            readonly
            placeholder="{{Sélectionnez une commande de notification}}" />
     <span class="input-group-btn">
@@ -732,7 +732,7 @@ auto-trigger on step arrival, "Relancer le test" / "Ignorer" / "Suivant" buttons
 <input type="hidden"
        class="eqLogicAttr"
        data-l1key="configuration"
-       data-l2key="notify_cmd_id" />
+       data-l2key="sia_notify_cmd_id" />
 ```
 
 **JS — command picker:**
@@ -741,17 +741,17 @@ $('#siaDC09_searchNotifyCmd').on('click', function() {
     jeedom.cmd.getSelectModal(
         {cmd: {type: 'action', subType: 'message'}},
         function(result) {
-            $('input[data-l2key="notify_cmd_human"]').val(result.human);
-            $('input[data-l2key="notify_cmd_id"]').val(result.cmd.id);
+            $('input[data-l2key="sia_notify_cmd_human"]').val(result.human);
+            $('input[data-l2key="sia_notify_cmd_id"]').val(result.cmd.id);
         }
     );
 });
 ```
 
 **"Terminer" button:**
-- Validates `notify_cmd_id` non-empty; if empty: inline red message (no `jeeDialog`)
+- Validates `sia_notify_cmd_id` non-empty; if empty: inline red message (no `jeeDialog`)
 - Calls `siaDC09_setWizardStep(4)` then triggers standard save
-- Page reloads → `printEqLogic` sees `wizard_step == 4` → switches to config mode
+- Page reloads → `printEqLogic` sees `sia_wizard_step == 4` → switches to config mode
 
 ---
 
@@ -1065,7 +1065,7 @@ etc.) are out of scope for v1.0 but the file structure is designed for extensibi
 | Relancer assistant — daemon stopped | Click "Relancer l'assistant" while daemon is stopped → wizard resets to step 1 immediately |
 | Step 3 alarm plugin found | Install alarm plugin with zones → verify table populated correctly |
 | Step 3 alarm plugin missing | No alarm plugin → verify warning banner, Suivant still available |
-| Step 3 zoneMapping save | Select camera for Salon, save → reload → verify selection preserved |
+| Step 3 sia_zone_mappings save | Select camera for Salon, save → reload → verify selection preserved |
 | Step 4 Terminer without cmd | Click Terminer with no command → verify inline error, no advance |
 | Step 4 command picker | Click search button → jeedom.cmd.getSelectModal opens, selection fills fields |
 | Post-wizard config mode | After Terminer → verify wizard hidden, config summary shown |

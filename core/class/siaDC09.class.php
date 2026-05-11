@@ -84,7 +84,7 @@ class siaDC09 extends eqLogic {
         }
 
         // Guard 2 — wizard complete
-        if ((int) $eqLogic->getConfiguration('wizard_step', 0) < 4) {
+        if ((int) $eqLogic->getConfiguration('sia_wizard_step', 0) < 4) {
             $return['launchable'] = 'nok';
             $return['launchable_message'] = __(
                 "L'assistant de configuration n'est pas terminé — complétez les 4 étapes.", __FILE__
@@ -93,7 +93,8 @@ class siaDC09 extends eqLogic {
         }
 
         // Guard 3 — CSR IP
-        if (empty($eqLogic->getConfiguration('csr_ip'))) {
+        $csrIp = $eqLogic->getConfiguration('csr_ip');
+        if (empty($csrIp) || $csrIp === 'TBD') {
             $return['launchable'] = 'nok';
             $return['launchable_message'] = __(
                 "Adresse IP de la centrale non configurée (étape 1 de l'assistant).", __FILE__

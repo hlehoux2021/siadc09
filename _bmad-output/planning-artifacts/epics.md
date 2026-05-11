@@ -1266,14 +1266,14 @@ So that I can set up monitoring without understanding SIA protocol.
 **When** user reaches Step 1
 **Then** two preset cards displayed: "IMA Protect" and "Personnalisé"
 
-**And** selecting "IMA Protect" auto-fills preset values (host, port, account_number, etc.)
+**And** selecting "IMA Protect" auto-fills CSR preset values (host, port, transport, encryption_enabled, supervision_interval, retry_count) — account number and encryption key remain editable (subscriber-specific, not in preset)
 
 **And** "Personnalisé" allows manual entry of CSR parameters
 
 **And** Step 2 displays connection test UI with "Suivant" (Next) and "Ignorer" (Skip) buttons
 
 **And** clicking "Suivant" triggers testConnection subprocess:
-- Calls `test_connection.py` with configured CSR params
+- Calls `siadc09d.py --test-only` with configured CSR params (no separate test script)
 - 30-second timeout via set_time_limit()
 - Displays result (✓ Success or ✗ Error with French error message)
 

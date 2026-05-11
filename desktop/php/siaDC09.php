@@ -1,0 +1,379 @@
+<?php
+if (!isConnect('admin')) {
+	throw new Exception('{{401 - Accès non autorisé}}');
+}
+$plugin = plugin::byId('siaDC09');
+sendVarToJS('eqType', $plugin->getId());
+$eqLogics = eqLogic::byType($plugin->getId());
+
+$presetsPath = __DIR__ . '/../../resources/siadc09d/csr_presets.json';
+$presetsData = json_decode(file_get_contents($presetsPath), true);
+$imaPreset = null;
+
+$requiredFields = ['id', 'label', 'csr_ip', 'csr_port', 'transport', 'encryption_enabled', 'supervision_interval', 'retry_count'];
+foreach ($presetsData['presets'] ?? [] as $p) {
+	$missingFields = array_diff($requiredFields, array_keys($p));
+	if (!empty($missingFields)) {
+		log::add('siaDC09', 'error', 'Preset ' . ($p['id'] ?? 'unknown') . ' missing fields: ' . implode(', ', $missingFields));
+		continue;
+	}
+	if ($p['id'] === 'ima_protect') {
+		$imaPreset = $p;
+		break;
+	}
+}
+?>
+
+<div class="row row-overflow">
+	<!-- Page d'accueil du plugin -->
+	<div class="col-xs-12 eqLogicThumbnailDisplay">
+		<div class="row">
+			<div class="col-sm-10">
+				<legend><i class="fas fa-cog"></i> {{Gestion}}</legend>
+				<div class="eqLogicThumbnailContainer">
+					<div class="cursor eqLogicAction logoPrimary" data-action="add">
+						<i class="fas fa-plus-circle"></i>
+						<br>
+						<span>{{Ajouter}}</span>
+					</div>
+					<div class="cursor eqLogicAction logoSecondary" data-action="gotoPluginConf">
+						<i class="fas fa-wrench"></i>
+						<br>
+						<span>{{Configuration}}</span>
+					</div>
+				</div>
+			</div>
+		</div>
+		<legend><i class="fas fa-table"></i> {{Mes équipements SIA DC-09}}</legend>
+		<?php
+		if (count($eqLogics) == 0) {
+			echo '<br><div class="text-center" style="font-size:1.2em;font-weight:bold;">{{Aucun équipement trouvé, cliquer sur "Ajouter" pour commencer}}</div>';
+		} else {
+			echo '<div class="input-group" style="margin:5px;">';
+			echo '<input class="form-control roundedLeft" placeholder="{{Rechercher}}" id="in_searchEqlogic">';
+			echo '<div class="input-group-btn">';
+			echo '<a id="bt_resetSearch" class="btn" style="width:30px"><i class="fas fa-times"></i></a>';
+			echo '<a class="btn roundedRight hidden" id="bt_pluginDisplayAsTable" data-coreSupport="1" data-state="0"><i class="fas fa-grip-lines"></i></a>';
+			echo '</div>';
+			echo '</div>';
+			echo '<div class="eqLogicThumbnailContainer">';
+			foreach ($eqLogics as $eqLogic) {
+				$opacity = ($eqLogic->getIsEnable()) ? '' : 'disableCard';
+				echo '<div class="eqLogicDisplayCard cursor ' . $opacity . '" data-eqLogic_id="' . $eqLogic->getId() . '">';
+				echo '<img src="' . $eqLogic->getImage() . '"/>';
+				echo '<br>';
+				echo '<span class="name">' . $eqLogic->getHumanName(true, true) . '</span>';
+				echo '</div>';
+			}
+			echo '</div>';
+		}
+		?>
+	</div> <!-- /.eqLogicThumbnailDisplay -->
+
+	<!-- Page de l'équipement -->
+	<div class="col-xs-12 eqLogic" style="display: none;">
+		<!-- Barre de gestion -->
+		<div class="input-group pull-right" style="display:inline-flex;">
+			<span class="input-group-btn">
+				<a class="btn btn-sm btn-default eqLogicAction roundedLeft" data-action="configure"><i class="fas fa-cogs"></i><span class="hidden-xs"> {{Configuration avancée}}</span>
+				</a><a class="btn btn-sm btn-default eqLogicAction" data-action="copy"><i class="fas fa-copy"></i><span class="hidden-xs"> {{Dupliquer}}</span>
+				</a><a class="btn btn-sm btn-success eqLogicAction" data-action="save"><i class="fas fa-check-circle"></i> {{Sauvegarder}}
+				</a><a class="btn btn-sm btn-danger eqLogicAction roundedRight" data-action="remove"><i class="fas fa-minus-circle"></i> {{Supprimer}}
+				</a>
+			</span>
+		</div>
+		<!-- Onglets -->
+		<ul class="nav nav-tabs" role="tablist">
+			<li role="presentation"><a href="#" class="eqLogicAction" aria-controls="home" role="tab" data-toggle="tab" data-action="returnToThumbnailDisplay"><i class="fas fa-arrow-circle-left"></i></a></li>
+			<li role="presentation" class="active"><a href="#eqlogictab" aria-controls="home" role="tab" data-toggle="tab"><i class="fas fa-tachometer-alt"></i> {{Equipement}}</a></li>
+			<li role="presentation"><a href="#commandtab" aria-controls="home" role="tab" data-toggle="tab"><i class="fas fa-list"></i> {{Commandes}}</a></li>
+		</ul>
+		<div class="tab-content">
+			<!-- Onglet Equipement -->
+			<div role="tabpanel" class="tab-pane active" id="eqlogictab">
+				<form class="form-horizontal">
+					<fieldset>
+						<!-- Paramètres généraux -->
+						<div class="col-lg-6">
+							<legend><i class="fas fa-wrench"></i> {{Paramètres généraux}}</legend>
+							<div class="form-group">
+								<label class="col-sm-4 control-label">{{Nom de l'équipement}}</label>
+								<div class="col-sm-6">
+									<input type="text" class="eqLogicAttr form-control" data-l1key="id" style="display:none;">
+									<input type="text" class="eqLogicAttr form-control" data-l1key="name" placeholder="{{Nom de l'équipement}}">
+								</div>
+							</div>
+							<div class="form-group">
+								<label class="col-sm-4 control-label">{{Objet parent}}</label>
+								<div class="col-sm-6">
+									<select class="eqLogicAttr form-control" data-l1key="object_id">
+										<option value="">{{Aucun}}</option>
+										<?php
+										foreach ((jeeObject::buildTree(null, false)) as $object) {
+											echo '<option value="' . $object->getId() . '">' . str_repeat('&nbsp;&nbsp;', $object->getConfiguration('parentNumber')) . $object->getName() . '</option>';
+										}
+										?>
+									</select>
+								</div>
+							</div>
+							<div class="form-group">
+								<label class="col-sm-4 control-label">{{Options}}</label>
+								<div class="col-sm-6">
+									<label class="checkbox-inline"><input type="checkbox" class="eqLogicAttr" data-l1key="isEnable" checked>{{Activer}}</label>
+									<label class="checkbox-inline"><input type="checkbox" class="eqLogicAttr" data-l1key="isVisible" checked>{{Visible}}</label>
+								</div>
+							</div>
+							<div class="form-group">
+								<div class="col-sm-offset-4 col-sm-6">
+									<a class="btn btn-warning btn-sm" id="bt_restartWizard"><i class="fas fa-redo"></i> {{Relancer l'assistant}}</a>
+								</div>
+							</div>
+						</div>
+
+						<!-- Wizard / Config area -->
+						<div class="col-lg-6">
+							<!-- Hidden wizard step field -->
+							<input type="hidden" class="eqLogicAttr" data-l1key="configuration" data-l2key="sia_wizard_step">
+
+							<!-- WIZARD MODE -->
+							<div id="siaDC09-wizard" style="display:none;">
+								<!-- Step 1: CSR Preset Selection -->
+								<div id="siaDC09-step1" class="siaDC09-step" style="display:none;">
+									<legend><i class="fas fa-satellite-dish"></i> {{Étape 1 — Centrale de télésurveillance}}</legend>
+
+									<!-- Provider cards -->
+									<div class="row" style="margin-bottom:15px;">
+										<div class="col-sm-6">
+											<div class="panel panel-default siaDC09-preset-card" id="card-ima-protect"
+												data-provider="ima_protect"
+												<?php if ($imaPreset): ?>
+												data-preset-csr_ip="<?= htmlspecialchars($imaPreset['csr_ip']) ?>"
+												data-preset-csr_port="<?= (int) $imaPreset['csr_port'] ?>"
+												data-preset-transport="<?= htmlspecialchars($imaPreset['transport']) ?>"
+												data-preset-encryption_enabled="<?= $imaPreset['encryption_enabled'] ? '1' : '0' ?>"
+												data-preset-supervision_interval="<?= (int) $imaPreset['supervision_interval'] ?>"
+												data-preset-retry_count="<?= (int) $imaPreset['retry_count'] ?>"
+												<?php endif; ?>
+												style="cursor:pointer;text-align:center;padding:15px;">
+												<i class="fas fa-shield-alt fa-2x"></i>
+												<br><strong>IMA Protect</strong>
+											</div>
+										</div>
+										<div class="col-sm-6">
+											<div class="panel panel-default siaDC09-preset-card" id="card-manual"
+												data-provider="manual"
+												style="cursor:pointer;text-align:center;padding:15px;">
+												<i class="fas fa-sliders-h fa-2x"></i>
+												<br><strong>{{Personnalisé}}</strong>
+											</div>
+										</div>
+									</div>
+
+									<!-- Personnaliser button (visible only in IMA mode) -->
+									<div id="siaDC09-personnaliser-row" style="display:none;margin-bottom:10px;">
+										<a class="btn btn-xs btn-default" id="bt_personnaliser"><i class="fas fa-edit"></i> {{Personnaliser}}</a>
+									</div>
+
+									<!-- Hidden provider field -->
+									<input type="hidden" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="csr_provider">
+
+									<!-- CSR fields -->
+									<div class="form-group">
+										<label class="col-sm-4 control-label">{{Adresse IP}}</label>
+										<div class="col-sm-6">
+											<input type="text" class="eqLogicAttr form-control siaDC09-csr-field" data-l1key="configuration" data-l2key="csr_ip" placeholder="192.168.x.x">
+										</div>
+									</div>
+									<div class="form-group">
+										<label class="col-sm-4 control-label">{{Port}}</label>
+										<div class="col-sm-6">
+											<input type="number" class="eqLogicAttr form-control siaDC09-csr-field" data-l1key="configuration" data-l2key="csr_port" placeholder="5000">
+										</div>
+									</div>
+									<div class="form-group">
+										<label class="col-sm-4 control-label">{{Transport}}</label>
+										<div class="col-sm-6">
+											<select class="eqLogicAttr form-control siaDC09-csr-field" data-l1key="configuration" data-l2key="transport">
+												<option value="udp">UDP</option>
+												<option value="tcp">TCP</option>
+											</select>
+										</div>
+									</div>
+									<div class="form-group">
+										<label class="col-sm-4 control-label">{{Numéro de compte}}</label>
+										<div class="col-sm-6">
+											<input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="account_number" placeholder="ex: 001234">
+										</div>
+									</div>
+									<div class="form-group">
+										<label class="col-sm-4 control-label">{{Chiffrement activé}}</label>
+										<div class="col-sm-6">
+											<input type="checkbox" class="eqLogicAttr" data-l1key="configuration" data-l2key="encryption_enabled">
+										</div>
+									</div>
+									<div class="form-group">
+										<label class="col-sm-4 control-label">{{Clé AES}}</label>
+										<div class="col-sm-6">
+											<input type="password" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="encryption_key" placeholder="32, 48 ou 64 caractères hex">
+										</div>
+									</div>
+									<div class="form-group">
+										<label class="col-sm-4 control-label">{{Intervalle supervision (s)}}</label>
+										<div class="col-sm-6">
+											<input type="number" class="eqLogicAttr form-control siaDC09-csr-field" data-l1key="configuration" data-l2key="supervision_interval" placeholder="60">
+										</div>
+									</div>
+									<div class="form-group">
+										<label class="col-sm-4 control-label">{{Tentatives}}</label>
+										<div class="col-sm-6">
+											<input type="number" class="eqLogicAttr form-control siaDC09-csr-field" data-l1key="configuration" data-l2key="retry_count" placeholder="3">
+										</div>
+									</div>
+
+									<!-- Validation errors -->
+									<div id="siaDC09-step1-errors" class="alert alert-danger" style="display:none;"></div>
+
+									<!-- Navigation -->
+									<div class="form-group">
+										<div class="col-sm-offset-4 col-sm-6">
+											<a class="btn btn-success" id="bt_step1Next"><i class="fas fa-arrow-right"></i> {{Suivant}}</a>
+										</div>
+									</div>
+								</div><!-- /#siaDC09-step1 -->
+
+								<!-- Step 2: Connection Test -->
+								<div id="siaDC09-step2" class="siaDC09-step" style="display:none;">
+									<legend><i class="fas fa-plug"></i> {{Étape 2 — Test de connexion}}</legend>
+
+									<!-- CSR summary -->
+									<div id="siaDC09-step2-summary" class="well well-sm" style="margin-bottom:15px;"></div>
+
+									<!-- Spinner -->
+									<div id="siaDC09-step2-spinner" style="display:none;text-align:center;margin:20px 0;">
+										<i class="fas fa-spinner fa-spin fa-2x"></i>
+										<p>{{Test en cours...}}</p>
+									</div>
+
+									<!-- Result area -->
+									<div id="siaDC09-step2-result" style="display:none;margin:15px 0;"></div>
+
+									<!-- Buttons -->
+									<div class="form-group">
+										<div class="col-sm-12" style="text-align:right;">
+											<a class="btn btn-default" id="bt_step2Retest"><i class="fas fa-redo"></i> {{Relancer le test}}</a>
+											<a class="btn btn-warning" id="bt_step2Skip"><i class="fas fa-forward"></i> {{Ignorer}}</a>
+											<a class="btn btn-success" id="bt_step2Next" disabled><i class="fas fa-arrow-right"></i> {{Suivant}}</a>
+										</div>
+									</div>
+								</div><!-- /#siaDC09-step2 -->
+
+								<!-- Step 3: Zone Mapping -->
+								<div id="siaDC09-step3" class="siaDC09-step" style="display:none;">
+									<legend><i class="fas fa-map-marker-alt"></i> {{Étape 3 — Zones}}</legend>
+									<div id="siaDC09-step3-warning" class="alert alert-warning" style="display:none;">
+										<i class="fas fa-exclamation-triangle"></i> {{Le test de connexion a été ignoré. La connexion à la centrale n'a pas été vérifiée.}}
+									</div>
+									<div id="siaDC09-step3-nozone" class="alert alert-warning" style="display:none;">
+										<i class="fas fa-exclamation-triangle"></i> {{Aucune zone détectée — configurez d'abord votre plugin alarme.}}
+									</div>
+									<div class="table-responsive">
+										<table id="siaDC09-zone-table" class="table table-bordered table-condensed">
+											<thead>
+												<tr>
+													<th>{{Zone d'alarme}}</th>
+													<th>{{Action caméra}} <small class="text-muted">{{(optionnel)}}</small></th>
+													<th>{{URL média}} <small class="text-muted">{{(optionnel)}}</small></th>
+												</tr>
+											</thead>
+											<tbody id="siaDC09-zone-tbody">
+											</tbody>
+										</table>
+									</div>
+									<div class="form-group" style="margin-top:15px;">
+										<div class="col-sm-12" style="text-align:right;">
+											<a class="btn btn-success" id="bt_step3Next"><i class="fas fa-arrow-right"></i> {{Suivant}}</a>
+										</div>
+									</div>
+								</div><!-- /#siaDC09-step3 -->
+
+								<!-- Step 4: Critical Notifications -->
+								<div id="siaDC09-step4" class="siaDC09-step" style="display:none;">
+									<legend><i class="fas fa-bell"></i> {{Étape 4 — Alertes critiques}}</legend>
+									<p class="text-muted">
+										{{En cas de problème grave (supervision perdue, alarme non transmise), le plugin doit prévenir quelqu'un.}}
+									</p>
+									<div class="form-group">
+										<label class="col-sm-4 control-label">{{Commande de notification}}</label>
+										<div class="col-sm-7">
+											<div class="input-group">
+												<input type="text"
+													   class="eqLogicAttr form-control"
+													   data-l1key="configuration"
+													   data-l2key="sia_notify_cmd_human"
+													   readonly
+													   placeholder="{{Sélectionnez une commande de notification}}">
+												<span class="input-group-btn">
+													<a class="btn btn-default cursor" id="siaDC09_searchNotifyCmd">
+														<i class="fas fa-list-alt"></i>
+													</a>
+												</span>
+											</div>
+											<input type="hidden"
+												   class="eqLogicAttr"
+												   data-l1key="configuration"
+												   data-l2key="sia_notify_cmd_id">
+										</div>
+									</div>
+									<div id="siaDC09-step4-error" class="alert alert-danger" style="display:none;">
+										<i class="fas fa-exclamation-circle"></i> {{Veuillez sélectionner une commande. Vous pouvez toujours utiliser la messagerie Jeedom.}}
+									</div>
+									<div class="form-group" style="margin-top:15px;">
+										<div class="col-sm-offset-4 col-sm-7">
+											<a class="btn btn-success" id="bt_step4Finish"><i class="fas fa-check"></i> {{Terminer}}</a>
+										</div>
+									</div>
+								</div><!-- /#siaDC09-step4 -->
+							</div><!-- /#siaDC09-wizard -->
+
+							<!-- CONFIG MODE (step == 4) -->
+							<div id="siaDC09-config-summary" style="display:none;">
+								<legend><i class="fas fa-info-circle"></i> {{Configuration active}}</legend>
+								<div class="well well-sm" style="margin-top:10px;">
+									<strong>{{Connexion}}</strong>
+									<div id="siaDC09-summary-connection" style="margin:8px 0 12px 10px;"></div>
+									<strong>{{Zones mappées}}</strong>
+									<div id="siaDC09-summary-zones" style="margin:8px 0 12px 10px;"></div>
+									<strong>{{Notification critique}}</strong>
+									<div id="siaDC09-summary-notify" style="margin:8px 0 0 10px;"></div>
+								</div>
+							</div>
+						</div>
+					</fieldset>
+				</form>
+			</div><!-- /.tabpanel #eqlogictab -->
+
+			<!-- Onglet Commandes -->
+			<div role="tabpanel" class="tab-pane" id="commandtab">
+				<div class="table-responsive">
+					<table id="table_cmd" class="table table-bordered table-condensed">
+						<thead>
+							<tr>
+								<th class="hidden-xs" style="min-width:50px;width:70px;">ID</th>
+								<th style="min-width:200px;width:350px;">{{Nom}}</th>
+								<th>{{Type}}</th>
+								<th style="min-width:260px;">{{Options}}</th>
+								<th>{{Etat}}</th>
+								<th style="min-width:80px;width:200px;">{{Actions}}</th>
+							</tr>
+						</thead>
+						<tbody>
+						</tbody>
+					</table>
+				</div>
+			</div><!-- /.tabpanel #commandtab -->
+		</div><!-- /.tab-content -->
+	</div><!-- /.eqLogic -->
+</div><!-- /.row row-overflow -->
+
+<?php include_file('desktop', 'siaDC09', 'js', 'siaDC09'); ?>
+<?php include_file('core', 'plugin.template', 'js'); ?>
