@@ -45,9 +45,12 @@ class SIATransportResult(TypedDict):
     status: 'ack' (CSR acknowledged), 'nak' (CSR rejected), 'timeout' (no valid
             response / unparseable), 'tcp_drop' (TCP connection lost mid-frame)
     raw_nak: Full raw NAK frame bytes when status='nak'; None otherwise.
+    raw_response: Full raw response bytes for any status with a response (ACK or NAK);
+                  None on timeout/tcp_drop. Used by message_trace callbacks for hex display.
     """
     status: Literal['ack', 'nak', 'timeout', 'tcp_drop']
     raw_nak: bytes | None
+    raw_response: bytes | None
 
 
 # ===== Abstract Base Transport =====
@@ -112,11 +115,11 @@ class SIABaseTransport(ABC):
         """
         result = sia_protocol.decode_ack_nak(raw, crc_format=self._crc_format)
         if result['type'] == 'ACK':
-            return SIATransportResult(status='ack', raw_nak=None)
+            return SIATransportResult(status='ack', raw_nak=None, raw_response=raw)
         elif result['type'] == 'NAK':
-            return SIATransportResult(status='nak', raw_nak=result['raw_nak'])
+            return SIATransportResult(status='nak', raw_nak=result['raw_nak'], raw_response=raw)
         else:
-            return SIATransportResult(status='timeout', raw_nak=None)
+            return SIATransportResult(status='timeout', raw_nak=None, raw_response=raw)
 
 
 # ===== UDP Protocol =====
@@ -396,7 +399,7 @@ class SIATCPTransport(SIABaseTransport):
                 errno.ECONNRESET, errno.EPIPE, errno.ENOTCONN, errno.EBADF
             ):
                 self._logger.warning("TCP connection lost: %r", e)
-                return SIATransportResult(status='tcp_drop', raw_nak=None)
+                return SIATransportResult(status='tcp_drop', raw_nak=None, raw_response=None)
             raise SIATransportError(f"TCP socket error: {e!r}") from e
         finally:
             if writer is not None:

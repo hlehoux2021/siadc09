@@ -1050,30 +1050,38 @@ def test_deamon_info_does_not_call_dependancy_info(deamon_info_body: str) -> Non
 
 def test_guard2_uses_sia_wizard_step_key(deamon_info_body: str) -> None:
     """
-    Guard 2 in deamon_info() must use 'sia_wizard_step' (not the old 'wizard_step' key).
-    The config key was renamed in story 8-2 to avoid conflicts with other plugins.
+    Guard 2 in deamon_info() must use the quoted config key 'sia_wizard_step'
+    (not the old unprefixed 'wizard_step'). Substring match would also pass for
+    'sia_wizard_step_completed' — we require the exact quoted form.
 
     Expected result:
-    - 'sia_wizard_step' appears in deamon_info() body
+    - The quoted string 'sia_wizard_step' (single or double quotes) appears in
+      deamon_info() body as a config key reference
     """
-    # Assert: correct prefixed key is used (Guards 2/3 live in deamon_info, not deamon_start)
-    assert "sia_wizard_step" in deamon_info_body, (
-        "deamon_info() Guard 2 must use 'sia_wizard_step' config key"
+    # Assert: exact quoted key present — not just a substring match on the identifier
+    assert re.search(r"""['"]sia_wizard_step['"]""", deamon_info_body), (
+        "deamon_info() Guard 2 must reference 'sia_wizard_step' as a quoted config key"
+    )
+    # Assert: old unprefixed key is NOT used
+    assert not re.search(r"""['"]wizard_step['"]""", deamon_info_body), (
+        "deamon_info() must not reference bare 'wizard_step' — "
+        "key was renamed to 'sia_wizard_step' to avoid inter-plugin collision"
     )
 
 
 def test_guard3_blocks_tbd_ip(deamon_info_body: str) -> None:
     """
-    Guard 3 in deamon_info() must explicitly block the 'TBD' placeholder IP
-    from the IMA Protect preset. Without this guard, a daemon start would be
-    attempted against the literal hostname 'TBD'.
+    Guard 3 in deamon_info() must explicitly compare csr_ip against the quoted
+    string 'TBD'. Without this guard, a daemon start would be attempted against
+    the literal hostname 'TBD' (IMA Protect preset placeholder).
 
     Expected result:
-    - 'TBD' appears in deamon_info() body as a rejected value
+    - The quoted string 'TBD' or "TBD" appears inside a comparison in deamon_info()
     """
-    # Assert: TBD placeholder is explicitly blocked
-    assert "'TBD'" in deamon_info_body or '"TBD"' in deamon_info_body, (
-        "deamon_info() Guard 3 must block csr_ip == 'TBD' (IMA Protect placeholder)"
+    # Assert: quoted TBD literal is used in a comparison (not just present anywhere)
+    assert re.search(r"""[=!]=\s*['"]TBD['"]|['"]TBD['"]\s*[=!]=""", deamon_info_body), (
+        "deamon_info() Guard 3 must compare csr_ip against 'TBD' — "
+        "quoted literal must appear in a comparison expression"
     )
 
 
@@ -1083,10 +1091,167 @@ def test_guard6_blocks_missing_notify_cmd(deamon_info_body: str) -> None:
     before allowing daemon start. Missing notify cmd id would cause critical
     notifications to be silently dropped.
 
+    The key must appear as a quoted string in a getConfiguration() call, not just
+    anywhere in the method body (e.g., in a comment).
+
     Expected result:
-    - 'sia_notify_cmd_id' appears in deamon_info() body
+    - getConfiguration('sia_notify_cmd_id') call present in deamon_info() body
     """
-    # Assert: notify command guard is present
-    assert "sia_notify_cmd_id" in deamon_info_body, (
-        "deamon_info() Guard 6 must validate sia_notify_cmd_id is non-empty"
+    # Assert: sia_notify_cmd_id used in getConfiguration(), not just in a comment
+    assert re.search(r"""getConfiguration\s*\(\s*['"]sia_notify_cmd_id['"]""", deamon_info_body), (
+        "deamon_info() Guard 6 must call getConfiguration('sia_notify_cmd_id') — "
+        "string only in a comment would pass a bare substring check"
+    )
+
+
+# ── Story 8.3 — JS wizard step contract ──────────────────────────────────────
+
+_JS_FILE = _PROJECT_ROOT / "desktop/js/siaDC09.js"
+
+
+def _extract_js_handler(js_source: str, btn_id: str) -> str:
+    """Extract the full body of a jQuery .on('click', ...) handler block.
+
+    Finds the btn_id string, then walks forward to the first '{' of the
+    handler function body, tracks brace depth to find the matching '}', and
+    returns the content between them. Works correctly on nested callbacks.
+    """
+    start = js_source.find(f"'{btn_id}'")
+    if start == -1:
+        start = js_source.find(f'"{btn_id}"')
+    assert start != -1, f"Handler for {btn_id} not found in siaDC09.js"
+
+    brace_start = js_source.index("{", start)
+    depth = 1
+    i = brace_start + 1
+    while i < len(js_source) and depth > 0:
+        if js_source[i] == "{":
+            depth += 1
+        elif js_source[i] == "}":
+            depth -= 1
+        i += 1
+    return js_source[brace_start + 1 : i - 1]
+
+
+@pytest.fixture(scope="module")
+def js_source() -> str:
+    assert _JS_FILE.exists(), f"JS file not found: {_JS_FILE}"
+    return _JS_FILE.read_text(encoding="utf-8")
+
+
+def test_bt_step3next_sets_wizard_step_4(js_source: str) -> None:
+    """
+    Story 8-3 bug fix: #bt_step3Next click handler must call
+    siaDC09_setWizardStep(4) before jeedom.eqLogic.save(), so the saved
+    sia_wizard_step value matches the step displayed by siaDC09_showStep(4).
+
+    The original bug was siaDC09_setWizardStep(3) — wizard would show step 4
+    HTML but the DB would record step=3, causing step 3 to re-appear on reload.
+
+    Expected result:
+    - siaDC09_setWizardStep(4) appears inside the bt_step3Next handler block
+    - siaDC09_setWizardStep(3) does NOT appear inside the bt_step3Next handler block
+    """
+    handler_body = _extract_js_handler(js_source, "#bt_step3Next")
+
+    # Assert: correct step (4) is set before save
+    assert "siaDC09_setWizardStep(4)" in handler_body, (
+        "#bt_step3Next handler must call siaDC09_setWizardStep(4) — "
+        "step must be saved as 4 so DB matches siaDC09_showStep(4)"
+    )
+    # Assert: the bug (step 3) is not present
+    assert "siaDC09_setWizardStep(3)" not in handler_body, (
+        "#bt_step3Next handler must NOT call siaDC09_setWizardStep(3) — "
+        "this was the original bug: DB saved step=3 while UI showed step=4"
+    )
+
+
+def test_bt_step3next_calls_show_step_4_on_success(js_source: str) -> None:
+    """
+    After jeedom.eqLogic.save() succeeds, the #bt_step3Next handler must call
+    siaDC09_showStep(4) to display the notification command picker.
+
+    Expected result:
+    - siaDC09_showStep(4) appears in the success callback of the bt_step3Next handler
+    """
+    handler_body = _extract_js_handler(js_source, "#bt_step3Next")
+
+    # Assert: step 4 is shown after successful save
+    assert "siaDC09_showStep(4)" in handler_body, (
+        "#bt_step3Next success callback must call siaDC09_showStep(4) — "
+        "without it the UI stays on step 3 after zone mapping is saved"
+    )
+
+
+def test_bt_restart_wizard_sets_step_0_before_save(js_source: str) -> None:
+    """
+    #bt_restartWizard must call siaDC09_setWizardStep(0) BEFORE jeedom.eqLogic.save().
+    This prevents a race condition: if step is set after save(), the daemon watchdog
+    may see the old step value and skip the auto-stop.
+
+    Expected result:
+    - siaDC09_setWizardStep(0) appears before the jeedom.eqLogic.save call
+      in the bt_restartWizard handler
+    """
+    handler_body = _extract_js_handler(js_source, "#bt_restartWizard")
+
+    # Assert: setWizardStep(0) present
+    assert "siaDC09_setWizardStep(0)" in handler_body, (
+        "#bt_restartWizard must call siaDC09_setWizardStep(0) before save()"
+    )
+    # Assert: setWizardStep(0) precedes save() in source order (race-condition guard)
+    set_pos = handler_body.find("siaDC09_setWizardStep(0)")
+    save_pos = handler_body.find("jeedom.eqLogic.save")
+    assert set_pos != -1 and save_pos != -1, (
+        "#bt_restartWizard must contain both siaDC09_setWizardStep(0) and jeedom.eqLogic.save"
+    )
+    assert set_pos < save_pos, (
+        "#bt_restartWizard must set wizard step to 0 BEFORE calling jeedom.eqLogic.save — "
+        "race condition: watchdog may read old step if order is reversed"
+    )
+
+
+def test_bt_step4finish_validates_notify_cmd_before_save(js_source: str) -> None:
+    """
+    #bt_step4Finish must check that sia_notify_cmd_id is non-empty and show an
+    error if not — never save without a valid notification command. Without this
+    guard, users could complete the wizard without configuring the mandatory T3
+    notification command, causing critical alerts to be silently dropped.
+
+    Expected result:
+    - sia_notify_cmd_id is read from the DOM in the bt_step4Finish handler
+    - A guard check (if !notifyCmdId or equivalent) is present before save()
+    """
+    handler_body = _extract_js_handler(js_source, "#bt_step4Finish")
+
+    # Assert: notify cmd id is read from the DOM
+    assert "sia_notify_cmd_id" in handler_body, (
+        "#bt_step4Finish must read sia_notify_cmd_id from the DOM before saving"
+    )
+    # Assert: a guard check exists (if !notifyCmdId or if not set)
+    assert re.search(r"if\s*\(\s*!", handler_body), (
+        "#bt_step4Finish must guard against empty sia_notify_cmd_id before calling save()"
+    )
+
+
+def test_sia_wizard_step_set_via_data_l2key_attribute(js_source: str) -> None:
+    """
+    siaDC09_setWizardStep() must set the value via
+    .eqLogicAttr[data-l2key="sia_wizard_step"] — the Jeedom DOM pattern that
+    getValues('.eqLogicAttr') reads when building the save payload. Any other
+    selector would mean the step is never persisted.
+
+    Expected result:
+    - The function uses data-l2key="sia_wizard_step" selector
+    """
+    match = re.search(
+        r"function\s+siaDC09_setWizardStep\s*\([^)]*\)\s*\{([^}]*)\}", js_source, re.DOTALL
+    )
+    assert match is not None, "siaDC09_setWizardStep() function not found in siaDC09.js"
+    fn_body = match.group(1)
+
+    # Assert: sia_wizard_step is targeted via data-l2key attribute (Jeedom save contract)
+    assert 'data-l2key="sia_wizard_step"' in fn_body or "data-l2key='sia_wizard_step'" in fn_body, (
+        "siaDC09_setWizardStep() must use data-l2key='sia_wizard_step' selector — "
+        "Jeedom reads this attribute to build the eqLogic save payload"
     )

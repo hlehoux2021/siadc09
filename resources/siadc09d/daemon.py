@@ -59,7 +59,16 @@ from .messages import (
     SM1_NO_NETWORK_FR,
 )
 from .ring_buffer import RingBuffer, make_message_entry
-from .sia_protocol import SIAMessageBuilder, parse_nak_timestamp, SIAProtocolError, SIATransportError, TIMESTAMP_FORMAT
+from .sia_protocol import (
+    ENCRYPTED_MARKER,
+    NULL_TOKEN,
+    SIA_DCS_TOKEN,
+    SIAMessageBuilder,
+    SIAProtocolError,
+    SIATransportError,
+    TIMESTAMP_FORMAT,
+    parse_nak_timestamp,
+)
 from .sia_crypto import AESEncryptionError
 from .presets import CSRPreset
 from .sia_transport import (
@@ -359,6 +368,9 @@ class SIADaemon(BaseDaemon):
         # items stay in the queue (no re-enqueue) and the consumer wakes naturally.
         self._sm1_state_changed: asyncio.Event = asyncio.Event()
 
+        # Last sent frame bytes — stored in _send_raw() for message_trace callbacks.
+        self._last_sent_frame: bytes = b""
+
 
     def _notify(self, error_code: ErrorCode, context: NotificationContext) -> None:
         """Dispatch error notification as a non-blocking background task.
@@ -387,6 +399,7 @@ class SIADaemon(BaseDaemon):
         Raises:
             SIATransportError: if transport not initialized or network failure
         """
+        self._last_sent_frame = frame  # Store for message_trace callbacks
         if self._sia_transport is None:
             raise SIATransportError("Transport not initialized — on_start() not called")
         return await self._sia_transport.send_frame(frame)
@@ -875,7 +888,7 @@ class SIADaemon(BaseDaemon):
             "seq": self._sia_seq - 1,  # Was the sequence sent
             "elapsed_ms": elapsed_ms,
             "crc_format": self._preset.crc_format,
-            "raw_hex": None,  # ACK: SIATransportResult has no raw frame field
+            "raw_hex": result['raw_response'].hex() if result.get('raw_response') else None,
             "prev_strike": prev_strike,
         }
 
@@ -1154,6 +1167,11 @@ class SIADaemon(BaseDaemon):
                         "routine": 1,
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                         "elapsed_ms": int(ack_ctx["elapsed_ms"]),
+                        "id_token": f"{ENCRYPTED_MARKER}{NULL_TOKEN}" if self._preset.encryption_enabled else NULL_TOKEN,
+                        "sequence": ack_ctx["seq"],
+                        "account": self._account,
+                        "request_hex": self._last_sent_frame.hex() if self._last_sent_frame else "",
+                        "response_hex": ack_ctx["raw_hex"] if ack_ctx["raw_hex"] else "",
                     },
                 })
 
@@ -1186,6 +1204,10 @@ class SIADaemon(BaseDaemon):
                         "routine": 0,
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                         "elapsed_ms": int(t_ctx["elapsed_ms"]),
+                        "id_token": f"{ENCRYPTED_MARKER}{NULL_TOKEN}" if self._preset.encryption_enabled else NULL_TOKEN,
+                        "sequence": t_ctx["seq"],
+                        "account": self._account,
+                        "request_hex": self._last_sent_frame.hex() if self._last_sent_frame else "",
                     },
                 })
 
@@ -1212,8 +1234,12 @@ class SIADaemon(BaseDaemon):
                         "dialog_type": "supervision",
                         "routine": 0,
                         "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "raw_hex": n_ctx["raw_hex"],
                         "elapsed_ms": int(n_ctx["elapsed_ms"]),
+                        "id_token": f"{ENCRYPTED_MARKER}{NULL_TOKEN}" if self._preset.encryption_enabled else NULL_TOKEN,
+                        "sequence": n_ctx["seq"],
+                        "account": self._account,
+                        "request_hex": self._last_sent_frame.hex() if self._last_sent_frame else "",
+                        "response_hex": n_ctx["raw_hex"],
                     },
                 })
 
@@ -1240,8 +1266,12 @@ class SIADaemon(BaseDaemon):
                         "dialog_type": "supervision",
                         "routine": 0,
                         "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "raw_hex": n_ctx["raw_hex"],
                         "elapsed_ms": int(n_ctx["elapsed_ms"]),
+                        "id_token": f"{ENCRYPTED_MARKER}{NULL_TOKEN}" if self._preset.encryption_enabled else NULL_TOKEN,
+                        "sequence": n_ctx["seq"],
+                        "account": self._account,
+                        "request_hex": self._last_sent_frame.hex() if self._last_sent_frame else "",
+                        "response_hex": n_ctx["raw_hex"],
                     },
                 })
 
@@ -1302,6 +1332,7 @@ class SIADaemon(BaseDaemon):
                 if status == "ack":
                     # Task 3.2.2e: ACK received - event confirmed
                     self._sm2_state = SM2State.CONFIRMED
+                    _ack_hex = result['raw_response'].hex() if result.get('raw_response') else None
                     await self._log_sm2_event(
                         "confirmed",
                         SM2LogCtx(
@@ -1310,7 +1341,8 @@ class SIADaemon(BaseDaemon):
                             attempt=self._event_attempt_count,
                             elapsed=0.0,
                             state_change=True
-                        )
+                        ),
+                        response_hex=_ack_hex,
                     )
                     await self._update_info_commands({
                         'event_state': self._event_state_from_sm2(),
@@ -1346,6 +1378,7 @@ class SIADaemon(BaseDaemon):
                         )
                     )
                     self._sm2_state = SM2State.FAILED
+                    _nak_hex = result['raw_response'].hex() if result.get('raw_response') else None
                     await self._log_sm2_event(
                         "failed_nak",
                         SM2LogCtx(
@@ -1354,7 +1387,8 @@ class SIADaemon(BaseDaemon):
                             attempt=self._event_attempt_count,
                             elapsed=0.0,
                             state_change=True
-                        )
+                        ),
+                        response_hex=_nak_hex,
                     )
                     await self._update_info_commands({
                         'event_state': self._event_state_from_sm2(),
@@ -1560,7 +1594,8 @@ class SIADaemon(BaseDaemon):
     async def _log_sm2_event(
         self,
         transition: str,
-        ctx: SM2LogCtx | None = None
+        ctx: SM2LogCtx | None = None,
+        response_hex: str | None = None,
     ) -> None:
         """Log SM2 state transitions with French INFO + English DEBUG lines (Task 7).
 
@@ -1570,6 +1605,7 @@ class SIADaemon(BaseDaemon):
         Args:
             transition: State transition type (e.g., "event_received", "confirmed", "failed")
             ctx: Optional SM2LogCtx with zone, sia_code, attempt, elapsed, state_change
+            response_hex: Optional hex string of the raw CSR response (ACK/NAK bytes).
 
         Reference: story 5-2 Task 7, logging-design.md SM2 transition table
         """
@@ -1645,15 +1681,19 @@ class SIADaemon(BaseDaemon):
             )
 
             # Emit message_trace callback for protocol inspector
-            await self._send_callback({
-                "type": "message_trace",
-                "dialog": {
-                    "dialog_type": "alarm",
-                    "routine": 0,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "elapsed_ms": int(ctx["elapsed"] * 1000),
-                },
-            })
+            dialog: dict = {
+                "dialog_type": "alarm",
+                "routine": 0,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "elapsed_ms": int(ctx["elapsed"] * 1000),
+                "id_token": f"{ENCRYPTED_MARKER}{SIA_DCS_TOKEN}" if self._preset.encryption_enabled else SIA_DCS_TOKEN,
+                "sequence": self._sia_seq,
+                "account": self._account,
+                "request_hex": self._last_sent_frame.hex() if self._last_sent_frame else "",
+            }
+            if response_hex is not None:
+                dialog["response_hex"] = response_hex
+            await self._send_callback({"type": "message_trace", "dialog": dialog})
 
         except asyncio.CancelledError:
             raise  # propagate task cancellation (daemon-design.md § CancelledError safety rule)

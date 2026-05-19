@@ -27,3 +27,33 @@
 
 - **D-12: Migration — existing eqLogics with old `wizard_step` key** — Any equipment created before the `wizard_step`→`sia_wizard_step` rename in `siaDC09.class.php` will be treated as step 0 (config mode) on `printEqLogic`, forcing a wizard restart. Pre-existing issue; no real users exist in v1.0 yet.
 - **D-13: Orphan subprocess on PHP timeout in `testConnection`** — If PHP's `set_time_limit` fires during the `exec()` call to `siadc09d.py --test-only`, the request dies but the Python subprocess may continue running. Self-terminates on its own timeout; harmless in v1.0 single-user context.
+
+## Deferred from: code review of 8-3-wizard-integration-testing (2026-05-11)
+
+- **D-14: `test_sia_wizard_step_set_via_data_l2key_attribute` uses `[^}]*` regex** — Fragile if `siaDC09_setWizardStep()` gains nested braces. Should replace with `_extract_js_handler()` brace-depth approach if function body grows.
+- **D-15: `TransportType` ValueError propagates out of `run_connection_test`** — An invalid transport string from a malformed preset causes an uncaught exception, so PHP receives a traceback instead of a JSON error object. Pre-existing production code gap; fix in production code, not in tests.
+- **D-16: Account number `"0"` rejected by falsy `not account_number` guard** — Single-digit `"0"` is theoretically valid but blocked. Whitespace-only string `" "` passes the guard and produces a malformed SIA frame. Pre-existing.
+- **D-17: Preset mode + `encryption_enabled=true` + missing key untested** — The IMA Protect preset ships with `encryption_enabled=true`; if the user has not set `SIA_ENCRYPTION_KEY`, the test sends unencrypted to a CSR expecting encrypted (NAK). This edge case is not covered by the current test suite.
+- **D-18: OSError branch of preset file loading untested** — `except (OSError, json.JSONDecodeError)` in `run_connection_test()` is only exercised for the JSONDecodeError path; missing-file / permission-denied path has no test.
+- **D-19: Encryption test does not assert frame was encrypted** — `test_run_connection_test_encryption_sends_frame` only asserts `_send_raw_once` was called; does not verify `make_supervision_message` was called with `encryption=True`. A logic inversion in the `encryption_enabled and bool(key)` guard would not be caught.
+- **D-20: TCP timeout budget exhaustion** — When `timeout < _TEST_CONNECT_TIMEOUT_S` (5 s), the full budget is consumed by TCP connect and `send_frame` always times out. Architectural pre-existing issue in production code.
+
+## Deferred from: code review of 9-1-status-badge-error-panel (2026-05-18)
+
+- **D-21: `shown.bs.tab` direct binding** — `$('a[href="#diagnosticTab"]').on('shown.bs.tab', ...)` at file-load time may bind to zero elements if the PHP partial is injected after JS parse. Safer as delegated: `$(document).on('shown.bs.tab', 'a[href="#diagnosticTab"]', ...)`. Pre-existing pattern; consistent with other direct bindings in same file.
+- **D-22: `_siaDC09_decodeCache` unbounded growth** — Cache accumulates all decoded frames with no eviction. On a long-running page with many protocol dialogs, memory grows indefinitely. Should add a max-entries cap (e.g. 100). 9-2 scope — track for 9-2 review.
+- **D-23: Inspector detail panel orphaned on re-render while decode AJAX in-flight** — If user clicks Actualiser while a decode request is pending, `renderMessages` calls `empty()` on the list, destroying the `$detail` reference captured in the AJAX closure. Decode result is painted into a detached node. 9-2 scope — track for 9-2 review.
+- **D-24: `siaDC09_copyHexFallback` — textarea not removed if `select()` throws** — `$ta.remove()` is called after `execCommand('copy')` but `$ta` is not cleaned up if `$ta[0].select()` throws. Harmless in practice but leaves a hidden textarea in the DOM. 9-2 scope — track for 9-2 review.
+
+## Deferred from: code review of 9-2-protocol-inspector-hex-viewer-decryption (2026-05-19)
+
+- **D-25: `execCmd()` on disabled equipment in `getDiagnosticData`** — `$stateCmd->execCmd()` on info commands may throw on disabled equipment, propagating as AJAX error instead of returning partial diagnostic data. Fix: use `getValue()` instead. Pre-existing pattern from story 9-1.
+- **D-26: `$python3` not shell-escaped in `decodeFrame` subprocess command** — `system::getCmdPython3()` return value concatenated directly into shell command without `escapeshellarg()`. If interpreter path contains spaces (venv), command breaks. Pre-existing: same unescaped pattern in `testConnection` action. Fix: wrap `$python3` with `escapeshellarg()` at both call sites.
+- **D-27: `raw_response=raw` on timeout branch in `_parse_response()`** — Docstring says `raw_response=None` on timeout, but code passes the raw (potentially garbled) bytes. Low impact for inspector use. Fix: set `raw_response=None` on timeout branch to match docstring contract.
+- **D-28: CRC format runtime detection in `decode()` contradicts ADR-06** — `decode()` infers `crc_format` from `len(crc_bytes)` (4=hex, 2=bin). ADR-06 establishes crc_format as a preset config field, not runtime-detected. Acceptable for display-only inspector; no operational impact.
+
+## Deferred from: code review of 9-3-diagnostic-tab-integration-testing (2026-05-19)
+
+- **D-29: `_siaDC09_decodeCache` not reset on full diagnostic reload** — AC 1 specifies the decode cache should reset to `{}` on each call to `siaDC09_loadDiagnosticData()`. Currently the cache is only cleared in `inspectorClear`'s success callback (line 852). Requires a production code change in `siaDC09_loadDiagnosticData` (story 9-2 code). Deferred: testing-only story scope cannot modify production code.
+- **D-30: Fixture `SAMPLE_MESSAGE_TRACE` / `SAMPLE_MESSAGE_TRACE_ALARM` missing `id_token`, `sequence`, `account` fields** — The daemon now emits these three fields in every message_trace dialog (added in 9-2 review P3). Fixture samples do not include them, so regressions dropping these fields would go undetected in `test_diagnostic_ipc.py`. JS renderer has fallback defaults so no crash; purely a contract coverage gap.
+- **D-31: `DIALOG_REQUIRED_FIELDS` defined in `ipc_schema.py` but never imported in `test_diagnostic_ipc.py`** — The constant (`["dialog_type", "routine"]`) is unused in the test file. Tests use ad-hoc field lists instead. Should import and extend `DIALOG_REQUIRED_FIELDS` with JS-accessed fields (`id_token`, `sequence`, `account`, `timestamp`, `elapsed_ms`) and drive assertions from it.

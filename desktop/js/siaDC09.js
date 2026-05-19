@@ -21,6 +21,7 @@ var _siaDC09_testNakConfirmed = false
 
 function printEqLogic(_eqLogic) {
   var wizardStep = parseInt(_eqLogic.configuration && _eqLogic.configuration.sia_wizard_step || 0)
+  siaDC09_initDiagnosticTab(wizardStep)
   if (wizardStep >= 4) {
     $('#siaDC09-wizard').hide()
     $('#siaDC09-config-summary').show()
@@ -526,7 +527,7 @@ function siaDC09_buildZoneRow(zoneName, saved, cameraCommands) {
 
 $('#bt_step3Next').on('click', function() {
   if ($(this).attr('disabled')) return
-  siaDC09_setWizardStep(3)
+  siaDC09_setWizardStep(4)
   var eqLogic = $('.eqLogic').getValues('.eqLogicAttr')[0]
   eqLogic = saveEqLogic(eqLogic)
   jeedom.eqLogic.save({
@@ -695,4 +696,415 @@ function addCmdToTable(_cmd) {
       jeedom.cmd.changeType(tr, init(_cmd.subType))
     }
   })
+}
+
+// ===== DIAGNOSTIC TAB =====
+
+var _siaDC09_tierMap = {
+  'SUPERVISION_TIMEOUT': 'T1',
+  'SUPERVISION_NAK': 'T1',
+  'BAD_CSR_RESPONSE': 'T2',
+  'SUPERVISION_DISCONNECTED': 'T3',
+  'EVENT_FAILED': 'T3',
+  'TRANSPORT_PERMANENT': 'T3'
+}
+
+var _siaDC09_tierClasses = {
+  'T1': 'label-info',
+  'T2': 'label-warning',
+  'T3': 'label-danger'
+}
+
+var _siaDC09_badgeColors = {
+  2: '#5cb85c',
+  1: '#f0ad4e',
+  0: '#d9534f'
+}
+
+function siaDC09_initDiagnosticTab(wizardStep) {
+  if (wizardStep >= 4) {
+    $('#siaDC09_diagnosticTabLi').show()
+  } else {
+    $('#siaDC09_diagnosticTabLi').hide()
+  }
+}
+
+function siaDC09_loadDiagnosticData() {
+  $.ajax({
+    type: 'POST',
+    url: 'plugins/siaDC09/core/ajax/siaDC09.ajax.php',
+    data: { action: 'getDiagnosticData', ajax: 1 },
+    dataType: 'json',
+    global: false,
+    success: function(data) {
+      var result = data.result || {}
+      siaDC09_renderBadge(result.supervision_state, result.supervision_label)
+      siaDC09_renderErrors(result.errors || [])
+      siaDC09_renderMessages(result.messages || [])
+    },
+    error: function() {
+      $('#div_alert').showAlert({ message: '{{Erreur lors du chargement des données de diagnostic}}', level: 'danger' })
+    }
+  })
+}
+
+function siaDC09_renderBadge(supervisionState, supervisionLabel) {
+  var state = parseInt(supervisionState)
+  if (isNaN(state)) state = 1
+  var color = _siaDC09_badgeColors[state] || _siaDC09_badgeColors[1]
+  $('#siaDC09_badgeDot').css('color', color)
+  $('#siaDC09_badgeLabel').text(supervisionLabel || '')
+}
+
+function siaDC09_renderErrors(errors) {
+  var $list = $('#siaDC09_errorsList').empty()
+  if (!errors || errors.length === 0) {
+    $list.html('<em class="text-muted">{{Aucune erreur enregistrée}}</em>')
+    return
+  }
+  var $table = $('<table class="table table-condensed table-striped" style="margin-bottom:0;">')
+  errors.forEach(function(err) {
+    var $tr = $('<tr>')
+    var ts = siaDC09_formatTimestamp(err.timestamp)
+    $tr.append($('<td style="width:70px;">').text(ts))
+    var tier = _siaDC09_tierMap[err.code] || 'T1'
+    var tierClass = _siaDC09_tierClasses[tier] || 'label-default'
+    $tr.append($('<td style="width:40px;">').html('<span class="label ' + tierClass + '">' + tier + '</span>'))
+    $tr.append($('<td>').text(err.code || ''))
+    $tr.append($('<td>').text(err.message || ''))
+    $table.append($tr)
+  })
+  $list.append($table)
+}
+
+function siaDC09_formatTimestamp(isoString) {
+  if (!isoString) return ''
+  try {
+    var d = new Date(isoString)
+    if (isNaN(d.getTime())) return ''
+    var h = ('0' + d.getUTCHours()).slice(-2)
+    var m = ('0' + d.getUTCMinutes()).slice(-2)
+    var s = ('0' + d.getUTCSeconds()).slice(-2)
+    return h + ':' + m + ':' + s
+  } catch (e) {
+    return ''
+  }
+}
+
+// Diagnostic tab shown event — load data on first activation
+// Delegated binding handles the case where the tab anchor is injected after script parse
+$(document).on('shown.bs.tab', 'a[href="#diagnosticTab"]', function() {
+  siaDC09_loadDiagnosticData()
+})
+
+// Actualiser button (errors panel)
+$('#siaDC09_errorsRefresh').on('click', function() {
+  var $btn = $(this)
+  if ($btn.attr('disabled')) return
+  $btn.attr('disabled', true)
+  siaDC09_loadDiagnosticData()
+  setTimeout(function() { $btn.removeAttr('disabled') }, 2000)
+})
+
+// Actualiser button (inspector panel)
+$('#siaDC09_inspectorRefresh').on('click', function() {
+  var $btn = $(this)
+  if ($btn.attr('disabled')) return
+  $btn.attr('disabled', true)
+  siaDC09_loadDiagnosticData()
+  setTimeout(function() { $btn.removeAttr('disabled') }, 2000)
+})
+
+// Vider button (errors panel)
+$('#siaDC09_errorsClear').on('click', function() {
+  var $btn = $(this)
+  if ($btn.attr('disabled')) return
+  $btn.attr('disabled', true)
+  $.ajax({
+    type: 'POST',
+    url: 'plugins/siaDC09/core/ajax/siaDC09.ajax.php',
+    data: { action: 'clearDiagnosticData', target: 'errors', ajax: 1 },
+    dataType: 'json',
+    global: false,
+    success: function() {
+      $('#siaDC09_errorsList').html('<em class="text-muted">{{Aucune erreur enregistrée}}</em>')
+      $btn.removeAttr('disabled')
+    },
+    error: function() {
+      $btn.removeAttr('disabled')
+      $('#div_alert').showAlert({ message: '{{Erreur lors de la suppression}}', level: 'danger' })
+    }
+  })
+})
+
+// Vider button (inspector panel)
+$('#siaDC09_inspectorClear').on('click', function() {
+  var $btn = $(this)
+  if ($btn.attr('disabled')) return
+  $btn.attr('disabled', true)
+  $.ajax({
+    type: 'POST',
+    url: 'plugins/siaDC09/core/ajax/siaDC09.ajax.php',
+    data: { action: 'clearDiagnosticData', target: 'messages', ajax: 1 },
+    dataType: 'json',
+    global: false,
+    success: function() {
+      _siaDC09_decodeCache = {}
+      $('#siaDC09_inspectorList').html('<em class="text-muted">{{Aucun échange SIA enregistré}}</em>')
+      $btn.removeAttr('disabled')
+    },
+    error: function() {
+      $btn.removeAttr('disabled')
+      $('#div_alert').showAlert({ message: '{{Erreur lors de la suppression}}', level: 'danger' })
+    }
+  })
+})
+
+// ===== Protocol Inspector — Message Rendering (Story 9-2) =====
+
+// Cache for decoded frame results: key = hex string, value = decoded object
+var _siaDC09_decodeCache = {}
+
+// Task 4: Build collapsed message rows
+function siaDC09_renderMessages(messages) {
+  var $list = $('#siaDC09_inspectorList').empty()
+  if (!messages || messages.length === 0) {
+    $list.html('<em class="text-muted">{{Aucun échange SIA enregistré}}</em>')
+    return
+  }
+  messages.forEach(function(msg) {
+    var isAlarm = msg.dialog_type === 'alarm'
+    var isRoutine = msg.routine === 1
+    var ts = siaDC09_formatTimestamp(msg.timestamp)
+    var elapsedMs = msg.elapsed_ms || 0
+
+    // Status badge
+    var badgeClass = 'label-success'
+    var badgeText = elapsedMs + 'ms'
+    if (!isRoutine && isAlarm) {
+      badgeClass = 'label-warning'
+      if (msg.attempts && msg.attempts.length > 1) badgeClass = 'label-danger'
+    } else if (!isRoutine) {
+      // supervision NAK/timeout
+      badgeClass = 'label-warning'
+    }
+
+    // Direction icon (sent = →, received back in response = both directions shown as →)
+    var direction = '<span style="font-family:monospace;">&#8594;</span>'
+
+    var requestHex = msg.request_hex || ''
+    var responseHex = msg.response_hex || ''
+
+    var $row = $('<div class="sia-msg-row">')
+      .attr('data-request-hex', requestHex)
+      .attr('data-response-hex', responseHex)
+      .css({ cursor: 'pointer', padding: '6px 10px', borderBottom: '1px solid #eee' })
+
+    var idToken = msg.id_token ? msg.id_token : (isAlarm ? 'SIA-DCS' : 'NULL')
+    var seqStr = msg.sequence !== undefined ? ('#' + ('0000' + msg.sequence).slice(-4)) : ''
+    var accountStr = msg.account ? ('#' + msg.account) : ''
+
+    $row.append(direction + ' ')
+    $row.append($('<span class="sia-token label label-default" style="margin-right:4px;">').text(idToken))
+    $row.append($('<span class="sia-seq text-muted" style="margin-right:4px; font-family:monospace;">').text(seqStr))
+    $row.append($('<span class="sia-account text-muted" style="margin-right:6px; font-family:monospace;">').text(accountStr))
+    $row.append($('<span class="sia-context text-muted" style="margin-right:6px;">').text(isRoutine ? '{{routine}}' : '{{non-routine}}'))
+    $row.append($('<span class="sia-status label ' + badgeClass + '" style="margin-right:6px;">').text(badgeText))
+    $row.append($('<span class="sia-time pull-right text-muted">').text(ts))
+
+    var $detail = $('<div class="sia-msg-detail">').css({ display: 'none' })
+    $row.after($detail)
+
+    $list.append($row).append($detail)
+
+    // Store reference on row for expand handler
+    $row.data('detail', $detail)
+    $row.data('msg', msg)
+  })
+}
+
+// Task 5: Expand/collapse with field table
+$('#siaDC09_inspectorList').on('click', '.sia-msg-row', function() {
+  var $row = $(this)
+  var $detail = $row.data('detail')
+  if (!$detail) {
+    // detail div is right after row in DOM
+    $detail = $row.next('.sia-msg-detail')
+  }
+  if (!$detail || !$detail.length) return
+
+  if ($detail.is(':visible')) {
+    $detail.hide()
+    return
+  }
+
+  // Already decoded — show cached result
+  var requestHex = $row.attr('data-request-hex') || ''
+  var cacheKey = requestHex + '|' + ($row.attr('data-response-hex') || '')
+  if (_siaDC09_decodeCache[cacheKey]) {
+    siaDC09_renderFrameDetail($detail, $row.data('msg'), _siaDC09_decodeCache[cacheKey], requestHex, $row.attr('data-response-hex') || '')
+    $detail.show()
+    return
+  }
+
+  if (!requestHex) {
+    $detail.html('<div style="padding:8px 10px;"><em class="text-muted">{{Pas de données hexadécimales disponibles}}</em></div>').show()
+    return
+  }
+
+  $detail.html('<div style="padding:8px 10px;"><em class="text-muted">{{Décodage en cours…}}</em></div>').show()
+
+  $.ajax({
+    type: 'POST',
+    url: 'plugins/siaDC09/core/ajax/siaDC09.ajax.php',
+    data: { action: 'decodeFrame', hex: requestHex, ajax: 1 },
+    dataType: 'json',
+    global: false,
+    success: function(data) {
+      var decoded = data.result || {}
+      _siaDC09_decodeCache[cacheKey] = decoded
+      siaDC09_renderFrameDetail($detail, $row.data('msg'), decoded, requestHex, $row.attr('data-response-hex') || '')
+    },
+    error: function(xhr) {
+      var msg = (xhr.responseJSON && xhr.responseJSON.error) ? xhr.responseJSON.error : '{{Erreur de décodage}}'
+      $detail.html('<div style="padding:8px 10px;color:#d9534f;">' + $('<span>').text(msg).html() + '</div>')
+    }
+  })
+})
+
+function siaDC09_renderFrameDetail($detail, msg, decoded, requestHex, responseHex) {
+  $detail.empty().css({ padding: '10px 10px 10px 25px', background: '#f9f9f9', borderBottom: '1px solid #ddd' })
+
+  var isAlarm = msg && msg.dialog_type === 'alarm'
+  var attempts = (msg && msg.attempts) ? msg.attempts : null
+
+  // If alarm with multiple attempts — render attempt sub-blocks
+  if (isAlarm && attempts && attempts.length > 1) {
+    attempts.forEach(function(attempt, idx) {
+      var $block = $('<div class="sia-attempt" style="margin-bottom:10px;">')
+      $block.append($('<div style="font-weight:bold;margin-bottom:4px;">').text('Tentative ' + (idx + 1) + '/' + attempts.length))
+      var attemptReqHex = attempt.request_hex || requestHex
+      var attemptResHex = attempt.response_hex || ''
+      var elapsedText = attempt.elapsed_ms ? attempt.elapsed_ms + 'ms' : ''
+      $block.append(siaDC09_buildHexButtons(attemptReqHex, attemptResHex))
+      if (idx === attempts.length - 1) {
+        // Decoded data shown on last attempt
+        $block.append(siaDC09_buildFieldTable(decoded))
+      }
+      if (elapsedText) $block.append($('<div class="text-muted" style="font-size:11px;margin-top:3px;">').text(elapsedText))
+      $detail.append($block)
+    })
+    return
+  }
+
+  // Single frame detail
+  $detail.append(siaDC09_buildHexButtons(requestHex, responseHex))
+  $detail.append(siaDC09_buildFieldTable(decoded))
+}
+
+function siaDC09_buildHexButtons(requestHex, responseHex) {
+  var $div = $('<div style="margin-bottom:8px;">')
+  if (requestHex) {
+    var $btn = $('<button class="btn btn-xs btn-default sia-copy-hex" style="margin-right:4px;">')
+      .attr('data-hex', requestHex)
+      .text('{{Copier hex (envoyé)}}')
+    $div.append($btn)
+  }
+  if (responseHex) {
+    var $btn2 = $('<button class="btn btn-xs btn-default sia-copy-hex" style="margin-right:4px;">')
+      .attr('data-hex', responseHex)
+      .text('{{Copier hex (reçu)}}')
+    $div.append($btn2)
+  }
+  return $div
+}
+
+function siaDC09_buildFieldTable(decoded) {
+  var $wrap = $('<div>')
+
+  // Encryption indicator
+  if (decoded.encrypted) {
+    var encLabel = decoded.data_decrypted
+      ? '<span class="label label-info" style="margin-bottom:6px;display:inline-block;">Chiffrement AES-128-CBC (déchiffré)</span>'
+      : '<span class="label label-warning" style="margin-bottom:6px;display:inline-block;">Chiffrement AES-128-CBC (non déchiffré)</span>'
+    $wrap.append($(encLabel))
+  }
+
+  var $table = $('<table class="table table-condensed table-bordered" style="margin-bottom:5px;">')
+  var $thead = $('<thead>').append($('<tr>').append($('<th>').text('Champ')).append($('<th>').text('Valeur')))
+  var $tbody = $('<tbody>')
+  $table.append($thead).append($tbody)
+
+  function addRow(label, value) {
+    var $tr = $('<tr>')
+    $tr.append($('<td>').text(label))
+    var $td = $('<td>')
+    if (value !== null && value !== undefined && value !== '') {
+      $td.append($('<code>').text(String(value)))
+    } else {
+      $td.append($('<em class="text-muted">').text('—'))
+    }
+    $tbody.append($tr.append($td))
+  }
+
+  addRow('ID Token', decoded.id_token)
+  addRow('Séquence', decoded.sequence)
+  addRow('Préfixe récepteur', decoded.receiver_prefix || '—')
+  addRow('Préfixe compte', decoded.account_prefix)
+  addRow('Compte', decoded.account)
+  addRow('Données (brut)', decoded.data_raw)
+  if (decoded.encrypted && decoded.data_decrypted !== null && decoded.data_decrypted !== undefined) {
+    addRow('Données (déchiffré)', decoded.data_decrypted)
+  }
+  if (decoded.extended_fields && Object.keys(decoded.extended_fields).length > 0) {
+    addRow('Champs étendus', JSON.stringify(decoded.extended_fields))
+  }
+  if (decoded.timestamp_str) {
+    addRow('Horodatage', decoded.timestamp_str)
+  }
+
+  // CRC row
+  var $crcValue = $('<span>')
+  var $crcIcon = $('<span>').css('color', decoded.crc_valid ? '#5cb85c' : '#d9534f')
+    .text(decoded.crc_valid ? '✓ CRC valide' : '✗ CRC invalide')
+  $crcValue.append($crcIcon)
+  $crcValue.append(document.createTextNode(' (reçu: 0x' + (decoded.crc_received || '') + ', calculé: 0x' + (decoded.crc_computed || '') + ')'))
+  var $crcTr = $('<tr>').append($('<td>').text('CRC')).append($('<td>').append($crcValue))
+  $tbody.append($crcTr)
+
+  addRow('Longueur', 'déclarée: ' + decoded.length_declared + ' / réelle: ' + decoded.length_actual)
+  addRow('Format CRC', decoded.crc_format)
+
+  $wrap.append($table)
+  return $wrap
+}
+
+// Task 6: Clipboard copy button handler
+$(document).on('click', '.sia-copy-hex', function() {
+  var $btn = $(this)
+  var hex = $btn.attr('data-hex') || ''
+  if (!hex) return
+
+  var originalText = $btn.text()
+  var copyDone = function() {
+    $btn.text('{{Copié !}}')
+    setTimeout(function() { $btn.text(originalText) }, 1500)
+  }
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(hex).then(copyDone).catch(function() {
+      siaDC09_copyHexFallback(hex, copyDone)
+    })
+  } else {
+    siaDC09_copyHexFallback(hex, copyDone)
+  }
+})
+
+function siaDC09_copyHexFallback(hex, onDone) {
+  var $ta = $('<textarea>').val(hex).css({ position: 'fixed', top: '-9999px', left: '-9999px' })
+  $('body').append($ta)
+  $ta[0].select()
+  try { document.execCommand('copy') } catch (e) {}
+  $ta.remove()
+  if (onDone) onDone()
 }

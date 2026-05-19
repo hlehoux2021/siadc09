@@ -108,6 +108,135 @@ try {
         ]);
     }
 
+    if (init('action') == 'getDiagnosticData') {
+        $eqLogics = eqLogic::byType('siaDC09');
+        if (!is_array($eqLogics) || count($eqLogics) === 0) {
+            ajax::success([
+                'supervision_state' => 1,
+                'supervision_label' => '',
+                'event_state' => 0,
+                'event_label' => '',
+                'errors' => [],
+                'messages' => [],
+            ]);
+            return;
+        }
+        $eqLogic = $eqLogics[0];
+
+        $stateCmd = $eqLogic->getCmd('info', 'supervision_state');
+        $supervisionState = $stateCmd ? (int) $stateCmd->execCmd() : 1;
+
+        $labelCmd = $eqLogic->getCmd('info', 'supervision_label');
+        $supervisionLabel = $labelCmd ? (string) $labelCmd->execCmd() : '';
+
+        $eventStateCmd = $eqLogic->getCmd('info', 'event_state');
+        $eventState = $eventStateCmd ? (int) $eventStateCmd->execCmd() : 0;
+
+        $eventLabelCmd = $eqLogic->getCmd('info', 'event_label');
+        $eventLabel = $eventLabelCmd ? (string) $eventLabelCmd->execCmd() : '';
+
+        $errors = json_decode(config::byKey('sia_last_errors', 'siaDC09', '[]'), true);
+        if (!is_array($errors)) {
+            $errors = [];
+        }
+        $errors = array_slice($errors, 0, 10);
+
+        $messages = json_decode(config::byKey('sia_last_messages', 'siaDC09', '[]'), true);
+        if (!is_array($messages)) {
+            $messages = [];
+        }
+
+        ajax::success([
+            'supervision_state' => $supervisionState,
+            'supervision_label' => $supervisionLabel,
+            'event_state' => $eventState,
+            'event_label' => $eventLabel,
+            'errors' => $errors,
+            'messages' => $messages,
+        ]);
+    }
+
+    if (init('action') == 'decodeFrame') {
+        $hex = init('hex');
+        if (empty($hex)) {
+            ajax::error(__('Paramètre hex manquant', __FILE__));
+            return;
+        }
+        if (strlen($hex) > 4096) {
+            ajax::error(__('Trame trop longue (max 4096 caractères)', __FILE__));
+            return;
+        }
+        if (!ctype_xdigit($hex)) {
+            ajax::error(__('Format hexadécimal invalide', __FILE__));
+            return;
+        }
+        if (strlen($hex) % 2 !== 0) {
+            ajax::error(__('Longueur hexadécimale invalide (doit être paire)', __FILE__));
+            return;
+        }
+
+        $eqLogics = eqLogic::byType('siaDC09');
+        if (empty($eqLogics)) {
+            ajax::error(__('Aucun équipement siaDC09 trouvé', __FILE__));
+            return;
+        }
+        $eqLogic = $eqLogics[0];
+
+        $encKey = $eqLogic->getConfiguration('encryption_key', '');
+
+        if (method_exists('system', 'getCmdPython3')) {
+            $python3 = system::getCmdPython3('siaDC09');
+        } else {
+            $python3 = 'python3 ';
+        }
+        $pythonPath = realpath(__DIR__ . '/../../resources/siadc09d/sia_protocol.py');
+        if (!$pythonPath) {
+            ajax::error(__('Script de décodage non trouvé — réinstallez le plugin', __FILE__));
+            return;
+        }
+
+        $cmd = $python3 . escapeshellarg($pythonPath) . ' --decode ' . escapeshellarg($hex);
+        $envPrefix = '';
+        if (!empty($encKey)) {
+            $encKeyHex = ctype_xdigit($encKey) ? $encKey : bin2hex($encKey);
+            $envPrefix = 'SIA_ENCRYPTION_KEY=' . escapeshellarg($encKeyHex) . ' ';
+        }
+
+        set_time_limit(10);
+        exec($envPrefix . $cmd . ' 2>/dev/null', $output, $retCode);
+        $encKey = null;
+        $encKeyHex = null;
+
+        if ($retCode !== 0 || empty($output)) {
+            ajax::error(__('Erreur de décodage de la trame', __FILE__));
+            return;
+        }
+
+        $decoded = json_decode(implode('', $output), true);
+        if ($decoded === null) {
+            ajax::error(__('Réponse invalide du décodeur', __FILE__));
+            return;
+        }
+        if (isset($decoded['error'])) {
+            ajax::error($decoded['error']);
+            return;
+        }
+        ajax::success($decoded);
+    }
+
+    if (init('action') == 'clearDiagnosticData') {
+        $target = init('target');
+        if ($target === 'errors') {
+            config::save('sia_last_errors', '[]', 'siaDC09');
+        } elseif ($target === 'messages') {
+            config::save('sia_last_messages', '[]', 'siaDC09');
+        } else {
+            ajax::error(__('Cible invalide', __FILE__));
+            return;
+        }
+        ajax::success(['success' => true]);
+    }
+
     throw new Exception(__('Aucune méthode correspondante à', __FILE__) . ' : ' . init('action'));
 } catch (Exception $e) {
     ajax::error(displayException($e), $e->getCode());

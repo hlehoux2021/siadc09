@@ -119,3 +119,134 @@ def test_ima_protect_transport_valid(presets_data: dict) -> None:
         f"ima_protect.transport must be one of {_VALID_TRANSPORTS}, "
         f"got '{preset.get('transport')}'"
     )
+
+
+def test_ima_protect_csr_port_is_int(presets_data: dict) -> None:
+    """
+    IMA Protect preset csr_port must be an integer, not a string.
+    run_connection_test() calls int(preset.get("csr_port", 0)) — a string "5000"
+    is accepted by that code, but the zero-guard (not port) would fail if the
+    field is accidentally set to "0" or an empty string.
+
+    Expected result:
+    - csr_port is of type int
+    - csr_port is in the valid port range 1–65535
+    """
+    preset = next((p for p in presets_data["presets"] if p.get("id") == "ima_protect"), None)
+    assert preset is not None
+    port = preset.get("csr_port")
+    # Assert: port is stored as integer, not string
+    assert isinstance(port, int), f"ima_protect.csr_port must be int, got {type(port).__name__}"
+    # Assert: port is in valid range
+    assert 1 <= port <= 65535, f"ima_protect.csr_port={port} is outside valid range 1–65535"
+
+
+def test_ima_protect_supervision_interval_is_positive_int(presets_data: dict) -> None:
+    """
+    IMA Protect preset supervision_interval must be a positive integer (seconds).
+    Zero or negative values would disable supervision entirely.
+
+    Expected result:
+    - supervision_interval is an int
+    - supervision_interval is > 0
+    """
+    preset = next((p for p in presets_data["presets"] if p.get("id") == "ima_protect"), None)
+    assert preset is not None
+    interval = preset.get("supervision_interval")
+    # Assert: stored as integer
+    assert isinstance(interval, int), (
+        f"ima_protect.supervision_interval must be int, got {type(interval).__name__}"
+    )
+    # Assert: positive value — zero disables supervision
+    assert interval > 0, (
+        f"ima_protect.supervision_interval={interval} must be > 0"
+    )
+
+
+def test_ima_protect_retry_count_is_non_negative_int(presets_data: dict) -> None:
+    """
+    IMA Protect preset retry_count must be a non-negative integer.
+    Negative values would be nonsensical; non-int would break int() conversion.
+
+    Expected result:
+    - retry_count is an int
+    - retry_count is >= 0
+    """
+    preset = next((p for p in presets_data["presets"] if p.get("id") == "ima_protect"), None)
+    assert preset is not None
+    retries = preset.get("retry_count")
+    # Assert: stored as integer
+    assert isinstance(retries, int), (
+        f"ima_protect.retry_count must be int, got {type(retries).__name__}"
+    )
+    # Assert: non-negative
+    assert retries >= 0, f"ima_protect.retry_count={retries} must be >= 0"
+
+
+def test_ima_protect_encryption_enabled_is_bool(presets_data: dict) -> None:
+    """
+    IMA Protect preset encryption_enabled must be a JSON boolean (true/false),
+    not the string "true" or "1". Python bool(config.get("encryption_enabled"))
+    returns True for any non-empty string including "false".
+
+    Expected result:
+    - encryption_enabled is of type bool
+    """
+    preset = next((p for p in presets_data["presets"] if p.get("id") == "ima_protect"), None)
+    assert preset is not None
+    enc = preset.get("encryption_enabled")
+    # Assert: stored as JSON boolean, not string
+    assert isinstance(enc, bool), (
+        f"ima_protect.encryption_enabled must be bool, got {type(enc).__name__} '{enc}'"
+    )
+
+
+def test_all_preset_ids_are_unique(presets_data: dict) -> None:
+    """
+    Every preset must have a unique id. Duplicate ids cause silent csr_provider
+    lookup to always match the first occurrence, making subsequent presets
+    unreachable.
+
+    Expected result:
+    - No two presets share the same id value
+    """
+    ids = [p.get("id") for p in presets_data["presets"]]
+    # Assert: all ids are unique
+    assert len(ids) == len(set(ids)), (
+        f"Duplicate preset ids found: {[i for i in ids if ids.count(i) > 1]}"
+    )
+
+
+def test_all_preset_ids_are_non_empty_strings(presets_data: dict) -> None:
+    """
+    Every preset id must be a non-empty string. An empty or null id would pass
+    the csr_provider lookup when the config key happens to be empty/None.
+
+    Expected result:
+    - Each preset's id is a non-empty string
+    """
+    for preset in presets_data["presets"]:
+        pid = preset.get("id")
+        # Assert: id is a non-empty string
+        assert isinstance(pid, str) and pid, (
+            f"Preset has empty or non-string id: {preset}"
+        )
+
+
+def test_top_level_version_is_int(presets_data: dict) -> None:
+    """
+    csr_presets.json must have a top-level 'version' key as an integer.
+    Absence or wrong type would break any future migration logic that reads
+    this field.
+
+    Expected result:
+    - 'version' key is present
+    - 'version' is an integer >= 1
+    """
+    # Assert: version key is present
+    assert "version" in presets_data, "csr_presets.json must have a 'version' key"
+    version = presets_data["version"]
+    # Assert: version is a positive integer
+    assert isinstance(version, int) and version >= 1, (
+        f"'version' must be a positive integer, got {type(version).__name__} '{version}'"
+    )

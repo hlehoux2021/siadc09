@@ -87,6 +87,7 @@ foreach ($presetsData['presets'] ?? [] as $p) {
 			<li role="presentation"><a href="#" class="eqLogicAction" aria-controls="home" role="tab" data-toggle="tab" data-action="returnToThumbnailDisplay"><i class="fas fa-arrow-circle-left"></i></a></li>
 			<li role="presentation" class="active"><a href="#eqlogictab" aria-controls="home" role="tab" data-toggle="tab"><i class="fas fa-tachometer-alt"></i> {{Equipement}}</a></li>
 			<li role="presentation"><a href="#commandtab" aria-controls="home" role="tab" data-toggle="tab"><i class="fas fa-list"></i> {{Commandes}}</a></li>
+			<li role="presentation" id="siaDC09_diagnosticTabLi" style="display:none;"><a href="#diagnosticTab" aria-controls="diagnostic" role="tab" data-toggle="tab"><i class="fas fa-stethoscope"></i> {{Diagnostic}}</a></li>
 		</ul>
 		<div class="tab-content">
 			<!-- Onglet Equipement -->
@@ -371,6 +372,39 @@ foreach ($presetsData['presets'] ?? [] as $p) {
 					</table>
 				</div>
 			</div><!-- /.tabpanel #commandtab -->
+
+			<!-- Onglet Diagnostic -->
+			<div role="tabpanel" class="tab-pane" id="diagnosticTab">
+				<!-- Status badge -->
+				<div class="panel panel-default" id="siaDC09_statusPanel">
+					<div class="panel-body">
+						<span class="badge badge-lg" id="siaDC09_badgeDot" style="font-size:1.5em;color:#f0ad4e;">●</span>
+						<span id="siaDC09_badgeLabel"></span>
+					</div>
+				</div>
+				<!-- Error panel -->
+				<div class="panel panel-default" id="siaDC09_errorsPanel">
+					<div class="panel-heading">
+						{{Dernières erreurs}}
+						<button class="btn btn-xs btn-danger pull-right" id="siaDC09_errorsClear" style="margin-left:5px;">{{Vider}}</button>
+						<button class="btn btn-xs btn-default pull-right" id="siaDC09_errorsRefresh">{{Actualiser}}</button>
+					</div>
+					<div class="panel-body" id="siaDC09_errorsList">
+						<em class="text-muted">{{Aucune erreur enregistrée}}</em>
+					</div>
+				</div>
+				<!-- Protocol inspector (placeholder for story 9-2) -->
+				<div class="panel panel-default" id="siaDC09_inspectorPanel">
+					<div class="panel-heading">
+						{{Inspecteur de protocole}}
+						<button class="btn btn-xs btn-danger pull-right" id="siaDC09_inspectorClear" style="margin-left:5px;">{{Vider}}</button>
+						<button class="btn btn-xs btn-default pull-right" id="siaDC09_inspectorRefresh">{{Actualiser}}</button>
+					</div>
+					<div class="panel-body" id="siaDC09_inspectorList">
+						<em class="text-muted">{{Aucun échange SIA enregistré}}</em>
+					</div>
+				</div>
+			</div><!-- /.tabpanel #diagnosticTab -->
 		</div><!-- /.tab-content -->
 	</div><!-- /.eqLogic -->
 </div><!-- /.row row-overflow -->

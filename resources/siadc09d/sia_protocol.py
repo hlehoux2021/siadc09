@@ -12,10 +12,12 @@ Expert Validation: sia-dc09-expert (2026-04-07)
 - Message frame: LF + CRC + Length + Message + CR
 """
 
+import dataclasses
+import struct
+import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal, TypedDict
-import re
-import struct
 
 # CRC encoding format for SIA DC-09 frames (canonical definition — re-exported by sia_transport)
 CrcFormat = Literal['hex', 'bin']
@@ -762,3 +764,249 @@ def parse_nak_timestamp(nak_data: bytes) -> datetime:
         raise
     except Exception as e:
         raise ValueError(f"Failed to parse NAK timestamp: {e}") from e
+
+
+# ===== ParsedMessage Dataclass & decode() (Story 9-2 Task 1) =====
+
+@dataclass(frozen=True)
+class ParsedMessage:
+    """Decoded SIA DC-09 frame — all fields JSON-serializable (str/int/bool/None/dict).
+
+    Produced by decode(). Use dataclasses.asdict(result) + json.dumps() directly.
+
+    Fields:
+        raw_hex: Original hex string passed to decode()
+        crc_received: CRC as hex string (e.g. "B368")
+        crc_computed: Expected CRC as hex string
+        crc_valid: True if received CRC matches computed
+        crc_format: "hex" or "bin"
+        length_declared: Length declared in frame header
+        length_actual: Actual message string byte length
+        id_token: Token without encrypted marker (e.g. "SIA-DCS", "NULL", "ACK")
+        encrypted: True if frame used encrypted id_token (# prefix)
+        sequence: Sequence number (int)
+        receiver_prefix: e.g. "R0" or "" if absent
+        account_prefix: e.g. "L0"
+        account: Account number string
+        data_raw: Raw data block content (between [ and ])
+        data_decrypted: Decrypted data (None if not encrypted or no key provided)
+        extended_fields: Parsed extended data fields dict
+        timestamp_str: Raw timestamp string after _ delimiter, or None
+    """
+    raw_hex: str
+    crc_received: str
+    crc_computed: str
+    crc_valid: bool
+    crc_format: str
+    length_declared: int
+    length_actual: int
+    id_token: str
+    encrypted: bool
+    sequence: int
+    receiver_prefix: str
+    account_prefix: str
+    account: str
+    data_raw: str
+    data_decrypted: str | None
+    extended_fields: dict[str, str]
+    timestamp_str: str | None
+
+
+def decode(raw_hex: str, key: bytes | None = None) -> ParsedMessage:
+    """Decode a SIA DC-09 frame from its hex representation.
+
+    Converts hex string to bytes internally via bytes.fromhex(), then reuses
+    _extract_frame_components() and _validate_crc() for parsing.
+
+    CRC mismatch does NOT raise — sets crc_valid=False in the result.
+
+    Args:
+        raw_hex: Hex string of the complete frame (LF + CRC + Length + Message + CR).
+        key: Optional 16-byte AES key for decryption of encrypted frames.
+
+    Returns:
+        ParsedMessage with all parsed fields (all JSON-serializable).
+
+    Raises:
+        SIAProtocolError: If frame cannot be parsed (malformed structure, bad hex).
+    """
+    try:
+        raw = bytes.fromhex(raw_hex)
+    except ValueError as e:
+        raise SIAProtocolError(f"Invalid hex input: {e}") from e
+
+    components = _extract_frame_components(raw)
+    if components is None:
+        raise SIAProtocolError("Malformed frame structure")
+
+    crc_bytes, message_str, length_bytes, _trailing = components
+
+    # Determine CRC format by inspecting crc_bytes length
+    detected_format: CrcFormat = 'hex' if len(crc_bytes) == 4 else 'bin'
+
+    # Compute received CRC string (hex representation)
+    if detected_format == 'hex':
+        try:
+            crc_received_str = crc_bytes.decode('ascii').upper()
+        except UnicodeDecodeError as e:
+            raise SIAProtocolError(f"Invalid CRC bytes: {e}") from e
+    else:
+        val = struct.unpack('<H', crc_bytes[:2])[0]
+        crc_received_str = f"{val:04X}"
+
+    # Compute expected CRC
+    crc_computed_int = _compute_crc_modbus(message_str.encode('windows-1252'))
+    crc_computed_str = f"{crc_computed_int:04X}"
+
+    # Validate CRC (non-fatal — populates crc_valid)
+    crc_valid = _validate_crc(crc_bytes, message_str, crc_format=detected_format)
+
+    # Parse length
+    try:
+        length_declared = int(length_bytes.decode('ascii'), 16)
+    except (ValueError, UnicodeDecodeError) as e:
+        raise SIAProtocolError(f"Invalid length field: {e}") from e
+    length_actual = len(message_str.encode('windows-1252'))
+
+    # Parse message string fields
+    id_token, encrypted, sequence, receiver_prefix, account_prefix, account, data_raw, timestamp_str = \
+        _parse_message_fields(message_str)
+
+    # Decrypt if key provided and frame is encrypted
+    data_decrypted: str | None = None
+    if encrypted and key is not None:
+        try:
+            from .sia_crypto import SIACipher, AESDecryptionError
+            cipher = SIACipher(key)
+            # data_raw contains hex-encoded ciphertext for encrypted frames
+            try:
+                ciphertext = bytes.fromhex(data_raw)
+                decrypted_bytes = cipher.decrypt(ciphertext)
+                data_decrypted = decrypted_bytes.decode('windows-1252', errors='replace')
+            except (ValueError, AESDecryptionError):
+                data_decrypted = None
+        except ImportError:
+            data_decrypted = None
+
+    return ParsedMessage(
+        raw_hex=raw_hex,
+        crc_received=crc_received_str,
+        crc_computed=crc_computed_str,
+        crc_valid=crc_valid,
+        crc_format=detected_format,
+        length_declared=length_declared,
+        length_actual=length_actual,
+        id_token=id_token,
+        encrypted=encrypted,
+        sequence=sequence,
+        receiver_prefix=receiver_prefix,
+        account_prefix=account_prefix,
+        account=account,
+        data_raw=data_raw,
+        data_decrypted=data_decrypted,
+        extended_fields={},
+        timestamp_str=timestamp_str,
+    )
+
+
+def _parse_message_fields(
+    message_str: str,
+) -> tuple[str, bool, int, str, str, str, str, str | None]:
+    """Parse SIA DC-09 message string into individual fields.
+
+    Message format per § 5.5:
+        "id_token"seqRrecvLpfx#account[data]_timestamp
+
+    Args:
+        message_str: Decoded message string from frame.
+
+    Returns:
+        Tuple: (id_token, encrypted, sequence, receiver_prefix,
+                account_prefix, account, data_raw, timestamp_str)
+
+    Raises:
+        SIAProtocolError: If message string structure is invalid.
+    """
+    try:
+        # 1. Extract id_token between quotes
+        if not message_str.startswith('"'):
+            raise SIAProtocolError(f"Message does not start with quote: {message_str[:20]!r}")
+        end_quote = message_str.find('"', 1)
+        if end_quote < 0:
+            raise SIAProtocolError("No closing quote for id_token")
+        raw_token = message_str[1:end_quote]
+        encrypted = raw_token.startswith(ENCRYPTED_MARKER)
+        # Strip encryption marker char to get clean token name
+        id_token = raw_token[1:] if encrypted else raw_token
+
+        pos = end_quote + 1
+
+        # 2. Extract 4-digit sequence number
+        if pos + SEQUENCE_FIELD_LENGTH > len(message_str):
+            raise SIAProtocolError("Message too short for sequence field")
+        seq_str = message_str[pos:pos + SEQUENCE_FIELD_LENGTH]
+        try:
+            sequence = int(seq_str)
+        except ValueError as e:
+            raise SIAProtocolError(f"Invalid sequence number: {seq_str!r}") from e
+        pos += SEQUENCE_FIELD_LENGTH
+
+        # 3. Find account number (at # sign)
+        hash_pos = message_str.find('#', pos)
+        if hash_pos < 0:
+            raise SIAProtocolError("No account # marker found")
+        prefix_section = message_str[pos:hash_pos]
+
+        # Parse receiver prefix (starts with R) and account prefix (starts with L)
+        receiver_prefix = ""
+        account_prefix = ""
+        r_match = re.match(r'(R[0-9A-Fa-f]{1,6})', prefix_section)
+        if r_match:
+            receiver_prefix = r_match.group(1)
+            prefix_section = prefix_section[r_match.end():]
+        l_match = re.match(r'(L[0-9A-Fa-f]{1,6})', prefix_section)
+        if l_match:
+            account_prefix = l_match.group(1)
+
+        # 4. Extract account (from # to [)
+        bracket_open = message_str.find('[', hash_pos)
+        if bracket_open < 0:
+            raise SIAProtocolError("No data block [ found")
+        account = message_str[hash_pos + 1:bracket_open]
+
+        # 5. Extract data block (between [ and ])
+        bracket_close = message_str.find(']', bracket_open)
+        if bracket_close < 0:
+            raise SIAProtocolError("No data block ] found")
+        data_raw = message_str[bracket_open + 1:bracket_close]
+
+        # 6. Extract timestamp (after _ delimiter)
+        timestamp_str: str | None = None
+        underscore_pos = message_str.find('_', bracket_close)
+        if underscore_pos >= 0:
+            timestamp_str = message_str[underscore_pos + 1:]
+
+        return (id_token, encrypted, sequence, receiver_prefix,
+                account_prefix, account, data_raw, timestamp_str)
+
+    except SIAProtocolError:
+        raise
+    except Exception as e:
+        raise SIAProtocolError(f"Failed to parse message fields: {e}") from e
+
+
+if __name__ == '__main__':
+    import json
+    import os
+    import sys
+
+    if len(sys.argv) >= 3 and sys.argv[1] == '--decode':
+        hex_input = sys.argv[2]
+        key_hex = os.environ.get('SIA_ENCRYPTION_KEY', '')
+        key = bytes.fromhex(key_hex) if key_hex else None
+        try:
+            result = decode(hex_input, key)
+            print(json.dumps(dataclasses.asdict(result)))
+        except (SIAProtocolError, ValueError) as e:
+            print(json.dumps({"error": str(e)}))
+            sys.exit(1)

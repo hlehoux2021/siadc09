@@ -1,6 +1,6 @@
 # Story 8-3: Wizard Integration & Testing
 
-## Status: Ready for Dev
+## Status: done
 
 ## Story
 
@@ -187,3 +187,20 @@ This means the AC "daemon stops" is handled by Jeedom's built-in auto-stop on wi
 - [ ] All 29 Level 1 tests pass: `python3 -m pytest tests/level1/`
 - [ ] PHP syntax check clean: `find core/ desktop/ -name "*.php" | xargs -n1 php -l`
 - [ ] Sprint status updated to `done` when complete
+
+---
+
+### Review Findings
+
+- [x] [Review][Patch] Remove unused `import os` [tests/level1/test_connection_test.py:14]
+- [x] [Review][Patch] Remove dead code `_make_presets_path_mock()` helper — defined but never called [tests/level1/test_connection_test.py:63-70]
+- [x] [Review][Patch] Update sprint status to `done` — Task 4 not executed [_bmad-output/implementation-artifacts/sprint-status.yaml]
+- [x] [Review][Defer] `test_sia_wizard_step_set_via_data_l2key_attribute` uses `[^}]*` regex — fragile if function body gains nested braces [tests/level1/test_php_eqlogic_stub.py] — deferred, currently passing; use `_extract_js_handler` if function body grows
+- [x] [Review][Defer] `TransportType` ValueError propagates out of `run_connection_test` — bad transport string from preset causes PHP to receive traceback not JSON — deferred, pre-existing production code gap
+- [x] [Review][Defer] Account number `"0"` rejected by falsy guard; whitespace-only account passes — deferred, pre-existing
+- [x] [Review][Defer] `_patch_presets_path` fragile on `.pyc` / Windows path endings — deferred, Linux-only project
+- [x] [Review][Defer] Preset mode + `encryption_enabled=true` + missing key combo untested — deferred, additional coverage beyond story scope
+- [x] [Review][Defer] Float port `"5000.5"` from PHP JSON not tested — deferred, pre-existing
+- [x] [Review][Defer] OSError branch of preset file loading untested — deferred, additional coverage
+- [x] [Review][Defer] Encryption test doesn't assert frame was actually encrypted (only that `_send_raw_once` was called) — deferred, additional coverage
+- [x] [Review][Defer] TCP timeout budget exhaustion when `timeout < _TEST_CONNECT_TIMEOUT_S` — deferred, pre-existing arch concern
