@@ -30,3 +30,4 @@ _bmad/
 .claude/commands/bmad-*
 .claude/commands/bmad_*
 .claude/skills/bmad-*/
+node_modules/
