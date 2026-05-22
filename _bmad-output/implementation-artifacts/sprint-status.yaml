@@ -29,7 +29,7 @@
 # - SM typically creates next story ONLY after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then Dev runs code-review (fresh context, ideally different LLM)
 
-last_updated: "2026-05-19" # Story 9-3 → done
+last_updated: "2026-05-21" # Story 11-3 → ready-for-dev, epic-11 → in-progress
 generated: "2026-05-04"
 project: "my-project"
 project_key: "NOKEY"
@@ -46,12 +46,12 @@ development_status:
   epic-1-retrospective: done
 
   # Epic 2: CSR Simulator (Standalone Tool)
-  epic-2: in-progress
+  epic-2: done
   2-1-simulator-framework-udp-tcp-listen: done
   2-2-generate-csr-responses-ack-nak-null: done
   2-3-cli-tool-for-hex-dump-frame-replay: done
-  2-4-pcap-frame-extractor-tool: backlog
-  2-5-test-harness-standalone-documentation: backlog
+  2-4-pcap-frame-extractor-tool: done
+  2-5-test-harness-standalone-documentation: done
   epic-2-retrospective: optional
 
   # Epic 3: Error Handler (Contract & Boilerplate)
@@ -110,29 +110,29 @@ development_status:
   epic-9-retrospective: optional
 
   # Epic 10: Dashboard Widget
-  epic-10: backlog
-  10-1-widget-rendering-bootstrap-panel: backlog
-  10-2-widget-staleness-detection-testing: backlog
+  epic-10: done
+  10-1-widget-rendering-bootstrap-panel: done
+  10-2-widget-staleness-detection-testing: done
   epic-10-retrospective: optional
 
   # Epic 11: End-to-End Testing & Market Preparation
-  epic-11: backlog
+  epic-11: in-progress
   11-1-protocol-conformance-capture-compare-ajax-frames: backlog
   11-2-csr-response-validation-real-ima-vs-simulator: backlog
-  11-3-full-workflow-integration-testing: backlog
+  11-3-full-workflow-integration-testing: ready-for-dev
   11-4-documentation-i18n-market-submission: backlog
   epic-11-retrospective: optional
 
 # Summary Statistics
-# Updated: 2026-05-19 (story 9-3 → done)
+# Updated: 2026-05-21 (story 11-3 → ready-for-dev, epic-11 → in-progress)
 summary:
   total_epics: 11
-  total_stories: 41
-  epics_backlog: 3
+  total_stories: 42
+  epics_backlog: 0
   epics_in_progress: 1
-  epics_done: 7
-  stories_backlog: 12
-  stories_ready_for_dev: 0
+  epics_done: 10
+  stories_backlog: 3
+  stories_ready_for_dev: 1
   stories_in_progress: 0
   stories_review: 0
-  stories_done: 31
+  stories_done: 38
