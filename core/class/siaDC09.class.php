@@ -478,6 +478,50 @@ class siaDC09 extends eqLogic {
         }
     }
 
+    public function toHtml(string $_version = 'dashboard'): string {
+        $replace = $this->preToHtml($_version);
+        if (!is_array($replace)) {
+            return $replace;
+        }
+        $_version = jeedom::versionAlias($_version);
+
+        $supervisionStateCmd = $this->getCmd('info', 'supervision_state');
+        $supervisionLabelCmd = $this->getCmd('info', 'supervision_label');
+        $eventLabelCmd       = $this->getCmd('info', 'event_label');
+
+        $stateValue = ($supervisionStateCmd !== null) ? intval($supervisionStateCmd->execCmd()) : null;
+        $labelValue = ($supervisionLabelCmd !== null) ? $supervisionLabelCmd->execCmd() : '';
+        $eventValue = ($eventLabelCmd !== null)       ? $eventLabelCmd->execCmd()       : '';
+
+        if ($stateValue === null) {
+            $replace['#badge_class#']       = 'text-muted';
+            $replace['#supervision_label#'] = htmlspecialchars('—');
+        } elseif ($stateValue === 2) {
+            $replace['#badge_class#']       = 'text-success';
+            $replace['#supervision_label#'] = htmlspecialchars($labelValue ?: '—');
+        } elseif ($stateValue === 1) {
+            $replace['#badge_class#']       = 'text-warning';
+            $replace['#supervision_label#'] = htmlspecialchars($labelValue ?: '—');
+        } else {
+            $replace['#badge_class#']       = 'text-danger';
+            $replace['#supervision_label#'] = htmlspecialchars($labelValue ?: '—');
+        }
+
+        $replace['#event_label#'] = htmlspecialchars(
+            $eventValue ?: __('Aucun événement depuis le démarrage', __FILE__)
+        );
+
+        $replace['#supervision_interval#']    = (int) $this->getConfiguration('supervision_interval', 60);
+        $replace['#stale_label#']             = trim(json_encode(__('Données non disponibles', __FILE__)), '"');
+        $replace['#stale_tooltip_prefix#']    = trim(json_encode(__('Dernière mise à jour il y a', __FILE__)), '"');
+        $replace['#calledFrom#']              = 'eqLogic';
+
+        return $this->postToHtml(
+            $_version,
+            template_replace($replace, getTemplate('core', $_version, 'siaDC09', 'siaDC09'))
+        );
+    }
+
     public function postSave(): void {
         $actionCmds = [
             'burglarAlarm' => ['name' => __('Alarme intrusion', __FILE__), 'subType' => 'message'],

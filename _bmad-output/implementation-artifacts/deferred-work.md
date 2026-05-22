@@ -57,3 +57,17 @@
 - **D-29: `_siaDC09_decodeCache` not reset on full diagnostic reload** — AC 1 specifies the decode cache should reset to `{}` on each call to `siaDC09_loadDiagnosticData()`. Currently the cache is only cleared in `inspectorClear`'s success callback (line 852). Requires a production code change in `siaDC09_loadDiagnosticData` (story 9-2 code). Deferred: testing-only story scope cannot modify production code.
 - **D-30: Fixture `SAMPLE_MESSAGE_TRACE` / `SAMPLE_MESSAGE_TRACE_ALARM` missing `id_token`, `sequence`, `account` fields** — The daemon now emits these three fields in every message_trace dialog (added in 9-2 review P3). Fixture samples do not include them, so regressions dropping these fields would go undetected in `test_diagnostic_ipc.py`. JS renderer has fallback defaults so no crash; purely a contract coverage gap.
 - **D-31: `DIALOG_REQUIRED_FIELDS` defined in `ipc_schema.py` but never imported in `test_diagnostic_ipc.py`** — The constant (`["dialog_type", "routine"]`) is unused in the test file. Tests use ad-hoc field lists instead. Should import and extend `DIALOG_REQUIRED_FIELDS` with JS-accessed fields (`id_token`, `sequence`, `account`, `timestamp`, `elapsed_ms`) and drive assertions from it.
+
+## Deferred from: code review of 2-5-test-harness-standalone-documentation (2026-05-21)
+
+- **D-38: `_handle_udp()` called as protected method** — all harness/test files call `simulator._handle_udp()` directly; fix requires adding a public `start_udp_handler()` method to `CSRSimulator`. Pre-existing API gap, out of story scope.
+- **D-39: TOCTOU race in `_get_free_port()`** — port freed between UDP probe and simulator bind; inherited pattern from `conftest.py`. Fix requires `CSRSimulator` to accept port=0 and expose the actual bound port via a property.
+
+## Deferred from: code review of 2-4-pcap-frame-extractor-tool (2026-05-21)
+
+- **D-32: Golden hex `# Extracted:` timestamp hardcoded** — `create_golden_hex()` writes a fixed timestamp `"2026-05-21 14:30:00 UTC"` while `write_hex_file()` uses `datetime.now()`. Any visual diff of a fresh extraction against the golden reference always shows a spurious header mismatch. Non-breaking — integration test only compares payload bytes.
+- **D-33: Non-Ethernet link layers silently drop all packets** — `_parse_packet()` assumes `DLT_EN10MB` (Ethernet). Captures taken with `tcpdump -i lo` (DLT_NULL) or on WiFi in monitor mode produce zero output with no diagnostic message. Common dev workflow failure mode; scope is limited to adding a `logging.warning()` for non-Ethernet packets.
+- **D-34: Zero-frames output exits with code 0** — Wrong-port filter silently produces an empty hex file with exit 0. Consider `sys.exit(1)` with a warning when `count == 0` to make this visible in scripts.
+- **D-35: `eth.type` set post-construction in `_make_udp_ethernet`** — dpkt may auto-infer `type` at construction time; post-assignment could be silently ignored in future dpkt versions. Tests pass currently. Low risk.
+- **D-36: `dpkt>=1.9.8` has no upper bound** — A future dpkt 2.x could break pcapng detection or the `dpkt.dpkt.*` exception hierarchy. Pin to `dpkt>=1.9.8,<2` when dpkt 2.x is released.
+- **D-37: TCP branch of `_parse_packet` untested by integration tests** — No TCP packet in the golden fixture; the TCP code path is only covered by unit tests with synthetic in-memory packets.
