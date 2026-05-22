@@ -1,0 +1,82 @@
+<div class="eqLogic-widget allowReorder siaDC09"
+     data-eqLogic_id="#id#"
+     data-version="#version#"
+     data-supervision-interval="#supervision_interval#">
+
+  <div class="panel panel-default" style="margin-bottom:0;">
+
+    <div class="panel-heading cursor"
+         onclick="jeedomUtils.loadPage('#eqLink#')"
+         style="padding:5px 8px;">
+      <i class="fas fa-tower-broadcast" style="margin-right:4px;"></i>
+      <span style="font-weight:bold;font-size:0.95em;">#name#</span>
+    </div>
+
+    <div class="panel-body" style="padding:8px 10px;">
+
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
+        <i class="fas fa-circle #badge_class# siaDC09-badge" style="font-size:0.75em;"></i>
+        <span style="font-size:0.9em;" class="siaDC09-label">#supervision_label#</span>
+      </div>
+
+      <hr style="margin:4px 0;" />
+
+      <div style="font-size:0.8em;color:#555;word-break:break-word;">
+        #event_label#
+      </div>
+
+    </div>
+  </div>
+
+  <script type="text/javascript">
+  (function() {
+    var rootEl = document.querySelector('[data-eqLogic_id="#id#"].siaDC09');
+    if (!rootEl) return;
+    var eqId = '#id#';
+    var interval = parseInt('#supervision_interval#', 10) || 60;
+    var staleThreshold = interval * 3;
+
+    jeedom.eqLogic.byId({
+      id: eqId,
+      getCmdState: 1,
+      success: function(data) {
+        var cmds = data.cmd || [];
+        var stateCmd = null;
+        for (var i = 0; i < cmds.length; i++) {
+          if (cmds[i].logicalId === 'supervision_state') {
+            stateCmd = cmds[i];
+            break;
+          }
+        }
+        if (!stateCmd || !stateCmd.collectDate) return;
+
+        var collectTime = new Date(stateCmd.collectDate.replace(/-/g, '/')).getTime();
+        if (isNaN(collectTime)) return;
+        var staleSince = (Date.now() - collectTime) / 1000;
+
+        if (staleSince > staleThreshold) {
+          var badge = rootEl.querySelector('.siaDC09-badge');
+          var label = rootEl.querySelector('.siaDC09-label');
+          if (badge) {
+            badge.classList.remove('text-success', 'text-warning', 'text-danger');
+            badge.classList.add('text-muted');
+            var minutes = Math.floor(staleSince / 60);
+            var hours = Math.floor(minutes / 60);
+            var tooltip = '#stale_tooltip_prefix# ';
+            if (hours > 0) {
+              tooltip += hours + 'h' + (minutes % 60 > 0 ? String(minutes % 60).padStart(2, '0') : '');
+            } else {
+              tooltip += minutes + ' min';
+            }
+            badge.setAttribute('title', tooltip);
+          }
+          if (label) {
+            label.textContent = '#stale_label#';
+          }
+        }
+      }
+    });
+  })();
+  </script>
+
+</div>
