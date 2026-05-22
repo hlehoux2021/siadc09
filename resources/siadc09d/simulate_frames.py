@@ -103,7 +103,7 @@ def parse_hex_file(filepath: str) -> list[bytes]:
 
     frames: list[bytes] = []
 
-    with open(filepath, "r") as f:
+    with open(filepath, "r", encoding="utf-8") as f:
         for line_num, line in enumerate(f, 1):
             line = line.strip()
 

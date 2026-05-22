@@ -1,8 +1,10 @@
 # CSR Simulator CLI Tool
 
-Standalone command-line interface for the CSR (Central Station Receiver) Simulator. This tool tests Jeedom alarm integration without connecting to a real CSR, using the SIA DC-09-2021.17 protocol.
+Standalone command-line interface for the CSR (Central Station Receiver) Simulator. This tool tests SIA DC-09-2021.17 alarm implementation without connecting to a real CSR.
 
-Built on Story 1.4's `CSRSimulator` — a reusable protocol testing framework.
+Built on `CSRSimulator` — a reusable protocol testing framework.
+
+**For the full tool suite** (simulator + frame replay + PCAP extractor + test harness), see [docs/simulator-tools.md](../../docs/simulator-tools.md).
 
 ---
 
@@ -399,9 +401,49 @@ async def test_daemon_integration():
 
 ---
 
+## Related Tools
+
+The simulator is one of four cooperating tools. See [docs/simulator-tools.md](../../docs/simulator-tools.md) for the complete guide.
+
+### Frame Replay
+
+Send `.hex` fixture files to any SIA endpoint (including this simulator):
+
+```bash
+python3 resources/siadc09d/simulate_frames.py \
+  --input tests/fixtures/golden/frames_alarm_burglary.hex \
+  --port 10001 --protocol udp
+```
+
+Full reference: [docs/simulator-tools.md § Frame Replay](../../docs/simulator-tools.md#-frame-replay)
+
+### PCAP Extractor
+
+Extract client-side SIA frames from a Wireshark capture:
+
+```bash
+python3 resources/siadc09d/extract_frames_from_pcap.py \
+  capture.pcap --output frames.hex --port 10001 --direction client
+```
+
+Full reference: [docs/simulator-tools.md § PCAP Extractor](../../docs/simulator-tools.md#-pcap-extractor)
+
+### Test Harness
+
+Runs the simulator in-process and replays all golden fixtures for automated pass/fail:
+
+```bash
+python3 tests/harness/run_harness.py
+python3 tests/harness/run_harness.py --encryption-key 0123456789ABCDEF0123456789ABCDEF
+```
+
+Full reference: [docs/simulator-tools.md § Test Harness](../../docs/simulator-tools.md#-test-harness)
+
+---
+
 ## Reference
 
 - **Protocol:** SIA DC-09-2021.17 (Internet Protocol Event Reporting)
 - **Spec:** `docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md`
-- **Core Library:** `resources/siadc09d/csr_simulator.py` (Story 1.4)
-- **Related Stories:** [Epic 2: CSR Simulator](../../_bmad-output/implementation-artifacts/2-1-simulator-framework-udp-tcp-listen.md)
+- **Core Library:** `resources/siadc09d/csr_simulator.py`
+- **Full Tool Guide:** [docs/simulator-tools.md](../../docs/simulator-tools.md)
