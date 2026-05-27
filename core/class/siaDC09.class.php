@@ -478,7 +478,7 @@ class siaDC09 extends eqLogic {
         }
     }
 
-    public function toHtml(string $_version = 'dashboard'): string {
+    public function toHtml($_version = 'dashboard') {
         $replace = $this->preToHtml($_version);
         if (!is_array($replace)) {
             return $replace;

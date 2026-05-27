@@ -4,6 +4,6 @@
   },
   "pip3": {
     "jeedomdaemon": {"reinstall": true},
-    "pycryptodome": {}
+    "cryptography": {}
   }
 }

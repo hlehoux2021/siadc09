@@ -105,50 +105,14 @@ async def run_connection_test(config: dict, timeout: int) -> None:
         config: Configuration dict from PHP (eqLogic configuration minus encryption_key).
         timeout: Overall test timeout in seconds.
     """
-    csr_provider = config.get("csr_provider", "")
-
-    if csr_provider != "manual":
-        presets_path = Path(__file__).parent / "csr_presets.json"
-        try:
-            presets_data = json.loads(presets_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as e:
-            print(json.dumps({
-                "status": "error",
-                "detail": f"Impossible de charger les presets CSR : {e}",
-            }), flush=True)
-            return
-
-        preset = None
-        for p in presets_data.get("presets", []):
-            if p.get("id") == csr_provider:
-                preset = p
-                break
-
-        if preset is None:
-            print(json.dumps({
-                "status": "error",
-                "detail": f"Preset '{csr_provider}' introuvable dans csr_presets.json",
-            }), flush=True)
-            return
-
-        host = preset.get("csr_ip", "")
-        try:
-            port = int(preset.get("csr_port", 0))
-        except (ValueError, TypeError):
-            port = 0
-        transport = preset.get("transport", "udp")
-        crc_format = preset.get("crc_format", "hex")
-        encryption_enabled = bool(preset.get("encryption_enabled", False))
-    else:
-        host = config.get("csr_ip", "")
-        try:
-            port = int(config.get("csr_port", 0))
-        except (ValueError, TypeError):
-            port = 0
-        transport = config.get("transport", "udp")
-        crc_format = config.get("crc_format", "hex")
-        encryption_enabled = bool(config.get("encryption_enabled", False))
-
+    host = config.get("csr_ip", "")
+    try:
+        port = int(config.get("csr_port", 0))
+    except (ValueError, TypeError):
+        port = 0
+    transport = config.get("transport", "udp")
+    crc_format = config.get("crc_format", "hex")
+    encryption_enabled = bool(int(config.get("encryption_enabled", 0)))
     account_number = config.get("account_number", "")
     encryption_key = os.environ.get("SIA_ENCRYPTION_KEY", "")
 
@@ -159,7 +123,8 @@ async def run_connection_test(config: dict, timeout: int) -> None:
         }), flush=True)
         return
 
-    builder = SIAMessageBuilder(crc_format=crc_format)
+    builder_crc = "SIA" if crc_format == "hex" else "ADM"
+    builder = SIAMessageBuilder(crc_format=builder_crc)
     frame = builder.make_supervision_message(
         account_number=account_number,
         encryption=encryption_enabled and bool(encryption_key),
