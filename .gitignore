@@ -26,6 +26,7 @@ htmlcov/
 venv/
 env/
 ENV/
+resources/python_venv/
 _bmad/
 .claude/commands/bmad-*
 .claude/commands/bmad_*
