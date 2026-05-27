@@ -200,6 +200,8 @@ if __name__ == "__main__":
     _config.add_argument("--receiver-prefix", type=str, default="")
     _config.add_argument("--account-prefix", type=str, default="")
     _config.add_argument("--notify-cmd-id", type=int, default=0)
+    # Fix #2: parse() must be called before accessing attributes (_args is None otherwise)
+    _config.parse()
 
     _preset = CSRPreset(
         csr_provider="cli",
@@ -207,8 +209,9 @@ if __name__ == "__main__":
         host=_config.host,
         port=_config.port,
         account_number=_config.account,
-        transport=_config.transport,
-        crc_format=getattr(_config, "crc_format", "hex"),
+        # Fix #3: PHP passes lowercase 'udp'/'tcp', TransportType enum expects uppercase
+        transport=_config.transport.upper(),
+        crc_format=_config.crc_format,
         encryption_enabled=_config.encryption_enabled,
         connect_timeout_s=5.0,
         receive_timeout_s=10.0,

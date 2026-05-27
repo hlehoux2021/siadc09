@@ -340,16 +340,21 @@ class SIADaemon(BaseDaemon):
         self._event_zone: str | None = None  # Latest zone from command #zone# tag
         self._event_attempt_count: int = 0  # Track send attempts for current event
 
-        # Configuration
-        self._account: str = ""
-        self._receiver_prefix: str = ""
-        self._account_prefix: str = ""
-        self._encryption_key: bytes = b""
+        # Configuration — populated from preset and CLI config
+        # Fix #5: account must come from preset (was empty string, causing frame build failures)
+        self._account: str = preset.account_number
+        self._receiver_prefix: str = getattr(config, "receiver_prefix", "") or ""
+        # Fix #6: empty prefix fails SIA validation; "L0" is the protocol default
+        self._account_prefix: str = getattr(config, "account_prefix", "") or "L0"
+        _enc_key_str: str = getattr(config, "encryption_key", "") or ""
+        self._encryption_key: bytes = _enc_key_str.encode() if _enc_key_str else b""
         self._sia_transport: SIABaseTransport | None = None  # Active transport; None before on_start()
 
         # State & data
         self._sia_seq: int = 0
-        self._sia_builder: SIAMessageBuilder = SIAMessageBuilder(crc_format="SIA")  # Default, will be updated
+        # Fix #7: preset.crc_format is "hex"/"bin" but SIAMessageBuilder expects "SIA"/"ADM"
+        _builder_crc = "SIA" if preset.crc_format == "hex" else "ADM"
+        self._sia_builder: SIAMessageBuilder = SIAMessageBuilder(crc_format=_builder_crc)
         self._ring_buffer: RingBuffer = RingBuffer()
         self._tasks: set[asyncio.Task] = set()
         self._logger = logging.getLogger(__name__)

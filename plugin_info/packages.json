@@ -4,6 +4,6 @@
   },
   "pip3": {
     "jeedomdaemon": {"reinstall": true},
-    "cryptography": {}
+    "cryptography<44": {}
   }
 }

@@ -409,7 +409,9 @@ class siaDC09 extends eqLogic {
                 break;
 
             case 'error_update':
-                $errors = json_decode(config::byKey('sia_last_errors', __CLASS__, '[]'), true) ?: [];
+                // Fix #8: config::byKey() may return array (Jeedom auto-decodes JSON)
+                $raw = config::byKey('sia_last_errors', __CLASS__, '[]');
+                $errors = is_array($raw) ? $raw : (json_decode($raw, true) ?: []);
                 if (!empty($message['resolve_t1'])) {
                     $errors = array_values(array_filter($errors, fn($e) =>
                         !in_array($e['code'] ?? '', ['SUPERVISION_TIMEOUT', 'SUPERVISION_NAK'])
@@ -430,7 +432,9 @@ class siaDC09 extends eqLogic {
                 break;
 
             case 'message_trace':
-                $messages = json_decode(config::byKey('sia_last_messages', __CLASS__, '[]'), true) ?: [];
+                // Fix #8: config::byKey() may return array (Jeedom auto-decodes JSON)
+                $raw = config::byKey('sia_last_messages', __CLASS__, '[]');
+                $messages = is_array($raw) ? $raw : (json_decode($raw, true) ?: []);
                 $dialog = $message['dialog'] ?? null;
                 if (!is_array($dialog)) {
                     break;
