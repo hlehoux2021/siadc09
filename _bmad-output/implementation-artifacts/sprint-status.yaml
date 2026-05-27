@@ -29,7 +29,7 @@
 # - SM typically creates next story ONLY after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then Dev runs code-review (fresh context, ideally different LLM)
 
-last_updated: "2026-05-21" # Story 11-3 → ready-for-dev, epic-11 → in-progress
+last_updated: "2026-05-26" # Story 12-2 in-progress
 generated: "2026-05-04"
 project: "my-project"
 project_key: "NOKEY"
@@ -119,20 +119,32 @@ development_status:
   epic-11: in-progress
   11-1-protocol-conformance-capture-compare-ajax-frames: backlog
   11-2-csr-response-validation-real-ima-vs-simulator: backlog
-  11-3-full-workflow-integration-testing: ready-for-dev
+  11-3-full-workflow-integration-testing: done
   11-4-documentation-i18n-market-submission: backlog
   epic-11-retrospective: optional
 
+  # Epic 12: Jeedom VM Integration Testing
+  epic-12: in-progress
+  12-1-manual-plugin-installation-dependency-setup: review
+  12-2-wizard-flow-connection-test: in-progress
+  12-3-daemon-lifecycle-jeedom-controls: backlog
+  12-4-supervision-loop-strike-recovery: backlog
+  12-5-alarm-delivery-end-to-end: backlog
+  12-6-widget-debug-ui-rendering: backlog
+  12-7-error-handling-notification-delivery: backlog
+  12-8-market-package-install-uninstall: backlog
+  epic-12-retrospective: optional
+
 # Summary Statistics
-# Updated: 2026-05-21 (story 11-3 → ready-for-dev, epic-11 → in-progress)
+# Updated: 2026-05-26 (Story 12-2 ready-for-dev)
 summary:
-  total_epics: 11
-  total_stories: 42
+  total_epics: 12
+  total_stories: 50
   epics_backlog: 0
-  epics_in_progress: 1
+  epics_in_progress: 2
   epics_done: 10
-  stories_backlog: 3
+  stories_backlog: 9
   stories_ready_for_dev: 1
   stories_in_progress: 0
-  stories_review: 0
-  stories_done: 38
+  stories_review: 1
+  stories_done: 39

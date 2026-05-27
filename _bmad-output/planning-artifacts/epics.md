@@ -147,9 +147,13 @@ Full integration testing with real Ajax alarm system, CSR Simulator validation a
 **Dependencies:** Epic 1-10 (all features complete)
 **FRs covered:** (all features)
 **Testing:** Full end-to-end protocol conformance, integration with real CSR, Jeedom Market readiness
-**Dependencies:** Epic 1-9 (all features complete)
-**FRs covered:** (integration of all)
-**Testing:** Full e2e test suite, installation/uninstallation, upgrade paths
+
+### Epic 12: Jeedom VM Integration Testing
+Validate the complete plugin on a real Jeedom instance (Debian 12 VM) — installation, wizard, daemon lifecycle, supervision, alarm delivery, UI rendering, error handling, and Market packaging.
+**Dependencies:** Epic 1-10 (all features complete)
+**Infrastructure:** Debian 12 VM (VMware Fusion), CSR simulator on same VM, shared folder symlink
+**FRs covered:** (validates all FRs on real infrastructure)
+**Testing:** Real Jeedom UI, real daemon process, real alarm plugin, real notification commands
 
 ---
 
@@ -1713,3 +1717,458 @@ So that the plugin can be published and supported.
 **And** plugin submission to Jeedom Market official process followed
 
 **And** release notes (French + English) published on GitHub
+
+---
+
+## Epic 12: Jeedom VM Integration Testing
+
+Validate the complete plugin on a real Jeedom instance (Debian 12, VMware Fusion) — from manual installation through daily operation — proving production-readiness on real infrastructure before Market packaging.
+
+**Dependencies:** Epic 1-10 (all features complete)
+**Infrastructure:** Debian 12 VM (VMware Fusion on macOS), CSR simulator on same VM, plugin files via shared folder symlink
+**FRs covered:** (validates all FRs end-to-end on real Jeedom)
+**Testing:** Real Jeedom UI, real daemon process, real alarm plugin, real notification commands
+
+### Story 12.1: Manual Plugin Installation & Dependency Setup
+
+As a plugin developer,
+I want to install the plugin manually via shared folder symlink and verify dependencies install cleanly,
+So that I have a working dev environment for all subsequent integration tests.
+
+**Acceptance Criteria:**
+
+**Given** VMware shared folder mounted at `/mnt/hgfs` with project files
+**When** creating symlink to Jeedom plugins directory
+**Then** `ln -s /mnt/hgfs /var/www/html/plugins/siaDC09` makes plugin visible in Jeedom UI
+
+**And** plugin appears in Jeedom → Plugins → Plugin Management with correct name, icon, and description
+
+**And** clicking "Install dependencies" in plugin config triggers packages.json processing:
+- Python venv created in `resources/venv/`
+- All pip packages installed (jeedomdaemon, pycryptodome, aiofiles, etc.)
+- No errors in Jeedom dependency install log
+
+**And** dependency status shows green checkmark in Jeedom UI
+
+**And** `info.json` values are correctly read: plugin name, version, description, minJeedomVersion, os.min
+
+**And** plugin activation (enable toggle) succeeds without PHP errors
+
+**And** Jeedom log (`siaDC09` log) shows no errors after activation
+
+**And** daemon binary path resolves correctly from shared folder structure
+
+**Validation checklist:**
+- [ ] Symlink created, plugin visible in Jeedom
+- [ ] Dependencies install without errors
+- [ ] Dependency status green
+- [ ] Plugin activates cleanly
+- [ ] No PHP syntax errors in Jeedom log
+
+---
+
+### Story 12.2: Wizard Flow & Connection Test
+
+As a Jeedom user,
+I want to complete the 4-step configuration wizard on a real Jeedom instance,
+So that the plugin is configured and ready to monitor.
+
+**Acceptance Criteria:**
+
+**Prerequisites:** Story 12.1 complete, CSR simulator running on same VM (`python3 -m tests.simulator --udp-port 10001`)
+
+**Given** plugin enabled and equipment page opened
+**When** wizard starts (step < 4)
+**Then** Step 1 displays IMA Protect and Personnalisé preset cards
+
+**And** selecting "IMA Protect" auto-fills CSR parameters (host=127.0.0.1 for local simulator, port=10001, transport=udp)
+
+**And** account number and encryption key fields are editable
+
+**And** Step 2 "Suivant" button triggers connection test:
+- `test_connection.py` subprocess runs with configured params
+- Sends supervision NULL to local CSR simulator
+- Receives ACK → displays "✓ Connexion établie"
+- Times out or error → displays French error message with "Relancer le test" button
+
+**And** Step 3 displays zone mapping table:
+- Zones loaded from alarm plugin (if installed)
+- Camera action selector works (jeedom.cmd.getSelectModal)
+- Media URL field editable (optional)
+
+**And** Step 4 notification command selector:
+- Modal opens, user selects a notification command
+- Human-readable name displayed next to selector
+- Cannot proceed without selection
+
+**And** wizard completion saves all config to equipment
+
+**And** after Step 4: daemon starts automatically, supervision loop begins
+
+**Validation checklist:**
+- [ ] Step 1: preset selection works
+- [ ] Step 2: connection test passes against local simulator
+- [ ] Step 3: zone mapping table renders (alarm plugin zones if available)
+- [ ] Step 4: notification command selection works
+- [ ] Wizard completion starts daemon
+- [ ] "Relancer l'assistant" restarts wizard cleanly
+
+---
+
+### Story 12.3: Daemon Lifecycle & Jeedom Controls
+
+As a Jeedom administrator,
+I want the daemon to start, stop, and restart reliably via Jeedom UI,
+So that I can manage the monitoring service without SSH access.
+
+**Acceptance Criteria:**
+
+**Prerequisites:** Story 12.2 complete (wizard done, daemon running)
+
+**Given** daemon is running (green status in Jeedom)
+**When** clicking "Stop" in daemon management panel
+**Then** daemon process terminates cleanly (no orphan processes)
+
+**And** supervision_state updates to 0 ("Problème") in Jeedom
+
+**And** clicking "Start" relaunches daemon:
+- Process visible in `ps aux | grep siadc09`
+- Supervision loop begins immediately
+- supervision_state → 2 ("Sain") after first ACK
+
+**And** clicking "Restart" performs stop + start atomically
+
+**And** Jeedom watchdog recovery:
+- Kill daemon process with `kill -9 <pid>`
+- Jeedom detects daemon death within watchdog interval
+- Jeedom automatically restarts daemon
+- supervision_state recovers to 2 after restart
+
+**And** config change behavior:
+- Change a config value (e.g., supervision interval)
+- Save equipment → daemon restarts with new config
+- Verify new config is active (e.g., changed interval visible in logs)
+
+**And** daemon log accessible via Jeedom UI (Analyse → Logs → siaDC09_daemon)
+
+**And** no zombie processes after repeated start/stop cycles (10+ cycles)
+
+**Validation checklist:**
+- [ ] Start/stop/restart via UI works
+- [ ] Watchdog recovers from kill -9
+- [ ] Config change triggers proper restart
+- [ ] No zombie processes after 10 cycles
+- [ ] Daemon log accessible in Jeedom
+
+---
+
+### Story 12.4: Supervision Loop & Strike Recovery
+
+As a plugin user,
+I want continuous supervision to detect and recover from CSR connection issues,
+So that I'm always aware of my monitoring connection health.
+
+**Acceptance Criteria:**
+
+**Prerequisites:** Story 12.3 complete (daemon lifecycle validated)
+
+**Given** daemon running with CSR simulator on same VM
+**When** running sustained supervision for 30+ minutes
+**Then** supervision_state remains 2 ("Sain") throughout
+
+**And** ring buffer shows routine ACK entries (throttled to 1 per 10 min)
+
+**And** Jeedom log shows DEBUG entries for each supervision cycle
+
+**Strike escalation test:**
+
+**Given** CSR simulator configured to drop ACKs (e.g., `--drop-ack-count 3`)
+**When** 3 consecutive supervision NULLs receive no ACK
+**Then** strike counter escalates: 1 → 2 → 3
+
+**And** supervision_state transitions: 2 → 1 (strike 1-2) → 0 (strike 3)
+
+**And** supervision_label updates in real-time: "Sain" → "Dégradé" → "Problème"
+
+**And** T1 notification fires at strike=1 (message center entry visible in Jeedom)
+
+**And** T3 notification fires at strike=3 (message center + notification command triggered)
+
+**And** T3 fires only ONCE (not repeated on subsequent timeouts)
+
+**Recovery test:**
+
+**Given** daemon in DEGRADED state (strike=3)
+**When** CSR simulator resumes sending ACKs
+**Then** strike resets to 0, supervision_state → 2, label → "Sain"
+
+**And** Jeedom log shows INFO "Connexion supervisée rétablie"
+
+**And** T3 flag resets (next disconnection will fire T3 again)
+
+**Duration test:**
+- Run 30+ minutes with stable supervision → no memory growth, no orphan tasks
+- Check daemon RSS memory at start and end (should be stable ±10%)
+
+**Validation checklist:**
+- [ ] 30-min stable supervision passes
+- [ ] Strike escalation 1→2→3 visible in Jeedom
+- [ ] T1 at strike=1 appears in message center
+- [ ] T3 at strike=3 triggers notification command
+- [ ] Recovery after simulator resumes ACKs
+- [ ] No memory leak over 30 min
+
+---
+
+### Story 12.5: Alarm Delivery End-to-End
+
+As a Jeedom user with an alarm system,
+I want alarm events delivered to the CSR and confirmed,
+So that my home is protected by professional monitoring.
+
+**Acceptance Criteria:**
+
+**Prerequisites:** Story 12.3 complete, daemon running with healthy supervision
+
+**Happy path (ACK):**
+
+**Given** alarm plugin configured with zones, daemon in HEALTHY state
+**When** triggering burglarAlarm action command with zone="Salon"
+**Then** daemon receives action via sendToDaemon()
+
+**And** SIA frame constructed with correct event code (BA for burglar)
+
+**And** frame sent to CSR simulator via configured transport
+
+**And** CSR simulator responds with ACK
+
+**And** event_state updates to 1 ("Confirmé") in Jeedom
+
+**And** event_label shows "Confirmé"
+
+**And** ring buffer shows alarm dialog entry (request + response)
+
+**NAK path (rejection):**
+
+**Given** CSR simulator configured to NAK alarm frames
+**When** triggering fireAlarm action command
+**Then** event_state updates to 2 ("Échoué")
+
+**And** T3 EVENT_FAILED notification fires after max retries
+
+**And** notification command triggered with "CRITIQUE" prefix
+
+**And** Jeedom message center shows critical error entry
+
+**All event types:**
+- [ ] burglarAlarm → BA code → ACK → CONFIRMED
+- [ ] fireAlarm → FA code → ACK → CONFIRMED
+- [ ] panicAlarm → PA code → ACK → CONFIRMED
+
+**Zone handling:**
+- Trigger alarm with zone name → verify zone appears in SIA frame (protocol inspector)
+- Trigger alarm without zone → verify frame still valid (zone field empty or omitted)
+
+**Validation checklist:**
+- [ ] Burglar alarm ACK path works end-to-end
+- [ ] Fire alarm ACK path works
+- [ ] Panic alarm ACK path works
+- [ ] NAK path → FAILED + T3 notification
+- [ ] Zone name included in SIA frame
+- [ ] Ring buffer shows alarm dialog
+
+---
+
+### Story 12.6: Widget & Debug UI Rendering
+
+As a Jeedom user,
+I want the dashboard widget and diagnostic panel to display accurate real-time information,
+So that I can monitor status at a glance and troubleshoot issues.
+
+**Acceptance Criteria:**
+
+**Prerequisites:** Story 12.4 complete (supervision states validated)
+
+**Dashboard widget:**
+
+**Given** equipment added to Jeedom dashboard
+**When** dashboard loads
+**Then** widget renders Bootstrap 3 panel with correct color badge:
+- Green when supervision_state=2
+- Orange when supervision_state=1
+- Red when supervision_state=0
+
+**And** widget shows human-readable label and last update timestamp
+
+**And** widget renders identically on mobile view (responsive)
+
+**And** staleness detection: if collectDate > 3× supervision_interval → grey badge + "Données non disponibles"
+
+**Diagnostic tab (Step 4 config page):**
+
+**Given** equipment config page opened at Step 4
+**When** diagnostic tab selected
+**Then** status badge shows current supervision state with correct color
+
+**And** error panel shows recent errors (if any) with French descriptions
+
+**And** "Actualiser" button refreshes badge + error panel
+
+**And** "Vider" button clears error panel without affecting daemon
+
+**Protocol inspector:**
+
+**Given** daemon has been running (ring buffer populated)
+**When** opening protocol inspector panel
+**Then** collapsed frame list shows recent frames with timestamp, direction, length
+
+**And** expanding a frame shows field-by-field breakdown (delimiter, account, event code, CRC)
+
+**And** encrypted frames show decrypted plaintext (using configured key)
+
+**And** copy-to-clipboard button works for raw hex
+
+**And** "Actualiser" refreshes frame list, "Vider" clears inspector
+
+**Validation checklist:**
+- [ ] Widget green/orange/red matches supervision state
+- [ ] Widget renders on mobile
+- [ ] Staleness detection works
+- [ ] Diagnostic badge + error panel populate
+- [ ] Protocol inspector shows frame details
+- [ ] Encrypted frames decrypted correctly
+- [ ] All refresh/clear buttons work
+
+---
+
+### Story 12.7: Error Handling & Notification Delivery
+
+As a Jeedom user,
+I want errors properly classified and notifications delivered through Jeedom's systems,
+So that I'm informed of issues proportional to their severity.
+
+**Acceptance Criteria:**
+
+**Prerequisites:** Stories 12.4 and 12.5 complete (supervision + alarm paths validated)
+
+**T1 (Auto-heal) — Message center only:**
+
+**Given** supervision timeout occurs (strike=1)
+**When** T1 SUPERVISION_TIMEOUT fires
+**Then** Jeedom message center shows entry (Analyse → Messages)
+
+**And** no notification command is triggered
+
+**And** occurrence counter increments on repeat (Jeedom dedup)
+
+**T2 (User-actionable) — Message center + notification:**
+
+**Given** CSR simulator sends malformed response
+**When** T2 BAD_CSR_RESPONSE fires
+**Then** Jeedom message center shows entry with French description
+
+**And** configured notification command IS triggered
+
+**And** notification text explains user action needed
+
+**T3 (Critical) — Message center + notification + CRITIQUE prefix:**
+
+**Given** 3 consecutive supervision timeouts (strike=3)
+**When** T3 SUPERVISION_DISCONNECTED fires
+**Then** Jeedom message center shows entry with "CRITIQUE —" prefix
+
+**And** configured notification command triggered with "CRITIQUE" prefix
+
+**And** T3 fires only ONCE per escalation (not repeated)
+
+**Given** alarm delivery fails after retries
+**When** T3 EVENT_FAILED fires
+**Then** same behavior: message center + notification + "CRITIQUE" prefix
+
+**Deduplication:**
+- Trigger same T1 error 5 times → message center shows 1 entry with occurrence=5 (not 5 entries)
+- Verify notification command not spammed on repeated T2/T3
+
+**Validation checklist:**
+- [ ] T1 → message center only, no notification cmd
+- [ ] T2 → message center + notification cmd fired
+- [ ] T3 → message center + notification cmd + "CRITIQUE" prefix
+- [ ] T3 fires only once per escalation
+- [ ] Deduplication works (occurrence counter)
+- [ ] All error messages in French
+
+---
+
+### Story 12.8: Market Package Install & Uninstall
+
+As a plugin maintainer,
+I want the plugin to install cleanly from a packaged .zip (Market-style) and uninstall without orphans,
+So that the plugin is ready for Jeedom Market submission.
+
+**Acceptance Criteria:**
+
+**Prerequisites:** Stories 12.1–12.7 complete (all features validated via manual install)
+
+**Setup:** Remove the symlink installation first:
+```bash
+sudo rm /var/www/html/plugins/siaDC09
+# Verify plugin no longer visible in Jeedom
+```
+
+**Package creation:**
+
+**Given** project source on macOS
+**When** packaging plugin as .zip (excluding .git, _bmad-output, tests, docs)
+**Then** .zip contains only Market-required files: core/, desktop/, resources/, plugin_info/, docs/ (user docs only)
+
+**And** .zip structure matches Jeedom Market conventions
+
+**Fresh install from .zip:**
+
+**Given** clean Jeedom (no previous siaDC09 installation)
+**When** uploading .zip via Jeedom → Plugins → Plugin Management → "Ajouter depuis une autre source"
+**Then** plugin installs without errors
+
+**And** dependency install creates venv + installs all packages
+
+**And** plugin activates cleanly (no PHP errors)
+
+**And** wizard flow works (same validation as Story 12.2)
+
+**And** daemon starts and supervision works
+
+**Uninstall:**
+
+**Given** plugin installed and daemon running
+**When** removing plugin via Jeedom UI
+**Then** preRemove() stops daemon
+
+**And** venv directory removed (`resources/venv/`)
+
+**And** no orphan files left in plugins directory
+
+**And** no orphan cron entries in Jeedom
+
+**And** equipment removed from Jeedom
+
+**And** Jeedom logs show clean removal
+
+**Upgrade path:**
+
+**Given** plugin installed from .zip (version 1.0.0)
+**When** uploading newer .zip (version 1.0.1)
+**Then** files updated in place
+
+**And** equipment and config preserved (no data loss)
+
+**And** dependency install re-runs (handles new packages if any)
+
+**And** daemon restarts with new code
+
+**Validation checklist:**
+- [ ] .zip package created with correct structure
+- [ ] Fresh install from .zip succeeds
+- [ ] Dependencies install from packaged plugin
+- [ ] Full wizard + supervision works from packaged install
+- [ ] Uninstall leaves no orphans
+- [ ] Upgrade preserves config and equipment
