@@ -106,6 +106,7 @@ class CSRSimulator:
         response_delay_ms: Simulated response latency in milliseconds
         _udp_socket: UDP socket instance (None until started)
         _tcp_server: TCP server instance (None until started)
+        _udp_task: Asyncio task running the UDP handler loop
         _running: Flag indicating if simulator is running
         _logger: Module logger instance
     """
@@ -139,6 +140,7 @@ class CSRSimulator:
 
         self._udp_socket: socket.socket | None = None
         self._tcp_server: asyncio.Server | None = None
+        self._udp_task: asyncio.Task[None] | None = None
         self._running: bool = False
         self._logger = logging.getLogger(__name__)
 
@@ -167,6 +169,9 @@ class CSRSimulator:
             )
             self._logger.debug(f"TCP server listening on port {self.tcp_port}")
 
+            # Start UDP handler task
+            self._udp_task = asyncio.create_task(self._handle_udp())
+
             self._logger.info("CSR Simulator started successfully")
 
         except Exception as e:
@@ -180,6 +185,14 @@ class CSRSimulator:
         Performs graceful shutdown of all connections and sockets.
         """
         self._running = False
+
+        # Cancel UDP handler task
+        if self._udp_task and not self._udp_task.done():
+            self._udp_task.cancel()
+            try:
+                await self._udp_task
+            except asyncio.CancelledError:
+                pass
 
         # Close TCP server
         if self._tcp_server:
