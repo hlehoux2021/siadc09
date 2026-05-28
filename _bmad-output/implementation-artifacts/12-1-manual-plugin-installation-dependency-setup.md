@@ -3,14 +3,14 @@ story_id: "12-1"
 story_key: "12-1-manual-plugin-installation-dependency-setup"
 epic_id: "epic-12"
 epic_name: "Jeedom VM Integration Testing"
-status: "review"
+status: "done"
 created: "2026-05-26"
 analysis_completed: "2026-05-26"
 ---
 
 # Story 12.1: Manual Plugin Installation & Dependency Setup
 
-Status: review
+Status: done
 
 ## Story
 
