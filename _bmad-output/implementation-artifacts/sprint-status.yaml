@@ -29,7 +29,7 @@
 # - SM typically creates next story ONLY after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then Dev runs code-review (fresh context, ideally different LLM)
 
-last_updated: "2026-05-29" # Story 12-4 done
+last_updated: "2026-05-29" # Story 12-7 ready-for-dev
 generated: "2026-05-04"
 project: "my-project"
 project_key: "NOKEY"
@@ -129,22 +129,22 @@ development_status:
   12-2-wizard-flow-connection-test: done
   12-3-daemon-lifecycle-jeedom-controls: done
   12-4-supervision-loop-strike-recovery: done
-  12-5-alarm-delivery-end-to-end: backlog
-  12-6-widget-debug-ui-rendering: backlog
-  12-7-error-handling-notification-delivery: backlog
+  12-5-alarm-delivery-end-to-end: done
+  12-6-widget-debug-ui-rendering: done  # updated 2026-05-29
+  12-7-error-handling-notification-delivery: ready-for-dev
   12-8-market-package-install-uninstall: backlog
   epic-12-retrospective: optional
 
 # Summary Statistics
-# Updated: 2026-05-29 (Story 12-4 done)
+# Updated: 2026-05-29 (Story 12-7 ready-for-dev)
 summary:
   total_epics: 12
   total_stories: 50
   epics_backlog: 0
   epics_in_progress: 2
   epics_done: 10
-  stories_backlog: 6
-  stories_ready_for_dev: 0
+  stories_backlog: 2
+  stories_ready_for_dev: 1
   stories_in_progress: 0
   stories_review: 0
-  stories_done: 43
+  stories_done: 45
