@@ -461,9 +461,13 @@ class SIADaemon(BaseDaemon):
                 "type": "info_update",
                 "supervision_state": self._supervision_value(),
                 "supervision_label": self._supervision_label(),
-                "event_state": self._event_state_from_sm2(),
-                "event_label": self._event_label_from_sm2(),
             }
+            # event_state/event_label excluded when SM2 is IDLE (startup-only state).
+            # IDLE means no event has occurred since daemon start — persisted cmd values
+            # from the previous run are intentionally left untouched.
+            if self._sm2_state != SM2State.IDLE:
+                payload["event_state"] = self._event_state_from_sm2()
+                payload["event_label"] = self._event_label_from_sm2()
         else:
             payload = {k: v for k, v in data.items() if v is not None}
             payload["type"] = "info_update"
@@ -1447,8 +1451,9 @@ class SIADaemon(BaseDaemon):
                         })
                         return SM2State.FAILED
 
-            except asyncio.TimeoutError:
-                # Timeout raised by asyncio.wait_for (network-level hang)
+            except (asyncio.TimeoutError, SIATransportError):
+                # Timeout (wait_for) or transport error (connection refused, socket error)
+                # — retry up to max_retries then T3.
                 if attempt < max_retries:
                     await self._log_sm2_event(
                         "failed_timeout",

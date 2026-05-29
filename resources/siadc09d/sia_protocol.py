@@ -399,18 +399,20 @@ class SIAMessageBuilder:
 
         Args:
             account_number: Account ID (3-16 hex chars)
-            event_code: 4-digit event code (e.g., "1130")
-            extended_data: Optional dict of additional fields (deferred to v1.1)
+            event_code: SIA event code (e.g., "BA", "FA", "PA", "NULL")
+            extended_data: Optional dict; supports key "zone" (zone name appended after event code)
 
         Returns:
-            Data field string: [#{account}|{event_code}...]
+            Data field string: [#{account}|{event_code}] or [#{account}|{event_code} {zone}]
 
-        Reference: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.7
+        Reference: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.7, Annex B
         """
         if extended_data is None:
             extended_data = {}
 
-        # Basic format: [#{account}|{event_code}]
+        zone = extended_data.get("zone", "")
+        if zone:
+            return f"[#{account_number}|{event_code} {zone}]"
         return f"[#{account_number}|{event_code}]"
 
     @staticmethod

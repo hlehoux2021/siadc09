@@ -715,6 +715,44 @@ def test_data_field_parametrized(builder, account: str, event_code: str, expecte
     assert builder._format_data_field(account, event_code) == expected
 
 
+def test_data_field_zone_in_extended_data(builder):
+    """
+    Test that zone from extended_data is appended after event code.
+    Per SIA DC-09 Annex B (e.g. [#1234|FA 129]), zone follows event code with a space.
+
+    Expected result:
+    - Zone appears as "[#{account}|{event_code} {zone}]"
+    """
+    result = builder._format_data_field("000001", "BA", {"zone": "Piece1"})
+    # Assert: zone appears after event code separated by space
+    assert result == "[#000001|BA Piece1]"
+
+
+def test_data_field_no_zone_in_extended_data(builder):
+    """
+    Test that empty zone in extended_data produces no zone in data field.
+    Per SIA DC-09 Annex B — zone is optional.
+
+    Expected result:
+    - Empty zone key yields "[#{account}|{event_code}]" (no trailing space)
+    """
+    result = builder._format_data_field("000001", "BA", {"zone": ""})
+    # Assert: no zone in output when zone is empty string
+    assert result == "[#000001|BA]"
+
+
+def test_data_field_none_extended_data_no_zone(builder):
+    """
+    Test that None extended_data produces no zone in data field.
+
+    Expected result:
+    - None extended_data yields "[#{account}|{event_code}]"
+    """
+    result = builder._format_data_field("000001", "NULL", None)
+    # Assert: None extended_data omits zone
+    assert result == "[#000001|NULL]"
+
+
 # ===== TESTS: Timestamp Formatting =====
 
 def test_timestamp_length(builder):

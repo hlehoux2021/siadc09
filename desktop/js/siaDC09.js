@@ -961,6 +961,11 @@ $('#siaDC09_inspectorList').on('click', '.sia-msg-row', function() {
     dataType: 'json',
     global: false,
     success: function(data) {
+      if (data.state === 'error') {
+        var errMsg = (typeof data.result === 'string') ? data.result : '{{Erreur de décodage}}'
+        $detail.html('<div style="padding:8px 10px;color:#d9534f;">' + $('<span>').text(errMsg).html() + '</div>')
+        return
+      }
       var decoded = data.result || {}
       _siaDC09_decodeCache[cacheKey] = decoded
       siaDC09_renderFrameDetail($detail, $row.data('msg'), decoded, requestHex, $row.attr('data-response-hex') || '')

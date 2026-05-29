@@ -89,8 +89,8 @@ def test_all_t3_messages_use_prefix():
     - SM1_LOST starts with T3_PREFIX
     - SM1_NO_NETWORK starts with T3_PREFIX
     - SM2_FAILED starts with T3_PREFIX
-    - SM2_FAILED_NAK starts with T3_PREFIX
     - SM2_FAILED_NO_NETWORK starts with T3_PREFIX
+    - SM2_FAILED_NAK does NOT start with T3_PREFIX (T2 tier — BAD_CSR_RESPONSE)
     - No T3 message hardcodes "CRITIQUE — " (must use constant)
     """
     from resources.siadc09d import messages
@@ -99,7 +99,6 @@ def test_all_t3_messages_use_prefix():
         messages.SM1_LOST,
         messages.SM1_NO_NETWORK,
         messages.SM2_FAILED,
-        messages.SM2_FAILED_NAK,
         messages.SM2_FAILED_NO_NETWORK,
     ]
 
@@ -107,6 +106,10 @@ def test_all_t3_messages_use_prefix():
         # Assert: T3 message starts with T3_PREFIX constant
         assert msg.startswith(messages.T3_PREFIX), \
             f"T3 message missing prefix: {msg}"
+
+    # Assert: SM2_FAILED_NAK is T2 (BAD_CSR_RESPONSE) — must NOT have T3_PREFIX
+    assert not messages.SM2_FAILED_NAK.startswith(messages.T3_PREFIX), \
+        "SM2_FAILED_NAK must not have T3_PREFIX (it is T2, not T3)"
 
 
 # ===== TC4: SIA_NULL_CODE Isolation =====

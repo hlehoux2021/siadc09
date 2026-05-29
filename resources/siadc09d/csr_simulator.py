@@ -158,13 +158,13 @@ class CSRSimulator:
             # Start UDP server (using socket, non-blocking)
             self._udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self._udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self._udp_socket.bind(('127.0.0.1', self.udp_port))
+            self._udp_socket.bind(('0.0.0.0', self.udp_port))
             self._logger.debug(f"UDP socket bound to port {self.udp_port}")
 
             # Start TCP server (using asyncio.start_server)
             self._tcp_server = await asyncio.start_server(
                 self._handle_tcp_client,
-                '127.0.0.1',
+                '0.0.0.0',
                 self.tcp_port
             )
             self._logger.debug(f"TCP server listening on port {self.tcp_port}")
@@ -384,28 +384,35 @@ class CSRSimulator:
 
     def _decide_response(self, parsed_frame: dict, preset: CSRSimulatorPreset) -> str:
         """
-        Decide whether to respond with ACK or NAK based on frame type.
+        Decide whether to respond with ACK or NAK based on frame type and account.
 
         Args:
-            parsed_frame: Parsed frame dict with keys: type, seq, raw_nak
+            parsed_frame: Parsed frame dict with keys: type, seq, raw_nak, account
             preset: CSR preset configuration
 
         Returns:
             'ACK' or 'NAK' string indicating response type
 
         Logic:
-            - ALARM → ACK (echo the sequence number)
-            - NULL → ACK (supervision response)
-            - ACK → ACK (echo back)
-            - unknown → NAK (malformed frame)
-            - malformed → NAK (frame parsing failed)
+            - unknown/malformed → NAK
+            - ACK (echo) → ACK (no account check needed)
+            - ALARM or NULL with mismatched account → NAK (account validation)
+            - ALARM or NULL with matching account → ACK
         """
         frame_type = parsed_frame.get('type', 'unknown')
 
-        if frame_type in ('ALARM', 'NULL', 'ACK'):
+        if frame_type == 'ACK':
             return 'ACK'
-        else:  # unknown, malformed, or any other type
-            return 'NAK'
+        if frame_type in ('ALARM', 'NULL'):
+            inbound_account = parsed_frame.get('account')
+            expected_account = preset.get('account_number', '')
+            if inbound_account is not None and inbound_account.upper() != expected_account.upper():
+                self._logger.debug(
+                    f"Account mismatch: got {inbound_account!r}, expected {expected_account!r} → NAK"
+                )
+                return 'NAK'
+            return 'ACK'
+        return 'NAK'  # unknown, malformed
 
     def _detect_encryption_from_frame(self, raw_frame: bytes) -> bool:
         """
@@ -449,26 +456,28 @@ class CSRSimulator:
 
         Returns:
             Dict with keys: type ('ACK', 'NAK', 'ALARM', 'NULL', 'unknown'),
-                           seq (int | None), raw_nak (bytes | None)
+                           seq (int | None), raw_nak (bytes | None),
+                           account (str | None)
         """
         try:
             # Try decode_ack_nak first (handles ACK/NAK frames)
             result = decode_ack_nak(raw_frame, crc_format=preset['crc_format'])
             if result['type'] != 'unknown':
+                result['account'] = None
                 return result
 
             # Fallback: parse SIA-DCS frame type from id_token
             components = _extract_frame_components(raw_frame)
             if components is None:
-                return {'type': 'unknown', 'seq': None, 'raw_nak': None}
+                return {'type': 'unknown', 'seq': None, 'raw_nak': None, 'account': None}
 
             _crc_bytes, message_str, _length_bytes, _trailing = components
             if not message_str.startswith('"'):
-                return {'type': 'unknown', 'seq': None, 'raw_nak': None}
+                return {'type': 'unknown', 'seq': None, 'raw_nak': None, 'account': None}
 
             end_quote = message_str.find('"', 1)
             if end_quote < 0:
-                return {'type': 'unknown', 'seq': None, 'raw_nak': None}
+                return {'type': 'unknown', 'seq': None, 'raw_nak': None, 'account': None}
 
             id_token = message_str[1:end_quote]
             # Strip encryption marker if present
@@ -483,18 +492,24 @@ class CSRSimulator:
                 # Determine if NULL (supervision) or ALARM by event code in data block
                 # NULL code is '0000'; alarm codes are non-zero
                 frame_type = 'NULL'
+                account: str | None = None
                 bracket_start = message_str.find('[')
                 if bracket_start >= 0:
                     data_block = message_str[bracket_start:]
                     if SIA_NULL_CODE not in data_block:
                         frame_type = 'ALARM'
-                return {'type': frame_type, 'seq': seq, 'raw_nak': None}
+                    # Extract account from [#ACCOUNT|...] pattern
+                    acc_start = data_block.find('[#')
+                    acc_end = data_block.find('|', acc_start)
+                    if acc_start >= 0 and acc_end > acc_start:
+                        account = data_block[acc_start + 2:acc_end]
+                return {'type': frame_type, 'seq': seq, 'raw_nak': None, 'account': account}
 
-            return {'type': 'unknown', 'seq': seq, 'raw_nak': None}
+            return {'type': 'unknown', 'seq': seq, 'raw_nak': None, 'account': None}
 
         except Exception as e:
             self._logger.debug(f"Frame parsing error: {e}")
-            return {'type': 'unknown', 'seq': None, 'raw_nak': None}
+            return {'type': 'unknown', 'seq': None, 'raw_nak': None, 'account': None}
 
     def _generate_ack_frame(
         self,

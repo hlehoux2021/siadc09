@@ -135,16 +135,12 @@ try {
         $eventLabelCmd = $eqLogic->getCmd('info', 'event_label');
         $eventLabel = $eventLabelCmd ? (string) $eventLabelCmd->execCmd() : '';
 
-        $errors = json_decode(config::byKey('sia_last_errors', 'siaDC09', '[]'), true);
-        if (!is_array($errors)) {
-            $errors = [];
-        }
+        $rawErrors = config::byKey('sia_last_errors', 'siaDC09', '[]');
+        $errors = is_array($rawErrors) ? $rawErrors : (json_decode($rawErrors, true) ?: []);
         $errors = array_slice($errors, 0, 10);
 
-        $messages = json_decode(config::byKey('sia_last_messages', 'siaDC09', '[]'), true);
-        if (!is_array($messages)) {
-            $messages = [];
-        }
+        $rawMessages = config::byKey('sia_last_messages', 'siaDC09', '[]');
+        $messages = is_array($rawMessages) ? $rawMessages : (json_decode($rawMessages, true) ?: []);
 
         ajax::success([
             'supervision_state' => $supervisionState,

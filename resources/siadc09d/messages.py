@@ -68,7 +68,7 @@ SM2_RETRY: Final[str] = "Pas de réponse de la centrale — tentative {attempt}/
 SM2_TIMESTAMP_HEAL: Final[str] = "Horodatage refusé — correction automatique et renvoi"
 # TODO v1.1: SM2_TIMESTAMP_HEAL not used in v1.0 (timestamp auto-heal deferred)
 SM2_FAILED: Final[str] = T3_PREFIX + "Alarme {type} non transmise après {max} tentatives (zone: {zone})"
-SM2_FAILED_NAK: Final[str] = T3_PREFIX + "Réponse inattendue de la centrale — alarme {type} non transmise (zone: {zone})"
+SM2_FAILED_NAK: Final[str] = "Réponse inattendue de la centrale — alarme {type} non transmise (zone: {zone})"
 SM2_FAILED_NO_NETWORK: Final[str] = T3_PREFIX + "Alarme {type} non transmise — réseau inaccessible (zone: {zone})"
 
 # ===== ERROR NOTIFICATION MESSAGES =====
@@ -83,7 +83,8 @@ SM2_FAILED_NO_NETWORK: Final[str] = T3_PREFIX + "Alarme {type} non transmise —
 # (Reserved for future configuration error messages)
 
 # T3 Critical notifications
-# All prepended with T3_PREFIX above (SM1_LOST, SM1_NO_NETWORK, SM2_FAILED*)
+# All prepended with T3_PREFIX above (SM1_LOST, SM1_NO_NETWORK, SM2_FAILED, SM2_FAILED_NO_NETWORK)
+# Note: SM2_FAILED_NAK is T2 (BAD_CSR_RESPONSE) — no T3_PREFIX
 
 # ===== WIZARD UI MESSAGES =====
 # Configuration wizard steps & results - 6 messages
