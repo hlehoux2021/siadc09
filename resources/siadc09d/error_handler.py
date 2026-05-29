@@ -398,13 +398,10 @@ def build_notification(code: ErrorCode, context: dict[str, Any]) -> Notification
         ErrorCode.SUPERVISION_TIMEOUT: "siaDC09 — Timeout supervision (auto-résolu)",
         ErrorCode.SUPERVISION_NAK: "siaDC09 — NAK supervision (horodatage rejeté — auto-résolu)",
         ErrorCode.BAD_CSR_RESPONSE: "siaDC09 — Réponse incompréhensible de la centrale",
-        ErrorCode.SUPERVISION_DISCONNECTED: (
-            "siaDC09 — " + T3_PREFIX + "Supervision perdue"
-        ),
-        ErrorCode.EVENT_FAILED: "siaDC09 — " + T3_PREFIX + "Alarme non transmise",
+        ErrorCode.SUPERVISION_DISCONNECTED: "siaDC09 — Supervision perdue",
+        ErrorCode.EVENT_FAILED: "siaDC09 — Alarme non transmise",
         ErrorCode.TRANSPORT_PERMANENT: (
-            "siaDC09 — " + T3_PREFIX
-            + f"Connexion {context.get('transport', '<inconnu>')} impossible"
+            f"siaDC09 — Connexion {context.get('transport', '<inconnu>')} impossible"
         ),
     }
 

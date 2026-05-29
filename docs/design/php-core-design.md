@@ -81,6 +81,7 @@ Rationale: Only one equipment exists (plugin-centric). The wizard IS the equipme
 | `encryption_key` | string | `''` | 32 hex chars (AES-128) |
 | `receiver_prefix` | string | `''` | 0–6 hex chars receiver prefix (`R` field). Default `''` → omitted; CSR interprets as `R0`. **IMA Protect: unconfirmed — verify at integration time.** |
 | `account_prefix` | string | `''` | 0–6 hex chars account prefix (`L` field). Default `''` → omitted; CSR interprets as `L0`. **IMA Protect: unconfirmed — verify at integration time.** |
+| `crc_format` | string | `'hex'` | SIA CRC format (`hex` or `bin`); preset-controlled, no wizard field in v1.0 |
 | `supervision_interval` | int | `60` | seconds between NULL messages |
 | `retry_count` | int | `3` | max retries on timeout |
 | `sia_notify_cmd_id` | int | `0` | Jeedom cmd ID of ACTION/message command for critical alerts |
@@ -718,7 +719,7 @@ public static function deamon_start() {
     // environment variable (SIA_ENCRYPTION_KEY) to prevent exposure in ps aux /
     // process listings and in the Jeedom log file where $cmd is logged.
     // All getConfiguration() calls use sia_* prefix and typed defaults.
-    // notify_cmd_id intentionally omitted — used by PHP only (message() reads it from
+    // sia_notify_cmd_id intentionally omitted — used by PHP only (message() reads it from
     // getConfiguration()), never by the daemon. No need to pass it via CLI.
     $config = [
         'socketport'          => config::byKey('socketport', 'siaDC09', 55001),

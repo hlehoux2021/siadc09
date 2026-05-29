@@ -250,7 +250,7 @@ cycles — a clear sign of a frozen loop.
 supervision contract is broken. The real monitoring center may no longer consider
 this PE reachable. This is a high-vulnerability state requiring immediate user attention.
 Two notification channels are used:
-1. `notify_cmd_id` — the configured emergency command (SMS, push, etc.)
+1. `sia_notify_cmd_id` — the configured emergency command (SMS, push, etc.)
 2. Jeedom message center (`message::add()`) — always visible regardless of notification config
 
 **Rate limiting:** To avoid notification spam (cron5() runs every 5 minutes), alerts
@@ -639,7 +639,7 @@ public static function deamon_info() {
     // Without this guard, Jeedom's watchdog (auto=1) auto-restarts the daemon within
     // ~1 minute of "Relancer l'assistant", even while the user is mid-wizard, because
     // all other guards pass when previously saved config is still present.
-    if ((int) $eqLogic->getConfiguration('wizard_step', 0) < 4) {
+    if ((int) $eqLogic->getConfiguration('sia_wizard_step', 0) < 4) {
         $return['launchable'] = 'nok';
         $return['launchable_message'] = __(
             "L'assistant de configuration n'est pas terminé — complétez les 4 étapes.", __FILE__
@@ -691,7 +691,7 @@ public static function deamon_info() {
     }
 
     // Guard 6 — notification command (safety requirement)
-    if (empty($eqLogic->getConfiguration('notify_cmd_id'))) {
+    if (empty($eqLogic->getConfiguration('sia_notify_cmd_id'))) {
         $return['launchable'] = 'nok';
         $return['launchable_message'] = __(
             "Commande de notification non configurée (étape 4 de l'assistant).", __FILE__
@@ -743,7 +743,7 @@ public static function cron5() {
 every `checkAndUpdateCmd()` call, regardless of value change).
 
 **On detection: emergency notification via two channels:**
-1. `notify_cmd_id` — the configured command (SMS, push, etc.)
+1. `sia_notify_cmd_id` — the configured command (SMS, push, etc.)
 2. Jeedom message center — always visible regardless of notification config
 
 **Rate limiting:** Maximum one alert per 30 minutes to avoid notification spam.
@@ -818,7 +818,7 @@ private static function _checkSupervisionFreshness($eqLogic) {
     message::add(__CLASS__, $msg);
 
     // Channel 2: configured emergency notification command
-    $notifyCmdId = (int) $eqLogic->getConfiguration('notify_cmd_id');
+    $notifyCmdId = (int) $eqLogic->getConfiguration('sia_notify_cmd_id');
     if ($notifyCmdId > 0) {
         $notifyCmd = cmd::byId($notifyCmdId);
         if ($notifyCmd) {
@@ -865,11 +865,11 @@ human in the loop to decide.
 | `on_stop()` push failure | Best-effort, swallowed | Never block shutdown on failed HTTP call |
 | `cron5()` restart logic | **Removed** | Jeedom core already does this every minute with message center notification |
 | Zombie detection threshold | `3 × supervision_interval` | 3 missed cycles — clear signal of frozen loop |
-| Zombie alert channels | `notify_cmd_id` + Jeedom message center | High-vulnerability state: maximum visibility |
+| Zombie alert channels | `sia_notify_cmd_id` + Jeedom message center | High-vulnerability state: maximum visibility |
 | Zombie alert rate limit | 30 minutes | Avoid notification spam while daemon remains hung |
 | Zombie recovery | Clear `_freshness_alert_ts` on next healthy freshness check | Automatic, no user action needed |
 | `_freshness_alert_ts` storage | Plugin-level `config::save(__CLASS__)` | Avoids triggering `postSave()` on eqLogic on every set/clear |
-| `notify_cmd_id` as launchable guard | Yes — hard requirement | Zombie alert (and all critical notifications) require it |
+| `sia_notify_cmd_id` as launchable guard | Yes — hard requirement | Zombie alert (and all critical notifications) require it |
 | `_getAutoEquipmentSafe()` | Non-creating variant | Read-only watchdog paths must not create side effects |
 
 ---
@@ -886,10 +886,10 @@ human in the loop to decide.
 | Clean shutdown | Call deamon_stop() → verify PHP INFO commands show label="ARRÊTÉ" within 2s |
 | cron5() does NOT restart | Kill daemon process directly → trigger cron5() manually → verify NO restart attempt in plugin code, confirm Jeedom's own watchdog handles it |
 | cron5() skips freshness if daemon down | Daemon not running → trigger cron5() → verify _checkSupervisionFreshness() NOT called |
-| Zombie detection — first alert | Pause daemon updates beyond threshold → trigger cron5() → verify: log error, message center entry, notify_cmd executed, `_freshness_alert_ts` set |
+| Zombie detection — first alert | Pause daemon updates beyond threshold → trigger cron5() → verify: log error, message center entry, sia_notify_cmd executed, `_freshness_alert_ts` set |
 | Zombie detection — rate limit | Trigger cron5() again within 30 min → verify NO second notification sent |
 | Zombie recovery | Resume daemon updates → trigger cron5() → verify `_freshness_alert_ts` cleared |
 | deamon_info() guard — missing csr_ip | Leave csr_ip empty → verify launchable=nok + correct wizard step message |
 | deamon_info() guard — missing encryption_key | encryption_enabled=true, key empty → verify correct launchable_message |
-| deamon_info() guard — missing notify_cmd_id | notify_cmd_id empty → verify launchable=nok (Jeedom won't auto-restart) |
+| deamon_info() guard — missing sia_notify_cmd_id | sia_notify_cmd_id empty → verify launchable=nok (Jeedom won't auto-restart) |
 | deamon_info() guard — all complete | All fields configured → verify launchable=ok |

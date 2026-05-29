@@ -942,7 +942,7 @@ Extend `JeedomDaemon`. Implement `__init__()` loading config:
 - Reads `encryption_key` from `os.environ.get('SIA_ENCRYPTION_KEY', '')` — injected by
   `deamon_start()` as an env var, never passed as a CLI argument (see security note above).
 - Reads `retry_count` from CLI args.
-- Does NOT read `notify_cmd_id` — that value is used exclusively by PHP (read from
+- Does NOT read `sia_notify_cmd_id` — that value is used exclusively by PHP (read from
   `getConfiguration()` inside `message()`). The daemon never needs the cmd ID.
 - No `csr_presets.json` dependency at runtime.
 

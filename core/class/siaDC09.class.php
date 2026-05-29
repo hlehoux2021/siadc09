@@ -414,11 +414,9 @@ class siaDC09 extends eqLogic {
                 $errors = is_array($raw) ? $raw : (json_decode($raw, true) ?: []);
                 if (!empty($message['resolve_t1'])) {
                     $errors = array_values(array_filter($errors, fn($e) =>
-                        !in_array($e['code'] ?? '', ['SUPERVISION_TIMEOUT', 'SUPERVISION_NAK'])
+                        !in_array(strtolower($e['code'] ?? ''), ['supervision_timeout', 'supervision_nak'])
                     ));
-                }
-                // No null guard on message/timestamp — daemon is sole caller, always sends all 5 fields
-                if (isset($message['code'])) {
+                } elseif (isset($message['code'])) {
                     array_unshift($errors, [
                         'code'      => $message['code'],
                         'message'   => $message['message'],

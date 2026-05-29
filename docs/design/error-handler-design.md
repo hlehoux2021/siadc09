@@ -496,7 +496,7 @@ case 'message_center':
 case 'notify':
     $eqLogic = siaDC09::_getAutoEquipmentSafe();
     if (!$eqLogic) { break; }
-    $notifyCmdId = (int) $eqLogic->getConfiguration('notify_cmd_id');
+    $notifyCmdId = (int) $eqLogic->getConfiguration('sia_notify_cmd_id');
     if ($notifyCmdId <= 0) { break; }
     $notifyCmd = cmd::byId($notifyCmdId);
     if (!$notifyCmd) { break; }
