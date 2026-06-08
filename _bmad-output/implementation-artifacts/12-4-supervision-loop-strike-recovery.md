@@ -34,6 +34,12 @@ So that I'm always aware of my monitoring connection health.
 
 7. **cron5 freshness check (zombie daemon detection):** Given daemon process alive but no `supervision_state` update for > 3× supervision_interval, Then `cron5()` fires emergency notification to message center AND notification command (not Jeedom watchdog restart — that's different).
 
+8. **TCP strike escalation to TCP_RECONNECTING:** Given daemon configured with TCP transport (port=5000, local TCP simulator), when CSR simulator is stopped so 3 consecutive supervision frames receive no ACK, then at strike=3 `supervision_state=0` and `supervision_label="Reconnexion TCP…"` (NOT "PERDUE" — that is UDP behavior); daemon enters TCP_RECONNECTING state visible in daemon log; T3 `SUPERVISION_DISCONNECTED` fires exactly once with "CRITIQUE —" prefix.
+
+9. **TCP_RECONNECTING → INITIALIZING → HEALTHY (recovery):** Given daemon in TCP_RECONNECTING state, when TCP simulator is restarted so the reconnect succeeds, then `supervision_state` → 1 ("DÉMARRAGE…") → 2 ("OK"); daemon log shows `TCP_RECONNECTING → INITIALIZING → HEALTHY` transitions; `_sm1_t3_fired` resets (confirmed by T3 re-firing on next disconnection cycle).
+
+10. **TCP NO_NETWORK — permanent failure → daemon self-stops:** Given daemon in TCP_RECONNECTING with TCP simulator permanently unavailable (all reconnect attempts exhausted), then daemon enters NO_NETWORK state; `supervision_label="HORS RÉSEAU — arrêt"`; T3 `TRANSPORT_PERMANENT` fires with "CRITIQUE —" prefix + notification command triggered; daemon process exits cleanly (PID file goes stale); Jeedom watchdog restarts daemon.
+
 ## Pass/Fail Protocol
 
 For each "Verify" step:
@@ -82,6 +88,93 @@ For each "Verify" step:
   - [x] 5.3 Rate-limit verification: PASS — no second alert within next 90s; only 1 entry at 13:00:01
   - [x] 5.4 Unfreeze daemon: `kill -CONT 147464` — supervision recovers to HEALTHY
   - [x] 5.5 Restore supervision_interval=60, daemon resumes HEALTHY state confirmed
+
+- [ ] Task 6: TCP transport setup and stable supervision (AC: 8)
+  - [ ] 6.1 Reconfigure to TCP and start TCP simulator:
+        ```bash
+        sudo -u www-data php -r "
+        require '/var/www/html/core/php/core.inc.php';
+        \$eq = siaDC09::byType('siaDC09')[0];
+        \$eq->setConfiguration('transport', 'tcp');
+        \$eq->setConfiguration('csr_port', 5000);
+        \$eq->save();
+        "
+        pkill -f "tests.simulator"
+        cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --tcp-port 5000 --host 0.0.0.0 --account 000001 &
+        sudo -u www-data php -r "require '/var/www/html/core/php/core.inc.php'; siaDC09::deamon_stop(); siaDC09::deamon_start();"
+        ```
+  - [ ] 6.2 Verify HEALTHY over TCP: `supervision_state=2`, cmdline includes `--transport tcp --port 5000`.
+  - [ ] 6.3 Note initial PID and RSS. Clear ring buffer and error state.
+  - [ ] 6.4 Let daemon run with TCP simulator for 10 min. **Verify** `supervision_state` remains 2. Ring buffer has at most 2 routine supervision entries (`routine=1`).
+
+- [ ] Task 7: TCP strike escalation → TCP_RECONNECTING (AC: 8)
+  - [ ] 7.1 Stop simulator: `pkill -f "tests.simulator"`. Daemon gets connection refused/timeout on TCP.
+  - [ ] 7.2 Wait for strike=1 (~60s). **Verify** `supervision_state=1`, `supervision_label="DÉGRADÉ (1/3)"`. T1 `supervision_timeout` message center entry appears.
+  - [ ] 7.3 Wait for strike=2 (~120s). **Verify** `supervision_state=1`, `supervision_label="DÉGRADÉ (2/3)"`. No new T1.
+  - [ ] 7.4 Wait for strike=3 (~180s). **Verify** `supervision_state=0`, `supervision_label="Reconnexion TCP…"` (TCP_RECONNECTING — NOT "PERDUE"). T3 `SUPERVISION_DISCONNECTED` fires with "CRITIQUE —" prefix and notification command triggered.
+  - [ ] 7.5 Confirm TCP_RECONNECTING in daemon log:
+        ```bash
+        tail -50 /var/www/html/log/siaDC09_daemon | grep -i "TCP_RECONNECTING\|reconnecting\|tcp_reconnect"
+        ```
+  - [ ] 7.6 Verify T3 fires once: wait one more supervision cycle, confirm no second T3 `supervision_disconnected` entry (same dedup behavior as UDP).
+
+- [ ] Task 8: TCP_RECONNECTING → recovery (AC: 9)
+  - [ ] 8.1 While daemon is in TCP_RECONNECTING, restart simulator:
+        ```bash
+        cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --tcp-port 5000 --host 0.0.0.0 --account 000001 &
+        ```
+  - [ ] 8.2 Wait for TCP reconnect success (≤2 × reconnect_interval_s). **Verify** `supervision_state` → 1 (INITIALIZING) → 2 (HEALTHY). `supervision_label` → "DÉMARRAGE…" → "OK".
+  - [ ] 8.3 **Verify** daemon log shows state machine transitions `TCP_RECONNECTING → INITIALIZING` then `INITIALIZING → HEALTHY`.
+  - [ ] 8.4 Verify `_sm1_t3_fired` reset: stop simulator again, wait for strike=3 → TCP_RECONNECTING → **Verify** T3 fires again (new message center entry or occurrence increment). Restart simulator and verify recovery to HEALTHY.
+
+- [ ] Task 9: TCP NO_NETWORK — permanent failure → daemon self-stops (AC: 10)
+  - [ ] 9.1 Stop simulator: `pkill -f "tests.simulator"`. Wait until daemon reaches TCP_RECONNECTING (~180s).
+  - [ ] 9.2 Keep simulator stopped and wait for TCP reconnect loop to exhaust all attempts. Monitor:
+        ```bash
+        watch -n 10 'pgrep -f siadc09d && echo running || echo STOPPED'
+        ```
+  - [ ] 9.3 **Verify** daemon eventually exits: `pgrep -f siadc09d` → no output. PID file absent or stale: `cat /tmp/jeedom/siaDC09/daemon.pid; ps aux | grep siadc09`.
+  - [ ] 9.4 **Verify** `supervision_label` persisted value = "HORS RÉSEAU — arrêt":
+        ```bash
+        sudo -u www-data php -r "
+        require '/var/www/html/core/php/core.inc.php';
+        \$eq = siaDC09::byType('siaDC09')[0];
+        echo 'label='.\$eq->getCmd('info','supervision_label')->getValue().PHP_EOL;
+        "
+        ```
+  - [ ] 9.5 **Verify** T3 `TRANSPORT_PERMANENT` in message center:
+        ```bash
+        sudo -u www-data php -r "
+        require '/var/www/html/core/php/core.inc.php';
+        \$rows = array_filter(message::all('siaDC09'),
+          fn(\$m) => \$m->getLogicalId()==='transport_permanent');
+        echo 'count='.count(\$rows).PHP_EOL;
+        foreach (\$rows as \$m) echo 'msg='.substr(\$m->getMessage(),0,80).PHP_EOL;
+        "
+        ```
+        Expected: `count=1`, message starts with "CRITIQUE — ".
+  - [ ] 9.6 **Verify** notification command was triggered (count+1 from prior baseline). Daemon log shows `notify` callback with title containing "CRITIQUE".
+  - [ ] 9.7 Start simulator before watchdog restart:
+        ```bash
+        cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --tcp-port 5000 --host 0.0.0.0 --account 000001 &
+        ```
+  - [ ] 9.8 Wait for watchdog to restart daemon (~90s). **Verify** daemon restarts and recovers to HEALTHY over TCP.
+
+- [ ] Task 10: Revert to UDP (AC: all TCP pass)
+  - [ ] 10.1 Revert config and restart on UDP:
+        ```bash
+        sudo -u www-data php -r "
+        require '/var/www/html/core/php/core.inc.php';
+        \$eq = siaDC09::byType('siaDC09')[0];
+        \$eq->setConfiguration('transport', 'udp');
+        \$eq->setConfiguration('csr_port', 10001);
+        \$eq->save();
+        "
+        pkill -f "tests.simulator"
+        cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --udp-port 10001 --host 0.0.0.0 --account 000001 &
+        sudo -u www-data php -r "require '/var/www/html/core/php/core.inc.php'; siaDC09::deamon_stop(); siaDC09::deamon_start();"
+        ```
+  - [ ] 10.2 **Verify** HEALTHY on UDP: `supervision_state=2`, cmdline shows `--transport udp`.
 
 ## Dev Notes
 
@@ -357,3 +450,4 @@ claude-sonnet-4-6 (eu.anthropic.claude-sonnet-4-6)
 - 2026-05-28: Story created. Ready for dev execution.
 - 2026-05-28: Adversarial review #2 — 12 findings fixed: T1 code snippet corrected (T1 not in _update_sm1_from_strike), pass/fail protocol added, 30-min→15-min with justification, cron5 test design explained, log grep commands added, ring buffer JSON guard fixed, Task 4.7→5 precondition gate, Task 5.5 explicit commands, ring buffer `routine` field documented, SSH creds moved to reference, Task 3.5 timing explicit, notification command pre-test added.
 - 2026-05-29: Story executed on Jeedom VM 192.168.5.103. All 5 tasks PASS. Bug fixed: double T3_PREFIX in notify title. Config key naming audit applied to design docs.
+- 2026-06-01: TCP pass added: AC8–10 + Tasks 6–10 — TCP strike escalation, TCP_RECONNECTING, NO_NETWORK, TRANSPORT_PERMANENT.

@@ -48,6 +48,10 @@ So that I can immediately see whether the CSR connection is healthy and inspect 
 
 14. **Widget — equipment disabled:** Given the siaDC09 equipment is deactivated (disabled in Jeedom), the dashboard widget shows a grey badge (`text-muted`) and label "Désactivé". **Note:** The current implementation is missing the `getIsEnable()` check in `toHtml()` — this AC is expected to FAIL; document observed behavior as a bug.
 
+15. **Widget — TCP_RECONNECTING badge:** Given daemon configured with TCP transport and in TCP_RECONNECTING state (`supervision_state=0`, `supervision_label="Reconnexion TCP…"`), the dashboard widget shows a red badge (`text-danger`) with label text "Reconnexion TCP…". This is distinct from the UDP DEGRADED(strike=3) label "PERDUE" — same badge class but different label string.
+
+16. **Widget — NO_NETWORK label persists after daemon exit:** Given daemon has transitioned through NO_NETWORK and exited (TCP reconnect loop exhausted), the last-persisted `supervision_label` value is "HORS RÉSEAU — arrêt". Since the daemon exits immediately in NO_NETWORK, the live badge cannot be observed during the transition; instead the persisted cmd value is verified via PHP CLI (`getValue()` not `execCmd()`), and the dashboard shows a red badge after daemon exit.
+
 ## Pass/Fail Protocol
 
 For each "Verify" step:
@@ -188,6 +192,72 @@ For each "Verify" step:
   - [x] 15.3 **PASS (revised)**: Widget disappears entirely when equipment is disabled — Jeedom framework removes disabled equipment from dashboard before calling `toHtml()`. `getIsEnable()` check in `toHtml()` would be redundant. Pre-story bug note was incorrect.
   - [x] 15.4 Re-enabled equipment.
 
+- [ ] Task 16: TCP transport setup for widget TCP states (AC: 15, 16)
+  - [ ] 16.1 Reconfigure to TCP and start TCP simulator:
+        ```bash
+        sudo -u www-data php -r "
+        require '/var/www/html/core/php/core.inc.php';
+        \$eq = siaDC09::byType('siaDC09')[0];
+        \$eq->setConfiguration('transport', 'tcp');
+        \$eq->setConfiguration('csr_port', 5000);
+        \$eq->save();
+        "
+        pkill -f "tests.simulator"
+        cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --tcp-port 5000 --host 0.0.0.0 --account 000001 &
+        sudo -u www-data php -r "require '/var/www/html/core/php/core.inc.php'; siaDC09::deamon_stop(); siaDC09::deamon_start();"
+        ```
+  - [ ] 16.2 Verify HEALTHY over TCP: `supervision_state=2`, green badge in dashboard widget.
+
+- [ ] Task 17: Widget — TCP_RECONNECTING badge (AC: 15)
+  - [ ] 17.1 Stop simulator to trigger strike escalation: `pkill -f "tests.simulator"`. Wait ~180s for strike=3 → daemon enters TCP_RECONNECTING.
+  - [ ] 17.2 Verify state via PHP CLI:
+        ```bash
+        sudo -u www-data php -r "
+        require '/var/www/html/core/php/core.inc.php';
+        \$eq = siaDC09::byType('siaDC09')[0];
+        echo 'state='.\$eq->getCmd('info','supervision_state')->execCmd().PHP_EOL;
+        echo 'label='.\$eq->getCmd('info','supervision_label')->execCmd().PHP_EOL;
+        "
+        ```
+        Expected: `state=0`, `label` starts with "Reconnexion TCP".
+  - [ ] 17.3 Refresh Jeedom dashboard page.
+  - [ ] 17.4 **Verify** badge is red (`text-danger` CSS class on `<i class="fas fa-circle">`). **Verify** label text shows "Reconnexion TCP…" (not "PERDUE" — that would indicate UDP behavior incorrectly applied).
+  - [ ] 17.5 Restart simulator to recover: `cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --tcp-port 5000 --host 0.0.0.0 --account 000001 &`. Wait for recovery to HEALTHY.
+
+- [ ] Task 18: Widget — NO_NETWORK label (AC: 16)
+  - [ ] 18.1 Stop simulator: `pkill -f "tests.simulator"`. Wait until daemon reaches TCP_RECONNECTING (~180s), then keep simulator stopped through the full TCP reconnect loop until daemon enters NO_NETWORK and exits. Monitor with: `watch -n 10 'pgrep -f siadc09d && echo running || echo STOPPED'`
+  - [ ] 18.2 After daemon exits: verify via PHP CLI using `getValue()` (not `execCmd()` — daemon is gone):
+        ```bash
+        sudo -u www-data php -r "
+        require '/var/www/html/core/php/core.inc.php';
+        \$eq = siaDC09::byType('siaDC09')[0];
+        echo 'label='.\$eq->getCmd('info','supervision_label')->getValue().PHP_EOL;
+        "
+        ```
+        **Verify** `label="HORS RÉSEAU — arrêt"` (persisted from NO_NETWORK transition).
+  - [ ] 18.3 Refresh Jeedom dashboard. **Verify** badge is red (`text-danger`).
+  - [ ] 18.4 Start simulator before watchdog restart to allow clean recovery:
+        ```bash
+        cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --tcp-port 5000 --host 0.0.0.0 --account 000001 &
+        ```
+  - [ ] 18.5 Wait for watchdog to restart daemon (~90s). **Verify** HEALTHY recovery: `supervision_state=2`, green badge.
+
+- [ ] Task 19: Revert to UDP (AC: 15, 16)
+  - [ ] 19.1 Revert config and restart on UDP:
+        ```bash
+        sudo -u www-data php -r "
+        require '/var/www/html/core/php/core.inc.php';
+        \$eq = siaDC09::byType('siaDC09')[0];
+        \$eq->setConfiguration('transport', 'udp');
+        \$eq->setConfiguration('csr_port', 10001);
+        \$eq->save();
+        "
+        pkill -f "tests.simulator"
+        cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --udp-port 10001 --host 0.0.0.0 --account 000001 &
+        sudo -u www-data php -r "require '/var/www/html/core/php/core.inc.php'; siaDC09::deamon_stop(); siaDC09::deamon_start();"
+        ```
+  - [ ] 19.2 **Verify** HEALTHY on UDP: `supervision_state=2`, green badge, cmdline shows `--transport udp`.
+
 ## Dev Agent Record
 
 ### Bugs Fixed During Testing
@@ -278,3 +348,10 @@ Timestamps rendered by `siaDC09_formatTimestamp` are in **UTC**. Local timezone 
 - Equipment config: Plugins → Protocoles domotiques → siaDC09 → click equipment
 - Diagnostic tab: tab 4 (only visible when `sia_wizard_step=4`)
 - Mobile view: `http://192.168.5.103/mobile/` or browser responsive mode
+
+## Change Log
+
+| Date | Change |
+|------|--------|
+| 2026-05-29 | Story created and executed on Jeedom VM. All 14 AC pass (AC4 stale detection blocked by watchdog). 3 bugs fixed. |
+| 2026-06-01 | TCP pass added: AC15–16 + Tasks 16–19 — TCP_RECONNECTING and NO_NETWORK widget badge states. |

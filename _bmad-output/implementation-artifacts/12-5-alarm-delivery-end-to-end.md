@@ -34,6 +34,14 @@ So that my home is protected by professional monitoring.
 
 7. **event_state persists across restart:** After a CONFIRMED alarm, stop and restart daemon; `event_state` still shows 1 (`"Confirmé"`) — not reset to 0 (IDLE is startup-only, not re-entered).
 
+8. **TCP — alarm happy path (burglarAlarm ACK):** Given daemon configured with TCP transport and local TCP simulator, when triggering `burglarAlarm` with zone="Piece1", then `event_state` → 1 (`"Confirmé"`) after ACK received over TCP. Daemon log shows BA frame sent and ACK received via TCP.
+
+9. **TCP — all event types ACK path:** Same TCP happy path confirmed for `fireAlarm` (FA code) and `panicAlarm` (PA code).
+
+10. **TCP — NAK path (T2 BAD_CSR_RESPONSE):** Same as AC4 but over TCP: `event_state=2`, T2 fires with no CRITIQUE prefix, no retry. Daemon immediately marks SM2 FAILED on NAK over TCP.
+
+11. **TCP — timeout path (T3 EVENT_FAILED):** Same as AC5 but over TCP: simulator stopped → TCP connection refused → daemon retries up to 3 times → EVENT_FAILED T3 fires with "CRITIQUE —" prefix. Daemon log shows 3 retry attempts over TCP.
+
 ## Pass/Fail Protocol
 
 For each "Verify" step:
@@ -113,6 +121,82 @@ For each "Verify" step:
   - [x] 7.2 Stop and restart daemon via Jeedom UI (or PHP CLI)
   - [x] 7.3 Immediately after restart: verify `event_state` still = 1 (`"Confirmé"`) — not reset to 0: PASS
   - [x] 7.4 Verify `supervision_state` goes through 1 (INITIALIZING) then recovers to 2 (HEALTHY) — normal restart behavior: PASS
+
+- [ ] Task 8: TCP transport setup for alarm tests (AC: 8–11)
+  - [ ] 8.1 Reconfigure to TCP and start TCP simulator:
+        ```bash
+        sudo -u www-data php -r "
+        require '/var/www/html/core/php/core.inc.php';
+        \$eq = siaDC09::byType('siaDC09')[0];
+        \$eq->setConfiguration('transport', 'tcp');
+        \$eq->setConfiguration('csr_port', 5000);
+        \$eq->save();
+        "
+        pkill -f "tests.simulator"
+        cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --tcp-port 5000 --host 0.0.0.0 --account 000001 &
+        sudo -u www-data php -r "require '/var/www/html/core/php/core.inc.php'; siaDC09::deamon_stop(); siaDC09::deamon_start();"
+        ```
+  - [ ] 8.2 Verify HEALTHY over TCP: `supervision_state=2`. Confirm `--transport tcp --port 5000` in daemon cmdline: `ps aux | grep siadc09`.
+  - [ ] 8.3 Clear ring buffer and error state:
+        ```bash
+        sudo -u www-data php -r "require '/var/www/html/core/php/core.inc.php'; config::save('sia_last_messages','[]','siaDC09'); config::save('sia_last_errors','[]','siaDC09');"
+        ```
+
+- [ ] Task 9: TCP — burglarAlarm happy path (AC: 8)
+  - [ ] 9.1 Trigger burglarAlarm zone="Piece1":
+        ```bash
+        sudo -u www-data php -r "
+        require '/var/www/html/core/php/core.inc.php';
+        \$eq = siaDC09::byType('siaDC09')[0];
+        \$cmd = \$eq->getCmd('action', 'burglarAlarm');
+        \$cmd->execCmd(['title' => 'Piece1']);
+        echo 'done'.PHP_EOL;
+        "
+        ```
+  - [ ] 9.2 **Verify** `event_state=3` (PENDING) then `event_state=1` (CONFIRMED). `event_label="Confirmé"`.
+  - [ ] 9.3 **Verify** daemon log shows BA frame sent and ACK received over TCP transport.
+
+- [ ] Task 10: TCP — all event types ACK path (AC: 9)
+  - [ ] 10.1 Trigger fireAlarm zone="Piece1": **Verify** `event_state=1`, FA code in daemon log over TCP.
+  - [ ] 10.2 Trigger panicAlarm zone="Piece2": **Verify** `event_state=1`, PA code in daemon log over TCP.
+
+- [ ] Task 11: TCP — NAK path T2 (AC: 10)
+  - [ ] 11.1 Stop simulator, restart with mismatched account:
+        ```bash
+        pkill -f "tests.simulator"
+        cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --tcp-port 5000 --host 0.0.0.0 --account FFFFFF &
+        ```
+  - [ ] 11.2 Trigger burglarAlarm zone="Piece1" (same PHP CLI as Task 9.1).
+  - [ ] 11.3 **Verify** `event_state=2` quickly (no retry on NAK). T2 `BAD_CSR_RESPONSE` in message center, no "CRITIQUE —" prefix. Notification command triggered. Daemon log shows single attempt only.
+  - [ ] 11.4 Restore correct account simulator:
+        ```bash
+        pkill -f "tests.simulator"
+        cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --tcp-port 5000 --host 0.0.0.0 --account 000001 &
+        ```
+  - [ ] 11.5 Wait for supervision recovery: `supervision_state=2`.
+
+- [ ] Task 12: TCP — timeout path T3 (AC: 11)
+  - [ ] 12.1 Stop simulator: `pkill -f "tests.simulator"`.
+  - [ ] 12.2 Trigger burglarAlarm zone="Piece2" (same PHP CLI as Task 9.1).
+  - [ ] 12.3 Wait for 3 retries (~3–35s — TCP connection refused retries faster than UDP timeout). **Verify** `event_state=2`, T3 `EVENT_FAILED` in message center with "CRITIQUE —" prefix. Notification command triggered.
+  - [ ] 12.4 **Verify** daemon log shows 3 retry attempts then `event_failed`.
+  - [ ] 12.5 Restart simulator: `cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --tcp-port 5000 --host 0.0.0.0 --account 000001 &`. Wait for supervision recovery.
+
+- [ ] Task 13: Revert to UDP (AC: 8–11)
+  - [ ] 13.1 Revert config and restart on UDP:
+        ```bash
+        sudo -u www-data php -r "
+        require '/var/www/html/core/php/core.inc.php';
+        \$eq = siaDC09::byType('siaDC09')[0];
+        \$eq->setConfiguration('transport', 'udp');
+        \$eq->setConfiguration('csr_port', 10001);
+        \$eq->save();
+        "
+        pkill -f "tests.simulator"
+        cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --udp-port 10001 --host 0.0.0.0 --account 000001 &
+        sudo -u www-data php -r "require '/var/www/html/core/php/core.inc.php'; siaDC09::deamon_stop(); siaDC09::deamon_start();"
+        ```
+  - [ ] 13.2 **Verify** HEALTHY on UDP: `supervision_state=2`, cmdline shows `--transport udp`.
 
 ## Dev Notes
 
@@ -374,3 +458,10 @@ claude-sonnet-4-6 (eu.anthropic.claude-sonnet-4-6)
 - `resources/siadc09d/daemon.py` — Bug 2: SIATransportError added to retry handler; Bug 3: event_state excluded from periodic update when SM2 IDLE
 - `resources/siadc09d/csr_simulator.py` — Bug 5: account validation NAK logic in _decide_response() and account extraction in _parse_received_message()
 - `tests/level1/test_messages.py` — Bug 1: updated T3 prefix test to assert SM2_FAILED_NAK is T2
+
+## Change Log
+
+| Date | Change |
+|------|--------|
+| 2026-05-29 | Story created and executed on Jeedom VM. All 7 AC pass. 5 bugs fixed. |
+| 2026-06-01 | TCP pass added: AC8–11 + Tasks 8–13 — alarm delivery over TCP transport. |

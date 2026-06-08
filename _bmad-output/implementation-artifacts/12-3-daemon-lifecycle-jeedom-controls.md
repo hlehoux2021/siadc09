@@ -34,6 +34,8 @@ So that I can manage the monitoring service without SSH access.
 
 7. **And** no zombie processes after repeated start/stop cycles (10+ cycles) — `ps aux | grep siadc09` shows at most one process after final start.
 
+8. **TCP transport — daemon lifecycle identical to UDP:** Given daemon configured with transport=tcp and port=5000 (local TCP simulator), When start/stop/restart/watchdog-recovery cycles are run, Then behavior is identical to the UDP pass: clean start, PID file written, supervision loop begins, `supervision_state` reaches 2, clean stop, no zombie processes.
+
 ## Tasks / Subtasks
 
 - [x] Task 1: Start/Stop/Restart via Jeedom UI (AC: 1, 2, 3)
@@ -84,6 +86,47 @@ So that I can manage the monitoring service without SSH access.
   - [x] 5.3 Verify no defunct/zombie processes: `ps aux | grep Z` shows no siaDC09-related zombies
   - [x] 5.4 Check `/tmp/jeedom/siaDC09/daemon.pid` contains a valid PID matching the running process
   - [x] 5.5 Verify `supervision_state=2` after final start (daemon in HEALTHY state)
+
+- [x] Task 6: TCP transport — daemon lifecycle (AC: 8)
+  - [x] 6.1 Reconfigure to TCP and start TCP simulator:
+        ```bash
+        sudo -u www-data php -r "
+        require '/var/www/html/core/php/core.inc.php';
+        \$eq = siaDC09::byType('siaDC09')[0];
+        \$eq->setConfiguration('transport', 'tcp');
+        \$eq->setConfiguration('csr_port', 5000);
+        \$eq->save();
+        echo 'transport='.\$eq->getConfiguration('transport').PHP_EOL;
+        "
+        pkill -f "tests.simulator"
+        cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --tcp-port 5000 --host 0.0.0.0 --account 000001 &
+        ```
+  - [x] 6.2 Start daemon: `sudo -u www-data php -r "require '/var/www/html/core/php/core.inc.php'; siaDC09::deamon_start();"` **Verify** daemon cmdline includes `--transport tcp --port 5000` via `ps aux | grep siadc09`. PID file written at `/tmp/jeedom/siaDC09/daemon.pid`.
+  - [x] 6.3 Wait for `supervision_state=2` (HEALTHY over TCP, ≤60s). Note daemon PID.
+  - [x] 6.4 Stop/Start cycle:
+        ```bash
+        sudo -u www-data php -r "
+        require '/var/www/html/core/php/core.inc.php';
+        siaDC09::deamon_stop(); sleep(2); siaDC09::deamon_start();
+        "
+        ```
+        **Verify** PID changes (new process), `supervision_state` cycles 0→1→2.
+  - [x] 6.5 Kill -9 and watchdog recovery: `sudo kill -9 <pid>` → wait up to 90s (reset `deamonRestartNumber` if high from prior kills). **Verify** watchdog auto-restarts daemon → `supervision_state=2`. Note: `deamonRestartNumber` may slow watchdog if already high from UDP pass kills.
+  - [x] 6.6 No zombie processes after TCP cycles: `ps aux | grep siadc09` shows exactly 1 process, `ps aux | grep Z` shows no siaDC09 zombies.
+  - [x] 6.7 Revert to UDP:
+        ```bash
+        sudo -u www-data php -r "
+        require '/var/www/html/core/php/core.inc.php';
+        \$eq = siaDC09::byType('siaDC09')[0];
+        \$eq->setConfiguration('transport', 'udp');
+        \$eq->setConfiguration('csr_port', 10001);
+        \$eq->save();
+        "
+        pkill -f "tests.simulator"
+        cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --udp-port 10001 --host 0.0.0.0 --account 000001 &
+        sudo -u www-data php -r "require '/var/www/html/core/php/core.inc.php'; siaDC09::deamon_stop(); siaDC09::deamon_start();"
+        ```
+  - [x] 6.8 **Verify** HEALTHY on UDP after revert: `supervision_state=2`, cmdline shows `--transport udp`.
 
 ## Dev Notes
 
@@ -252,6 +295,15 @@ Session 2026-05-28 (session 2): All 5 tasks executed via `sshpass -p "login" ssh
 - ✅ **AC5** (Config change behavior): PASS WITH SPEC CORRECTION — `postSave()` does NOT restart daemon (correct by design). Config saves to DB; new config active after manual restart. AC5 description was inaccurate. No code bug.
 - ✅ **AC6** (Daemon log accessible): PASS — `/var/www/html/log/siaDC09_daemon` exists; empty at loglevel=error (correct); debug mode shows detailed supervision entries
 - ✅ **AC7** (No zombies after 10+ cycles): PASS — 10 stop/start cycles: exactly 1 process each cycle; no defunct processes; PID file valid; supervision_state=2 after final start
+- ✅ **AC8** (TCP transport lifecycle identical to UDP): PASS — full TCP pass on VM 192.168.5.103:
+  - 6.1: TCP simulator already running on port 5000 (multi-protocol simulator). Config switched to tcp:5000.
+  - 6.2: Daemon started with `--transport tcp --port 5000`, PID=396332, PID file written by www-data (not readable by `login` user — expected).
+  - 6.3: supervision_state=2 reached in ~60s (TCP connects on first supervision timer fire, not at startup — by design).
+  - 6.4: Stop/Start cycle — PID changed 396332→396639, supervision cycle 0→1→2 in ~60s ✅
+  - 6.5: Kill -9 PID 396639 → watchdog fired at ~t+2min (deamonRestartNumber was 0) → new PID 398275 → supervision_state=2 in ~20s ✅
+  - 6.6: Exactly 1 siadc09 process, no zombie processes ✅
+  - 6.7: Reverted to udp:10001, daemon restarted ✅
+  - 6.8: supervision_state=2, cmdline shows `--transport udp --port 10001` ✅
 
 ### File List
 
@@ -260,3 +312,4 @@ _(Manual testing story — no code files modified)_
 ### Change Log
 
 - 2026-05-28: Story executed. All 5 tasks complete. AC1–AC7 validated on Jeedom VM (10.75.11.110). AC5 spec corrected: postSave() does not restart daemon by design.
+- 2026-06-01: TCP pass executed: AC8 + Task 6 all subtasks PASS. VM: 192.168.5.103. TCP simulator on port 5000 (multi-protocol, already running). Key finding: TCP connects on first supervision timer fire (not at startup) — normal by design; watchdog TCP recovery in ~2min. No zombie processes. Reverted to UDP after TCP pass.

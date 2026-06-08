@@ -37,7 +37,8 @@
       "Bash(php /Users/herve.lehoux/Dev/jeedom/vendor/bin/phpunit --version)",
       "Read(//dev/**)",
       "Bash(python3 -c:*)",
-      "Bash(php -r *)"
+      "Bash(php -r *)",
+      "Bash(xargs -I{} basename {})"
     ],
     "additionalDirectories": [
       "/Users/herve.lehoux/Dev/my-project/docs",

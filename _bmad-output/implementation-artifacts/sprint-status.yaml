@@ -29,7 +29,7 @@
 # - SM typically creates next story ONLY after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then Dev runs code-review (fresh context, ideally different LLM)
 
-last_updated: "2026-05-29" # Story 12-7 ready-for-dev
+last_updated: "2026-06-01" # Story 11-1 ready-for-dev
 generated: "2026-05-04"
 project: "my-project"
 project_key: "NOKEY"
@@ -117,7 +117,7 @@ development_status:
 
   # Epic 11: End-to-End Testing & Market Preparation
   epic-11: in-progress
-  11-1-protocol-conformance-capture-compare-ajax-frames: backlog
+  11-1-protocol-conformance-capture-compare-ajax-frames: ready-for-dev
   11-2-csr-response-validation-real-ima-vs-simulator: backlog
   11-3-full-workflow-integration-testing: done
   11-4-documentation-i18n-market-submission: backlog
@@ -128,7 +128,7 @@ development_status:
   12-1-manual-plugin-installation-dependency-setup: done
   12-2-wizard-flow-connection-test: done
   12-3-daemon-lifecycle-jeedom-controls: done
-  12-4-supervision-loop-strike-recovery: done
+  12-4-supervision-loop-strike-recovery: in-progress
   12-5-alarm-delivery-end-to-end: done
   12-6-widget-debug-ui-rendering: done  # updated 2026-05-29
   12-7-error-handling-notification-delivery: ready-for-dev
@@ -143,8 +143,8 @@ summary:
   epics_backlog: 0
   epics_in_progress: 2
   epics_done: 10
-  stories_backlog: 2
-  stories_ready_for_dev: 1
+  stories_backlog: 1
+  stories_ready_for_dev: 2
   stories_in_progress: 0
   stories_review: 0
   stories_done: 45

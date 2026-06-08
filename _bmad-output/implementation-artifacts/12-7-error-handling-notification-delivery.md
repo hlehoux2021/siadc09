@@ -40,7 +40,7 @@ So that I am informed of issues proportionally to their severity, with no spam a
 
 10. **All error messages are in French:** Every message_center entry created during this story (AC1, AC3, AC5, AC6, AC7) has its `message` text and `title` text in French — no English fragments, no untranslated `ErrorCode` enum names, no `{placeholder}` literals visible (all `.format()` substitutions resolved).
 
-11. **TRANSPORT_PERMANENT — documented blocked:** TRANSPORT_PERMANENT is TCP-only (UDP has no reconnect loop). The current VM config uses UDP transport. This AC is documented as `BLOCKED — TCP transport not configured on VM, deferred to a future TCP integration test pass`. No implementation/code change in this story to enable it.
+11. **TRANSPORT_PERMANENT — T3, TCP-only, daemon self-stops:** Given daemon configured with TCP transport and TCP reconnect loop exhausted (NO_NETWORK state), then a message center entry is created with `logicalId=transport_permanent`, message starts with `"CRITIQUE — "` (T3_PREFIX), AND the configured notification command IS triggered, AND the title in the `notify` callback payload contains `"CRITIQUE"` (AC8 equivalent for TCP), AND the daemon process exits cleanly (`pgrep -f siadc09d` → no output, PID file absent or stale). Jeedom watchdog then restarts the daemon.
 
 ## Pass/Fail Protocol
 
@@ -207,14 +207,87 @@ For each "Verify" step:
   - [ ] 9.2 **Verify** every message and title is in French. No English fragments (e.g., no `"Connection lost"`, no `"timeout"` in user-facing text — only as a substring inside `"Timeout"` which is part of accepted French technical vocabulary, OK). No `ErrorCode` enum names visible (e.g., no `"SUPERVISION_TIMEOUT"` in the message body — only valid as `code=` field). No literal `{strike}` / `{retry_count}` / `{transport}` / `{csr_address}` placeholders — all `.format()` substitutions must have resolved.
   - [ ] 9.3 **Verify** the `Notify` equipment's event log entries are also in French (titles + messages).
 
-- [ ] Task 10: TRANSPORT_PERMANENT — document blocked (AC: 11)
-  - [ ] 10.1 The current VM uses UDP transport (`--transport udp` in daemon CLI args). UDP has no TCP_RECONNECTING state and no `TRANSPORT_PERMANENT` notification path — see `daemon-design.md` and `error-handler-design.md`.
-  - [ ] 10.2 Document this in the Dev Agent Record as `BLOCKED — TCP transport not configured on VM, deferred to a future TCP integration test pass`. No action needed in this story.
+- [ ] Task 10: TCP setup + TRANSPORT_PERMANENT test (AC: 11)
+  - [ ] 10.1 Reconfigure to TCP:
+        ```bash
+        sudo -u www-data php -r "
+        require '/var/www/html/core/php/core.inc.php';
+        \$eq = siaDC09::byType('siaDC09')[0];
+        \$eq->setConfiguration('transport', 'tcp');
+        \$eq->setConfiguration('csr_port', 5000);
+        \$eq->save();
+        "
+        pkill -f "tests.simulator"
+        cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --tcp-port 5000 --host 0.0.0.0 --account 000001 &
+        sudo -u www-data php -r "require '/var/www/html/core/php/core.inc.php'; siaDC09::deamon_stop(); siaDC09::deamon_start();"
+        ```
+  - [ ] 10.2 Verify HEALTHY over TCP: `supervision_state=2`, cmdline includes `--transport tcp --port 5000`. Note daemon PID.
+  - [ ] 10.3 Set daemon log level to DEBUG. Note baseline message center entry count.
+  - [ ] 10.4 Stop simulator: `pkill -f "tests.simulator"`. Wait for strike escalation → TCP_RECONNECTING (~180s). Confirm `supervision_label` starts with "Reconnexion TCP" via PHP CLI.
+  - [ ] 10.5 Keep simulator stopped and wait for TCP reconnect loop to exhaust all attempts → daemon enters NO_NETWORK and exits. Monitor:
+        ```bash
+        watch -n 10 'pgrep -f siadc09d && echo running || echo STOPPED'
+        ```
+  - [ ] 10.6 **Verify** daemon exits: `pgrep -f siadc09d` → no output.
+  - [ ] 10.7 **Verify** message center has `logicalId='transport_permanent'` entry:
+        ```bash
+        sudo -u www-data php -r "
+        require '/var/www/html/core/php/core.inc.php';
+        \$rows = array_filter(message::all('siaDC09'),
+          fn(\$m) => \$m->getLogicalId()==='transport_permanent');
+        echo 'count='.count(\$rows).PHP_EOL;
+        foreach (\$rows as \$m) {
+          echo 'occ='.\$m->getOccurrences().' msg='.substr(\$m->getMessage(),0,80).PHP_EOL;
+        }
+        "
+        ```
+        Expected: `count=1`, message starts with `"CRITIQUE — "`.
+  - [ ] 10.8 **Verify** notification command WAS triggered (count+1 from Task 0.5 baseline). Daemon log: `tail -500 /var/www/html/log/siaDC09_daemon | grep -A2 '"type":"notify"'` — confirm a `notify` callback was sent with title containing `"CRITIQUE"`.
+  - [ ] 10.9 **Verify** `sia_last_errors` contains `transport_permanent` entry (5-key contract):
+        ```bash
+        sudo -u www-data php -r "
+        require '/var/www/html/core/php/core.inc.php';
+        \$raw = config::byKey('sia_last_errors', 'siaDC09', '[]');
+        \$arr = is_array(\$raw) ? \$raw : (json_decode(\$raw, true) ?: []);
+        foreach (\$arr as \$e) echo 'code='.(\$e['code']??'').' keys='.implode(',', array_keys(\$e)).PHP_EOL;
+        "
+        ```
+  - [ ] 10.10 Start simulator before watchdog restarts daemon:
+        ```bash
+        cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --tcp-port 5000 --host 0.0.0.0 --account 000001 &
+        ```
+  - [ ] 10.11 Wait for watchdog to restart daemon (~90s). **Verify** daemon restarts and recovers to HEALTHY over TCP.
 
-- [ ] Task 11: Final cleanup
-  - [ ] 11.1 Restore simulator running with correct account.
-  - [ ] 11.2 Confirm daemon HEALTHY (`supervision_state=2`).
-  - [ ] 11.3 Optionally clear test artifacts: `config::save('sia_last_errors','[]','siaDC09')` and message center entries via the `Vider` button in the diagnostic tab — this is operator preference, not a hard requirement.
+- [ ] Task 11: TCP pass — T1 SUPERVISION_TIMEOUT and T3 SUPERVISION_DISCONNECTED (AC: 1, 6 — TCP variant)
+  - [ ] 11.1 Daemon is HEALTHY over TCP (from Task 10.11). Clear message center: `sudo -u www-data php -r "require '/var/www/html/core/php/core.inc.php'; message::removeAll('siaDC09');"`
+  - [ ] 11.2 Stop simulator: `pkill -f "tests.simulator"`. Wait for strike=1 (~60s). **Verify** `supervision_state=1`, `supervision_label="DÉGRADÉ (1/3)"`. Message center `supervision_timeout` entry appears, notification NOT triggered.
+  - [ ] 11.3 Wait for strike=3 (~180s). **Verify** `supervision_state=0`, `supervision_label="Reconnexion TCP…"` (TCP_RECONNECTING — NOT "PERDUE"). T3 `supervision_disconnected` fires with "CRITIQUE —" prefix and notification command triggered.
+  - [ ] 11.4 Restart simulator: `cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --tcp-port 5000 --host 0.0.0.0 --account 000001 &`. Wait for HEALTHY recovery.
+
+- [ ] Task 12: TCP pass — T2 BAD_CSR_RESPONSE and T3 EVENT_FAILED (AC: 5, 7 — TCP variant)
+  - [ ] 12.1 T2 NAK path (TCP): restart simulator with mismatched account `--account FFFFFF`. Trigger burglarAlarm zone="Piece1" via PHP CLI. **Verify** `event_state=2`, T2 `bad_csr_response` in message center (no CRITIQUE), notification triggered. Restore correct account.
+  - [ ] 12.2 T3 timeout path (TCP): stop simulator entirely. Trigger burglarAlarm zone="Piece2". Wait for 3 retries. **Verify** `event_state=2`, T3 `event_failed` with "CRITIQUE —" prefix, notification triggered. Restart simulator and verify HEALTHY.
+
+- [ ] Task 13: Revert to UDP
+  - [ ] 13.1 Revert config and restart on UDP:
+        ```bash
+        sudo -u www-data php -r "
+        require '/var/www/html/core/php/core.inc.php';
+        \$eq = siaDC09::byType('siaDC09')[0];
+        \$eq->setConfiguration('transport', 'udp');
+        \$eq->setConfiguration('csr_port', 10001);
+        \$eq->save();
+        "
+        pkill -f "tests.simulator"
+        cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --udp-port 10001 --host 0.0.0.0 --account 000001 &
+        sudo -u www-data php -r "require '/var/www/html/core/php/core.inc.php'; siaDC09::deamon_stop(); siaDC09::deamon_start();"
+        ```
+  - [ ] 13.2 **Verify** HEALTHY on UDP: `supervision_state=2`.
+
+- [ ] Task 14: Final cleanup
+  - [ ] 14.1 Restore simulator running with correct account.
+  - [ ] 14.2 Confirm daemon HEALTHY (`supervision_state=2`).
+  - [ ] 14.3 Optionally clear test artifacts: `config::save('sia_last_errors','[]','siaDC09')` and message center entries via the `Vider` button in the diagnostic tab — this is operator preference, not a hard requirement.
 
 ## Dev Notes
 
@@ -340,8 +413,7 @@ echo 'done'.PHP_EOL;
 
 ### What This Story Does NOT Test
 
-- **TCP-specific paths:** TRANSPORT_PERMANENT is TCP-only. UDP has no reconnect loop. (AC11)
-- **Encryption-related NAK paths:** Encryption is disabled in current VM config.
+- **Encryption-related NAK paths:** Encryption is disabled in current VM config — not tested.
 - **`_send_raw()` OS-level errors** (EAGAIN/ECONNRESET/EPIPE) — these are absorbed as `{status: 'timeout'}` per design — already covered by the timeout-path testing in Task 8.
 - **`_queue_consumer()` SM1=NO_NETWORK at dequeue → `EVENT_FAILED`** — UDP has no NO_NETWORK state.
 
