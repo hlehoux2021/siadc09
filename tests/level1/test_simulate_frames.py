@@ -18,6 +18,11 @@ from resources.siadc09d.simulate_frames import (
 )
 from resources.siadc09d.sia_protocol import SIAMessageBuilder
 
+# CLI tests below invoke `resources/siadc09d/simulate_frames.py` by relative path, so they
+# must run from the repository root — derived here rather than hardcoded, so the suite keeps
+# working when the checkout moves.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
 
 # ============================================================================
 # UNIT TESTS: Hex File Parsing (Task 1)
@@ -331,7 +336,7 @@ def test_cli_missing_required_input_arg(temp_hex_file_burglary: Path) -> None:
         ],
         capture_output=True,
         text=True,
-        cwd="/Users/herve.lehoux/Dev/my-project",
+        cwd=PROJECT_ROOT,
     )
 
     # Assert: Exit code 2 (usage error)
@@ -359,7 +364,7 @@ def test_cli_missing_required_port_arg(temp_hex_file_burglary: Path) -> None:
         ],
         capture_output=True,
         text=True,
-        cwd="/Users/herve.lehoux/Dev/my-project",
+        cwd=PROJECT_ROOT,
     )
 
     # Assert: Exit code 2 (usage error)
@@ -382,7 +387,7 @@ def test_cli_help_displays(temp_hex_file_burglary: Path) -> None:
         ["python3", "resources/siadc09d/simulate_frames.py", "--help"],
         capture_output=True,
         text=True,
-        cwd="/Users/herve.lehoux/Dev/my-project",
+        cwd=PROJECT_ROOT,
     )
 
     # Assert: Exit code 0 (success)
@@ -419,7 +424,7 @@ def test_cli_invalid_protocol_rejected(temp_hex_file_burglary: Path) -> None:
         ],
         capture_output=True,
         text=True,
-        cwd="/Users/herve.lehoux/Dev/my-project",
+        cwd=PROJECT_ROOT,
     )
 
     # Assert: Exit code 2 (usage error)
@@ -441,7 +446,7 @@ def test_cli_valid_protocol_options() -> None:
         ["python3", "resources/siadc09d/simulate_frames.py", "--help"],
         capture_output=True,
         text=True,
-        cwd="/Users/herve.lehoux/Dev/my-project",
+        cwd=PROJECT_ROOT,
     )
 
     # Assert: Both protocols mentioned
@@ -470,7 +475,7 @@ def test_cli_invalid_port_non_integer(temp_hex_file_burglary: Path) -> None:
         ],
         capture_output=True,
         text=True,
-        cwd="/Users/herve.lehoux/Dev/my-project",
+        cwd=PROJECT_ROOT,
     )
 
     # Assert: Exit code 2 (usage error)
@@ -492,7 +497,7 @@ def test_cli_default_values() -> None:
         ["python3", "resources/siadc09d/simulate_frames.py", "--help"],
         capture_output=True,
         text=True,
-        cwd="/Users/herve.lehoux/Dev/my-project",
+        cwd=PROJECT_ROOT,
     )
 
     # Assert: Help shows default values
