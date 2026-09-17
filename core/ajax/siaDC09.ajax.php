@@ -57,20 +57,38 @@ try {
 
         $cmd = $python3 . escapeshellarg($script)
             . ' --test-only --timeout 15 --config ' . escapeshellarg($encoded);
+        // $envPrefix carries the AES key — never log it, only $cmd.
         $envPrefix = 'SIA_ENCRYPTION_KEY=' . escapeshellarg($encKey) . ' ';
+        log::add('siaDC09', 'debug', 'Test connexion — commande : ' . $cmd);
+
+        $stderrFile = tempnam(sys_get_temp_dir(), 'siaDC09_test_');
+        $redirect = $stderrFile ? ' 2>' . escapeshellarg($stderrFile) : ' 2>/dev/null';
 
         set_time_limit(30);
-        exec($envPrefix . $cmd . ' 2>/dev/null', $output, $retCode);
+        exec($envPrefix . $cmd . $redirect, $output, $retCode);
+
+        $stderr = $stderrFile ? trim((string) @file_get_contents($stderrFile)) : '';
+        if ($stderrFile) {
+            @unlink($stderrFile);
+        }
 
         $jsonOutput = implode('', $output);
+        log::add('siaDC09', 'debug', 'Test connexion — code retour ' . $retCode . ', sortie : ' . $jsonOutput);
+        if ($stderr !== '') {
+            log::add('siaDC09', 'error', 'Test connexion — erreur Python : ' . $stderr);
+        }
+
         $result = json_decode($jsonOutput, true);
         if (!is_array($result)) {
+            log::add('siaDC09', 'error', 'Test connexion — sortie illisible (code retour ' . $retCode . ')');
             ajax::success([
                 'status' => 'error',
                 'detail' => __('Impossible de lancer le test — vérifiez que Python 3 et les dépendances sont installés', __FILE__),
             ]);
             return;
         }
+        log::add('siaDC09', 'info', 'Test connexion — résultat : ' . ($result['status'] ?? '?')
+            . ' — ' . ($result['detail'] ?? ''));
         ajax::success($result);
     }
 
