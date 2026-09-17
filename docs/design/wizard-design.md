@@ -327,18 +327,43 @@ No mandatory validation — empty mapping is allowed.
 |  En cas de problème grave (supervision perdue, alarme     |
 |  non transmise), le plugin doit prévenir quelqu'un.       |
 |                                                           |
+|  Type de notification : [Commande d'un équipement    |v]  |
+|                                                           |
+|  -- kind = cmd -------------------------------------------|
 |  Commande de notification :                               |
 |  [#[Salon][Téléphone][Envoyer SMS]       ] [Rechercher]   |
 |  (hidden: sia_notify_cmd_id = 42)                         |
+|                                                           |
+|  -- kind = internal --------------------------------------|
+|  Action interne :       [scenario — lancer un scénario|v] |
+|  Scénario à lancer :    [[Sécurité][Alerte télésurv.] |v] |
 |                                                           |
 |  [Terminer]                                               |
 +-----------------------------------------------------------+
 ```
 
-### Command picker
+### Notification target kind
+
+`sia_notify_kind` selects between two mutually exclusive targets. **An empty value means
+`cmd`** — installations configured before the internal-action option existed carry no
+`sia_notify_kind` and must keep working on their `sia_notify_cmd_id` alone.
+
+| Kind | Config keys | Executed by |
+|------|-------------|-------------|
+| `cmd` | `sia_notify_cmd_id`, `sia_notify_cmd_human` | `cmd::byId($id)->execCmd(['title', 'message'])` |
+| `internal` | `sia_notify_internal`, `sia_notify_scenario_id` | a per-keyword core API — see below |
+
+The `<select>`s of the unselected kind are hidden by `siaDC09_toggleNotifyTarget()`, but
+their values stay in the DOM and are saved: switching kind back and forth does not lose the
+other target.
+
+### Command picker (kind = `cmd`)
 
 Uses the **standard Jeedom command search modal** (`jeedom.cmd.getSelectModal()`),
-filtered for `type: 'action', subType: 'message'`.
+filtered for `type: 'action', subType: 'message'` — only commands accepting a
+`title` + `message` payload (SMS, Telegram, push, e-mail). Switches, sliders and info
+commands never appear in the modal; a `help-block` under the field says so, because the
+filter is otherwise invisible to the user.
 
 Two bound fields:
 - Visible text input (read-only): stores the human-readable form
@@ -358,15 +383,43 @@ jeedom.cmd.getSelectModal(
 );
 ```
 
+### Internal actions (kind = `internal`)
+
+A Jeedom internal action is a **scenario-expression keyword, not a command id**, so
+`cmd::byId()` cannot execute it. Each supported keyword is dispatched to its own core API by
+`siaDC09::_runNotifyInternal()`:
+
+| `sia_notify_internal` | Extra config | Execution |
+|-----------------------|--------------|-----------|
+| `message` | — | `message::add(__CLASS__, "$title : $message")`, skipped when the caller already posted to the message centre (`$messageCenterDone`) |
+| `scenario` | `sia_notify_scenario_id` | `scenario::byId($id)->launch(__CLASS__, "$title : $message")` |
+
+The scenario `<select>` is rendered **server-side** from `scenario::all()` /
+`getHumanName()` in `desktop/php/siaDC09.php` — no AJAX endpoint, the page is already
+admin-only.
+
+Adding a keyword means four edits: an `<option>` at step 4, a `NOTIFY_INTERNAL_*` constant,
+a `case` in `_runNotifyInternal()` and — if it needs a target — a config key plus a check in
+`_hasNotifyTarget()`. An unknown keyword logs a warning and drops the alert.
+
 ### Validation before "Terminer"
 
-- `sia_notify_cmd_id` must be non-empty. If empty, a red inline message:
-  "Veuillez sélectionner une commande. Vous pouvez toujours utiliser la messagerie Jeedom."
-- No advance until a command is selected.
+`siaDC09_validateNotifyTarget()` checks the fields of the selected kind only, and shows the
+error matching the missing one:
+
+- kind `cmd`, no `sia_notify_cmd_id` → "Veuillez sélectionner une commande. Vous pouvez
+  toujours utiliser la messagerie Jeedom."
+- kind `internal`, no `sia_notify_internal` → "Veuillez choisir l'action interne à exécuter."
+- `sia_notify_internal = scenario`, no `sia_notify_scenario_id` → "Veuillez choisir le
+  scénario à lancer."
+
+No advance until the selected kind is complete. The same rule is enforced server-side by
+`siaDC09::_hasNotifyTarget()` (guard 6 of `deamon_info()`), which refuses to start a daemon
+that could not raise an alert.
 
 ### On "Terminer"
 
-1. Validates `sia_notify_cmd_id` non-empty
+1. Validates the selected notification target
 2. Triggers standard Jeedom save
 3. Sets `sia_wizard_step = 4` (via save)
 4. Page reloads in **config mode** (standard flat layout)
@@ -442,8 +495,11 @@ All stored in `eqLogic->getConfiguration()`. Fields introduced by the wizard:
 | `supervision_interval` | int | Step 1 |
 | `retry_count` | int | Step 1 |
 | `sia_zone_mappings` | array | Step 3 |
-| `sia_notify_cmd_id` | int | Step 4 |
-| `sia_notify_cmd_human` | string | Step 4 (display only) |
+| `sia_notify_kind` | string | Step 4 — `cmd` \| `internal`; empty means `cmd` |
+| `sia_notify_cmd_id` | int | Step 4 (kind `cmd`) |
+| `sia_notify_cmd_human` | string | Step 4 (kind `cmd`, display only) |
+| `sia_notify_internal` | string | Step 4 (kind `internal`) — `message` \| `scenario` |
+| `sia_notify_scenario_id` | int | Step 4 (`sia_notify_internal = scenario`) |
 | `sia_wizard_step` | int | Updated at each step completion |
 
 ---
@@ -551,7 +607,8 @@ Called by `plugin.template.js` when the equipment is loaded. Handles:
 3. If config mode: hide wizard section, populate config summary cards
 4. Set active provider card based on `_eqLogic.configuration.csr_provider`
 5. Populate zone table from `_eqLogic.configuration.sia_zone_mappings`
-6. Populate notify command display from `_eqLogic.configuration.sia_notify_cmd_human`
+6. Populate the notification summary from the selected kind — `sia_notify_cmd_human`, or the
+   internal action / scenario name (`siaDC09_notifyTargetLabel()`)
 
 ### `saveEqLogic(_eqLogic)` hook
 
@@ -711,29 +768,60 @@ auto-trigger on step arrival, "Relancer le test" / "Ignorer" / "Suivant" buttons
 
 ### Task 3.5 — Step 4 HTML + JS: critical notifications
 
-**What:** Explanatory text, command picker (display input + hidden ID input + search button),
-"Terminer" button.
+**What:** Explanatory text, kind selector, command picker (display input + hidden ID input +
+search button), internal-action + scenario selects, "Terminer" button.
 
 **HTML:**
 ```html
-<div class="input-group">
-    <input type="text"
-           class="eqLogicAttr form-control"
+<select class="eqLogicAttr form-control" id="siaDC09_notifyKind"
+        data-l1key="configuration" data-l2key="sia_notify_kind">
+    <option value="cmd">{{Commande d'un équipement (SMS, Telegram, push…)}}</option>
+    <option value="internal">{{Action interne Jeedom}}</option>
+</select>
+
+<!-- kind = cmd -->
+<div class="form-group siaDC09-notify-cmd">
+    <div class="input-group">
+        <input type="text"
+               class="eqLogicAttr form-control"
+               data-l1key="configuration"
+               data-l2key="sia_notify_cmd_human"
+               readonly
+               placeholder="{{Sélectionnez une commande de notification}}" />
+        <span class="input-group-btn">
+            <a class="btn btn-default cursor" id="siaDC09_searchNotifyCmd">
+                <i class="fas fa-list-alt"></i>
+            </a>
+        </span>
+    </div>
+    <input type="hidden"
+           class="eqLogicAttr"
            data-l1key="configuration"
-           data-l2key="sia_notify_cmd_human"
-           readonly
-           placeholder="{{Sélectionnez une commande de notification}}" />
-    <span class="input-group-btn">
-        <a class="btn btn-default cursor" id="siaDC09_searchNotifyCmd">
-            <i class="fas fa-list-alt"></i>
-        </a>
-    </span>
+           data-l2key="sia_notify_cmd_id" />
+    <span class="help-block">{{… type « action », sous-type « message » …}}</span>
 </div>
-<input type="hidden"
-       class="eqLogicAttr"
-       data-l1key="configuration"
-       data-l2key="sia_notify_cmd_id" />
+
+<!-- kind = internal -->
+<div class="form-group siaDC09-notify-internal">
+    <select class="eqLogicAttr form-control" id="siaDC09_notifyInternal"
+            data-l1key="configuration" data-l2key="sia_notify_internal">
+        <option value="">{{Choisissez une action}}</option>
+        <option value="message">{{message — ajouter au centre de messages Jeedom}}</option>
+        <option value="scenario">{{scenario — lancer un scénario}}</option>
+    </select>
+</div>
+<div class="form-group siaDC09-notify-scenario">
+    <select class="eqLogicAttr form-control" id="siaDC09_notifyScenario"
+            data-l1key="configuration" data-l2key="sia_notify_scenario_id">
+        <option value="">{{Choisissez un scénario}}</option>
+        <?php foreach ($scenarios as $notifyScenario): ?>
+        <option value="<?= (int) $notifyScenario->getId() ?>"><?= htmlspecialchars($notifyScenario->getHumanName()) ?></option>
+        <?php endforeach; ?>
+    </select>
+</div>
 ```
+
+`$scenarios = scenario::all()` is computed in the PHP header of `desktop/php/siaDC09.php`.
 
 **JS — command picker:**
 ```javascript
@@ -748,8 +836,15 @@ $('#siaDC09_searchNotifyCmd').on('click', function() {
 });
 ```
 
+**JS — kind toggle:** `siaDC09_showStep(4)` calls `siaDC09_initNotifyTarget()` (defaults an
+empty kind to `cmd`, then toggles); `change` on `#siaDC09_notifyKind` /
+`#siaDC09_notifyInternal` calls `siaDC09_toggleNotifyTarget()`, which shows
+`.siaDC09-notify-cmd`, `.siaDC09-notify-internal` and `.siaDC09-notify-scenario` according to
+the selection and hides the three step-4 error divs.
+
 **"Terminer" button:**
-- Validates `sia_notify_cmd_id` non-empty; if empty: inline red message (no `jeeDialog`)
+- Calls `siaDC09_validateNotifyTarget()`; on failure, the inline red message matching the
+  missing field (no `jeeDialog`)
 - Calls `siaDC09_setWizardStep(4)` then triggers standard save
 - Page reloads → `printEqLogic` sees `sia_wizard_step == 4` → switches to config mode
 

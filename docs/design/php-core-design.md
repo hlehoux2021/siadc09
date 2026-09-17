@@ -84,8 +84,11 @@ Rationale: Only one equipment exists (plugin-centric). The wizard IS the equipme
 | `crc_format` | string | `'hex'` | SIA CRC format (`hex` or `bin`); preset-controlled, no wizard field in v1.0 |
 | `supervision_interval` | int | `60` | seconds between NULL messages |
 | `retry_count` | int | `3` | max retries on timeout |
-| `sia_notify_cmd_id` | int | `0` | Jeedom cmd ID of ACTION/message command for critical alerts |
+| `sia_notify_kind` | string | `''` | Notification target kind: `cmd` or `internal`. **Empty means `cmd`** (backwards compatibility with installs configured before step 4 offered internal actions) |
+| `sia_notify_cmd_id` | int | `0` | kind=`cmd`: Jeedom cmd ID of the ACTION/`message` command used for critical alerts |
 | `sia_notify_cmd_human` | string | `''` | Display-only companion for `sia_notify_cmd_id` — never passed to daemon, never used in logic |
+| `sia_notify_internal` | string | `''` | kind=`internal`: Jeedom internal action to run — `message` (message center) or `scenario` |
+| `sia_notify_scenario_id` | int | `0` | kind=`internal` + `scenario`: scenario to launch |
 | `sia_wizard_step` | int | `0` | last completed wizard step (0–4), for resuming |
 | `sia_zone_mappings` | array | `[]` | `[{zone_name, camera_action_cmd_id, media_url_cmd_id}]` |
 | `sia_last_errors` | JSON array | `[]` | Structured error list (daemon-written, max 10 entries, newest first) |
@@ -614,17 +617,12 @@ public static function message($message) {
             // Full implementation: error-handler-design.md §`message_center`
             break;
         case 'notify':
-            // T2/T3 → execCmd on sia_notify_cmd_id with ['title'=>..., 'message'=>...]
-            // Layer 2 validation: guard against stale/unset config (Layer 1 = wizard Step 4).
-            // Full implementation: error-handler-design.md §`notify`
-            $notifyCmdId = (int) $eqLogic->getConfiguration('sia_notify_cmd_id', 0);
-            if ($notifyCmdId <= 0) {
-                log::add(__CLASS__, 'warning',
-                    __('Commande notification non configurée — alerte ignorée', __FILE__)
-                );
-                return;
-            }
-            // cmd::byId() + execCmd(['title' => ..., 'message' => ...])
+            // T2/T3 → the step-4 notification target: equipment command OR Jeedom internal
+            // action. _runNotifyTarget() is the single entry point; it holds the Layer 2
+            // validation (stale/unset config; Layer 1 = wizard step 4) and the per-kind
+            // dispatch. Never re-implement cmd::byId() here.
+            // Full implementation: wizard-design.md §"Notification target kind"
+            self::_runNotifyTarget($eqLogic, $message['title'], $message['message']);
             break;
         case 'error_update':
             // Structured error → prepend to sia_last_errors (max 10, newest first)
@@ -719,8 +717,9 @@ public static function deamon_start() {
     // environment variable (SIA_ENCRYPTION_KEY) to prevent exposure in ps aux /
     // process listings and in the Jeedom log file where $cmd is logged.
     // All getConfiguration() calls use sia_* prefix and typed defaults.
-    // sia_notify_cmd_id intentionally omitted — used by PHP only (message() reads it from
-    // getConfiguration()), never by the daemon. No need to pass it via CLI.
+    // The sia_notify_* keys are intentionally omitted — used by PHP only (message() routes
+    // through _runNotifyTarget(), which reads them from getConfiguration()), never by the
+    // daemon. No need to pass them via CLI.
     $config = [
         'socketport'          => config::byKey('socketport', 'siaDC09', 55001),
         'loglevel'            => log::convertLogLevel(log::getLogLevel('siaDC09')),

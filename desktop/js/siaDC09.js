@@ -88,6 +88,9 @@ function siaDC09_showStep(step) {
     var eqLogic = $('.eqLogic').getValues('.eqLogicAttr')[0]
     siaDC09_loadZoneData(eqLogic)
   }
+  if (step === 4) {
+    siaDC09_initNotifyTarget()
+  }
 }
 
 function siaDC09_setWizardStep(step) {
@@ -542,7 +545,55 @@ $('#bt_step3Next').on('click', function() {
   })
 })
 
-// ===== STEP 4: NOTIFICATION COMMAND PICKER =====
+// ===== STEP 4: NOTIFICATION TARGET =====
+
+// An equipment command is picked through the modal; a Jeedom internal action (message,
+// scenario) is not a cmd id, so it has its own selects. Empty kind means "cmd" — that is what
+// installations configured before the internal option existed carry.
+function siaDC09_initNotifyTarget() {
+  var $kind = $('#siaDC09_notifyKind')
+  if ($kind.val() !== 'internal') {
+    $kind.val('cmd')
+  }
+  siaDC09_toggleNotifyTarget()
+}
+
+function siaDC09_toggleNotifyTarget() {
+  var kind = $('#siaDC09_notifyKind').val()
+  var internal = $('#siaDC09_notifyInternal').val()
+
+  $('.siaDC09-notify-cmd').toggle(kind === 'cmd')
+  $('.siaDC09-notify-internal').toggle(kind === 'internal')
+  $('.siaDC09-notify-scenario').toggle(kind === 'internal' && internal === 'scenario')
+
+  $('#siaDC09-step4-error, #siaDC09-step4-error-internal, #siaDC09-step4-error-scenario').hide()
+}
+
+// Shows the error that matches the missing field, so the message always names what to fix.
+function siaDC09_validateNotifyTarget() {
+  $('#siaDC09-step4-error, #siaDC09-step4-error-internal, #siaDC09-step4-error-scenario').hide()
+
+  if ($('#siaDC09_notifyKind').val() !== 'internal') {
+    if (!$('.eqLogicAttr[data-l2key="sia_notify_cmd_id"]').val()) {
+      $('#siaDC09-step4-error').show()
+      return false
+    }
+    return true
+  }
+
+  var internal = $('#siaDC09_notifyInternal').val()
+  if (!internal) {
+    $('#siaDC09-step4-error-internal').show()
+    return false
+  }
+  if (internal === 'scenario' && !$('#siaDC09_notifyScenario').val()) {
+    $('#siaDC09-step4-error-scenario').show()
+    return false
+  }
+  return true
+}
+
+$('#siaDC09_notifyKind, #siaDC09_notifyInternal').on('change', siaDC09_toggleNotifyTarget)
 
 $('#siaDC09_searchNotifyCmd').on('click', function() {
   jeedom.cmd.getSelectModal(
@@ -558,12 +609,9 @@ $('#siaDC09_searchNotifyCmd').on('click', function() {
 $('#bt_step4Finish').on('click', function() {
   if ($(this).attr('disabled')) return
 
-  var notifyCmdId = $('.eqLogicAttr[data-l2key="sia_notify_cmd_id"]').val()
-  if (!notifyCmdId) {
-    $('#siaDC09-step4-error').show()
+  if (!siaDC09_validateNotifyTarget()) {
     return
   }
-  $('#siaDC09-step4-error').hide()
 
   var $btn = $(this)
   $btn.attr('disabled', true)
@@ -644,12 +692,31 @@ function siaDC09_populateConfigSummary(eqLogic) {
 
   // Notification summary
   var $notify = $('#siaDC09-summary-notify').empty()
-  var notifyHuman = cfg.sia_notify_cmd_human || ''
-  if (notifyHuman) {
-    $('<span>').text(notifyHuman).appendTo($notify)
+  var notifyLabel = siaDC09_notifyTargetLabel(cfg)
+  if (notifyLabel) {
+    $('<span>').text(notifyLabel).appendTo($notify)
   } else {
     $('<em>').text('Non configuré').appendTo($notify)
   }
+}
+
+// Human-readable notification target, or '' when step 4 left nothing usable.
+function siaDC09_notifyTargetLabel(cfg) {
+  if (cfg.sia_notify_kind !== 'internal') {
+    return cfg.sia_notify_cmd_human || ''
+  }
+
+  if (cfg.sia_notify_internal === 'message') {
+    return 'Centre de messages Jeedom'
+  }
+  if (cfg.sia_notify_internal === 'scenario') {
+    // Read the label off the <select> rendered server-side rather than building it here.
+    var scenarioName = $('#siaDC09_notifyScenario option')
+      .filter(function() { return this.value === String(cfg.sia_notify_scenario_id) })
+      .text()
+    return scenarioName ? 'Scénario : ' + scenarioName : ''
+  }
+  return ''
 }
 
 // ===== COMMAND TABLE =====

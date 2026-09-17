@@ -1027,8 +1027,11 @@ $this->getConfiguration('sia_host', '')            // string default for string 
 | `sia_supervision_label` | str | `''` | daemon | PHP |
 | `sia_event_state` | int | `0` | daemon | PHP |
 | `sia_event_label` | str | `''` | daemon | PHP |
+| `sia_notify_kind` | str | `''` | PHP | PHP (empty ⇒ `cmd`) |
 | `sia_notify_cmd_id` | int | `0` | PHP | PHP |
 | `sia_notify_cmd_human` | str | `''` | PHP | PHP (display only) |
+| `sia_notify_internal` | str | `''` | PHP | PHP |
+| `sia_notify_scenario_id` | int | `0` | PHP | PHP |
 
 `*_human` keys are display-only companions — never passed to daemon, never used in logic.
 
@@ -1045,10 +1048,13 @@ Jeedom uses the historical misspelling `deamon_` (not `daemon_`) for all framewo
 
 All AJAX-facing PHP methods: `if (!jeedom::isConnect('admin')) { throw new Exception('Unauthorized'); }`
 
-#### `notify_cmd_id` Two-Layer Validation
+#### Notification Target Two-Layer Validation
 
-1. Wizard Step 4: `jeedom.cmd.getSelectModal()` ensures user selects a real command — saves `sia_notify_cmd_id`
-2. `_notify()` PHP handler: re-validates `sia_notify_cmd_id > 0` before calling `cmd::byId()` — defensive guard against stale config
+The step-4 target is either an equipment command (`sia_notify_kind` = `cmd`) or a Jeedom
+internal action (`internal`: `message`, `scenario`).
+
+1. Wizard Step 4: `jeedom.cmd.getSelectModal({cmd: {type: 'action', subType: 'message'}})` ensures the user selects a real command — saves `sia_notify_cmd_id`; for `internal`, a `<select>` saves `sia_notify_internal` (+ `sia_notify_scenario_id`). JS `siaDC09_validateNotifyTarget()` blocks "Terminer" until the chosen branch is complete.
+2. PHP `siaDC09::_runNotifyTarget()` re-validates per kind before calling `cmd::byId()` / `scenario::byId()` — defensive guard against stale config. `_hasNotifyTarget()` mirrors it in `deamon_info()` guard 6.
 
 #### `activate()` / `deactivate()` Lifecycle
 

@@ -20,6 +20,19 @@ require_once __DIR__ . '/siaDC09Cmd.class.php';
 
 class siaDC09 extends eqLogic {
 
+    /** Notification target kinds, stored in `sia_notify_kind` at wizard step 4. */
+    const NOTIFY_KIND_CMD = 'cmd';
+    const NOTIFY_KIND_INTERNAL = 'internal';
+
+    /**
+     * Jeedom internal actions the plugin knows how to run as a critical alert, stored in
+     * `sia_notify_internal`. Adding one means: an <option> at step 4, a case in
+     * _runNotifyInternal() and, if it needs a target, a config key + a check in
+     * _hasNotifyTarget().
+     */
+    const NOTIFY_INTERNAL_MESSAGE = 'message';
+    const NOTIFY_INTERNAL_SCENARIO = 'scenario';
+
     private static function getPython3(): string {
         if (method_exists('system', 'getCmdPython3')) {
             return system::getCmdPython3(__CLASS__);
@@ -166,11 +179,11 @@ class siaDC09 extends eqLogic {
             return $return;
         }
 
-        // Guard 6 — notification command
-        if (empty($eqLogic->getConfiguration('sia_notify_cmd_id'))) {
+        // Guard 6 — notification target (equipment command or Jeedom internal action)
+        if (!self::_hasNotifyTarget($eqLogic)) {
             $return['launchable'] = 'nok';
             $return['launchable_message'] = __(
-                "Commande de notification non configurée (étape 4 de l'assistant).", __FILE__
+                "Notification critique non configurée (étape 4 de l'assistant).", __FILE__
             );
             return $return;
         }
@@ -322,24 +335,119 @@ class siaDC09 extends eqLogic {
         log::add(__CLASS__, 'error', $msg);
         message::add(__CLASS__, $msg);
 
-        $notifyCmdId = (int) $eqLogic->getConfiguration('sia_notify_cmd_id', 0);
-        if ($notifyCmdId > 0) {
-            $notifyCmd = cmd::byId($notifyCmdId);
-            if ($notifyCmd) {
-                try {
-                    $notifyCmd->execCmd([
-                        'title'   => 'siaDC09 — Démon bloqué',
-                        'message' => $msg,
-                    ]);
-                } catch (\Exception $e) {
-                    log::add(__CLASS__, 'error',
-                        __('Impossible d\'envoyer la notification d\'urgence : ', __FILE__) . $e->getMessage()
-                    );
-                }
-            }
-        }
+        // messageCenterDone: the line above already posted $msg, so the `message` internal
+        // action must not post it a second time.
+        self::_runNotifyTarget($eqLogic, 'siaDC09 — Démon bloqué', $msg, true);
 
         config::save('_freshness_alert_ts', time(), __CLASS__);
+    }
+
+    /**
+     * Notification target kind chosen at wizard step 4 (self::NOTIFY_KIND_*). Installations
+     * configured before the internal-action option existed carry no `sia_notify_kind`, so an
+     * empty value means "an equipment command" and their `sia_notify_cmd_id` keeps working.
+     */
+    private static function _notifyKind(self $eqLogic): string {
+        return $eqLogic->getConfiguration('sia_notify_kind', '') === self::NOTIFY_KIND_INTERNAL
+            ? self::NOTIFY_KIND_INTERNAL
+            : self::NOTIFY_KIND_CMD;
+    }
+
+    /**
+     * True when step 4 left behind something able to raise a critical alert. Guards the daemon
+     * start: an installation with no reachable target would fail silently on the first alarm.
+     */
+    private static function _hasNotifyTarget(self $eqLogic): bool {
+        if (self::_notifyKind($eqLogic) === self::NOTIFY_KIND_CMD) {
+            return ((int) $eqLogic->getConfiguration('sia_notify_cmd_id', 0)) > 0;
+        }
+
+        switch ($eqLogic->getConfiguration('sia_notify_internal', '')) {
+            case self::NOTIFY_INTERNAL_MESSAGE:
+                // The message centre is always available — nothing else to configure.
+                return true;
+            case self::NOTIFY_INTERNAL_SCENARIO:
+                return ((int) $eqLogic->getConfiguration('sia_notify_scenario_id', 0)) > 0;
+            default:
+                return false;
+        }
+    }
+
+    /**
+     * Single entry point for every critical notification: routes to the equipment command or to
+     * the Jeedom internal action selected at step 4. Never throws — a notification that fails
+     * must not abort its caller (supervision check, daemon message handler).
+     *
+     * @param bool $messageCenterDone the caller already posted $message to the message centre,
+     *                                so the `message` internal action would only duplicate it.
+     */
+    private static function _runNotifyTarget(
+        self $eqLogic, string $title, string $message, bool $messageCenterDone = false
+    ): void {
+        if (self::_notifyKind($eqLogic) === self::NOTIFY_KIND_INTERNAL) {
+            self::_runNotifyInternal($eqLogic, $title, $message, $messageCenterDone);
+            return;
+        }
+
+        $notifyCmdId = (int) $eqLogic->getConfiguration('sia_notify_cmd_id', 0);
+        $notifyCmd = $notifyCmdId > 0 ? cmd::byId($notifyCmdId) : null;
+        if (!is_object($notifyCmd)) {
+            log::add(__CLASS__, 'warning',
+                __('Commande notification non configurée — alerte ignorée', __FILE__)
+            );
+            return;
+        }
+
+        try {
+            $notifyCmd->execCmd(['title' => $title, 'message' => $message]);
+        } catch (Exception $e) {
+            log::add(__CLASS__, 'error',
+                __('Impossible d\'envoyer la notification : ', __FILE__) . $e->getMessage()
+            );
+        }
+    }
+
+    /**
+     * Runs the Jeedom internal action selected at step 4. A keyword such as `message` or
+     * `scenario` is a scenario-expression action, not a cmd id, so cmd::byId() cannot execute
+     * it — each keyword is dispatched to its own core API.
+     */
+    private static function _runNotifyInternal(
+        self $eqLogic, string $title, string $message, bool $messageCenterDone
+    ): void {
+        $internal = (string) $eqLogic->getConfiguration('sia_notify_internal', '');
+        $text = $title . ' : ' . $message;
+
+        try {
+            switch ($internal) {
+                case self::NOTIFY_INTERNAL_MESSAGE:
+                    if (!$messageCenterDone) {
+                        message::add(__CLASS__, $text);
+                    }
+                    break;
+
+                case self::NOTIFY_INTERNAL_SCENARIO:
+                    $scenarioId = (int) $eqLogic->getConfiguration('sia_notify_scenario_id', 0);
+                    $scenario = $scenarioId > 0 ? scenario::byId($scenarioId) : null;
+                    if (!is_object($scenario)) {
+                        log::add(__CLASS__, 'warning',
+                            __('Scénario de notification introuvable — alerte ignorée', __FILE__)
+                        );
+                        break;
+                    }
+                    $scenario->launch(__CLASS__, $text);
+                    break;
+
+                default:
+                    log::add(__CLASS__, 'warning',
+                        __('Action interne de notification inconnue — alerte ignorée : ', __FILE__) . $internal
+                    );
+            }
+        } catch (Exception $e) {
+            log::add(__CLASS__, 'error',
+                __('Impossible d\'exécuter l\'action interne de notification : ', __FILE__) . $e->getMessage()
+            );
+        }
     }
 
     public static function isConnect(): bool {
@@ -392,30 +500,7 @@ class siaDC09 extends eqLogic {
                 break;
 
             case 'notify':
-                $notifyCmdId = (int) $eqLogic->getConfiguration('sia_notify_cmd_id', 0);
-                if ($notifyCmdId <= 0) {
-                    log::add(__CLASS__, 'warning',
-                        __('Commande notification non configurée — alerte ignorée', __FILE__)
-                    );
-                    break;
-                }
-                $notifyCmd = cmd::byId($notifyCmdId);
-                if (!is_object($notifyCmd)) {
-                    log::add(__CLASS__, 'warning',
-                        __('Commande notification non configurée — alerte ignorée', __FILE__)
-                    );
-                    break;
-                }
-                try {
-                    $notifyCmd->execCmd([
-                        'title'   => $message['title'],
-                        'message' => $message['message'],
-                    ]);
-                } catch (Exception $e) {
-                    log::add(__CLASS__, 'error',
-                        __('Impossible d\'envoyer la notification : ', __FILE__) . $e->getMessage()
-                    );
-                }
+                self::_runNotifyTarget($eqLogic, $message['title'], $message['message']);
                 break;
 
             case 'error_update':

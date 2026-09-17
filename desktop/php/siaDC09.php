@@ -25,6 +25,10 @@ foreach ($presetsData['presets'] ?? [] as $p) {
 		break;
 	}
 }
+
+// Step 4 offers the internal action `scenario`, whose target is picked from a plain <select>
+// rendered here — no AJAX endpoint needed, the wizard page is already admin-only.
+$scenarios = scenario::all();
 ?>
 
 <div class="row row-overflow">
@@ -307,6 +311,16 @@ foreach ($presetsData['presets'] ?? [] as $p) {
 										{{En cas de problème grave (supervision perdue, alarme non transmise), le plugin doit prévenir quelqu'un.}}
 									</p>
 									<div class="form-group">
+										<label class="col-sm-4 control-label">{{Type de notification}}</label>
+										<div class="col-sm-7">
+											<select class="eqLogicAttr form-control" id="siaDC09_notifyKind"
+													data-l1key="configuration" data-l2key="sia_notify_kind">
+												<option value="cmd">{{Commande d'un équipement (SMS, Telegram, push…)}}</option>
+												<option value="internal">{{Action interne Jeedom}}</option>
+											</select>
+										</div>
+									</div>
+									<div class="form-group siaDC09-notify-cmd">
 										<label class="col-sm-4 control-label">{{Commande de notification}}</label>
 										<div class="col-sm-7">
 											<div class="input-group">
@@ -326,10 +340,45 @@ foreach ($presetsData['presets'] ?? [] as $p) {
 												   class="eqLogicAttr"
 												   data-l1key="configuration"
 												   data-l2key="sia_notify_cmd_id">
+											<span class="help-block">
+												{{La liste ne propose que les commandes de type « action » et de sous-type « message », c'est-à-dire celles qui acceptent un titre et un texte : SMS, Telegram, notification mobile, e-mail. Les interrupteurs, curseurs et informations n'y apparaissent pas.}}
+											</span>
+										</div>
+									</div>
+									<div class="form-group siaDC09-notify-internal">
+										<label class="col-sm-4 control-label">{{Action interne}}</label>
+										<div class="col-sm-7">
+											<select class="eqLogicAttr form-control" id="siaDC09_notifyInternal"
+													data-l1key="configuration" data-l2key="sia_notify_internal">
+												<option value="">{{Choisissez une action}}</option>
+												<option value="message">{{message — ajouter au centre de messages Jeedom}}</option>
+												<option value="scenario">{{scenario — lancer un scénario}}</option>
+											</select>
+										</div>
+									</div>
+									<div class="form-group siaDC09-notify-scenario">
+										<label class="col-sm-4 control-label">{{Scénario à lancer}}</label>
+										<div class="col-sm-7">
+											<select class="eqLogicAttr form-control" id="siaDC09_notifyScenario"
+													data-l1key="configuration" data-l2key="sia_notify_scenario_id">
+												<option value="">{{Choisissez un scénario}}</option>
+												<?php foreach ($scenarios as $notifyScenario): ?>
+												<option value="<?= (int) $notifyScenario->getId() ?>"><?= htmlspecialchars($notifyScenario->getHumanName()) ?></option>
+												<?php endforeach; ?>
+											</select>
+											<span class="help-block">
+												{{Le scénario est lancé avec « siaDC09 » comme déclencheur ; le texte de l'alerte est inscrit dans son historique.}}
+											</span>
 										</div>
 									</div>
 									<div id="siaDC09-step4-error" class="alert alert-danger" style="display:none;">
 										<i class="fas fa-exclamation-circle"></i> {{Veuillez sélectionner une commande. Vous pouvez toujours utiliser la messagerie Jeedom.}}
+									</div>
+									<div id="siaDC09-step4-error-internal" class="alert alert-danger" style="display:none;">
+										<i class="fas fa-exclamation-circle"></i> {{Veuillez choisir l'action interne à exécuter.}}
+									</div>
+									<div id="siaDC09-step4-error-scenario" class="alert alert-danger" style="display:none;">
+										<i class="fas fa-exclamation-circle"></i> {{Veuillez choisir le scénario à lancer.}}
 									</div>
 									<div class="form-group" style="margin-top:15px;">
 										<div class="col-sm-offset-4 col-sm-7">

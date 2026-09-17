@@ -492,6 +492,12 @@ case 'message_center':
 
 ### `notify` — execute configured notification command
 
+> **Superseded by the step-4 notification target.** Step 4 also accepts a Jeedom internal
+> action (`message`, `scenario`), which is not a cmd id, so the snippet below is no longer the
+> whole story. The implementation calls `siaDC09::_runNotifyTarget($eqLogic, $title, $message)`
+> — the single entry point that routes to `cmd::byId()->execCmd()` or to the internal action.
+> See `wizard-design.md` § "Step 4 — Alertes critiques". Never re-implement `cmd::byId()` here.
+
 ```php
 case 'notify':
     $eqLogic = siaDC09::_getAutoEquipmentSafe();
