@@ -102,13 +102,19 @@ After 5 min: sensor detected → immediate actions fire instantly → standard a
 
 ### Scenario Integration & Tags
 
-**Available Tags** for use in actions/scenarios:
+**Available Tags** for use in actions/scenarios — these three and only these three exist
+(`core/class/alarm.class.php`); there is no `#name_zone#`, no zone id and no zone number:
 
-| Tag | Value |
-|---|---|
-| `#mode#` | Current mode name |
-| `#alarm_trigger#` | Command that triggered the alert |
-| `#zone#` | Zone name of the triggering command |
+| Tag | Value | Supplied by |
+|---|---|---|
+| `#mode#` | Current mode name | every action |
+| `#alarm_trigger#` | Command that triggered the alert | trigger actions only (`alert`, `alertImmediate`, `activationKo`) |
+| `#zone#` | Zone **label** (`$zone['name']`), free-form user text — **not** a number or an id | trigger actions only |
+
+**Consequence** (learned the hard way on story 8-2): `#zone#` puts the human label on the wire.
+A CSR expecting a numeric zone needs the label resolved locally against a persisted zone table.
+`release`, `raz`, `razImmediate`, `activationOk` and `activationImmediateOk` pass `#mode#` alone —
+a restoral or cancel action therefore has **no zone information at all** (see story 13.1).
 
 **Integration Pattern**:
 - Alarm plugin exposes **INFO commands** (alarm state, mode, etc.)
@@ -185,7 +191,8 @@ When the user asks for help, you can:
 - Emphasize that **activation delays only allow integer minutes** (no decimals)
 - Note that **trigger delays support decimals** (e.g., 0.5 for 30 seconds)
 - When discussing camera integration, explain that **scenarios are required** (not direct plugin-to-plugin)
-- Use **tags** (`#mode#`, `#alarm_trigger#`, `#zone#`) in scenario examples
+- Use **tags** (`#mode#`, `#alarm_trigger#`, `#zone#`) in scenario examples — and state that `#zone#` is a
+  **label**, that only trigger actions supply it, and that no tag ever carries a zone number or id
 - Warn about **zone separation behavior** affecting multi-zone immediate actions
 - Use **French** for user-facing strings in examples (Jeedom's primary language)
 
