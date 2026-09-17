@@ -69,6 +69,9 @@ allowed_segment() {
 		;;
 	python3 | python3\ *) return 0 ;;
 	php\ *) return 0 ;;
+	# `node --check file.js` is a syntax check — it never runs the script. Bare `node …` does.
+	node\ --check\ *) return 0 ;;
+	echo | echo\ *) return 0 ;;
 	git\ * | gh\ *) return 0 ;;
 	find\ *) return 0 ;;
 	sed\ -n\ *) return 0 ;;

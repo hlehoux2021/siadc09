@@ -17,6 +17,7 @@
       "Bash(python3:*)",
       "Bash(PYTHONPATH=/Users/herve.lehoux/.vscode/extensions/ms-python.mypy-type-checker-2026.6.0/bundled/libs python3 -m mypy:*)",
       "Bash(php:*)",
+      "Bash(node --check:*)",
       "Bash(cat:*)",
       "Bash(grep:*)",
       "Bash(ls:*)",
