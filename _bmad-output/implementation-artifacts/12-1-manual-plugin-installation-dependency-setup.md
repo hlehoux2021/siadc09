@@ -70,6 +70,7 @@ So that I have a working dev environment for all subsequent integration tests.
 
 - [x] Task 5: Auto-equipment creation (AC: 8)
   - [x] 5.1 Navigate to plugin equipment page — triggered via `_getAutoEquipment()` reflection
+  - [ ] 5.5 **RE-VALIDATE ON VM** — AC8 was proven by reflection, not through the UI. See Issue 5: the page never created the equipment. Fresh-install run required: activate plugin → open equipment page → card "Télésurveillance" present → wizard step 1 opens with daemon stopped
   - [x] 5.2 Verify auto-equipment "Télésurveillance" is created — PASS: ID=1, name="Télésurveillance"
   - [x] 5.3 Verify equipment appears in the equipment list with correct type (`siaDC09`) — PASS
   - [x] 5.4 Verify all INFO and ACTION commands are created on the equipment — PASS: 7 commands (burglarAlarm, fireAlarm, panicAlarm, supervision_state, supervision_label, event_state, event_label)
@@ -183,10 +184,14 @@ Claude Opus 4.6
 - **Issue 3 — Missing execute bit**: `siadc09d.py` lacked the execute permission on macOS. VMware shared folders preserve host permissions, so the daemon was not executable in the VM. **Fix**: `chmod +x resources/siadc09d/siadc09d.py` on host.
 - **Observation**: Jeedom names the venv directory `python_venv/` (not `venv/`). The `system::getCmdPython3('siaDC09')` correctly resolves to `resources/python_venv/bin/python3`.
 - **All ACs validated**: Plugin visible, dependencies installed, activation clean, daemon path resolves, auto-equipment created with all 7 commands.
+- **Issue 5 — Fresh-install deadlock: wizard unreachable (AC8 regression, found 2026-09-17)**: the auto-equipment was only ever created inside `deamon_start()` (`core/class/siaDC09.class.php:178`), which throws first when `launchable !== 'ok'`. On a fresh install `deamon_info()` Guard 1 returns `nok` ("L'équipement n'existe pas"), `siaDC09_install()` is empty, and `desktop/php/siaDC09.php` only ran `eqLogic::byType()` → no equipment card → wizard unreachable. Cycle: equipment needs `deamon_start` → `deamon_start` needs a completed wizard → wizard needs the equipment. AC8 had passed only because Task 5.1 invoked the private `_getAutoEquipment()` by reflection instead of loading the page. **Fix**: public `siaDC09::ensureAutoEquipment()` called at the top of `desktop/php/siaDC09.php` before `eqLogic::byType()`. Confirms the design intent that the daemon stays stopped for the whole wizard (`docs/design/wizard-design.md` §374-381, `deamon_info()` Guard 2).
 
 ### File List
 
-- `core/class/siaDC09.class.php` — removed type hints from `toHtml()` override for PHP 8.2 LSP compliance
+- `core/class/siaDC09.class.php` — removed type hints from `toHtml()` override for PHP 8.2 LSP compliance; added `ensureAutoEquipment()` public bootstrap (Issue 5)
+- `desktop/php/siaDC09.php` — calls `siaDC09::ensureAutoEquipment()` before listing equipment (Issue 5)
+- `tests/level1/test_php_eqlogic_stub.py` — 4 tests for the AC8 bootstrap contract (Issue 5)
+- `docs/design/php-core-design.md` — auto-equipment created on first page access, not on plugin activation
 - `resources/siadc09d/siadc09d.py` — added execute permission (chmod +x)
 
 ## Change Log
@@ -195,3 +200,4 @@ Claude Opus 4.6
 |------|--------|
 | 2026-05-26 | Story created — ready for VM integration testing |
 | 2026-05-26 | All tasks completed. Fixed: toHtml() signature (PHP 8.2 LSP), missing +x on daemon, symlink→bind mount for dev setup |
+| 2026-09-17 | Issue 5 fixed: fresh-install deadlock — auto-equipment now bootstrapped from the equipment page, wizard reachable with the daemon stopped. AC8 needs UI re-validation on VM (Task 5.5) |

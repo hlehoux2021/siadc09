@@ -14,7 +14,7 @@
 | PHP class (eqLogic) | `siaDC09` |
 | PHP class (cmd) | `siaDC09Cmd` |
 | Daemon script | `resources/siadc09d/siadc09d.py` |
-| Auto-equipment name | `Télésurveillance` (created on plugin activation) |
+| Auto-equipment name | `Télésurveillance` (created on first access to the equipment page — see `ensureAutoEquipment()`) |
 | Auto-equipment object | `null` (user places it manually in Jeedom object tree) |
 
 ---
@@ -1052,8 +1052,8 @@ python3 resources/siadc09d/sia_protocol.py --decode <raw_hex> [--key <key_hex>]
 require_once dirname(__FILE__) . '/../../../core/php/core.inc.php';
 
 function siaDC09_install() {
-    // Auto-equipment is created lazily via _getAutoEquipment() on first use.
-    // Nothing to do here.
+    // Auto-equipment is created lazily on first access to the equipment page
+    // (desktop/php/siaDC09.php → siaDC09::ensureAutoEquipment()). Nothing to do here.
 }
 
 function siaDC09_update() {
@@ -1162,7 +1162,7 @@ if (!isConnect('admin')) {
 
 | Test | How |
 |---|---|
-| Auto-equipment creation | Activer le plugin → vérifier équipement + 8 commandes créées |
+| Auto-equipment creation | Ouvrir la page équipement du plugin → vérifier équipement + 8 commandes créées |
 | postSave idempotent | Sauvegarder 3 fois → toujours 8 commandes, pas de doublons |
 | execute() burglarAlarm | Déclencher la commande manuellement → vérifier payload reçu par le simulateur |
 | message() info_update | Envoyer JSON depuis simulateur → vérifier mise à jour commandes INFO en DB |

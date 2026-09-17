@@ -4,6 +4,9 @@ if (!isConnect('admin')) {
 }
 $plugin = plugin::byId('siaDC09');
 sendVarToJS('eqType', $plugin->getId());
+// First access bootstraps the auto-equipment — the wizard runs with the daemon
+// stopped, so deamon_start() never gets the chance to create it (Story 12.1 AC8).
+siaDC09::ensureAutoEquipment();
 $eqLogics = eqLogic::byType($plugin->getId());
 
 $presetsPath = __DIR__ . '/../../resources/siadc09d/csr_presets.json';

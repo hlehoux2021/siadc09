@@ -1255,3 +1255,100 @@ def test_sia_wizard_step_set_via_data_l2key_attribute(js_source: str) -> None:
         "siaDC09_setWizardStep() must use data-l2key='sia_wizard_step' selector — "
         "Jeedom reads this attribute to build the eqLogic save payload"
     )
+
+
+# ── Story 12.1 AC8 — Equipment page bootstraps the auto-equipment ─────────────
+
+EQUIPMENT_PAGE_FILE = _PROJECT_ROOT / "desktop/php/siaDC09.php"
+
+
+@pytest.fixture(scope="module")
+def equipment_page() -> str:
+    return EQUIPMENT_PAGE_FILE.read_text(encoding="utf-8")
+
+
+def test_ensure_auto_equipment_is_public_static(php_source: str) -> None:
+    """
+    _getAutoEquipment() is private, so the equipment page cannot call it.
+    A public static ensureAutoEquipment() wrapper is the only supported
+    bootstrap entry point (Story 12.1, AC8).
+
+    Expected result:
+    - ensureAutoEquipment() is declared public static with ': self' return type
+    """
+    match = re.search(
+        r"public\s+static\s+function\s+ensureAutoEquipment\s*\(\s*\)\s*:\s*self", php_source
+    )
+    # Assert: public static accessor exists with non-nullable return type
+    assert match is not None, (
+        "ensureAutoEquipment() must be declared 'public static function "
+        "ensureAutoEquipment(): self' — desktop/php/siaDC09.php cannot call the private method"
+    )
+
+
+def test_ensure_auto_equipment_delegates_to_creating_method(php_source: str) -> None:
+    """
+    ensureAutoEquipment() must delegate to _getAutoEquipment() (the
+    auto-creating variant). Delegating to _getAutoEquipmentSafe() would
+    return null on a fresh install and never create the equipment.
+
+    Expected result:
+    - Body calls _getAutoEquipment()
+    - Body does NOT call _getAutoEquipmentSafe()
+    """
+    body = _extract_method_body(php_source, "ensureAutoEquipment")
+    # Assert: the wrapper actually reaches the creating variant
+    assert "_getAutoEquipment()" in body, (
+        "ensureAutoEquipment() must call _getAutoEquipment() to create the equipment"
+    )
+    # Assert: the null-returning variant is not used — no equipment would be created
+    assert "_getAutoEquipmentSafe()" not in body, (
+        "ensureAutoEquipment() must not call _getAutoEquipmentSafe() — "
+        "it returns null on a fresh install and creates nothing"
+    )
+
+
+def test_equipment_page_bootstraps_before_listing(equipment_page: str) -> None:
+    """
+    On a fresh install no equipment exists, so eqLogic::byType() returns an
+    empty list, no equipment card is rendered and the wizard is unreachable —
+    while deamon_info() Guard 1 reports 'L'équipement n'existe pas'. The page
+    must therefore create the equipment before listing it (Story 12.1, AC8).
+
+    Expected result:
+    - desktop/php/siaDC09.php calls siaDC09::ensureAutoEquipment()
+    - the call appears before the eqLogic::byType() lookup
+    """
+    bootstrap = re.search(r"siaDC09::ensureAutoEquipment\s*\(\s*\)", equipment_page)
+    listing = re.search(r"eqLogic::byType\s*\(", equipment_page)
+    # Assert: the page bootstraps the equipment
+    assert bootstrap is not None, (
+        "desktop/php/siaDC09.php must call siaDC09::ensureAutoEquipment() — "
+        "otherwise a fresh install has no equipment card and the wizard cannot be opened"
+    )
+    # Assert: the listing exists (guards against the regex silently matching nothing)
+    assert listing is not None, "desktop/php/siaDC09.php must list equipment via eqLogic::byType()"
+    # Assert: bootstrap runs first, so the new equipment is included in the listing
+    assert bootstrap.start() < listing.start(), (
+        "siaDC09::ensureAutoEquipment() must run before eqLogic::byType() — "
+        "otherwise the freshly created equipment is missing from the rendered list"
+    )
+
+
+def test_daemon_not_required_to_reach_the_wizard(php_source: str) -> None:
+    """
+    The wizard runs with the daemon stopped (wizard-design.md §374-381) and
+    deamon_info() Guard 2 keeps launchable='nok' until sia_wizard_step >= 4.
+    So equipment creation must not be reachable only through deamon_start() —
+    that is the install-time deadlock this story fixes.
+
+    Expected result:
+    - _getAutoEquipment() is called from at least two methods
+      (deamon_start() and ensureAutoEquipment())
+    """
+    call_sites = re.findall(r"self::_getAutoEquipment(?!Safe)\s*\(\s*\)", php_source)
+    # Assert: creation is reachable outside the daemon-start path
+    assert len(call_sites) >= 2, (
+        "_getAutoEquipment() is only called from deamon_start(), which throws when "
+        "launchable != 'ok' — equipment can never be created before the wizard runs"
+    )

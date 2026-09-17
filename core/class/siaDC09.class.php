@@ -57,6 +57,16 @@ class siaDC09 extends eqLogic {
         return $eq;
     }
 
+    /**
+     * Bootstrap entry point for the equipment page — creates the auto-equipment
+     * on first access so the wizard is reachable with the daemon stopped.
+     * deamon_start() cannot be relied on: it throws while launchable = 'nok'
+     * (wizard incomplete), which would leave the equipment forever uncreated.
+     */
+    public static function ensureAutoEquipment(): self {
+        return self::_getAutoEquipment();
+    }
+
     public static function deamon_info(): array {
         $return = [
             'log' => __CLASS__ . '_daemon',
