@@ -95,7 +95,7 @@ Continuous supervision health monitoring is a first-class feature, not an aftert
 - 3 alarm event types: burglar alarm, fire alarm, panic alarm
 - IMA Protect CSR preset (single CSR, no failover)
 - Zero-jargon configuration wizard (4 steps: CSR preset, live connection test, zone mapping, notifications)
-- Zone mapping table: zone name → optional camera action + optional media URL
+- Zone mapping table: zone order number + zone name → optional camera action + optional media URL; the number is what the SIA frame carries
 - Supervision health widget (dashboard + mobile)
 - 3-tier error handler: auto-heal, user-actionable, critical infrastructure notifications
 - Debug UI: status badge, error panel, protocol inspector (Diagnostic tab)
@@ -107,6 +107,7 @@ Continuous supervision health monitoring is a first-class feature, not an aftert
 - Timestamp auto-heal via NAK (CSR time resync)
 - Retry resilience improvements and supervision history timeline
 - Community-contributed CSR presets (architecture already supports extension)
+- Restoral and cancel events: BR (Burglary Restore — zone back to normal) and BC (Burglary Cancel — user cancelled from the abort window), so the CSR can close an incident instead of keeping it open (Epic 13 / Story 13.1)
 
 ### Vision — v1.5+
 

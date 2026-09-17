@@ -24,7 +24,7 @@ So that my home is protected by professional monitoring.
 
 2. **All event types — ACK path:** Same happy-path flow for `fireAlarm` (FA code) and `panicAlarm` (PA code).
 
-3. **Zone handling:** Triggering alarm with zone="Piece1" → zone appears in SIA frame visible in protocol inspector. Triggering without zone (empty title) → frame still valid, zone field null/empty, no crash.
+3. **Zone handling:** Triggering alarm with zone="Piece1" → the SIA frame visible in the protocol inspector carries the **zone order number**, zero-padded to 3 digits (`[#001234|BA 001]`), never the zone label. Triggering with a zone label absent from `sia_zone_mappings` → the frame carries **no zone field at all** (`[#001234|BA]`), a WARNING naming the label is logged, the alarm is still sent. Triggering without zone (empty title) → same as unresolved: `[#001234|BA]`, no crash. Amended 2026-09-17 — see Story 8.2 AC11–AC15 (the original wording expected the zone label in the frame, which Epic 12 testing showed to be wrong for a CSR).
 
 4. **NAK path — T2 notification:** Given CSR simulator replaced with a custom NAK responder (mismatch account or key), when triggering `burglarAlarm` with zone="Piece1", then `event_state` → 2 (`"Échoué"`); T2 `BAD_CSR_RESPONSE` notification fires (message center entry + notification command triggered, **no** "CRITIQUE" prefix); daemon does NOT retry after NAK (immediate failure).
 
@@ -52,7 +52,7 @@ For each "Verify" step:
 ## Tasks / Subtasks
 
 - [x] Task 0: Wire alarm plugin outbreak to siaDC09 burglarAlarm command (prerequisite)
-  - [x] 0.1 In Jeedom UI → alarm plugin "Alarme" equipment → "Déclenchement" tab → "outbreak" action (currently `message`): add a siaDC09 `burglarAlarm` action with title set to `#name_zone#` (zone macro) alongside the existing message action.
+  - [x] 0.1 In Jeedom UI → alarm plugin "Alarme" equipment → "Déclenchement" tab → "outbreak" action (currently `message`): add a siaDC09 `burglarAlarm` action with title set to `#zone#` (the only zone tag the alarm plugin substitutes — it yields the zone **label**, e.g. `Salon`; `#name_zone#` does not exist, corrected 2026-09-17) alongside the existing message action.
         This makes real Detecteur1/2 triggers call the full chain automatically.
   - [x] 0.2 Verify the outbreak action list now shows both the message action and the burglarAlarm action.
   - [x] 0.3 Note: Tasks 2–7 can also be triggered directly via PHP CLI (no alarm plugin needed), which is faster and more reliable for systematic testing. Use the alarm plugin trigger only for the full integration variant (subtask 2.7).
@@ -60,6 +60,7 @@ For each "Verify" step:
 - [x] Task 1: Prepare test environment (AC: all)
   - [x] 1.1 Verify daemon is running and HEALTHY (`supervision_state=2`): via PHP CLI or Jeedom UI
   - [x] 1.2 Verify CSR simulator is running: `pgrep -f "tests.simulator"` → if not: `cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --udp-port 10001 --host 127.0.0.1 --account 000001 &`
+        **Superseded 2026-09-17:** the simulator is no longer the validation target. All re-validation goes against the internal SIA receiver `192.168.100.15` / `test-sia-internal.lehoux.net`, **port 10002, TCP, account `001234`**, `crc_format=hex`, encryption off. Do not start `python3 -m tests.simulator`.
   - [x] 1.3 Confirm wizard config: `sia_wizard_step=4`, account `000001`, `sia_notify_cmd_id` set to a real notification command — **cmd id=29** (`Notify` action on `Notification` equipment)
   - [x] 1.4 Set daemon log level to DEBUG via Jeedom UI (Plugins → siaDC09 → log level → "Debug" → save → restart daemon)
   - [x] 1.5 Clear ring buffer and error state: via Jeedom diagnostic tab "Vider" buttons, or PHP CLI: `config::save('sia_last_messages','[]','siaDC09'); config::save('sia_last_errors','[]','siaDC09');`
@@ -226,23 +227,27 @@ The dev agent's role is:
 ### Alarm Command Execution Chain
 
 ```
-Jeedom alarm plugin action (title="#zone#")
+Jeedom alarm plugin action (Titre = "#zone#" → substituted to the zone LABEL "Salon")
   → siaDC09Cmd::execute(['title' => 'Salon'])       [core/class/siaDC09Cmd.class.php:22]
-    → zone = trim($_options['title'] ?? '')           [line 28 — extracts zone from title field]
-    → siaDC09::sendToDaemon(['cmd'=>'burglarAlarm', 'zone'=>'Salon'])
+    → zone = trim($_options['title'] ?? '')           [line 28 — the label]
+    → zoneNumber = _findZoneEntry('Salon')['zone_number']   [amended — null if no match]
+    → siaDC09::sendToDaemon(['cmd'=>'burglarAlarm', 'zone'=>'Salon', 'zone_number'=>1, 'media_url'=>null])
       → TCP socket to localhost:55009
-        → daemon._on_message_dispatch({'cmd':'burglarAlarm','zone':'Salon','apikey':'...'})
-          → on_message('burglarAlarm', {'zone':'Salon'})  [daemon.py:1904]
+        → daemon._on_message_dispatch({'cmd':'burglarAlarm','zone':'Salon','zone_number':1,'apikey':'...'})
+          → on_message('burglarAlarm', {'zone':'Salon','zone_number':1})  [daemon.py:1904]
             → sia_code = _EVENT_SIA_CODES['burglarAlarm'] = 'BA'
-            → _enqueue_event('BA', 'Salon', None)
+            → _enqueue_event('BA', 'Salon', 1, None)
               → _queue_consumer() picks up EventItem
+                → _build_event_frame() → extended_data['zone'] = "001"  ← the NUMBER, padded
                 → _send_with_retry() → SM2: IDLE→PENDING→CONFIRMED/FAILED
+                   frame: [#001234|BA 001]   (unresolved zone → [#001234|BA], no zone field)
 ```
 
-**Zone comes from `#title#` tag in alarm plugin action, NOT `#zone#`.** The `subType='message'` means:
-- The alarm plugin's action title field is what triggers the command with `title` option
-- `siaDC09Cmd::execute()` reads `$_options['title']` as the zone name
-- Users must configure the alarm plugin action's title to contain the zone name
+**The zone label reaches the plugin through the action's *Titre* field.** The `subType='message'` means:
+- The alarm plugin substitutes `#zone#` in every value of the action's `options` array, so the tag works in *Titre*
+- `siaDC09Cmd::execute()` reads `$_options['title']` — a **label**, because `#zone#` is `$zone['name']`; the alarm plugin exposes no zone identifier
+- The label is therefore resolved against `sia_zone_mappings` to obtain `zone_number`, and **only the number travels in the frame** (Story 8.2 AC11–AC15)
+- `#name_zone#` does not exist in the alarm plugin — the three supported tags are `#mode#`, `#alarm_trigger#`, `#zone#`
 
 ### SM2 State → event_state / event_label Mapping
 
@@ -446,7 +451,7 @@ claude-sonnet-4-6 (eu.anthropic.claude-sonnet-4-6)
 **AC Status:**
 - AC1 (happy path burglarAlarm ACK): PASS ✓
 - AC2 (all event types ACK): PASS — FA and PA both confirmed ✓
-- AC3 (zone handling): PASS — zone=Piece1 in frame, empty zone → zone=None no crash ✓
+- AC3 (zone handling): PASS **against the original wording only** — the frame carried the zone *label* (`zone=Piece1`), empty zone → `zone=None` no crash ✓. **Invalidated 2026-09-17:** AC3 now requires the zone *order number* (`[#001234|BA 001]`) and no zone field when unresolved → re-validation owed under Story 8.2 AC15.
 - AC4 (NAK path T2): PASS — event_state=2, no CRITIQUE prefix, no retry ✓
 - AC5 (timeout path T3): PASS — 3 retries, CRITIQUE prefix, T3 notification ✓
 - AC6 (ring buffer alarm entry): PASS (verified in 12-4 session, confirmed dialog_type=alarm) ✓
@@ -465,3 +470,4 @@ claude-sonnet-4-6 (eu.anthropic.claude-sonnet-4-6)
 |------|--------|
 | 2026-05-29 | Story created and executed on Jeedom VM. All 7 AC pass. 5 bugs fixed. |
 | 2026-06-01 | TCP pass added: AC8–11 + Tasks 8–13 — alarm delivery over TCP transport. |
+| 2026-09-17 | AC3 rewritten (frame carries the zone *order number*, or no zone field when unresolved); Task 0.1 corrected (`#name_zone#` → `#zone#`, which yields a label); Task 1.2 superseded (real receiver `192.168.100.15:10002` TCP, no simulator); execution chain updated with `zone_number`. AC3 re-validation is owned by Story 8.2 AC15. |

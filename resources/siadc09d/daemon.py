@@ -164,11 +164,14 @@ class EventItem:
         sia_code: Event SIA code (BA=burglary, FA=fire, PA=panic)
         zone: Zone name from alarm command #zone# tag (None if not specified)
         timestamp: Event timestamp from make_timestamp()
+        zone_number: Zone order number resolved by PHP against the zone table
+                     (None when the label matched no entry — the frame then carries no zone)
         callback: Optional callback function called when event completes (signature: callback(success: bool))
     """
     sia_code: SiaEventCode
-    zone: str | None  # Zone name or None
+    zone: str | None  # Zone name or None — logs, notifications, inspector
     timestamp: str  # SIA protocol timestamp HH:MM:SS,MM-DD-YYYY
+    zone_number: int | None = None  # Only field that reaches the SIA frame
     callback: Any | None = None  # Callback function(success: bool) when send completes
 
 
@@ -204,9 +207,12 @@ MAX_RETRY_DEFAULT: Final[int] = 3
 class OnMessageParams(TypedDict, total=False):
     """Parameters passed to on_message() from PHP sendToDaemon().
 
-    Both keys are optional — zone and media_url may be absent for simple alarm commands.
+    All keys are optional — zone, zone_number and media_url may be absent for simple
+    alarm commands. zone is the label (#zone# tag), zone_number the order number PHP
+    resolved against sia_zone_mappings.
     """
     zone: str
+    zone_number: int | None
     media_url: str
 
 
@@ -229,6 +235,7 @@ class EventQueuePayload(TypedDict):
     """
     sia_code: SiaEventCode
     zone: str | None      # Zone name from PHP #zone# tag, or None
+    zone_number: int | None  # Zone order number for the SIA frame, or None
     media_url: str | None # Verification media URL for SIA [V...] field, or None
     retries_left: int        # Retry budget; reset to MAX_RETRY_DEFAULT on TCP reconnect
 
@@ -1553,11 +1560,11 @@ class SIADaemon(BaseDaemon):
         - Account number and CRC format from preset (synced at call time)
         - Current sequence number (incremented once per event by _send_with_retry,
           NOT here — SIA DC-09 § 5.5.1.5)
-        - Zone information in extended data
+        - Zone order number in extended data, zero-padded to 3 digits (never the label)
         - UTC timestamp (from event_item.timestamp or current UTC if unparseable)
 
         Args:
-            event_item: EventItem with sia_code, zone, timestamp
+            event_item: EventItem with sia_code, zone, zone_number, timestamp
 
         Returns:
             Complete SIA frame as bytes: LF + CRC + Length + Message + CR
@@ -1565,11 +1572,15 @@ class SIADaemon(BaseDaemon):
         Reference: story 5-2 Task 3.2.2b, sia_protocol.py encode_message()
         """
         try:
-            # Build extended data with zone information
+            # Build extended data with zone information.
+            # The CSR is given the zone ORDER NUMBER, never the label: SIA DC-09 Annex B
+            # formats it as 3 zero-padded digits → [#001234|BA 001]. Padding happens here
+            # and only here. When the label matched no entry of the zone table PHP sends
+            # zone_number=None and the frame carries no zone field at all.
             # Note: _sia_seq is incremented once by _send_with_retry before the loop.
             extended_data = {}
-            if event_item.zone:
-                extended_data['zone'] = event_item.zone
+            if event_item.zone_number is not None:
+                extended_data['zone'] = f"{event_item.zone_number:03d}"
 
             # Parse event timestamp for the SIA frame (M1).
             # event_item.timestamp is a string "HH:MM:SS,MM-DD-YYYY"; pass None on parse failure
@@ -1713,12 +1724,18 @@ class SIADaemon(BaseDaemon):
 
     # ===== TASK 3 (Story 5-3): ENQUEUE HELPER METHODS =====
 
-    async def _enqueue_event(
+    # 6 params instead of the 5-param limit: the python-style rule would suggest a
+    # dataclass, but the 4 leading params are the established positional signature of
+    # ~20 level2 tests (`_enqueue_event("BA", "Salon", None, 3)`). zone_number is
+    # keyword-only so the arity can only grow behind the `*`, never positionally.
+    async def _enqueue_event(  # pylint: disable=too-many-arguments
         self,
         sia_code: SiaEventCode,
         zone: str | None,
         media_url: str | None,
         retries_left: int = MAX_RETRY_DEFAULT,
+        *,
+        zone_number: int | None = None,
     ) -> None:
         """Enqueue an alarm event for SM2 processing at EVENT priority.
 
@@ -1732,6 +1749,8 @@ class SIADaemon(BaseDaemon):
             media_url: Optional camera/media URL for SIA [V...] extended field, or None
             retries_left: Retry budget (default MAX_RETRY_DEFAULT=3). Reset to full
                           when re-enqueuing after TCP_RECONNECTING.
+            zone_number: Zone order number resolved by PHP, or None when the label
+                         matched no entry of the zone table (frame sent without zone).
 
         Reference: daemon-design.md Component 1 — Task 1.6 on_message()
         """
@@ -1739,12 +1758,14 @@ class SIADaemon(BaseDaemon):
         payload: EventQueuePayload = {
             "sia_code": sia_code,
             "zone": zone,
+            "zone_number": zone_number,
             "media_url": media_url,
             "retries_left": retries_left,
         }
         await self._queue.put((QUEUE_PRIORITY_EVENT, counter, QUEUE_TYPE_EVENT, payload))
         self._logger.debug(
-            f"EVENT enqueued: sia_code={sia_code}, zone={zone}, counter={counter}"
+            f"EVENT enqueued: sia_code={sia_code}, zone={zone}, "
+            f"zone_number={zone_number}, counter={counter}"
         )
 
     async def _enqueue_supervision(self) -> None:
@@ -1847,6 +1868,7 @@ class SIADaemon(BaseDaemon):
                             sia_code=event_payload["sia_code"],
                             zone=event_payload.get("zone"),
                             timestamp=timestamp_str,
+                            zone_number=event_payload.get("zone_number"),
                         )
                         await self._send_with_retry(
                             event_item,
@@ -1918,6 +1940,8 @@ class SIADaemon(BaseDaemon):
             cmd: Command name from PHP — "burglarAlarm", "fireAlarm", or "panicAlarm"
             params: PHP payload dict with optional keys:
                 - "zone": str — zone name from #zone# tag (None if absent)
+                - "zone_number": int — zone order number PHP resolved against the zone
+                  table (None when the label matched no entry: frame sent without zone)
                 - "media_url": str — camera/media URL (None if absent)
 
         Reference: daemon-design.md Component 1 — Task 1.6 on_message()
@@ -1931,11 +1955,24 @@ class SIADaemon(BaseDaemon):
         zone: str | None = params.get("zone")
         media_url: str | None = params.get("media_url")
 
+        # PHP sends null when the label matched no entry of the zone table. Coerce
+        # defensively: a JSON string would otherwise break the f"{n:03d}" format later.
+        raw_zone_number = params.get("zone_number")
+        zone_number: int | None = None
+        if raw_zone_number is not None:
+            try:
+                zone_number = int(raw_zone_number)
+            except (TypeError, ValueError):
+                self._logger.warning(
+                    f"on_message: unusable zone_number {raw_zone_number!r} — "
+                    "frame will be sent without zone"
+                )
+
         self._logger.debug(
             f"on_message: cmd={cmd} → sia_code={sia_code}, zone={zone}, "
-            f"media_url={'<set>' if media_url else None}"
+            f"zone_number={zone_number}, media_url={'<set>' if media_url else None}"
         )
-        await self._enqueue_event(sia_code, zone, media_url)
+        await self._enqueue_event(sia_code, zone, media_url, zone_number=zone_number)
 
     # ===== TASK 5 (Story 5-3): on_start — DAEMON STARTUP =====
 

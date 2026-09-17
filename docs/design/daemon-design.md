@@ -153,8 +153,8 @@ class SIAProtocolError(ValueError):
 Per section 5.4.3–5.4.4, only the content inside the data block `[...]` is encrypted. Padding is **pseudo-random** and is prepended inside the block, terminated by `|`. The closing `]` and everything before `[` are never encrypted.
 
 ```
-Unencrypted: "SIA-DCS"SSSS...#ACCOUNT[#ACCOUNT|BA zone]_timestamp
-Encrypted:   "*SIA-DCS"SSSS...#ACCOUNT[hex(AES(pad|#ACCOUNT|BA zone_timestamp))]
+Unencrypted: "SIA-DCS"SSSS...#ACCOUNT[#ACCOUNT|BA 001]_timestamp
+Encrypted:   "*SIA-DCS"SSSS...#ACCOUNT[hex(AES(pad|#ACCOUNT|BA 001_timestamp))]
                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
                                         encrypted region: pad + | + data + _ + timestamp
 ```
@@ -166,7 +166,7 @@ The pad is pseudo-random bytes prepended so that the total encrypted region leng
 | `id_type` | `str` | Frame identifier token (see table above) |
 | `account` | `str` | Account number, 3–16 hex chars |
 | `seq` | `int` | Sequence number 0–9999; initialized to 0, wraps `9999 → 0000`. Formatted as 4 zero-padded digits: `f"{seq:04d}"`. |
-| `zone` | `str` | Zone name for alarm events; empty string `''` for `'NULL'` supervision frames |
+| `zone` | `str` | Already-formatted zone field for alarm events — the **zone order number, zero-padded to 3 digits** (`"001"`); empty string `''` for `'NULL'` supervision frames **and for an alarm whose zone could not be resolved** (the field is then absent from the data block: `[#001234|BA]`). The caller (`_build_event_frame()`) does the padding; `encode_message()` inserts the value verbatim. Never a zone label. |
 | `timestamp` | `str` | UTC timestamp from `make_timestamp()`. `encode_message()` prepends the mandatory `_` separator before embedding it in the frame — do **not** include `_` in the value returned by `make_timestamp()`. |
 | `receiver_prefix` | `str` | Optional 0–6 hex char receiver prefix. Default `''` → field omitted; CSR interprets as `R0`. **IMA Protect: unconfirmed — verify at integration time.** |
 | `account_prefix` | `str` | Optional 0–6 hex char account prefix. Default `''` → field omitted; CSR interprets as `L0`. **IMA Protect: unconfirmed — verify at integration time.** |
@@ -177,7 +177,13 @@ The pad is pseudo-random bytes prepended so that the total encrypted region leng
 
 **Example frame (alarm, unencrypted, with media URL):**
 ```
-"SIA-DCS"0007L0#ABC123[#ABC123|BA Salon][Vhttp://192.168.1.50/snap.jpg]_14:32:11,03-06-2026
+"SIA-DCS"0007L0#ABC123[#ABC123|BA 001][Vhttp://192.168.1.50/snap.jpg]_14:32:11,03-06-2026
+```
+
+**Same alarm, zone unresolved** (the label sent by the alarm plugin matched no row in
+`sia_zone_mappings`) — no zone field at all, the alarm is still transmitted:
+```
+"SIA-DCS"0007L0#ABC123[#ABC123|BA][Vhttp://192.168.1.50/snap.jpg]_14:32:11,03-06-2026
 ```
 
 ---
@@ -382,13 +388,13 @@ sequenceDiagram
     participant C as sia_crypto.py
     participant CSR as CSR (IMA Protect)
 
-    PHP->>D: on_message("burglarAlarm", {zone: "Salon"})
-    D->>Q: put(priority=0, EVENT{type=BA, zone=Salon})
+    PHP->>D: on_message("burglarAlarm", {zone: "Salon", zone_number: 1})
+    D->>Q: put(priority=0, EVENT{type=BA, zone=Salon, zone_number=1})
 
     Note over Q: Consumer picks highest priority item
 
-    Q-->>D: get() → EVENT{BA, Salon}
-    D->>P: encode_message("SIA-DCS", account, seq, "Salon", ts, crc_format=self._crc_format)
+    Q-->>D: get() → EVENT{BA, Salon, 1}
+    D->>P: encode_message("SIA-DCS", account, seq, "001", ts, crc_format=self._crc_format)
     P->>C: encrypt(payload, key)
     Note over C: Stub: returns payload unchanged (Phase 1)
     C-->>P: payload
@@ -459,7 +465,8 @@ message_string:
                | SIA-DCS (alarm, clear) | *SIA-DCS (alarm, encrypted)
   └── SSSS: 0001–9999, wraps
   └── receiver/account prefixes: optional, default R0L0
-  └── [event_data]: e.g. [#1234|BA Salon]
+  └── [event_data]: e.g. [#1234|BA 001] — zone ORDER NUMBER, 3-digit zero-padded (Annex B),
+       never the zone label; omitted entirely when the zone is unresolved → [#1234|BA]
   └── [Vmedia_url]: optional — SIA DC-09 Verification extended data field (section 5.5.1.8)
        Appended after [event_data], before timestamp.
        Forbidden chars in URL: '[', ']', '|'. Encoding: Windows 1252.
@@ -809,11 +816,13 @@ asyncio.PriorityQueue items — 4-tuple:
   priority:  0 = EVENT, 1 = SUPERVISION
   counter:   monotonic int from itertools.count() — tie-breaker (see below)
   item_type: "EVENT" | "SUPERVISION"
-  data:      dict — {type, zone, media_url, retries_left} for EVENT; {} for SUPERVISION
+  data:      dict — {type, zone, zone_number, media_url, retries_left} for EVENT; {} for SUPERVISION
+             zone        = str|None  human label (logs / notifications / inspector)
+             zone_number = int|None  resolved order number — the only field that reaches the frame
 
 Examples:
-  (0, 42, "EVENT",       {type, zone, media_url, retries_left})  ← from PHP via on_message()
-  (1, 43, "SUPERVISION", {})                                      ← from supervision timer
+  (0, 42, "EVENT",       {type, zone, zone_number, media_url, retries_left})  ← from PHP via on_message()
+  (1, 43, "SUPERVISION", {})                                                    ← from supervision timer
 
 Single consumer coroutine:
   loop:
@@ -862,13 +871,13 @@ sequenceDiagram
     participant P as sia_protocol.py
     participant CSR as CSR
 
-    PHP->>D: on_message(burglarAlarm, zone)
+    PHP->>D: on_message(burglarAlarm, zone, zone_number)
     D->>D: queue.put(priority=0, EVENT)
     Note over D: _queue_consumer dequeues EVENT
     D->>D: SM2 → PENDING, update event_label
 
     loop Up to N retries
-        D->>P: encode_message(seq, zone, ts, crc_format=self._crc_format)
+        D->>P: encode_message(seq, "%03d" % zone_number, ts, crc_format=self._crc_format)
         P-->>D: frame
         D->>CSR: send(frame)
 
@@ -1141,7 +1150,23 @@ Updates SM2 state and `event_label` at each step. Returns final result dict.
 > `_sia_seq` is initialized to `0` in `__init__()`; first frame uses `"0000"`. In-memory only (v1.0).
 
 #### Task 1.6 — `on_message(cmd, params)`
-Receives `{cmd: 'burglarAlarm'|'fireAlarm'|'panicAlarm', zone: zone_name, media_url: str|None}` from PHP. Puts `(0, "EVENT", {..., retries_left: N})` in priority queue. **Does not change SM2 state** — SM2 → PENDING is set by `_queue_consumer()` at dequeue time, ensuring at most one event is PENDING at any moment (serialization).
+Receives `{cmd: 'burglarAlarm'|'fireAlarm'|'panicAlarm', zone: zone_name, zone_number: int|None, media_url: str|None}` from PHP. Puts `(0, "EVENT", {..., retries_left: N})` in priority queue. **Does not change SM2 state** — SM2 → PENDING is set by `_queue_consumer()` at dequeue time, ensuring at most one event is PENDING at any moment (serialization).
+
+**`zone` vs `zone_number` — two fields, two purposes:**
+
+| Field | Type | Source | Used for |
+|---|---|---|---|
+| `zone` | `str \| None` | the alarm plugin's `#zone#` tag (a **label**, e.g. `"Salon"`) | logs, `error_handler` notification context (`zone_name`), the message ring buffer, the protocol inspector |
+| `zone_number` | `int \| None` | PHP resolved the label against `sia_zone_mappings` | **the frame, and nothing else** |
+
+`_build_event_frame()` sets `extended_data['zone']` from `zone_number`, zero-padded to 3
+digits (`1` → `"001"`, per DC-09 Annex B usage: `[#1234|FA 129]`, Contact ID `[#1234|1130 02 065]`).
+When `zone_number` is `None` — the label matched no row in the zone table, or the title was
+empty — **no zone field is emitted at all** (`[#001234|BA]`). The label is never transmitted:
+a CSR indexes incidents by zone number, and free text is not actionable for an operator.
+
+The label is deliberately kept in the payload so an unresolved zone is still diagnosable:
+the log and the notification say which zone name arrived, even though the frame carries none.
 
 `media_url` is passed through to `encode_message()` as the SIA DC-09 Verification extended
 data field `[V...]` (section 5.5.1.8). If `None`, the field is omitted.

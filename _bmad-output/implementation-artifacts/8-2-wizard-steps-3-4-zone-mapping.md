@@ -1,6 +1,13 @@
 # Story 8.2: Wizard Steps 3-4 & Zone Mapping
 
-Status: done
+Status: in-progress
+
+> **Amendment 2026-09-17 — zone order number (AC11–AC15, Task 11).** The original scope shipped
+> and was validated. Epic 12 end-to-end testing then showed the frame carried the zone **label**
+> (`[#001234|BA Zone1]`) because the alarm plugin's `#zone#` tag substitutes a label and the alarm
+> plugin has no zone identifier. A CSR indexes incidents by zone *number*, so the zone table now
+> owns a persisted order number, displays it at step 3, and that number — not the label — is what
+> the SIA frame carries. Status reopened to `in-progress` for AC11–AC15 only; AC1–AC10 stay done.
 
 ## Story
 
@@ -12,9 +19,9 @@ So that alarms trigger cameras and I get notified on critical failures.
 
 1. **Step 3: Zone table populated from alarm plugin** — On arriving at Step 3, `getCameraCommands` and `getZones` AJAX calls are fired. Zone table shows one read-only row per alarm zone, with two `<select>` dropdowns per row (Action caméra + URL média). If the alarm plugin is not found or has no zones, a warning banner is shown but "Suivant" remains enabled.
 
-2. **Step 3: Zone table columns** — Each row has: Zone d'alarme (read-only `<td>`) | Action caméra (`<select>` from `CAMERA_TAKE` commands, first option `(aucune)` with value `""`) | URL média (`<select>` from `CAMERA_URL` commands, first option `(aucune)` with value `""`). Both dropdowns are populated from a single `getCameraCommands` call.
+2. **Step 3: Zone table columns** — Each row has: N° (read-only `<td>`, see AC11) | Zone d'alarme (read-only `<td>`) | Action caméra (`<select>` from `CAMERA_TAKE` commands, first option `(aucune)` with value `""`) | URL média (`<select>` from `CAMERA_URL` commands, first option `(aucune)` with value `""`). Both dropdowns are populated from a single `getCameraCommands` call.
 
-3. **Step 3: Zone mapping saved to config** — When the user clicks "Suivant" on Step 3, `sia_zone_mappings` is serialized from the table rows (array of `{zone_name, camera_action_cmd_id, media_url_cmd_id}`) and saved via `jeedom.eqLogic.save()` callback pattern. Empty mapping (no camera selected for any zone) is allowed.
+3. **Step 3: Zone mapping saved to config** — When the user clicks "Suivant" on Step 3, `sia_zone_mappings` is serialized from the table rows (array of `{zone_number, zone_name, camera_action_cmd_id, media_url_cmd_id}`) and saved via `jeedom.eqLogic.save()` callback pattern. Empty mapping (no camera selected for any zone) is allowed.
 
 4. **Step 3: Saved mappings rehydrated on reload** — When the page loads at step 3 (or when returning to step 3 via "Relancer l'assistant"), previously saved `sia_zone_mappings` are used to restore the dropdown selections in each row.
 
@@ -29,6 +36,36 @@ So that alarms trigger cameras and I get notified on critical failures.
 9. **No daemon start from wizard** — The wizard itself does NOT start the daemon. After wizard completion, Jeedom's watchdog (running every ~60s) sees `launchable='ok'` and calls `deamon_start()` automatically.
 
 10. **PHP + JS syntax clean** — All modified PHP files pass `php -l`. JS has no syntax errors.
+
+### Amendment 2026-09-17 — zone order number
+
+11. **Step 3 displays the zone number** — The zone table has a first column `N°` showing a 1-based
+    order number for every alarm zone, read-only. The number comes from the saved mapping when the
+    zone already has one; otherwise it is `max(zone_number of saved entries) + 1` (and, for a
+    legacy mapping with no `zone_number` at all, the table position). Each `<tr>` carries
+    `data-zone-number` — that attribute, not the displayed text, is the serialization contract.
+
+12. **Numbers are persisted, never recomputed at send time** — `zone_number` is written into
+    `sia_zone_mappings` on the step-3 save and reused verbatim on every reload. Deleting or
+    reordering zones in the alarm plugin must not shift the number of a zone that kept its name:
+    a number already declared to the CSR must stay stable.
+
+13. **The frame carries the number, never the label** — `siaDC09Cmd::execute()` resolves the label
+    received from the alarm plugin (`#zone#`) against `sia_zone_mappings` (case-insensitive,
+    trimmed — existing `_findZoneEntry()`) and sends `{cmd, zone, zone_number, media_url}` to the
+    daemon. `zone` stays the label (logs, notification context, ring buffer, inspector);
+    `zone_number` is consumed only by `_build_event_frame()`, zero-padded to 3 digits:
+    `[#001234|BA 001]`.
+
+14. **Unresolved zone → no zone field, alarm still sent** — When the label matches no entry (or the
+    entry has no number, or the alarm action passed no zone), `zone_number` is `null`, PHP logs a
+    WARNING naming the label, and the frame carries no zone field at all: `[#001234|BA]`. The
+    alarm is never dropped and the label is never transmitted.
+
+15. **Validated on the real receiver and the real UI** — Frames with and without a resolved zone are
+    ACKed by `192.168.100.15:10002` (TCP, account `001234`), and step 3 is checked on
+    `test-jeedom.lehoux.net` after `git pull`: numbers displayed 1..N, preserved across reload,
+    stable after a zone is deleted in the alarm plugin.
 
 ## Tasks / Subtasks
 
@@ -446,6 +483,46 @@ So that alarms trigger cameras and I get notified on critical failures.
 
 - [x] **10.2** Visual inspection of JS for syntax errors (no JS linter configured in project). Review all new functions for: missing closing braces, unmatched parentheses, missing semicolons after function expressions, correct jQuery chaining.
 
+### Task 11: Zone order number — amendment 2026-09-17 (AC11–AC15)
+
+- [x] **11.1** `desktop/php/siaDC09.php` — add `<th>N°</th>` as the first column of the step-3
+  `<thead>` row (before `{{Zone d'alarme}}`). Column stays narrow (`style="width:60px;"`).
+
+- [x] **11.2** `desktop/js/siaDC09.js` — `siaDC09_buildZoneRow(zoneNumber, zoneName, saved, cameraCommands)`:
+  new first argument; set `$tr.attr('data-zone-number', zoneNumber)` and prepend
+  `$('<td>').text(zoneNumber)` before the zone-name `<td>`.
+
+- [x] **11.3** `desktop/js/siaDC09.js` — `siaDC09_loadZoneTable()`: compute the number per
+  `docs/design/wizard-design.md` §"Zone number in the SIA frame" — saved `zone_number` wins,
+  else `max(existing) + 1`, else (mapping empty) the table position `index + 1`.
+
+- [x] **11.4** `desktop/js/siaDC09.js` — `saveEqLogic` step-3 serialization: read
+  `$(this).attr('data-zone-number')` and emit `zone_number` (int) as the first key of each entry.
+
+- [x] **11.5** `desktop/js/siaDC09.js` — `siaDC09_populateConfigSummary`: prefix each zone line
+  with its number so the config mode shows what the CSR receives.
+
+- [x] **11.6** `core/class/siaDC09Cmd.class.php` — after extracting `$zone`, resolve it with
+  `_findZoneEntry()` and add `zone_number` (int|null) to the `sendToDaemon()` payload; log a
+  WARNING naming the label when unresolved (AC14). Payload keys: `cmd`, `zone`, `zone_number`.
+
+- [x] **11.7** `resources/siadc09d/daemon.py` — thread `zone_number: int | None` through
+  `EventItem`, `_enqueue_event()`, `on_message()`; in `_build_event_frame()` set
+  `extended_data['zone'] = f"{zone_number:03d}"` only when `zone_number is not None` (no zone
+  field otherwise). `sia_protocol.py` is **not** modified.
+
+- [x] **11.8** Tests — extend `tests/level2/test_ipc_daemon_wiring.py` with a `zone_number` case
+  (resolved → `BA 001`; `None` → no zone field); `python3 -m pytest tests/level1/`
+  (baseline: 2 pre-existing failures); `php -l` on modified PHP; `node --check` on modified JS.
+  Result: level1 `2 failed, 1059 passed`, i.e. exactly the documented baseline (the 2 survivors are
+  the `wizard-design.md` §153-vs-§908 contradiction, unrelated to this task). level2
+  `6 failed, 323 passed` against `6 failed, 318 passed` on a clean-HEAD worktree ⇒ +5 new tests,
+  zero regressions. Two pre-existing test-harness defects had to be repaired first — see
+  Dev Agent Record → Debug Log.
+
+- [ ] **11.9** UI + receiver validation on `test-jeedom.lehoux.net` per AC15 (requires commit +
+  push first — deployment is a `git pull` on the Jeedom host).
+
 ## Dev Notes
 
 ### Config Key Reference
@@ -619,9 +696,28 @@ Both can be visible simultaneously (user ignored test AND has no zones).
 
 ### Agent Model Used
 
-claude-sonnet-4-6 (eu.anthropic.claude-sonnet-4-6)
+claude-sonnet-4-6 (eu.anthropic.claude-sonnet-4-6) — tasks 1–10
+claude-opus-5 (eu.anthropic.claude-opus-5) — task 11 (zone order number amendment)
 
 ### Debug Log References
+
+**Task 11 — two pre-existing test-harness defects surfaced during verification.** `tests/level1/`
+reported 54 failures against a documented baseline of 2. A `git worktree add /tmp/sia-clean-check HEAD`
+produced the identical `54 failed, 1007 passed`, proving the amendment was not the cause. Both were
+fixed (no product code changed), which is why the tree now reports the true baseline again:
+
+1. **47 failures in `test_diagnostic_js_dom.py`** — `tests/fixtures/js_dom_harness.js` sliced
+   `desktop/js/siaDC09.js` at a hardcoded line 700 to skip the jQuery-UI-dependent wizard code. The
+   wizard grew past that offset, so the slice started mid-function inside the CONFIG SUMMARY section
+   and every scenario died on an opaque `SyntaxError: Unexpected token '}'`. Now anchored on the
+   `// ===== DIAGNOSTIC TAB =====` banner with an explicit `throw` when the marker is absent.
+2. **5 notify failures in `test_php_eqlogic_stub.py` / `test_wizard_js_logic.py`** — commit `2b32abf`
+   ("accept a Jeedom internal action as notification target") moved the `sia_notify_cmd_id` reads out
+   of `message()`, `deamon_info()` and the `#bt_step4Finish` handler into `_runNotifyTarget()`,
+   `_hasNotifyTarget()` and `siaDC09_validateNotifyTarget()`. The assertions grepped the extracted
+   *caller* bodies, which no longer contain the key. Retargeted at the helpers via two new fixtures
+   (`run_notify_target_body`, `has_notify_target_body`) and a `_extract_js_function()` brace-walk
+   helper, keeping a delegation assert in the caller so the chain itself stays covered.
 
 ### Completion Notes List
 
@@ -631,6 +727,27 @@ claude-sonnet-4-6 (eu.anthropic.claude-sonnet-4-6)
 - All PHP files pass `php -l`. JS visually inspected — braces balanced, leading `;` before `.forEach()` chains to prevent ASI issues.
 - No AJAX files modified (confirmed `getZones` + `getCameraCommands` already exist in `core/ajax/siaDC09.ajax.php`). No PHP class changes needed (Guard 6 already present).
 
+**Task 11 (zone order number, AC11–AC15):**
+
+- The number is **persisted, never recomputed at send time** — `zone_number` is written into each
+  `sia_zone_mappings` entry on the step-3 save and read back verbatim. Renaming a Jeedom zone or
+  reordering the alarm plugin's zone list therefore cannot silently repoint a CSR zone number.
+  New zone → `max(existing) + 1`; a legacy config with no numbers is renumbered by table position
+  on the first step-3 save.
+- The row's `data-zone-number` attribute — not the displayed cell text — is the serialization
+  contract, matching the existing `data-zone-name` pattern.
+- Zone matching in `_findZoneEntry()` is **case-insensitive and trimmed** (`mb_strtolower(trim(...))`
+  on both sides), because `#zone#` arrives from the alarm plugin as free-form user text.
+- The IPC payload keeps `zone` = the human **label** end-to-end and adds `zone_number` (int|null).
+  Only `_build_event_frame()` consumes it, and the zero-padding to 3 digits happens exactly once, in
+  the daemon (`f"{zone_number:03d}"`). `sia_protocol.py` is untouched.
+- **Breaking behaviour change:** the label is no longer transmitted. Frame on match is
+  `[#001234|BA 001]`, on mismatch `[#001234|BA]` with no zone field plus a WARNING naming the label —
+  the alarm is still sent, since dropping an intrusion alert over a mapping gap would be worse than
+  sending it without a zone.
+- `zone_number` had to be a trailing keyword-defaulted parameter on `_enqueue_event()`: ~20 level2
+  tests already pass `retries_left` as the 4th positional argument.
+
 ### File List
 
 | Action | Path |
@@ -639,6 +756,12 @@ claude-sonnet-4-6 (eu.anthropic.claude-sonnet-4-6)
 | MOD | `desktop/js/siaDC09.js` |
 | NEW | `resources/siadc09d/siadc09d.py` |
 | NEW | `resources/siadc09d/csr_presets.json` |
+| MOD | `core/class/siaDC09Cmd.class.php` — task 11.6, `zone_number` in the `sendToDaemon()` payload |
+| MOD | `resources/siadc09d/daemon.py` — task 11.7, `zone_number` through `EventItem` → `_build_event_frame()` |
+| MOD | `tests/level2/test_ipc_daemon_wiring.py` — task 11.8, TC-IPC5 zone-number cases |
+| MOD | `tests/fixtures/js_dom_harness.js` — banner-anchored section loader (debug log #1) |
+| MOD | `tests/level1/test_php_eqlogic_stub.py` — notify assertions retargeted at the helpers (debug log #2) |
+| MOD | `tests/level1/test_wizard_js_logic.py` — notify assertions retargeted at the helpers (debug log #2) |
 
 ### Review Findings
 
@@ -661,3 +784,5 @@ claude-sonnet-4-6 (eu.anthropic.claude-sonnet-4-6)
 | 2026-05-11 | Story created — wizard steps 3-4, zone mapping table, notification command picker |
 | 2026-05-11 | Challenge fixes applied — F1: denormalized labels in sia_zone_mappings for config summary; F2: hardcoded French in dynamic JS (no {{...}} in .text()); F3: removed contradictory Task 6 first implementation; F4: clarifying comment in Task 8; F5: graceful fallback when getCameraCommands fails; F7: emojis replaced with Font Awesome icons |
 | 2026-05-11 | Implementation complete — all tasks 1-10 done; story status → review |
+| 2026-09-17 | Amendment — zone order number (AC11–AC15, Task 11). Design updated first: `docs/design/wizard-design.md` (N° column, `zone_number` in the JSON shape, persistence/stability rules, §"Zone number in the SIA frame"), `docs/design/php-core-design.md` (payload `{cmd, zone, zone_number, media_url}`), `docs/design/daemon-design.md` (IPC contract + `encode_message` `zone` = padded number), `_bmad-output/planning-artifacts/architecture.md` (§Zone Mapping Defensive Patterns). Status done → in-progress |
+| 2026-09-17 | Tasks 11.1–11.8 implemented and verified. level1 `2 failed, 1059 passed` (documented baseline); level2 `6 failed, 323 passed` vs `6 failed, 318 passed` on clean HEAD ⇒ +5 tests, zero regressions. Two pre-existing test-harness defects repaired along the way (see Debug Log). Task 11.9 / AC15 (step-3 UI + receiver ACK on `test-jeedom.lehoux.net`) remains open — it needs a commit + push, deployment being a `git pull` on the Jeedom host |

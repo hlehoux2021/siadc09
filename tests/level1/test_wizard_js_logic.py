@@ -327,15 +327,25 @@ def test_step4_filters_action_message_commands(js_source: str) -> None:
 
 def test_step4_finish_validates_notify_cmd(js_source: str) -> None:
     """
-    bt_step4Finish must check that sia_notify_cmd_id has a value before
-    completing the wizard. Empty notify command is a config error.
+    bt_step4Finish must check that a notification target has a value before
+    completing the wizard. Empty notify target is a config error. Since epic 12 the
+    check is siaDC09_validateNotifyTarget(), declared above the handler, so the value
+    read no longer follows 'bt_step4Finish' in source order.
 
     Expected result:
-    - sia_notify_cmd_id value check in finish handler
+    - finish handler calls siaDC09_validateNotifyTarget() and aborts when it is falsy
+    - the validator reads sia_notify_cmd_id via val()
     """
-    pattern = r'bt_step4Finish.*?sia_notify_cmd_id.*?val\(\)'
-    # Assert: finish button validates notify cmd
-    assert re.search(pattern, js_source, re.DOTALL)
+    # Assert: finish button gates the save on the validator
+    assert re.search(
+        r"bt_step4Finish.*?if\s*\(\s*!\s*siaDC09_validateNotifyTarget\s*\(\s*\)",
+        js_source, re.DOTALL
+    ), "#bt_step4Finish must abort on !siaDC09_validateNotifyTarget()"
+    # Assert: the validator checks the notify cmd value
+    assert re.search(
+        r"function\s+siaDC09_validateNotifyTarget.*?sia_notify_cmd_id.*?val\(\)",
+        js_source, re.DOTALL
+    ), "siaDC09_validateNotifyTarget() must read sia_notify_cmd_id via val()"
 
 
 def test_step4_shows_error_when_no_cmd(js_source: str) -> None:

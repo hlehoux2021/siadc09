@@ -14,6 +14,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from resources.siadc09d.daemon import (
+    EventItem,
     SIADaemon,
     SM1State,
     SM2State,
@@ -214,3 +215,99 @@ async def test_send_callback_does_not_block_queue_consumer():
     assert daemon._queue.qsize() == 0  # queue drained despite callback failures
 
     await daemon.on_stop()
+
+
+# ===== TC-IPC5: zone_number carried from PHP to the SIA frame (story 8-2 AC11–AC14) =====
+
+
+@pytest.mark.asyncio
+async def test_on_message_carries_zone_number_alongside_label():
+    """AC12: PHP sends both the label and the resolved order number — both survive IPC.
+
+    Expected:
+    - payload["zone"] keeps the human label (logs, notifications, inspector)
+    - payload["zone_number"] carries the integer resolved against the zone table
+    """
+    daemon = _make_daemon()
+
+    await daemon.on_message("burglarAlarm", {"zone": "Salon", "zone_number": 3})
+
+    _prio, _counter, _item_type, payload = daemon._queue.get_nowait()
+    assert payload["zone"] == "Salon"  # label untouched by the numbering
+    assert payload["zone_number"] == 3  # order number carried through IPC
+
+
+@pytest.mark.asyncio
+async def test_on_message_without_zone_number_yields_none():
+    """AC14: an unresolved zone (PHP sends no zone_number) must not invent one.
+
+    Expected:
+    - payload["zone_number"] is None
+    - the event is still enqueued: the alarm is never dropped over a missing number
+    """
+    daemon = _make_daemon()
+
+    await daemon.on_message("burglarAlarm", {"zone": "Inconnue"})
+
+    assert daemon._queue.qsize() == 1  # alarm enqueued despite the missing number
+    _prio, _counter, _item_type, payload = daemon._queue.get_nowait()
+    assert payload["zone_number"] is None  # no number invented
+
+
+@pytest.mark.asyncio
+async def test_on_message_unusable_zone_number_falls_back_to_none(caplog):
+    """AC14: a non-numeric zone_number is refused, not propagated to the formatter.
+
+    Expected:
+    - payload["zone_number"] is None
+    - a WARNING names the unusable value
+    """
+    daemon = _make_daemon()
+    daemon._logger = logging.getLogger("test_bad_zone_number")
+
+    with caplog.at_level(logging.WARNING, logger="test_bad_zone_number"):
+        await daemon.on_message("burglarAlarm", {"zone": "Salon", "zone_number": "abc"})
+
+    _prio, _counter, _item_type, payload = daemon._queue.get_nowait()
+    assert payload["zone_number"] is None  # unusable value discarded
+    assert "unusable zone_number" in caplog.text  # WARNING emitted
+
+
+@pytest.mark.asyncio
+async def test_build_event_frame_sends_zero_padded_zone_number():
+    """AC13: the frame carries the 3-digit order number, never the label.
+
+    Reference: SIA DC-09-2021 Annex B — zone formatted as 3 zero-padded digits.
+
+    Expected:
+    - frame contains "[#001234|BA 003]"
+    - the label "Salon" appears nowhere in the frame
+    """
+    daemon = _make_daemon()
+    event = EventItem(
+        sia_code="BA", zone="Salon", timestamp="12:00:00,04-22-2026", zone_number=3
+    )
+
+    frame = daemon._build_event_frame(event)
+
+    assert b"[#001234|BA 003]" in frame  # zero-padded to 3 digits
+    assert b"Salon" not in frame  # label never transmitted
+
+
+@pytest.mark.asyncio
+async def test_build_event_frame_omits_zone_when_unresolved():
+    """AC14: unresolved zone → no zone field at all, and the alarm is still sent.
+
+    Expected:
+    - frame contains "[#001234|BA]" (event code alone, no zone separator)
+    - the label is not used as a fallback
+    """
+    daemon = _make_daemon()
+    event = EventItem(
+        sia_code="BA", zone="Inconnue", timestamp="12:00:00,04-22-2026", zone_number=None
+    )
+
+    frame = daemon._build_event_frame(event)
+
+    assert b"[#001234|BA]" in frame  # no zone field emitted
+    assert b"Inconnue" not in frame  # label not used as a fallback

@@ -75,7 +75,7 @@ allowed_segment() {
 	git\ * | gh\ *) return 0 ;;
 	find\ *) return 0 ;;
 	sed\ -n\ *) return 0 ;;
-	cat\ * | grep\ * | jq\ * | cut\ *) return 0 ;;
+	cat\ * | grep\ * | jq\ * | cut\ * | awk\ *) return 0 ;;
 	ls | ls\ * | wc | wc\ * | head | head\ * | tail | tail\ * | sort | sort\ * | uniq | uniq\ * | nl | nl\ *) return 0 ;;
 	*) return 1 ;;
 	esac

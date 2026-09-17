@@ -1,6 +1,21 @@
 # Story 7.2: TCP Stall Detection, Reconnect & Ring Buffer Logging
 
-Status: done
+Status: in-progress
+
+> **Amendment 2026-09-17 — daemon self-stop on `TRANSPORT_PERMANENT` (AC15–AC17, Task 8).**
+> The original scope shipped and was validated, but it froze the WRONG recovery model. AC2 and the
+> Dev Notes ("NO_NETWORK is terminal — daemon never recovers", lines below) documented that the daemon
+> keeps running after the TCP reconnect loop exhausts its attempts. The frozen design says the opposite
+> in four places: `daemon-design.md:589` (`NO_NETWORK --> [*] : _notify() + self.stop()`), `:616`
+> (`TCP reconnect exhausted → NO_NETWORK → _notify(TRANSPORT_PERMANENT) + self.stop()`), `:677`, `:684`,
+> and story 3-3's `_dispatch_notify` stub docstring ("TRANSPORT_PERMANENT: fire all callbacks, then call
+> daemon.stop()"). Field evidence on host SM1: the daemon sits in `NO_NETWORK` forever, logging
+> `NO_NETWORK: SUPERVISION dropped (daemon stopping, counter=N)` every minute without ever stopping, so
+> the Jeedom watchdog restart (`on_start()` → `INITIALIZING` → fresh reconnect) never fires. This is a
+> confirmed bug, which authorises the daemon.py edit under 12-7's anti-pattern escape clause ("unless a
+> bug is found"). Option A (chosen): wire `self.stop()` on the `TRANSPORT_PERMANENT` transition so the
+> watchdog restarts the daemon. Status reopened to `in-progress` for AC15–AC17 only; AC1–AC14 stay done.
+> Validation is owned by 12-7 AC11 / Task 10 (already asserts self-stop — no change there).
 
 ## Story
 
@@ -12,7 +27,7 @@ So that the already-implemented TCP reconnect flow is verified to work correctly
 
 1. **TCP reconnect loop success path** — `_tcp_reconnect_loop()` called with mocked `asyncio.open_connection` succeeding on first attempt → SM1 transitions to INITIALIZING, `_strike_counter=0`, `_sm1_t3_fired=False`, `_sm1_state_changed` event is set. Test runs the real method (not manually setting state).
 
-2. **TCP reconnect loop permanent failure** — `_tcp_reconnect_loop()` with all 3 `asyncio.open_connection` attempts failing (TimeoutError/OSError) → SM1 transitions to NO_NETWORK, `_notify(TRANSPORT_PERMANENT, TransportPermanentCtx{...})` fired exactly once, `_sm1_state_changed` event is set.
+2. **TCP reconnect loop permanent failure** — `_tcp_reconnect_loop()` with all 3 `asyncio.open_connection` attempts failing (TimeoutError/OSError) → SM1 transitions to NO_NETWORK, `_notify(TRANSPORT_PERMANENT, TransportPermanentCtx{...})` fired exactly once, `_sm1_state_changed` event is set. *(Extended by AC15 — the loop also schedules `self.stop()` after the notify; see Amendment 2026-09-17.)*
 
 3. **TCP reconnect loop partial failure then success** — First 2 attempts fail, 3rd succeeds → SM1=INITIALIZING, strike=0, no TRANSPORT_PERMANENT fired.
 
@@ -37,6 +52,32 @@ So that the already-implemented TCP reconnect flow is verified to work correctly
 13. **Supervision accumulation during TCP_RECONNECTING** — While SM1==TCP_RECONNECTING, multiple supervision items can accumulate in queue. After recovery to INITIALIZING, verify first dequeued item is processed correctly (no state corruption from stale items).
 
 14. **All existing tests pass** — No regressions. Current baseline: all levels combined + 1 pre-existing failure (test_tc13).
+
+### Amendment 2026-09-17 — daemon self-stop on `TRANSPORT_PERMANENT` (Option A)
+
+15. **`_tcp_reconnect_loop()` schedules a clean shutdown after permanent failure** — After all `max_attempts`
+    fail, the loop MUST, in order: (a) `_set_sm1_state(SM1State.NO_NETWORK)`, (b) `_notify(ErrorCode.TRANSPORT_PERMANENT, ...)`,
+    (c) log the "transitioning to NO_NETWORK" error, then (d) schedule `self.stop()` as a tracked task
+    (`self._track_task(self.stop(), name="transport_permanent_stop")`). The loop must NOT `await self.stop()`
+    inline — `BaseDaemon.stop()` cancels *all* tasks including the current one (`asyncio.all_tasks()` minus
+    `current_task()` — see framework note), and `on_stop()` step 3 also cancels `_tasks`; scheduling avoids the
+    reconnect-loop task cancelling itself mid-shutdown and losing the ordered `_notify` dispatch. Ordering is
+    critical: the `TRANSPORT_PERMANENT` notify is fire-and-forget via `_track_task`, so `self.stop()` must be
+    scheduled *after* `_notify` returns to guarantee the notify task exists in `_tasks` before `on_stop()`
+    gathers/awaits them (see AC16).
+
+16. **The `TRANSPORT_PERMANENT` notification survives the shutdown it triggers** — When `self.stop()` runs,
+    `on_stop()` step 4 awaits all tracked tasks with `ON_STOP_TASK_TIMEOUT_S`. The `notify_TRANSPORT_PERMANENT`
+    dispatch task (message_center + notify + error_update, T3) MUST complete before the process exits, so the
+    operator receives the `CRITIQUE — Connexion tcp impossible` alert. Test asserts all three callback payloads
+    (`message_center`, `notify`, `error_update`) were sent before `on_stop()` returns.
+
+17. **Self-stop is scoped to `TRANSPORT_PERMANENT` only** — No other T3 code path gains a `self.stop()`.
+    `SUPERVISION_DISCONNECTED` and `EVENT_FAILED` are T3 but the daemon keeps running (they are recoverable —
+    supervision can resume, later events can succeed). The `self.stop()` call lives in `_tcp_reconnect_loop()`
+    at the `NO_NETWORK` transition, NOT in `_dispatch_notify()` (which must stay tier-generic — it dispatches
+    callbacks for all codes and has no business terminating the process). Test: firing `_notify(SUPERVISION_DISCONNECTED)`
+    or `_notify(EVENT_FAILED)` directly does NOT schedule a `transport_permanent_stop` task.
 
 ## Tasks / Subtasks
 
@@ -104,6 +145,42 @@ So that the already-implemented TCP reconnect flow is verified to work correctly
 
 - [x] **7.1** Run `python3 -m pytest tests/ -q --tb=short` — verify no regressions from D-3 fix + state regression guard.
 
+### Task 8: Daemon self-stop on `TRANSPORT_PERMANENT` — amendment 2026-09-17 (AC15–AC17)
+
+- [ ] **8.1** `resources/siadc09d/daemon.py` `_tcp_reconnect_loop()` (permanent-failure tail, currently
+  lines ~1126–1136): after the existing three statements (`_set_sm1_state(NO_NETWORK)`,
+  `_notify(TRANSPORT_PERMANENT, ...)`, `_logger.error(...)`), add:
+  ```python
+  # Option A: hand the process back to Jeedom's watchdog for a clean restart.
+  # BaseDaemon.stop() cancels every task except the caller, then run()'s finally
+  # block removes the PID file and sys.exit(0)s — the watchdog then re-launches us
+  # (on_start → INITIALIZING → fresh reconnect). Schedule it (do NOT await): stop()
+  # cancels _tasks including this loop, and awaiting inline would cancel ourselves
+  # mid-call and drop the TRANSPORT_PERMANENT notify. Scheduling AFTER _notify()
+  # guarantees the notify task is already in _tasks so on_stop() awaits it (AC16).
+  # Ref: daemon-design.md:589/616/677/684, error-handler-design.md, story 3-3 stub docstring.
+  self._track_task(self.stop(), name="transport_permanent_stop")
+  ```
+- [ ] **8.2** Verify no `self.stop()` is added to `_dispatch_notify()` — it stays tier-generic (AC17).
+  The termination decision belongs to the state-machine transition, not the notification dispatcher.
+- [ ] **8.3** `tests/level2/test_tcp_reconnect_integration.py` — extend the permanent-failure test (AC2's
+  `test_...permanent_failure`): after all 3 `open_connection` calls raise, assert a task named
+  `transport_permanent_stop` is scheduled AND that `daemon.stop` (patched/spied) is invoked exactly once.
+  Gather `daemon._tasks` to let it run; assert `on_stop()` ran (transport closed, tasks cancelled).
+- [ ] **8.4** Test AC16: with real `_dispatch_notify` (mock only `_send_callback`), drive the loop to
+  permanent failure and assert all three payloads (`message_center`, `notify`, `error_update`) were sent
+  to `_send_callback` before `stop()`/`on_stop()` completes — the notify is not lost to shutdown.
+- [ ] **8.5** Test AC17: call `_notify(SUPERVISION_DISCONNECTED)` and `_notify(EVENT_FAILED)` directly →
+  assert NO `transport_permanent_stop` task is ever scheduled (self-stop is TRANSPORT_PERMANENT-scoped).
+- [ ] **8.6** Reverse the now-false Dev Notes: update the "NO_NETWORK is terminal — daemon never recovers"
+  paragraph and AC8's "zombie state" note to state the daemon self-stops so the watchdog restarts it.
+  Keep the CancelledError-during-shutdown note (that path is genuine shutdown, unchanged).
+- [ ] **8.7** Run `python3 -m pytest tests/ -q --tb=short` — full suite green (baseline: 1 pre-existing
+  failure `test_tc13`). Then `python3 -m pylint resources/siadc09d/daemon.py`.
+- [ ] **8.8** VM validation is 12-7 AC11 / Task 10 (already written, `ready-for-dev`) — do NOT duplicate it
+  here. Once code lands, 12-7 Task 10.5/10.6 (`pgrep -f siadc09d` → no output, watchdog restart) is the
+  end-to-end gate. Re-run against SM1.
+
 ## Dev Notes
 
 ### What Already Exists (DO NOT RE-IMPLEMENT)
@@ -138,6 +215,11 @@ After `_tcp_reconnect_loop()` succeeds, SM1=INITIALIZING and supervision resumes
 
 **CancelledError zombie state (acknowledged):**
 If `_tcp_reconnect_loop()` is cancelled (daemon shutdown), SM1 remains TCP_RECONNECTING with no transition. This is acceptable — the daemon is shutting down (`on_stop()` cancels all tasks). Jeedom's cron5 watchdog handles any edge case where the daemon process survives in this state.
+> **Amendment 2026-09-17:** Note that the permanent-failure path now schedules `self.stop()` (AC15),
+> so the loop's *own* task will be cancelled by `on_stop()` step 3 shortly after it schedules the stop.
+> That cancellation lands AFTER the loop has returned (it schedules and falls off the end), so it is a
+> no-op, not a lost transition. The genuine "cancelled mid-`open_connection`" shutdown case above is
+> unchanged.
 
 **`_tcp_reconnect_loop()` probes via `asyncio.open_connection()` with `wait_for` timeout:**
 Not via `SIATCPTransport` — it bypasses the transport layer to directly probe reachability. On success, it closes the probe connection immediately (writer.close() + wait_closed()).
@@ -148,8 +230,16 @@ Line 1069: `self._sm1_t3_fired = False`. This is critical — allows T3 to fire 
 **Fixed delay, NOT exponential backoff:**
 `self._preset.reconnect_delay_s` is constant (default 5s). Exponential backoff is an anti-pattern here — a CSR restart completes in seconds.
 
-**NO_NETWORK is terminal — daemon never recovers:**
-After `_tcp_reconnect_loop()` exhausts attempts, `_set_sm1_state(SM1State.NO_NETWORK)` is set and `_notify(TRANSPORT_PERMANENT, ...)` fires. The daemon continues running (no `self.stop()`) — Jeedom's watchdog will notice `supervision_state` going stale and the next cron5 freshness check will fire an alert. The daemon does NOT self-terminate.
+**NO_NETWORK triggers a clean self-stop → watchdog restart (amended 2026-09-17):**
+~~After `_tcp_reconnect_loop()` exhausts attempts, `_set_sm1_state(SM1State.NO_NETWORK)` is set and `_notify(TRANSPORT_PERMANENT, ...)` fires. The daemon continues running (no `self.stop()`) — Jeedom's watchdog will notice `supervision_state` going stale and the next cron5 freshness check will fire an alert. The daemon does NOT self-terminate.~~
+**Superseded (this note froze the wrong model and produced the SM1 dead-end).** After `_tcp_reconnect_loop()`
+exhausts attempts it sets `NO_NETWORK`, fires `_notify(TRANSPORT_PERMANENT, ...)`, then **schedules
+`self.stop()`** (AC15). `BaseDaemon.stop()` runs `on_stop()` (final STOPPED INFO push, queue drain, cancel
+tasks) and `run()`'s `finally` removes the PID file and `sys.exit(0)`. Jeedom's runtime watchdog (auto=1,
+every minute) then relaunches the process, re-entering `on_start()` → `INITIALIZING` → a fresh reconnect
+cycle. This is the recovery model the design always specified (`daemon-design.md:589/616/677/684`); the
+daemon does NOT sit in `NO_NETWORK` indefinitely. The old "counter=N, daemon stopping" log line that never
+led to a stop was the symptom of this missing call.
 
 **Queue consumer gate:**
 `_queue_consumer()` has a gate loop: while `self._sm1_state == SM1State.TCP_RECONNECTING`, it waits on `self._sm1_state_changed` event (an `asyncio.Event`). When `_tcp_reconnect_loop()` calls `_set_sm1_state(INITIALIZING)` or `_set_sm1_state(NO_NETWORK)`, the event is set, waking the consumer.
@@ -225,6 +315,10 @@ Modified files (Story 7.2):
 
 New files (Story 7.2):
   tests/level2/test_tcp_reconnect_integration.py  ← all new integration tests
+
+Amendment 2026-09-17 (AC15–AC17, Task 8):
+  resources/siadc09d/daemon.py                     ← schedule self.stop() in _tcp_reconnect_loop() permanent-failure tail (~line 1136)
+  tests/level2/test_tcp_reconnect_integration.py   ← extend permanent-failure test + AC16/AC17 tests
 ```
 
 ### Deferred Work from Previous Stories (addressed here)
@@ -242,6 +336,11 @@ New files (Story 7.2):
 - [Source: _bmad-output/implementation-artifacts/deferred-work.md — D-3 dual task race condition]
 - [Source: _bmad-output/implementation-artifacts/7-1-supervision-loop-strike-management-info-updates.md — Story 7.1 patterns and learnings]
 - [Source: tests/level2/test_supervision_loop_integration.py — test fixture pattern (_make_daemon)]
+- [Amendment 2026-09-17] [Source: docs/design/daemon-design.md:589,616,677,684 — `NO_NETWORK --> [*] : _notify() + self.stop()`; the authoritative recovery model this story now aligns to]
+- [Amendment 2026-09-17] [Source: docs/design/supervision-design.md:92 — `on_stop()` Push STOPPED before process exits; :641 — watchdog auto-restarts within ~1 min]
+- [Amendment 2026-09-17] [Source: _bmad-output/implementation-artifacts/3-3-error-handler-module-structure-callback-types.md — stub docstring: "TRANSPORT_PERMANENT: fire all callbacks, then call daemon.stop()" (contract, deferred to Epic 6, never wired)]
+- [Amendment 2026-09-17] [Source: _bmad-output/implementation-artifacts/12-7-error-handling-notification-delivery.md — AC11 / Task 10.5–10.6: VM validation that the daemon exits and the watchdog restarts it]
+- [Amendment 2026-09-17] [Source: jeedomdaemon.BaseDaemon.stop() — cancels `asyncio.all_tasks()` minus current, then run()'s finally removes PID + sys.exit(0); this is why self.stop() must be scheduled, not awaited]
 
 ## Dev Agent Record
 
@@ -269,11 +368,16 @@ Claude Opus 4.6 (1M context)
 ### Change Log
 
 - 2026-05-04: Fixed D-3 dual-task race condition in `_update_sm1_from_strike()` + state regression guard in `_handle_supervision_tcp_drop()`. Created `tests/level2/test_tcp_reconnect_integration.py` with 21 integration tests covering all ACs.
+- 2026-09-17: **Amendment — daemon self-stop on `TRANSPORT_PERMANENT` (Option A, AC15–AC17, Task 8).** Reopened `done → in-progress`. Root cause: the reconnect loop set `NO_NETWORK` and fired `_notify(TRANSPORT_PERMANENT)` but never called `self.stop()`, so host SM1 sat in `NO_NETWORK` forever (log: `NO_NETWORK: SUPERVISION dropped (daemon stopping, counter=N)` every minute) and the Jeedom watchdog restart never triggered. AC2 + Dev Notes had frozen this "no self.stop()" behavior, contradicting `daemon-design.md:589/616/677/684` and the story 3-3 `_dispatch_notify` stub contract. Fix scopes `self._track_task(self.stop(), name="transport_permanent_stop")` to the `_tcp_reconnect_loop()` permanent-failure tail only (NOT `_dispatch_notify`). Reversed the two now-false Dev Notes paragraphs. VM validation stays owned by 12-7 AC11 / Task 10 (unchanged). Design docs were already correct — no design-first pass needed.
 
 ### File List
 
 - `resources/siadc09d/daemon.py` — modified: state regression guard + D-3 guard
 - `tests/level2/test_tcp_reconnect_integration.py` — created: 21 integration tests
+
+**Amendment 2026-09-17 (pending implementation):**
+- `resources/siadc09d/daemon.py` — to modify: schedule `self.stop()` in `_tcp_reconnect_loop()` permanent-failure tail (~line 1136)
+- `tests/level2/test_tcp_reconnect_integration.py` — to modify: extend permanent-failure test (AC15), add AC16 (notify survives shutdown) + AC17 (self-stop scoped to TRANSPORT_PERMANENT)
 
 ### Review Findings
 

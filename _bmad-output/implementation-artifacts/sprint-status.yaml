@@ -89,16 +89,16 @@ development_status:
   epic-6-retrospective: optional
 
   # Epic 7: Supervision Health Monitoring
-  epic-7: done
+  epic-7: in-progress  # reopened 2026-09-17 for the 7-2 self-stop-on-TRANSPORT_PERMANENT amendment
   7-1-supervision-loop-strike-management-info-updates: done
-  7-2-tcp-stall-detection-reconnect-ring-buffer-logging: done
+  7-2-tcp-stall-detection-reconnect-ring-buffer-logging: in-progress  # amendment 2026-09-17: AC15-AC17 / Task 8 (schedule self.stop() on NO_NETWORK so the Jeedom watchdog restarts the daemon — Option A); AC1-AC14 stay done. Fixes SM1 NO_NETWORK dead-end. Validated by 12-7 AC11/Task 10
   7-3-supervision-integration-testing: done
   epic-7-retrospective: done
 
   # Epic 8: Configuration Wizard & CSR Presets
-  epic-8: done
+  epic-8: in-progress  # reopened 2026-09-17 for the 8-2 zone-number amendment
   8-1-wizard-steps-1-2-csr-preset-selection: done
-  8-2-wizard-steps-3-4-zone-mapping: done
+  8-2-wizard-steps-3-4-zone-mapping: in-progress  # amendment 2026-09-17: AC11-AC15 / Task 11 (zone order number in the frame); AC1-AC10 stay done
   8-3-wizard-integration-testing: done
   epic-8-retrospective: optional
 
@@ -129,22 +129,33 @@ development_status:
   12-2-wizard-flow-connection-test: done
   12-3-daemon-lifecycle-jeedom-controls: done
   12-4-supervision-loop-strike-recovery: in-progress
-  12-5-alarm-delivery-end-to-end: done
+  12-5-alarm-delivery-end-to-end: done  # AC3 re-validation owed under 8-2 AC15 (frame must carry the zone NUMBER)
   12-6-widget-debug-ui-rendering: done  # updated 2026-05-29
   12-7-error-handling-notification-delivery: ready-for-dev
   12-8-market-package-install-uninstall: backlog
   epic-12-retrospective: optional
 
+  # Epic 13: Alarm Event Vocabulary Extension (v1.1)
+  epic-13: backlog
+  13-1-burglary-restore-cancel-events: backlog
+  epic-13-retrospective: optional
+
 # Summary Statistics
-# Updated: 2026-05-29 (Story 12-7 ready-for-dev)
+# Updated: 2026-09-17 (Epic 13 / Story 13-1 registered; counters recounted from the
+# status lines above — the previous block was stale: it claimed 45 done / 1 backlog /
+# 0 in-progress, the real tally was 44 / 3 / 1)
+# Updated: 2026-09-17 (8-2 reopened for the zone-number amendment → epic-8 reopened;
+# done 44→43, in-progress 1→2, epics_done 10→9, epics_in_progress 2→3)
+# Updated: 2026-09-17 (7-2 reopened for the self-stop-on-TRANSPORT_PERMANENT amendment → epic-7 reopened;
+# done 43→42, in-progress 2→3, epics_done 9→8, epics_in_progress 3→4)
 summary:
-  total_epics: 12
-  total_stories: 50
-  epics_backlog: 0
-  epics_in_progress: 2
-  epics_done: 10
-  stories_backlog: 1
+  total_epics: 13
+  total_stories: 51
+  epics_backlog: 1
+  epics_in_progress: 4
+  epics_done: 8
+  stories_backlog: 4
   stories_ready_for_dev: 2
-  stories_in_progress: 0
+  stories_in_progress: 3
   stories_review: 0
-  stories_done: 45
+  stories_done: 42

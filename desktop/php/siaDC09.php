@@ -288,6 +288,7 @@ $scenarios = scenario::all();
 										<table id="siaDC09-zone-table" class="table table-bordered table-condensed">
 											<thead>
 												<tr>
+													<th style="width:60px;">{{N°}}</th>
 													<th>{{Zone d'alarme}}</th>
 													<th>{{Action caméra}} <small class="text-muted">{{(optionnel)}}</small></th>
 													<th>{{URL média}} <small class="text-muted">{{(optionnel)}}</small></th>
@@ -297,6 +298,9 @@ $scenarios = scenario::all();
 											</tbody>
 										</table>
 									</div>
+									<p class="text-muted">
+										<i class="fas fa-info-circle"></i> {{Le N° est le numéro de zone transmis à la centrale : communiquez-lui cette correspondance N° / zone.}}
+									</p>
 									<div class="form-group" style="margin-top:15px;">
 										<div class="col-sm-12" style="text-align:right;">
 											<a class="btn btn-success" id="bt_step3Next"><i class="fas fa-arrow-right"></i> {{Suivant}}</a>

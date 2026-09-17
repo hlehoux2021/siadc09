@@ -90,7 +90,7 @@ Rationale: Only one equipment exists (plugin-centric). The wizard IS the equipme
 | `sia_notify_internal` | string | `''` | kind=`internal`: Jeedom internal action to run — `message` (message center) or `scenario` |
 | `sia_notify_scenario_id` | int | `0` | kind=`internal` + `scenario`: scenario to launch |
 | `sia_wizard_step` | int | `0` | last completed wizard step (0–4), for resuming |
-| `sia_zone_mappings` | array | `[]` | `[{zone_name, camera_action_cmd_id, media_url_cmd_id}]` |
+| `sia_zone_mappings` | array | `[]` | `[{zone_number, zone_name, camera_action_cmd_id, media_url_cmd_id}]` — `zone_number` is the 1-based order number shown at wizard step 3 and the only zone identifier sent to the CSR |
 | `sia_last_errors` | JSON array | `[]` | Structured error list (daemon-written, max 10 entries, newest first) |
 | `sia_last_messages` | JSON array | `[]` | Protocol dialog ring buffer (daemon-written, max 50 entries, newest first) |
 
@@ -376,14 +376,37 @@ public function execute($options = []) {
         // The PHP warning above is the only early-detection signal available at execute time.
     }
 
+    // Resolve the zone ORDER NUMBER — this is what the SIA frame carries.
+    // No match (or no number stored) → null → the daemon emits no zone field at all.
+    $zoneNumber = null;
+    if ($zoneEntry !== null && !empty($zoneEntry['zone_number'])) {
+        $zoneNumber = (int) $zoneEntry['zone_number'];
+    } elseif ($zone !== '') {
+        log::add(__CLASS__, 'warning',
+            'Zone "' . $zone . '" absente de la table des zones — trame envoyée sans numéro de zone'
+        );
+    }
+
     // Fire-and-forget to daemon
     $eqLogic->sendToDaemon([
-        'cmd'       => $cmd,
-        'zone'      => $zone,
-        'media_url' => $mediaUrl,
+        'cmd'         => $cmd,
+        'zone'        => $zone,        // human label — logs, notifications, inspector
+        'zone_number' => $zoneNumber,  // int|null — the only thing that reaches the frame
+        'media_url'   => $mediaUrl,
     ]);
 }
 ```
+
+> **Doc ahead of code:** the camera action and `_resolveMediaUrl()` above are the target
+> design; the shipped `siaDC09Cmd::execute()` implements the zone extraction, the
+> `_findZoneEntry()` lookup and the `zone_number` resolution only. Do not read this
+> snippet as a description of what currently runs.
+
+**Why two fields and not one:** replacing `zone` with the number would degrade every
+diagnostic surface — `error_handler.py` renders `zone_name` in the French notification text
+and would print "(zone: 001)", and an unmatched zone would print "&lt;inconnu&gt;" even
+though the alarm plugin knew the label. The label therefore stays in the payload
+end-to-end; only `_build_event_frame()` consumes `zone_number`.
 
 **Why fire-and-forget:** PHP cannot block on a network exchange. The daemon handles the async protocol dialog and reports back via `message()`.
 
@@ -397,6 +420,20 @@ The Jeedom alarm plugin provides these tags in action command execution:
 - `#zone#` — name of the triggered zone
 - `#alarm_trigger#` — trigger description
 - `#mode#` — current alarm mode
+
+These are the **only** three tags the alarm plugin supports (`alarm.class.php`, master):
+substitution is a plain `str_replace` over every value of the action's `options` array, so a
+tag works in *Titre* as well as in *Message*. `#name_zone#` does not exist and would be
+transmitted literally.
+
+`#zone#` resolves to `$zone['name']` — the zone **label**, never a number. The alarm
+plugin's zone model is `{name, actions, actionsImmediate, triggers}` (`desktop/js/alarm.js:232-238`);
+it has no zone identifier to offer. Hence the label → number resolution below.
+
+`#zone#` is only supplied by `outbreak`, `outbreakImmediate`, the zone-level
+`actions`/`actionsImmediate`, `reenableTrigger` and `activationKo`. `release`, `raz`,
+`razImmediate`, `activationOk` and `activationImmediateOk` pass **`#mode#` only** — which is
+why restoral events (BR/BC, Story 13.1) cannot get their zone from the alarm plugin.
 
 **User configuration required:** In the alarm plugin's zone action settings, the user must manually configure the ACTION command with `title` = `#zone#` (or any text containing `#zone#`). This is NOT automatic — the user must set this up once during configuration.
 
@@ -419,10 +456,16 @@ private function _findZoneEntry(string $zone, array $zoneMapping): ?array {
 }
 ```
 
-**No zone in mapping → send alarm anyway:** If `$zone` is not found in `zoneMapping`,
-`_findZoneEntry()` returns `null`. Both `camera_action_cmd_id` and `media_url_cmd_id`
-checks are skipped (empty entry), and the alarm is sent with an empty `media_url`.
-An alarm must never be blocked by a configuration issue.
+**No zone in mapping → send alarm anyway, without a zone number:** If `$zone` is not found
+in `zoneMapping`, `_findZoneEntry()` returns `null`. Both `camera_action_cmd_id` and
+`media_url_cmd_id` checks are skipped (empty entry), the alarm is sent with an empty
+`media_url`, and `zone_number` is `null` so the frame carries **no zone field at all**
+(`[#001234|BA]`) — never the unresolved label. A warning names the zone so the operator can
+fix the mapping. An alarm must never be blocked by a configuration issue.
+
+**Zone number formatting:** the number is an `int` in the payload; zero-padding to 3 digits
+(`1` → `001`) happens once, in the daemon's frame builder, per DC-09 Annex B usage
+(`[#1234|FA 129]`, Contact ID `[#1234|1130 02 065]`).
 
 ### Future feature (v1.x): Auto-configure alarm zone actions
 

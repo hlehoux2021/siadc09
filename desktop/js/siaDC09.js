@@ -43,11 +43,15 @@ function saveEqLogic(_eqLogic) {
     var mappings = []
     $('#siaDC09-zone-tbody tr').each(function() {
       var zoneName = $(this).attr('data-zone-name')
+      // The row keeps the number it was displayed with — never recomputed here, so a number
+      // already declared to the CSR stays attached to the same zone.
+      var zoneNumber = parseInt($(this).attr('data-zone-number'), 10)
       var $takeSelect = $(this).find('.siaDC09-zone-camera-take')
       var $urlSelect = $(this).find('.siaDC09-zone-media-url')
       var cameraActionCmdId = $takeSelect.val() || null
       var mediaUrlCmdId = $urlSelect.val() || null
       mappings.push({
+        zone_number: zoneNumber || null,
         zone_name: zoneName,
         camera_action_cmd_id: cameraActionCmdId ? parseInt(cameraActionCmdId) : null,
         camera_action_cmd_label: cameraActionCmdId ? $takeSelect.find(':selected').text() : null,
@@ -486,16 +490,28 @@ function siaDC09_loadZoneData(eqLogic) {
 function siaDC09_loadZoneTable(zones, zoneMapping, cameraCommands) {
   var $tbody = $('#siaDC09-zone-tbody')
   $tbody.empty()
-  zones.forEach(function(zoneName) {
-    var saved = (zoneMapping || []).find(function(m) {
+  var mapping = zoneMapping || []
+  // Highest number already assigned — a zone unknown to the saved mapping takes the next one,
+  // so a number already declared to the CSR never shifts to another zone.
+  var nextNumber = mapping.reduce(function(max, m) {
+    return Math.max(max, parseInt(m.zone_number, 10) || 0)
+  }, 0)
+  zones.forEach(function(zoneName, index) {
+    var saved = mapping.find(function(m) {
       return m.zone_name === zoneName
     }) || {}
-    $tbody.append(siaDC09_buildZoneRow(zoneName, saved, cameraCommands))
+    // Legacy mappings have no zone_number: fall back to table position.
+    var zoneNumber = parseInt(saved.zone_number, 10) || 0
+    if (!zoneNumber) {
+      zoneNumber = mapping.length === 0 ? index + 1 : ++nextNumber
+    }
+    $tbody.append(siaDC09_buildZoneRow(zoneNumber, zoneName, saved, cameraCommands))
   })
 }
 
-function siaDC09_buildZoneRow(zoneName, saved, cameraCommands) {
+function siaDC09_buildZoneRow(zoneNumber, zoneName, saved, cameraCommands) {
   var $tr = $('<tr>')
+  $tr.append($('<td>').text(zoneNumber))
   $tr.append($('<td>').text(zoneName))
 
   // Camera action select (CAMERA_TAKE)
@@ -522,6 +538,8 @@ function siaDC09_buildZoneRow(zoneName, saved, cameraCommands) {
   })
   $tr.append($('<td>').append($urlSelect))
 
+  // The displayed <td> is for the user; these attributes are the serialization contract.
+  $tr.attr('data-zone-number', zoneNumber)
   $tr.attr('data-zone-name', zoneName)
   return $tr
 }
@@ -672,6 +690,10 @@ function siaDC09_populateConfigSummary(eqLogic) {
   } else {
     mappings.forEach(function(m) {
       var $row = $('<div>')
+      // Prefix with the number transmitted to the CSR, so config mode shows what it receives.
+      if (m.zone_number) {
+        $row.append($('<strong>').text('N° ' + m.zone_number + ' '))
+      }
       $row.append($('<span>').text(m.zone_name))
       if (m.camera_action_cmd_label) {
         $row.append($('<span>').text(' → '))

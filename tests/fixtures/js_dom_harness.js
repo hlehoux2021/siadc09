@@ -1,7 +1,7 @@
 /**
  * DOM test harness for siaDC09.js diagnostic rendering functions.
  *
- * Loads the diagnostic section of siaDC09.js (lines 700+) into a jsdom window
+ * Loads the diagnostic section of siaDC09.js (from the "DIAGNOSTIC TAB" banner) into a jsdom window
  * with jQuery, then runs the test scenarios passed as JSON via argv and prints
  * results as a JSON array to stdout.
  *
@@ -52,11 +52,18 @@ $.fn.showAlert = function() { return this }
 $.ajax = function() {}
 window.jeedomUtils = { saveEquipment: function() {} }
 
-// Load diagnostic section of siaDC09.js (skip lines 0-699 which need jQuery UI)
+// Load the diagnostic section of siaDC09.js — everything above it needs jQuery UI.
+// Anchored on the section banner, never on a line number: the wizard code above grows
+// and a fixed offset silently cuts mid-function, which only surfaces as a SyntaxError.
+const DIAG_SECTION_MARKER = '// ===== DIAGNOSTIC TAB ====='
 const allLines = fs.readFileSync(
   path.join(PROJECT_ROOT, 'desktop/js/siaDC09.js'), 'utf8'
 ).split('\n')
-const diagSection = allLines.slice(700).join('\n')
+const diagStart = allLines.findIndex(line => line.trim() === DIAG_SECTION_MARKER)
+if (diagStart === -1) {
+  throw new Error(`marker "${DIAG_SECTION_MARKER}" not found in desktop/js/siaDC09.js`)
+}
+const diagSection = allLines.slice(diagStart).join('\n')
 window.eval(diagSection)
 
 // ── Test runner ───────────────────────────────────────────────────────────────

@@ -24,6 +24,8 @@
       "Bash(wc:*)",
       "Bash(head:*)",
       "Bash(tail:*)",
+      "Bash(awk:*)",
+      "Bash(jq:*)",
       "Bash(find core/:*)",
       "Bash(find desktop/:*)",
       "Bash(find resources/:*)",

@@ -275,16 +275,20 @@ The "Suivant" button is still available — the user can proceed with an empty m
 Zones are loaded as read-only rows. The user cannot add or remove rows.
 
 ```
-+--------------------+----------------------------------+----------------------------------+
-| Zone d'alarme      | Action caméra  (optionnel)       | URL média  (optionnel)           |
-+--------------------+----------------------------------+----------------------------------+
-| Salon              | [Caméra Salon > Snapshot      ▼] | [Caméra Salon > URL flux      ▼] |
-| Chambre parents    | [(aucune)                     ▼] | [(aucune)                     ▼] |
-| Entrée             | [Caméra Entrée > Snapshot     ▼] | [(aucune)                     ▼] |
-| Garage             | [(aucune)                     ▼] | [(aucune)                     ▼] |
-+--------------------+----------------------------------+----------------------------------+
++-----+--------------------+----------------------------------+----------------------------------+
+| N°  | Zone d'alarme      | Action caméra  (optionnel)       | URL média  (optionnel)           |
++-----+--------------------+----------------------------------+----------------------------------+
+|  1  | Salon              | [Caméra Salon > Snapshot      ▼] | [Caméra Salon > URL flux      ▼] |
+|  2  | Chambre parents    | [(aucune)                     ▼] | [(aucune)                     ▼] |
+|  3  | Entrée             | [Caméra Entrée > Snapshot     ▼] | [(aucune)                     ▼] |
+|  4  | Garage             | [(aucune)                     ▼] | [(aucune)                     ▼] |
++-----+--------------------+----------------------------------+----------------------------------+
 ```
 
+- **N°**: read-only `<td>`, the zone's **order number** — its 1-based position in the list
+  returned by `getZones`, i.e. the order the user sees in the alarm plugin. This is the
+  number transmitted to the CSR (see "Zone number in the SIA frame" below). It is
+  displayed so the user can tell the CSR which physical zone each number designates.
 - **Zone d'alarme**: read-only `<td>`, text from alarm plugin
 - **Action caméra**: `<select>` populated with commands of generic type `CAMERA_TAKE`.
   First option: `(aucune)` (value `""`). Other options: `Caméra Salon > Snapshot` etc.
@@ -301,12 +305,39 @@ The mapping is stored as a JSON array in the `sia_zone_mappings` config key:
 
 ```json
 [
-  {"zone_name": "Salon",           "camera_action_cmd_id": 42,   "media_url_cmd_id": 43},
-  {"zone_name": "Chambre parents", "camera_action_cmd_id": null,  "media_url_cmd_id": null},
-  {"zone_name": "Entrée",          "camera_action_cmd_id": 44,   "media_url_cmd_id": null},
-  {"zone_name": "Garage",          "camera_action_cmd_id": null,  "media_url_cmd_id": null}
+  {"zone_number": 1, "zone_name": "Salon",           "camera_action_cmd_id": 42,   "media_url_cmd_id": 43},
+  {"zone_number": 2, "zone_name": "Chambre parents", "camera_action_cmd_id": null,  "media_url_cmd_id": null},
+  {"zone_number": 3, "zone_name": "Entrée",          "camera_action_cmd_id": 44,   "media_url_cmd_id": null},
+  {"zone_number": 4, "zone_name": "Garage",          "camera_action_cmd_id": null,  "media_url_cmd_id": null}
 ]
 ```
+
+`zone_number` is **persisted**, not recomputed at send time: the alarm plugin can reorder
+or delete zones, and a number already declared to the CSR must not silently shift to a
+different physical zone. On save, rows keep the number they were displayed with; a zone
+seen for the first time takes `max(existing) + 1`, so numbers are stable and never reused.
+Legacy configurations written before this evolution have no `zone_number` — they are
+renumbered by table position the first time step 3 is saved.
+
+### Zone number in the SIA frame
+
+What the alarm plugin passes in the action's *Titre* is the zone **label** (`#zone#` →
+`$zone['name']`), never a number — the alarm plugin's zone model is
+`{name, actions, actionsImmediate, triggers}`, it has no identifier at all. So the label is
+resolved against this table:
+
+| Case | Frame |
+|------|-------|
+| Label matches a `zone_name` (case-insensitive, trimmed) | `[#001234|BA 001]` — the matched `zone_number`, zero-padded to 3 digits |
+| No match, or empty title | `[#001234|BA]` — **no zone field at all**, plus a warning in the log |
+
+The label is never transmitted. Rationale: a CSR indexes incidents by zone number; a free
+text label is not actionable for an operator and is not what the DC-09 Annex B examples
+show (`[#1234|FA 129]`, Contact ID `[#1234|1130 02 065]` — hence the 3-digit padding).
+
+The label is still carried in the IPC payload and stays in the logs, the notification
+context (`zone_name`) and the protocol inspector — it is dropped from the **frame** only,
+so diagnosability is unchanged.
 
 The zone table is managed by `printEqLogic()` (populate from saved config) and
 `saveEqLogic()` (serialize table rows back to `sia_zone_mappings` before save).
@@ -653,15 +684,30 @@ function siaDC09_nextStep() {
 function siaDC09_loadZoneTable(zones, zoneMapping, cameraCommands) {
     var tbody = $('#siaDC09_zone_table tbody');
     tbody.empty();
-    zones.forEach(function(zoneName) {
-        var saved = (zoneMapping || []).find(function(m) {
+    var mapping = zoneMapping || [];
+    // Highest number already assigned — a zone unknown to the saved mapping takes the next one,
+    // so a number already declared to the CSR never shifts to another zone.
+    var nextNumber = mapping.reduce(function(max, m) {
+        return Math.max(max, parseInt(m.zone_number, 10) || 0);
+    }, 0);
+    zones.forEach(function(zoneName, index) {
+        var saved = mapping.find(function(m) {
             return m.zone_name === zoneName;
         }) || {};
-        var row = siaDC09_buildZoneRow(zoneName, saved, cameraCommands);
+        // Legacy mappings have no zone_number: fall back to table position.
+        var zoneNumber = parseInt(saved.zone_number, 10) || 0;
+        if (!zoneNumber) {
+            zoneNumber = mapping.length === 0 ? index + 1 : ++nextNumber;
+        }
+        var row = siaDC09_buildZoneRow(zoneNumber, zoneName, saved, cameraCommands);
         tbody.append(row);
     });
 }
 ```
+
+`siaDC09_buildZoneRow()` renders the number as a read-only `<td>` **and** carries it in a
+`data-zone-number` attribute on the row, which is what `saveEqLogic` reads back — the
+displayed text is for the user, the attribute is the contract.
 
 ### testConnection (single call — no polling)
 
@@ -760,7 +806,8 @@ auto-trigger on step arrival, "Relancer le test" / "Ignorer" / "Suivant" buttons
 
 **`saveEqLogic` hook:**
 - Guard: only serialize when `siaDC09_currentStep() >= 3` (or in config mode). At steps 1–2 the zone table is not loaded — skip writing `sia_zone_mappings` to avoid overwriting a previously saved mapping with an empty array.
-- Read each table row: `zone_name` (text), `camera_action_cmd_id` (select value),
+- Read each table row: `zone_number` (`data-zone-number` attribute, integer),
+  `zone_name` (text), `camera_action_cmd_id` (select value),
   `media_url_cmd_id` (select value)
 - Build array and write to `_eqLogic.configuration.sia_zone_mappings`
 
@@ -1161,6 +1208,10 @@ etc.) are out of scope for v1.0 but the file structure is designed for extensibi
 | Step 3 alarm plugin found | Install alarm plugin with zones → verify table populated correctly |
 | Step 3 alarm plugin missing | No alarm plugin → verify warning banner, Suivant still available |
 | Step 3 sia_zone_mappings save | Select camera for Salon, save → reload → verify selection preserved |
+| Step 3 zone numbers | 4 zones → N° column shows 1..4; save → reload → same numbers |
+| Step 3 zone number stability | Delete zone 2 in the alarm plugin, reload step 3 → zones 3 and 4 keep their numbers (no renumbering) |
+| Zone number in frame | Trigger alarm with title `#zone#` on a mapped zone → frame carries `BA 00N`, never the label |
+| Unmapped zone | Trigger with a title matching no zone → frame carries no zone field, warning logged, alarm still sent |
 | Step 4 Terminer without cmd | Click Terminer with no command → verify inline error, no advance |
 | Step 4 command picker | Click search button → jeedom.cmd.getSelectModal opens, selection fills fields |
 | Post-wizard config mode | After Terminer → verify wizard hidden, config summary shown |

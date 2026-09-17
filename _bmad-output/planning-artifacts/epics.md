@@ -925,8 +925,9 @@ So that the plugin integrates properly with Jeedom architecture.
 
 **And** cmd class defines two command types:
 - **Action commands** (not visible in UI): burglarAlarm, fireAlarm, panicAlarm
-  - Accept zone name in `#zone#` tag in title
-  - Payload: zone name sent to daemon via sendToDaemon()
+  - Accept the zone **label** in the `#zone#` tag placed in the action's *Titre* field
+  - Resolve that label against `sia_zone_mappings` to obtain `zone_number` (amended 2026-09-17, Story 8.2 AC13)
+  - Payload sent to daemon via sendToDaemon(): `{cmd, zone: label, zone_number: int|null, media_url}` — only `zone_number` reaches the SIA frame
 
 - **INFO commands** (not visible in UI): supervision_state, supervision_label, event_state, event_label
   - Updated by daemon callbacks
@@ -1303,7 +1304,7 @@ So that alarms trigger cameras and I get notified on failures.
 **When** page loads
 **Then** zone mapping table shows all zones from Jeedom alarm plugin
 
-**And** each row has: Zone Name | Camera Action Selector | Media URL Input
+**And** each row has: N° | Zone Name | Camera Action Selector | Media URL Input
 
 **And** camera selector is a Jeedom.cmd.getSelectModal() popup (Jeedom 4.5+ API)
 
@@ -1312,6 +1313,20 @@ So that alarms trigger cameras and I get notified on failures.
 **And** zone names are extracted from alarm plugin action `#zone#` tag (user-configured in alarm plugin)
 
 **And** mapping is saved to equipment config
+
+**Amendment 2026-09-17 — zone order number (AC11–AC15):**
+
+**And** each row displays a zone order number (1-based, from the alarm plugin zone order), carried on the row as `data-zone-number` and persisted in `sia_zone_mappings` as `zone_number`
+
+**And** the number is stable: never recomputed at send time; a new zone gets `max(existing) + 1`; legacy entries without `zone_number` are renumbered by table position on the first Step 3 save
+
+**Given** an alarm fires with `#zone#` = a label present in `sia_zone_mappings`
+**Then** the SIA frame carries the **zone order number**, zero-padded to 3 digits — `[#001234|BA 001]` — and never the label
+
+**Given** an alarm fires with a label absent from `sia_zone_mappings`
+**Then** the frame carries **no zone field at all** — `[#001234|BA]` — a WARNING naming the label is logged, and the alarm is still sent
+
+**And** the IPC payload keeps both fields on purpose: `zone` = label (logs, notifications, ring buffer, protocol inspector), `zone_number` = the only zone identity that reaches the frame
 
 **And** Step 4 displays mandatory notification command selector
 - Opens Jeedom.cmd.getSelectModal() to select a notification command
@@ -1965,16 +1980,17 @@ So that my home is protected by professional monitoring.
 - [ ] fireAlarm → FA code → ACK → CONFIRMED
 - [ ] panicAlarm → PA code → ACK → CONFIRMED
 
-**Zone handling:**
-- Trigger alarm with zone name → verify zone appears in SIA frame (protocol inspector)
-- Trigger alarm without zone → verify frame still valid (zone field empty or omitted)
+**Zone handling** (amended 2026-09-17 — see Story 8.2 AC11–AC15):
+- Trigger alarm with a zone name present in the zone table → the SIA frame carries the zone **order number**, 3-digit zero-padded (`[#001234|BA 001]`), never the label (protocol inspector)
+- Trigger alarm with a zone name absent from the zone table → the frame carries **no zone field** (`[#001234|BA]`) + WARNING, alarm still sent
+- Trigger alarm without zone → same as unresolved, frame still valid, no crash
 
 **Validation checklist:**
 - [ ] Burglar alarm ACK path works end-to-end
 - [ ] Fire alarm ACK path works
 - [ ] Panic alarm ACK path works
 - [ ] NAK path → FAILED + T3 notification
-- [ ] Zone name included in SIA frame
+- [ ] Zone **order number** included in SIA frame (never the zone label)
 - [ ] Ring buffer shows alarm dialog
 
 ---
@@ -2172,3 +2188,41 @@ sudo rm /var/www/html/plugins/siaDC09
 - [ ] Full wizard + supervision works from packaged install
 - [ ] Uninstall leaves no orphans
 - [ ] Upgrade preserves config and equipment
+
+---
+
+## Epic 13: Alarm Event Vocabulary Extension (v1.1)
+
+Report the *end* of an alarm, not only its start: Burglary Restore (BR) when a zone returns to normal, Burglary Cancel (BC) when the user cancels from the abort window. v1.0 emits BA/FA/PA only, so a CSR keeps an incident open until an operator calls back.
+
+**Dependencies:** Epic 12 (v1.0 validated on real Jeedom), plus the zone-number resolution added to Story 8.2 — a restoral must carry the same zone number as the alarm it closes.
+**FRs covered:** new (post-MVP, PRD Growth v1.1+)
+**Testing:** level 1 frame building, level 2 SM2 correlation, real Jeedom UI on `test-jeedom.lehoux.net` against the internal receiver `192.168.100.15:10002`
+
+### Story 13.1: Burglary Restore (BR) & Burglary Cancel (BC) Events
+
+As a monitored Jeedom user,
+I want the plugin to report the end of an intrusion event — zone back to normal (BR) and alarm cancelled by the user (BC),
+So that the CSR closes the incident instead of keeping an open alarm.
+
+This story carries three **blocking design questions** that must be answered in the design docs before code (full analysis with code references in `_bmad-output/implementation-artifacts/13-1-burglary-restore-cancel-events.md`):
+
+1. **Zone correlation** — SM2 keeps a single current event (`daemon.py:339-340`: `_event_sia_code` / `_event_zone`), so after `BA Salon` then `BA Cuisine` it cannot tell which alarm `BR Salon` closes. Per-zone active-alarm map, or unconditional BR with correlation left to the CSR?
+2. **`event_state` vocabulary** — the numeric info command (`siaDC09.class.php:647`) has 0 inactive / 1 confirmed / 2 failed / 3 in progress, none of which means "returned to normal" or "cancelled"; reusing 0 conflates "restored" with "nothing ever happened". New states (widget + labels + diagnostic tab), or expose the restoral elsewhere?
+3. **Commands and alarm-plugin wiring** — which Jeedom action commands to expose, and where their zone comes from: the alarm plugin's natural restore triggers (`release`, `raz`, `razImmediate`) pass **only** `#mode#`, never `#zone#` (`alarm.class.php:703-712`, `:743`), so the zone of a BR cannot come from the alarm plugin at all.
+
+**Acceptance criteria:**
+
+**Given** the three design questions above
+**When** implementation starts
+**Then** each one is answered in `daemon-design.md`, `widget-design.md` and `php-core-design.md` first
+
+**And** `SiaEventCode`, `_EVENT_SIA_CODES` and `error_handler.py`'s code/label maps (`:328`, `:366`) accept BR and BC
+
+**And** a BR frame is `[#{account}|BR {zone_number}]` — the resolved number from the zone table, never the zone label
+
+**And** an unresolved zone yields `[#{account}|BR]` with a warning, consistent with Story 8.2
+
+**And** BR for a zone that never alarmed, and a duplicate BR, both have a test proving the chosen behaviour
+
+**And** the whole flow is validated through the real Jeedom UI on `test-jeedom.lehoux.net`, alarm triggered *and* ended, both frames read in the protocol inspector

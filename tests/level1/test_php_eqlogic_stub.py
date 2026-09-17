@@ -109,6 +109,18 @@ def execute_body(php_cmd_source: str) -> str:
     return _extract_method_body(php_cmd_source, "execute")
 
 
+@pytest.fixture(scope="module")
+def run_notify_target_body(php_source: str) -> str:
+    """Single entry point for critical notifications — every caller delegates here."""
+    return _extract_method_body(php_source, "_runNotifyTarget")
+
+
+@pytest.fixture(scope="module")
+def has_notify_target_body(php_source: str) -> str:
+    """Guard helper: tells deamon_info() whether step 4 left a usable alert target."""
+    return _extract_method_body(php_source, "_hasNotifyTarget")
+
+
 # ── Story 6.1 — File existence ────────────────────────────────────────────────
 
 
@@ -684,17 +696,28 @@ def test_error_update_uses_config_save(message_body: str) -> None:
 # ── Story 6.3 — notify uses sia_notify_cmd_id ───────────────────────────────
 
 
-def test_notify_reads_sia_notify_cmd_id(message_body: str) -> None:
+def test_notify_reads_sia_notify_cmd_id(
+    message_body: str, run_notify_target_body: str
+) -> None:
     """
     The notify case must read the config key 'sia_notify_cmd_id' (with sia_
     prefix) — NOT bare 'notify_cmd_id' as incorrectly shown in error-handler-design.md.
 
+    Since epic 12 the read lives in _runNotifyTarget(), which message() delegates to so
+    the command target and the Jeedom internal action share one code path.
+
     Expected result:
-    - 'sia_notify_cmd_id' appears in message() body
+    - message() routes the 'notify' case to _runNotifyTarget()
+    - 'sia_notify_cmd_id' appears in _runNotifyTarget()
     """
+    # Assert: message() delegates instead of reading the config itself
+    assert "_runNotifyTarget(" in message_body, (
+        "message() notify case must delegate to _runNotifyTarget() — "
+        "single entry point shared with the supervision alert"
+    )
     # Assert: canonical config key with sia_ prefix is used
-    assert "sia_notify_cmd_id" in message_body, (
-        "message() notify case must use 'sia_notify_cmd_id' config key "
+    assert "sia_notify_cmd_id" in run_notify_target_body, (
+        "_runNotifyTarget() must use 'sia_notify_cmd_id' config key "
         "(not bare 'notify_cmd_id')"
     )
 
@@ -862,27 +885,31 @@ def test_callback_php_handles_test_ping(callback_php_source: str) -> None:
 # ── Story 6.3 QA — G7: notify try/catch safety ──────────────────────────────
 
 
-def test_notify_wraps_exec_cmd_in_try_catch(message_body: str) -> None:
+def test_notify_wraps_exec_cmd_in_try_catch(run_notify_target_body: str) -> None:
     """
     The notify case must wrap execCmd() in try/catch. If a misconfigured
     notification command throws, it would propagate up as HTTP 500 and crash
     the entire callback pipeline for ALL callback types (not just notify).
 
+    The execCmd() call moved into _runNotifyTarget() with epic 12, so the guard is
+    asserted there — message() only delegates.
+
     Expected result:
-    - 'try' and 'catch' appear in message() body near 'execCmd'
+    - 'try' and 'catch' appear in _runNotifyTarget() near 'execCmd'
     """
     # Assert: try/catch exists
-    assert "try {" in message_body or "try{" in message_body, (
-        "message() notify case must wrap execCmd in try/catch — "
+    assert "try {" in run_notify_target_body or "try{" in run_notify_target_body, (
+        "_runNotifyTarget() must wrap execCmd in try/catch — "
         "exception would crash the entire callback pipeline"
     )
     # Assert: catch block exists
-    assert "catch (Exception" in message_body or "catch(Exception" in message_body, (
-        "message() must catch Exception from execCmd"
-    )
+    assert (
+        "catch (Exception" in run_notify_target_body
+        or "catch(Exception" in run_notify_target_body
+    ), "_runNotifyTarget() must catch Exception from execCmd"
     # Assert: execCmd is the thing being wrapped
-    assert "execCmd" in message_body, (
-        "message() notify case must call execCmd()"
+    assert "execCmd" in run_notify_target_body, (
+        "_runNotifyTarget() must call execCmd() on the configured command"
     )
 
 
@@ -1085,21 +1112,32 @@ def test_guard3_blocks_tbd_ip(deamon_info_body: str) -> None:
     )
 
 
-def test_guard6_blocks_missing_notify_cmd(deamon_info_body: str) -> None:
+def test_guard6_blocks_missing_notify_cmd(
+    deamon_info_body: str, has_notify_target_body: str
+) -> None:
     """
-    Guard 6 in deamon_info() must validate that sia_notify_cmd_id is non-empty
-    before allowing daemon start. Missing notify cmd id would cause critical
-    notifications to be silently dropped.
+    Guard 6 in deamon_info() must validate that a notification target is configured
+    before allowing daemon start. Missing target would cause critical notifications to
+    be silently dropped. Since epic 12 the check is _hasNotifyTarget(), which accepts an
+    equipment command or a Jeedom internal action.
 
     The key must appear as a quoted string in a getConfiguration() call, not just
     anywhere in the method body (e.g., in a comment).
 
     Expected result:
-    - getConfiguration('sia_notify_cmd_id') call present in deamon_info() body
+    - deamon_info() blocks the start on !_hasNotifyTarget()
+    - _hasNotifyTarget() calls getConfiguration('sia_notify_cmd_id') for the cmd kind
     """
+    # Assert: Guard 6 blocks the start when no target is configured
+    assert re.search(r"if\s*\(\s*!\s*self::_hasNotifyTarget\s*\(", deamon_info_body), (
+        "deamon_info() Guard 6 must block the start on !self::_hasNotifyTarget() — "
+        "no reachable target means the first alarm fails silently"
+    )
     # Assert: sia_notify_cmd_id used in getConfiguration(), not just in a comment
-    assert re.search(r"""getConfiguration\s*\(\s*['"]sia_notify_cmd_id['"]""", deamon_info_body), (
-        "deamon_info() Guard 6 must call getConfiguration('sia_notify_cmd_id') — "
+    assert re.search(
+        r"""getConfiguration\s*\(\s*['"]sia_notify_cmd_id['"]""", has_notify_target_body
+    ), (
+        "_hasNotifyTarget() must call getConfiguration('sia_notify_cmd_id') — "
         "string only in a comment would pass a bare substring check"
     )
 
@@ -1122,6 +1160,28 @@ def _extract_js_handler(js_source: str, btn_id: str) -> str:
     assert start != -1, f"Handler for {btn_id} not found in siaDC09.js"
 
     brace_start = js_source.index("{", start)
+    depth = 1
+    i = brace_start + 1
+    while i < len(js_source) and depth > 0:
+        if js_source[i] == "{":
+            depth += 1
+        elif js_source[i] == "}":
+            depth -= 1
+        i += 1
+    return js_source[brace_start + 1 : i - 1]
+
+
+def _extract_js_function(js_source: str, fn_name: str) -> str:
+    """Extract the body of a top-level `function <name>() { ... }` declaration.
+
+    Same brace walk as _extract_js_handler, anchored on the declaration instead of a
+    selector — wizard logic that moved out of a click handler into a named helper stays
+    assertable.
+    """
+    match = re.search(rf"function\s+{re.escape(fn_name)}\s*\(", js_source)
+    assert match, f"function {fn_name} not found in siaDC09.js"
+
+    brace_start = js_source.index("{", match.end())
     depth = 1
     i = brace_start + 1
     while i < len(js_source) and depth > 0:
@@ -1218,19 +1278,28 @@ def test_bt_step4finish_validates_notify_cmd_before_save(js_source: str) -> None
     guard, users could complete the wizard without configuring the mandatory T3
     notification command, causing critical alerts to be silently dropped.
 
+    Since epic 12 the check is siaDC09_validateNotifyTarget(), which validates whichever
+    target kind is selected (equipment command, message, scenario).
+
     Expected result:
-    - sia_notify_cmd_id is read from the DOM in the bt_step4Finish handler
-    - A guard check (if !notifyCmdId or equivalent) is present before save()
+    - #bt_step4Finish returns early when siaDC09_validateNotifyTarget() is falsy
+    - siaDC09_validateNotifyTarget() reads sia_notify_cmd_id from the DOM and guards it
     """
     handler_body = _extract_js_handler(js_source, "#bt_step4Finish")
+    validator_body = _extract_js_function(js_source, "siaDC09_validateNotifyTarget")
 
+    # Assert: the handler aborts the save when validation fails
+    assert re.search(r"if\s*\(\s*!\s*siaDC09_validateNotifyTarget\s*\(\s*\)", handler_body), (
+        "#bt_step4Finish must return early on !siaDC09_validateNotifyTarget() — "
+        "never save the wizard without a usable notification target"
+    )
     # Assert: notify cmd id is read from the DOM
-    assert "sia_notify_cmd_id" in handler_body, (
-        "#bt_step4Finish must read sia_notify_cmd_id from the DOM before saving"
+    assert "sia_notify_cmd_id" in validator_body, (
+        "siaDC09_validateNotifyTarget() must read sia_notify_cmd_id from the DOM"
     )
     # Assert: a guard check exists (if !notifyCmdId or if not set)
-    assert re.search(r"if\s*\(\s*!", handler_body), (
-        "#bt_step4Finish must guard against empty sia_notify_cmd_id before calling save()"
+    assert re.search(r"if\s*\(\s*!", validator_body), (
+        "siaDC09_validateNotifyTarget() must guard against an empty target"
     )
 
 

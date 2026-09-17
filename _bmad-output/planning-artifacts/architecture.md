@@ -905,17 +905,31 @@ All 6 fields mandatory; use `None` for absent optional fields — do not omit ke
 
 `zone_mappings` schema per entry:
 ```python
-{"zone_name":      str,           # mandatory
+{"zone_number":    int,           # mandatory — 1-based order, PERSISTED (never recomputed)
+ "zone_name":      str,           # mandatory — the label the alarm plugin sends via #zone#
  "camera_cmd_id":  int | None,    # optional
  "media_url":      str | None}    # optional
 ```
 `None` and missing key are equivalent — agents must not treat them differently.
 
+**`zone_number` is the only zone identity the CSR ever sees.** The alarm plugin has no zone
+identifier — its `#zone#` tag substitutes the zone *label* (`core/class/alarm.class.php`), so the
+label is the join key and the number is what the SIA frame carries, zero-padded to 3 digits
+(`1` → `001`, DC-09 Annex B). The number is persisted at wizard step 3, never derived at send
+time: the alarm plugin can reorder or delete zones, and a number already declared to the CSR
+must not shift. New zone → `max(existing) + 1`; legacy configs without `zone_number` are
+renumbered by table position on the first step-3 save.
+
 **Runtime lookup — always defensive:**
 ```python
 mapping = next((z for z in self._zone_mappings if z["zone_name"] == zone_name), None)
 ```
-Unmapped zone: alarm frame sent without camera/media, WARNING logged. Daemon never crashes on unmapped zone.
+Unmapped zone: alarm frame sent **without any zone field** (`[#001234|BA]`, not the label),
+without camera/media, WARNING logged. Daemon never crashes on unmapped zone.
+
+**Two fields travel in the IPC payload, on purpose:** `zone` (the label — logs, notification
+context, ring buffer, protocol inspector) and `zone_number` (`int | None` — consumed only by
+`_build_event_frame()`). Collapsing them would make an unresolved zone undiagnosable.
 
 **Wizard Step 3 empty state:** if no alarm plugin zones detected, show helper message ("Aucune zone détectée — configurez d'abord votre plugin alarme") — never raise or silently skip.
 
@@ -1022,7 +1036,7 @@ $this->getConfiguration('sia_host', '')            // string default for string 
 | `sia_wizard_step` | int | `0` | PHP | PHP |
 | `sia_last_errors` | JSON array | `[]` | daemon | PHP |
 | `sia_last_messages` | JSON array | `[]` | daemon | PHP |
-| `sia_zone_mappings` | JSON array | `[]` | PHP | PHP + daemon |
+| `sia_zone_mappings` | JSON array of `{zone_number, zone_name, camera_action_cmd_id, media_url_cmd_id}` — see *Zone Mapping Defensive Patterns* | `[]` | PHP | PHP + daemon |
 | `sia_supervision_state` | int | `0` | daemon | PHP |
 | `sia_supervision_label` | str | `''` | daemon | PHP |
 | `sia_event_state` | int | `0` | daemon | PHP |
