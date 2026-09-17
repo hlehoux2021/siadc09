@@ -35,5 +35,19 @@
     "additionalDirectories": [
       "/Users/herve.lehoux/.claude/rules"
     ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/allow-readonly-pipelines.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
   }
 }
