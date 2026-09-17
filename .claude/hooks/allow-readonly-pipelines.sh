@@ -1,11 +1,13 @@
 #!/bin/bash
-# PreToolUse hook for Bash — auto-approve read-only pipelines.
+# PreToolUse hook for Bash — auto-approve read-only pipelines and `&&` chains.
 #
 # Claude Code does not apply prefix rules (Bash(python3:*), Bash(tail:*), …) to a command
-# that contains a pipe or a redirection, so `python3 -m pytest … 2>&1 | tail -15` prompts
-# even though both halves are allow-listed. This hook re-applies the project allow-list to
-# each segment of the pipeline and approves only when every segment matches — it grants no
-# authority that .claude/settings.json does not already grant for the unpiped form.
+# that contains a pipe, a chain or a redirection, so `python3 -m pytest … 2>&1 | tail -15`
+# and `git add … && git commit -F …` both prompt even though every part is allow-listed.
+# This hook re-applies the project allow-list to each part and approves only when every one
+# matches — it grants no authority that .claude/settings.json does not already grant for the
+# single-command form. Heredocs and stdin redirections are never approved: their body is not
+# a command, so there is nothing to check it against.
 #
 # Anything else exits silently (code 0, no output) and follows the normal prompt path.
 
@@ -14,20 +16,29 @@ set -u
 cmd=$(jq -r '.tool_input.command // empty' 2>/dev/null)
 [ -n "$cmd" ] || exit 0
 
-# Plain commands are already handled by the permission rules — only pipelines are our job.
-case "$cmd" in
-	*'|'*) ;;
-	*) exit 0 ;;
-esac
-
-# Drop the harmless redirections, then refuse anything that can write, chain or substitute.
+# Drop the harmless redirections first: `2>&1` must go before the `&` test below.
 norm=$cmd
 norm=${norm//2>&1/}
 norm=${norm//&>\/dev\/null/}
 norm=${norm//2>\/dev\/null/}
 norm=${norm//>\/dev\/null/}
+
+# `a && b` gets the same treatment as `a | b` — both are ignored by the prefix rules, and
+# both are safe to approve only when every part is allowed on its own. Rewriting `&&` to `|`
+# lets one split handle the two. `||` becomes an empty segment and falls through to the
+# prompt (see below), which is the conservative outcome.
+norm=${norm//&&/|}
+
+# Plain commands are already handled by the permission rules — chains are our job.
 case "$norm" in
-	*'>'* | *';'* | *'&'* | *'$('* | *'`'*) exit 0 ;;
+	*'|'*) ;;
+	*) exit 0 ;;
+esac
+
+# Refuse anything that can write, background, chain or substitute. A leftover `&` at this
+# point is a background job or an unrecognized redirection, never a chain.
+case "$norm" in
+	*'>'* | *'<'* | *';'* | *'&'* | *'$('* | *'`'*) exit 0 ;;
 esac
 
 # `xargs [options] cmd …` is allowed only when `cmd …` is itself an allowed segment, so
