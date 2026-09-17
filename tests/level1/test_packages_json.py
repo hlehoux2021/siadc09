@@ -62,17 +62,33 @@ def test_packages_json_has_pip3_jeedomdaemon(packages: dict) -> None:
     )
 
 
-def test_packages_json_has_pip3_pycryptodome(packages: dict) -> None:
+def test_packages_json_has_pip3_cryptography(packages: dict) -> None:
     """
-    pycryptodome provides AES-128-CBC for SIA DC-09 encrypted frames.
-    Declared from phase 1 to avoid a migration install step later.
+    cryptography provides AES-128-CBC for SIA DC-09 encrypted frames
+    (imported by sia_crypto.py). Replaced pycryptodome in commit 6c4f77d.
+
+    The key must be the bare distribution name: Jeedom's dependency manager
+    looks the key up verbatim against `pip list` output to decide whether the
+    package is installed. A key carrying a PEP 508 specifier (e.g.
+    "cryptography<44") never matches, so the plugin's dependency status stays
+    NOK forever and the daemon cannot be started.
 
     Expected result:
-    - pip3.pycryptodome key present
+    - pip3.cryptography key present
+    - key carries no version specifier characters
     """
-    # Assert: pycryptodome declared in pip3
-    assert "pycryptodome" in packages.get("pip3", {}), (
-        "packages.json must declare pycryptodome in pip3 section"
+    pip3 = packages.get("pip3", {})
+
+    # Assert: cryptography declared in pip3 under its bare distribution name
+    assert "cryptography" in pip3, (
+        "packages.json must declare cryptography in pip3 section"
+    )
+
+    # Assert: no pip3 key embeds a version specifier (breaks Jeedom's status check)
+    keys_with_specifiers = [k for k in pip3 if any(c in k for c in "<>=!~")]
+    assert keys_with_specifiers == [], (
+        "pip3 keys must be bare distribution names; put constraints in the "
+        f'"version" field instead. Offending keys: {keys_with_specifiers}'
     )
 
 

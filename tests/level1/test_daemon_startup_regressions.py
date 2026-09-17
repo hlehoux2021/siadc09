@@ -299,22 +299,57 @@ def test_daemon_crc_format_mapping_present_in_source():
 
 def test_packages_json_cryptography_pinned_below_44():
     """
-    packages.json pins cryptography<44 to avoid SIGILL on aarch64 VMs.
+    packages.json pins cryptography below 44 to avoid SIGILL on aarch64
+    (versions 44+ use Rust bindings that crash on some aarch64 builds).
+
+    The pin must be expressed as `{"cryptography": {"version": "43.x.y"}}`, not
+    as a specifier embedded in the key. Jeedom's dependency manager uses the key
+    verbatim for two things, and a specifier in the key breaks both:
+      1. `system::checkAndInstall()` looks the key up against `pip list` output,
+         so "cryptography<44" never matches installed "cryptography" — the
+         plugin's dependency status stays NOK and the daemon cannot start.
+      2. `system::installPackage()` appends the specifier unquoted to the pip
+         command line, where bash reads "<44" as input redirection and the
+         install never runs at all ("bash: 44: No such file or directory").
+    An exact `==` pin is the only form Jeedom renders safely.
 
     Expected result:
-    - pip3 section contains "cryptography<44" key
-    - Versions 44+ use Rust bindings that crash on some aarch64 builds
+    - pip3 declares the bare key "cryptography" with a "version"
+    - the pinned version is below 44
+    - the pinned version carries no shell metacharacters
+    - no pip3 key embeds a version specifier
     """
     import json
     packages_path = Path(__file__).resolve().parents[2] / "plugin_info" / "packages.json"
     packages = json.loads(packages_path.read_text())
 
     pip3 = packages.get("pip3", {})
-    # Assert: cryptography is pinned below 44
-    assert "cryptography<44" in pip3, (
-        f"cryptography must be pinned <44 in packages.json, got keys: {list(pip3.keys())}"
+
+    # Assert: declared under the bare distribution name Jeedom can match
+    assert "cryptography" in pip3, (
+        f"cryptography must be declared in packages.json, got keys: {list(pip3.keys())}"
     )
-    # Assert: unpinned "cryptography" is NOT present
-    assert "cryptography" not in pip3 or "cryptography" == "cryptography<44", (
-        "Unpinned 'cryptography' key must not coexist with pinned version"
+
+    # Assert: no key embeds a specifier — breaks both the status check and install
+    bad_keys = [k for k in pip3 if any(c in k for c in "<>=!~")]
+    assert bad_keys == [], (
+        f"pip3 keys must be bare distribution names, got specifiers in: {bad_keys}"
+    )
+
+    version = pip3["cryptography"].get("version", "")
+
+    # Assert: a version pin is present to hold cryptography below 44
+    assert version, (
+        'pip3.cryptography must declare a "version" to stay below 44 (aarch64 SIGILL)'
+    )
+
+    # Assert: exact pin only — "<"/">" would be appended unquoted to the pip command
+    assert not any(c in version for c in "<>"), (
+        f'pip3.cryptography version must be an exact pin, got "{version}": '
+        "Jeedom appends it unquoted and bash reads '<' as a redirect"
+    )
+
+    # Assert: the pin is below the SIGILL-affected major version
+    assert int(version.split(".")[0]) < 44, (
+        f'cryptography must be pinned below 44, got "{version}"'
     )

@@ -4,6 +4,6 @@
   },
   "pip3": {
     "jeedomdaemon": {"reinstall": true},
-    "cryptography<44": {}
+    "cryptography": {"version": "43.0.3"}
   }
 }
