@@ -238,6 +238,7 @@ claude-sonnet-4-6 (eu.anthropic.claude-sonnet-4-6)
 
 - Session 2026-05-26: Tasks 1–5 completed. Three bug fixes applied (see Change Log).
 - Session 2026-05-27: Tasks 6–7 completed. Daemon auto-start confirmed; wizard restart flow verified.
+- Session 2026-09-17: re-validation against the **real** SIA receiver (not the simulator). Two defects found and fixed — see Change Log.
 
 ### Completion Notes List
 
@@ -266,11 +267,24 @@ claude-sonnet-4-6 (eu.anthropic.claude-sonnet-4-6)
 - 8.7: Transport reverted to UDP/10001 via PHP CLI. Daemon stopped and restarted.
 - 8.8: After 65s: `supervision_state=2, supervision_label=OK`. Cmdline: `--transport udp`. Full round-trip restored.
 
+**Re-validation against the real receiver (Session 2026-09-17):**
+
+The 2026-05/06 passes above were run against `tests/simulator` on `127.0.0.1`, and mostly through the PHP CLI rather than the wizard itself. Re-run against the internal SIA receiver `192.168.100.15:10002` (TCP, account `001234`, `crc_format=hex`, encryption off) on the Jeedom test host `test-jeedom.lehoux.net` — the test returned **"Pas de réponse (timeout)" with nothing in the log**, contradicting task 3.5. Two defects, both fixed:
+
+- **No trace at all in debug mode** (fixed `87fff49`): `core/ajax/siaDC09.ajax.php § testConnection` logged neither the command, nor the return code, nor stderr. It now logs all three (stderr via a tempfile), with `encryption_key` `unset()` before `json_encode` and `$envPrefix` never logged — the AES key must not reach the log.
+- **Every failure reported as "timeout"** (fixed `4264845`): `_send_raw_once()` collapsed connection-refused, DNS failure, host-unreachable, TCP connect timeout, CRC-invalid reply and genuine silence into one `{"status": "timeout"}`, via three `except` clauses including a bare `except Exception` (a `python-style.md` violation). Each cause now has its own internal status, its own French `detail`, and its technical cause on stderr. The top-level `status` stays in `{ok, nak, fail, error}` so `desktop/js/siaDC09.js` is untouched. Note the transport reports an *unparseable* reply as `status='timeout'` with `raw_response` set (`sia_transport.py § _parse_response`) — that case is now `bad_reply`, since a CRC mismatch is a protocol problem, not silence.
+
+CLI result on the Jeedom host after the fix: `{"status": "ok", "detail": "ACK reçu en 3ms"}` — the real receiver ACKs the supervision frame in 3 ms. The original timeout was a wrong target (`127.0.0.1:10001/UDP`, where nothing listens), which the fix now names explicitly instead of reporting as silence.
+
+Confirmed **through the wizard UI** the same day (Hervé, on `test-jeedom`): green banner and "Suivant" enabled against the real receiver. Note for future debugging: on success there is deliberately no `test connexion …` line on stderr — that message is emitted only when a cause is available, so the log shows the command, the return code and the `{"status": "ok"…}` stdout instead.
+
 ### File List
 
 - `resources/siadc09d/csr_simulator.py` — Bug fix: UDP handler task creation in `start()`
 - `resources/packages.json` — Bug fix: pycryptodome → cryptography
-- `resources/siadc09d/siadc09d.py` — Bug fix: run_connection_test() config keys + CRC format mapping
+- `resources/siadc09d/siadc09d.py` — Bug fix: run_connection_test() config keys + CRC format mapping; 2026-09-17: per-cause diagnosis in `_send_raw_once()` + `_test_verdict()` mapping
+- `core/ajax/siaDC09.ajax.php` — 2026-09-17: log the command, return code, stdout and stderr of the connection test (AES key excluded)
+- `tests/level1/test_connection_test.py` — 2026-09-17: one test per diagnostic cause (refused, dns, connect_timeout, bad_reply, network)
 
 ## Change Log
 
@@ -280,3 +294,4 @@ claude-sonnet-4-6 (eu.anthropic.claude-sonnet-4-6)
 | 2026-05-26 | Tasks 1–5 completed; 3 bugs fixed (simulator UDP task, packages.json, run_connection_test config keys) |
 | 2026-05-27 | Tasks 6–7 completed; daemon auto-start and wizard restart flow verified; story → review |
 | 2026-06-01 | TCP pass completed: Task 8 all subtasks done — TCP connection test ACK reçu en 1ms, daemon HEALTHY on TCP, reverted to UDP HEALTHY; all 11 ACs satisfied |
+| 2026-09-17 | Re-validated against the real receiver 192.168.100.15:10002 (TCP, account 001234): two defects fixed — connection test never logged (`87fff49`), every failure reported as "timeout" (`4264845`). CLI result on test-jeedom: `ACK reçu en 3ms`. Wizard UI pass confirmed by the user: green banner + "Suivant" enabled |
