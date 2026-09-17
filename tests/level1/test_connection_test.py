@@ -10,13 +10,23 @@ Reference: _bmad-output/implementation-artifacts/8-2-wizard-steps-3-4-zone-mappi
 """
 
 import asyncio
+import errno
 import json
+import socket
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from resources.siadc09d.siadc09d import _send_raw_once, run_connection_test
+from resources.siadc09d.siadc09d import (
+    # Re-imported from the module under test, not from resources.siadc09d.sia_protocol:
+    # siadc09d.py inserts resources/ on sys.path and imports the package as
+    # `siadc09d`, so `resources.siadc09d.sia_protocol.SIATransportError` is a
+    # *different* class object and its `except` clause would not match it.
+    SIATransportError,
+    _send_raw_once,
+    run_connection_test,
+)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -113,23 +123,142 @@ def test_send_raw_once_returns_timeout_on_asyncio_timeout():
     assert result == {"status": "timeout"}
 
 
-def test_send_raw_once_returns_timeout_on_oserror():
+def test_send_raw_once_returns_network_on_unclassified_oserror():
     """
-    _send_raw_once returns {"status": "timeout"} when OSError is raised during
-    socket setup (e.g., network interface unavailable, port bind failure).
+    _send_raw_once returns status "network" when an OSError with no usable errno
+    is raised during socket setup (e.g. port bind failure). It must NOT be
+    reported as "timeout" — nothing timed out.
 
     Expected result:
-    - Returns dict with status == "timeout" (not a propagated exception)
+    - Returns status == "network" (not a propagated exception, not "timeout")
+    - Carries an "error" key with the technical cause for the log
     """
     mock_transport = AsyncMock()
-    mock_transport.start = AsyncMock(side_effect=OSError("Network unreachable"))
+    mock_transport.start = AsyncMock(side_effect=OSError("bind failed"))
     mock_transport.close = AsyncMock()
 
     with patch("resources.siadc09d.siadc09d.SIAUDPTransport", return_value=mock_transport):
         result = _run(_send_raw_once("host", 5000, "udp", b"frame", timeout=5))
 
-    # Assert: OS-level network error maps to timeout status
-    assert result == {"status": "timeout"}
+    # Assert: unclassified OS error is reported as a network error, not a timeout
+    assert result["status"] == "network"
+    # Assert: the technical cause is preserved for the siaDC09 log
+    assert "bind failed" in result["error"]
+
+
+def test_send_raw_once_returns_refused_on_connection_refused():
+    """
+    _send_raw_once distinguishes a refused connection (nothing listening on the
+    port) from a timeout. This is the single most common wizard misconfiguration
+    — wrong port, or UDP configured against a TCP-only receiver.
+
+    Expected result:
+    - Returns status == "refused"
+    """
+    mock_transport = AsyncMock()
+    mock_transport.start = AsyncMock(side_effect=ConnectionRefusedError("refused"))
+    mock_transport.close = AsyncMock()
+
+    with patch("resources.siadc09d.siadc09d.SIATCPTransport", return_value=mock_transport):
+        result = _run(_send_raw_once("host", 10002, "tcp", b"frame", timeout=5))
+
+    # Assert: connection refused is its own diagnosis, never a timeout
+    assert result["status"] == "refused"
+
+
+def test_send_raw_once_returns_dns_on_gaierror():
+    """
+    _send_raw_once reports a name-resolution failure as "dns" — the host name is
+    unknown to the Jeedom machine, so no packet was ever sent.
+
+    Expected result:
+    - Returns status == "dns"
+    """
+    mock_transport = AsyncMock()
+    mock_transport.start = AsyncMock(side_effect=socket.gaierror(8, "nodename nor servname provided"))
+    mock_transport.close = AsyncMock()
+
+    with patch("resources.siadc09d.siadc09d.SIAUDPTransport", return_value=mock_transport):
+        result = _run(_send_raw_once("csr.invalid", 5000, "udp", b"frame", timeout=5))
+
+    # Assert: DNS failure is reported as such, not as a timeout
+    assert result["status"] == "dns"
+
+
+def test_send_raw_once_unwraps_transport_error_cause():
+    """
+    The transport wraps socket errors as SIATransportError(...) from e, so the
+    original errno survives as __cause__. _send_raw_once must classify from the
+    cause rather than collapsing every SIATransportError into one status.
+
+    Expected result:
+    - A wrapped ConnectionRefusedError yields status == "refused"
+    """
+    cause = ConnectionRefusedError(errno.ECONNREFUSED, "Connection refused")
+    wrapped = SIATransportError("TCP socket error: ConnectionRefusedError()")
+    wrapped.__cause__ = cause
+    mock_transport = AsyncMock()
+    mock_transport.start = AsyncMock()
+    mock_transport.send_frame = AsyncMock(side_effect=wrapped)
+    mock_transport.close = AsyncMock()
+
+    with patch("resources.siadc09d.siadc09d.SIATCPTransport", return_value=mock_transport):
+        result = _run(_send_raw_once("host", 10002, "tcp", b"frame", timeout=5))
+
+    # Assert: the wrapped cause drives the diagnosis
+    assert result["status"] == "refused"
+
+
+def test_send_raw_once_returns_connect_timeout_for_tcp_connect_failure():
+    """
+    A TCP connect timeout (SYN dropped by a firewall) is raised as a
+    SIATransportError with no __cause__ — it must be told apart from a receiver
+    that accepted the connection and then stayed silent.
+
+    Expected result:
+    - Returns status == "connect_timeout", not "timeout"
+    """
+    mock_transport = AsyncMock()
+    mock_transport.start = AsyncMock()
+    mock_transport.send_frame = AsyncMock(
+        side_effect=SIATransportError("TCP connect timeout (5.0s)")
+    )
+    mock_transport.close = AsyncMock()
+
+    with patch("resources.siadc09d.siadc09d.SIATCPTransport", return_value=mock_transport):
+        result = _run(_send_raw_once("host", 10002, "tcp", b"frame", timeout=5))
+
+    # Assert: connect-phase failure is distinguished from response silence
+    assert result["status"] == "connect_timeout"
+
+
+def test_send_raw_once_returns_bad_reply_when_response_unparseable():
+    """
+    The transport reports an unparseable reply as status 'timeout' with
+    raw_response set (sia_transport.py _parse_response). _send_raw_once must
+    surface that as "bad_reply" — the receiver DID answer, the frame just failed
+    CRC/format validation (typically a hex vs bin CRC mismatch).
+
+    Expected result:
+    - Returns status == "bad_reply"
+    - The raw bytes are carried in "error" for the log
+    """
+    mock_transport = AsyncMock()
+    mock_transport.start = AsyncMock()
+    mock_transport.send_frame = AsyncMock(return_value={
+        "status": "timeout",
+        "raw_nak": None,
+        "raw_response": b"\x0a1234\"ACK\"0000\r",
+    })
+    mock_transport.close = AsyncMock()
+
+    with patch("resources.siadc09d.siadc09d.SIAUDPTransport", return_value=mock_transport):
+        result = _run(_send_raw_once("host", 5000, "udp", b"frame", timeout=5))
+
+    # Assert: a reply that failed validation is not silence
+    assert result["status"] == "bad_reply"
+    # Assert: the raw bytes are available for the siaDC09 log
+    assert "ACK" in result["error"]
 
 
 def test_send_raw_once_uses_tcp_transport_for_tcp():
