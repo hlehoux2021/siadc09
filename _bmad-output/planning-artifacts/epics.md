@@ -1314,7 +1314,7 @@ So that alarms trigger cameras and I get notified on failures.
 
 **And** mapping is saved to equipment config
 
-**Amendment 2026-09-17 — zone order number (AC11–AC15):**
+**Amendment 2026-09-17 — zone order number (AC11–AC15)** — *validated 2026-09-17 on the real receiver `192.168.100.15:10002`, frame `D741003A"SIA-DCS"0010L0#001234[#001234|BA 001]_22:01:49,09-17-2026` (AC15 PASS)*:
 
 **And** each row displays a zone order number (1-based, from the alarm plugin zone order), carried on the row as `data-zone-number` and persisted in `sia_zone_mappings` as `zone_number`
 

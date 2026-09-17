@@ -1,13 +1,16 @@
 # Story 8.2: Wizard Steps 3-4 & Zone Mapping
 
-Status: in-progress
+Status: done
 
 > **Amendment 2026-09-17 — zone order number (AC11–AC15, Task 11).** The original scope shipped
 > and was validated. Epic 12 end-to-end testing then showed the frame carried the zone **label**
 > (`[#001234|BA Zone1]`) because the alarm plugin's `#zone#` tag substitutes a label and the alarm
 > plugin has no zone identifier. A CSR indexes incidents by zone *number*, so the zone table now
 > owns a persisted order number, displays it at step 3, and that number — not the label — is what
-> the SIA frame carries. Status reopened to `in-progress` for AC11–AC15 only; AC1–AC10 stay done.
+> the SIA frame carries. Status was reopened to `in-progress` for AC11–AC15 only; AC1–AC10 stayed
+> done. **Closed again 2026-09-17**: AC11–AC15 validated on the real receiver, frame
+> `[#001234|BA 001]` (Task 11.9). The 9 unchecked Review Findings below predate the amendment and
+> are unchanged by it.
 
 ## Story
 
@@ -520,8 +523,20 @@ So that alarms trigger cameras and I get notified on critical failures.
   zero regressions. Two pre-existing test-harness defects had to be repaired first — see
   Dev Agent Record → Debug Log.
 
-- [ ] **11.9** UI + receiver validation on `test-jeedom.lehoux.net` per AC15 (requires commit +
+- [x] **11.9** UI + receiver validation on `test-jeedom.lehoux.net` per AC15 (requires commit +
   push first — deployment is a `git pull` on the Jeedom host).
+  **PASS 2026-09-17 22:01:49**, frame captured on the real receiver `192.168.100.15:10002`
+  (TCP, account `001234`, `crc_format=hex`, encryption off):
+  ```
+  D741003A"SIA-DCS"0010L0#001234[#001234|BA 001]_22:01:49,09-17-2026
+  ```
+  Decoded: CRC `D741` (4 hex chars ⇒ `crc_format=hex` honoured), declared length `003A` = 58,
+  which matches the 58 bytes from `"SIA-DCS"` through the timestamp; sequence `0010`; account
+  prefix `L0`; account `#001234`; data block `[#001234|BA 001]` — **the zone order number, not
+  the label**, zero-padded to 3 digits by `_build_event_frame()`; timestamp
+  `22:01:49,09-17-2026`. AC13 confirmed end-to-end; AC11/AC12 confirmed by the N° column and the
+  step-3 save that produced this number. This also discharges the AC3 re-validation owed by
+  story 12-5.
 
 ## Dev Notes
 
@@ -787,3 +802,4 @@ fixed (no product code changed), which is why the tree now reports the true base
 | 2026-09-17 | Amendment — zone order number (AC11–AC15, Task 11). Design updated first: `docs/design/wizard-design.md` (N° column, `zone_number` in the JSON shape, persistence/stability rules, §"Zone number in the SIA frame"), `docs/design/php-core-design.md` (payload `{cmd, zone, zone_number, media_url}`), `docs/design/daemon-design.md` (IPC contract + `encode_message` `zone` = padded number), `_bmad-output/planning-artifacts/architecture.md` (§Zone Mapping Defensive Patterns). Status done → in-progress |
 | 2026-09-17 | Tasks 11.1–11.8 implemented and verified. level1 `2 failed, 1059 passed` (documented baseline); level2 `6 failed, 323 passed` vs `6 failed, 318 passed` on clean HEAD ⇒ +5 tests, zero regressions. Two pre-existing test-harness defects repaired along the way (see Debug Log). Task 11.9 / AC15 (step-3 UI + receiver ACK on `test-jeedom.lehoux.net`) remains open — it needs a commit + push, deployment being a `git pull` on the Jeedom host |
 | 2026-09-17 | Pushed as `b221923` on `master`, so Task 11.9 / AC15 is now deployable (`git pull` on `test-jeedom.lehoux.net`). `_enqueue_event()`'s `zone_number` made keyword-only + a scoped `# pylint: disable=too-many-arguments` on the `def` line: the 6th param tripped R0913/R0917 (new warnings, absent on HEAD), and the dataclass refactor `.claude/rules/python-style.md` suggests would break the ~20 level2 tests passing `retries_left` positionally |
+| 2026-09-17 | **Task 11.9 / AC15 PASS** — real receiver `192.168.100.15:10002` returned an ACK for `D741003A"SIA-DCS"0010L0#001234[#001234|BA 001]_22:01:49,09-17-2026`. The frame carries the zone **number**, `crc_format=hex` is honoured (`D741`) and the declared length `003A`=58 matches. Amendment complete, status in-progress → done. Discharges the AC3 re-validation owed by story 12-5 |

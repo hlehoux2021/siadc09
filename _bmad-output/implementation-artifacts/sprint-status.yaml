@@ -96,9 +96,9 @@ development_status:
   epic-7-retrospective: done
 
   # Epic 8: Configuration Wizard & CSR Presets
-  epic-8: in-progress  # reopened 2026-09-17 for the 8-2 zone-number amendment
+  epic-8: done  # reopened then closed again 2026-09-17 after the 8-2 zone-number amendment
   8-1-wizard-steps-1-2-csr-preset-selection: done
-  8-2-wizard-steps-3-4-zone-mapping: in-progress  # amendment 2026-09-17: AC11-AC15 / Task 11 (zone order number in the frame); AC1-AC10 stay done
+  8-2-wizard-steps-3-4-zone-mapping: done  # amendment closed 2026-09-17: AC11-AC15 validated on the real receiver, frame [#001234|BA 001]
   8-3-wizard-integration-testing: done
   epic-8-retrospective: optional
 
@@ -129,7 +129,7 @@ development_status:
   12-2-wizard-flow-connection-test: done
   12-3-daemon-lifecycle-jeedom-controls: done
   12-4-supervision-loop-strike-recovery: in-progress
-  12-5-alarm-delivery-end-to-end: done  # AC3 re-validation owed under 8-2 AC15 (frame must carry the zone NUMBER)
+  12-5-alarm-delivery-end-to-end: done  # AC3 re-validated 2026-09-17 under 8-2 AC15: the frame carries the zone NUMBER
   12-6-widget-debug-ui-rendering: done  # updated 2026-05-29
   12-7-error-handling-notification-delivery: ready-for-dev
   12-8-market-package-install-uninstall: backlog
@@ -148,14 +148,16 @@ development_status:
 # done 44→43, in-progress 1→2, epics_done 10→9, epics_in_progress 2→3)
 # Updated: 2026-09-17 (7-2 reopened for the self-stop-on-TRANSPORT_PERMANENT amendment → epic-7 reopened;
 # done 43→42, in-progress 2→3, epics_done 9→8, epics_in_progress 3→4)
+# Updated: 2026-09-17 (8-2 zone-number amendment validated on the real receiver → 8-2 + epic-8 closed;
+# done 42→43, in-progress 3→2, epics_done 8→9, epics_in_progress 4→3)
 summary:
   total_epics: 13
   total_stories: 51
   epics_backlog: 1
-  epics_in_progress: 4
-  epics_done: 8
+  epics_in_progress: 3
+  epics_done: 9
   stories_backlog: 4
   stories_ready_for_dev: 2
-  stories_in_progress: 3
+  stories_in_progress: 2
   stories_review: 0
-  stories_done: 42
+  stories_done: 43
