@@ -29,7 +29,7 @@
 # - SM typically creates next story ONLY after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then Dev runs code-review (fresh context, ideally different LLM)
 
-last_updated: "2026-06-01" # Story 11-1 ready-for-dev
+last_updated: "2026-09-18" # Story 10-3 in-progress
 generated: "2026-05-04"
 project: "my-project"
 project_key: "NOKEY"
@@ -110,9 +110,10 @@ development_status:
   epic-9-retrospective: optional
 
   # Epic 10: Dashboard Widget
-  epic-10: done
+  epic-10: in-progress  # reopened 2026-09-18 for the 10-3 live-refresh story (widget never auto-refreshes; field observation on 12-6)
   10-1-widget-rendering-bootstrap-panel: done
   10-2-widget-staleness-detection-testing: done
+  10-3-widget-live-refresh-on-command-update: in-progress  # 2026-09-18: fix tile not auto-refreshing + "reste à OK" after SM2 CONFIRMED
   epic-10-retrospective: optional
 
   # Epic 11: End-to-End Testing & Market Preparation
@@ -129,7 +130,7 @@ development_status:
   12-2-wizard-flow-connection-test: done
   12-3-daemon-lifecycle-jeedom-controls: done
   12-4-supervision-loop-strike-recovery: in-progress
-  12-5-alarm-delivery-end-to-end: done  # AC3 re-validated 2026-09-17 under 8-2 AC15: the frame carries the zone NUMBER
+  12-5-alarm-delivery-end-to-end: in-progress  # reopened 2026-09-18: the TCP pass (AC8-AC11 / Tasks 8-13, added 2026-06-01) was never executed while `done` was claimed. AC3 re-validated 2026-09-17 under 8-2 AC15 (frame carries the zone NUMBER). AC8 = partial PASS on the 8-2 field evidence; AC9 is the only execution still owed here; AC10/AC11 transferred to 12-7 Task 12.1/12.2
   12-6-widget-debug-ui-rendering: done  # updated 2026-05-29
   12-7-error-handling-notification-delivery: ready-for-dev
   12-8-market-package-install-uninstall: backlog
@@ -150,14 +151,20 @@ development_status:
 # done 43→42, in-progress 2→3, epics_done 9→8, epics_in_progress 3→4)
 # Updated: 2026-09-17 (8-2 zone-number amendment validated on the real receiver → 8-2 + epic-8 closed;
 # done 42→43, in-progress 3→2, epics_done 8→9, epics_in_progress 4→3)
+# Updated: 2026-09-18 (10-3 live-refresh story registered from field observations on 12-6 → epic-10 reopened;
+# total_stories 51→52, ready_for_dev 2→3, epics_done 9→8, epics_in_progress 3→4)
+# Updated: 2026-09-18 (12-5 reopened — the TCP pass AC8-AC11 was never executed; AC10/AC11 transferred
+# to 12-7 Task 12; done 43→42, in-progress 2→3. epic-12 was already in-progress, epic counters unchanged)
+# Updated: 2026-09-18 (10-3 moved ready-for-dev → in-progress by a parallel session without mirroring the
+# counters; recounted from the status lines: ready_for_dev 3→2, in-progress 3→4)
 summary:
   total_epics: 13
-  total_stories: 51
+  total_stories: 52
   epics_backlog: 1
-  epics_in_progress: 3
-  epics_done: 9
+  epics_in_progress: 4
+  epics_done: 8
   stories_backlog: 4
   stories_ready_for_dev: 2
-  stories_in_progress: 2
+  stories_in_progress: 4
   stories_review: 0
-  stories_done: 43
+  stories_done: 42

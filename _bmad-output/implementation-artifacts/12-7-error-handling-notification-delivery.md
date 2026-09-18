@@ -265,8 +265,19 @@ For each "Verify" step:
   - [ ] 11.4 Restart simulator: `cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --tcp-port 5000 --host 0.0.0.0 --account 000001 &`. Wait for HEALTHY recovery.
 
 - [ ] Task 12: TCP pass — T2 BAD_CSR_RESPONSE and T3 EVENT_FAILED (AC: 5, 7 — TCP variant)
+      **Périmètre élargi 2026-09-18 :** cette task porte désormais aussi **les AC10 et AC11 de la story
+      12-5**, qui décrivaient mot pour mot les mêmes deux tests (NAK sur TCP → `event_state=2` + T2
+      `bad_csr_response` sans « CRITIQUE » ; timeout sur TCP → 3 retries + T3 `event_failed` avec
+      « CRITIQUE — »). Les Tasks 11 et 12 de 12-5 sont barrées et renvoient ici. Cocher 12.1/12.2 solde
+      donc 12-7 AC5/AC7 (variante TCP) **et** 12-5 AC10/AC11 — le reporter dans les deux stories.
+      Le simulateur est ici l'outil légitime : c'est le seul moyen de provoquer un NAK ou un silence
+      total à la demande, ce que le récepteur réel `192.168.100.15:10002` ne fera pas.
   - [ ] 12.1 T2 NAK path (TCP): restart simulator with mismatched account `--account FFFFFF`. Trigger burglarAlarm zone="Piece1" via PHP CLI. **Verify** `event_state=2`, T2 `bad_csr_response` in message center (no CRITIQUE), notification triggered. Restore correct account.
+        *(Substitut sans simulateur, si le récepteur réel est la cible : mettre un `account_number` non
+        déclaré côté récepteur — il rejette la trame.)*
   - [ ] 12.2 T3 timeout path (TCP): stop simulator entirely. Trigger burglarAlarm zone="Piece2". Wait for 3 retries. **Verify** `event_state=2`, T3 `event_failed` with "CRITIQUE —" prefix, notification triggered. Restart simulator and verify HEALTHY.
+        *(Substitut sans simulateur : pointer `csr_port` sur un port fermé du même hôte →
+        `ConnectionRefusedError` → 3 retries → T3.)*
 
 - [ ] Task 13: Revert to UDP
   - [ ] 13.1 Revert config and restart on UDP:
@@ -483,3 +494,9 @@ This is a Level 3 (`tests/level3/`) integration test executed manually on the re
 ### File List
 
 (empty unless bug fixes required)
+
+## Change Log
+
+| Date | Change |
+|------|--------|
+| 2026-09-18 | Task 12 (passe TCP T2/T3) reprend officiellement les **AC10 et AC11 de la story 12-5**, qu'elle dupliquait déjà mot pour mot ; 12-5 Tasks 11/12 barrées et renvoyées ici. Substituts « sans simulateur » documentés sur 12.1 (account non déclaré côté récepteur) et 12.2 (port fermé → `ConnectionRefusedError`). Aucun mode opératoire simulateur supprimé : il reste le seul moyen de provoquer un NAK ou un silence total à la demande. |

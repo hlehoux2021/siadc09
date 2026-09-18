@@ -3,14 +3,27 @@ story_id: "12-5"
 story_key: "12-5-alarm-delivery-end-to-end"
 epic_id: "epic-12"
 epic_name: "Jeedom VM Integration Testing"
-status: "done"
+status: "in-progress"
 created: "2026-05-29"
 analysis_completed: "2026-05-29"
 ---
 
 # Story 12.5: Alarm Delivery End-to-End
 
-Status: done
+Status: in-progress
+
+> **Réouverte 2026-09-18.** Le statut `done` était faux : la passe UDP (AC1–AC7, Tasks 0–7) est
+> validée, mais la passe TCP (AC8–AC11, Tasks 8–13, ajoutée le 2026-06-01) n'a jamais été exécutée —
+> et c'est TCP qui est le transport réel du récepteur de production. Descoper la passe TCP est donc
+> exclu : c'est UDP qui n'existe pas sur le terrain, pas l'inverse.
+>
+> Périmètre restant après dédoublonnage :
+> - **AC8** → coché, satisfait par la preuve terrain de la story 8.2 (AC15 / Task 11.9). Reste une
+>   confirmation d'une ligne de `event_state=1` sur l'hôte, cf. Task 9.
+> - **AC9** (FA/PA sur TCP) → seule exécution encore due dans 12-5, cf. Task 10.
+> - **AC10 / AC11** (NAK et timeout sur TCP) → **transférés à la story 12-7, Task 12** (12.1 et 12.2),
+>   qui les portait déjà mot pour mot. 12-7 Task 10 fait déjà la reconfiguration TCP. Ne pas rejouer
+>   ici.
 
 ## Story
 
@@ -34,13 +47,18 @@ So that my home is protected by professional monitoring.
 
 7. **event_state persists across restart:** After a CONFIRMED alarm, stop and restart daemon; `event_state` still shows 1 (`"Confirmé"`) — not reset to 0 (IDLE is startup-only, not re-entered).
 
-8. **TCP — alarm happy path (burglarAlarm ACK):** Given daemon configured with TCP transport and local TCP simulator, when triggering `burglarAlarm` with zone="Piece1", then `event_state` → 1 (`"Confirmé"`) after ACK received over TCP. Daemon log shows BA frame sent and ACK received via TCP.
+8. **TCP — alarm happy path (burglarAlarm ACK):** Given daemon configured with TCP transport (real receiver `192.168.100.15:10002`, or a local TCP simulator), when triggering `burglarAlarm` with zone="Piece1", then `event_state` → 1 (`"Confirmé"`) after ACK received over TCP. Daemon log shows BA frame sent and ACK received via TCP.
+   **PASS partiel 2026-09-17 22:01:49** — preuve terrain sous story 8.2 AC15 / Task 11.9 : trame BA émise en **TCP** vers le récepteur réel `192.168.100.15:10002` (account `001234`, `crc_format=hex`, chiffrement off) et **ACQUITTÉE** :
+   `D741003A"SIA-DCS"0010L0#001234[#001234|BA 001]_22:01:49,09-17-2026`.
+   Reste dû : la lecture de `event_state=1` / `event_label="Confirmé"` n'a pas été relevée dans cette preuve (Task 9.2).
 
-9. **TCP — all event types ACK path:** Same TCP happy path confirmed for `fireAlarm` (FA code) and `panicAlarm` (PA code).
+9. **TCP — all event types ACK path:** Same TCP happy path confirmed for `fireAlarm` (FA code) and `panicAlarm` (PA code). — **Seul AC encore entièrement à exécuter dans 12-5** (Task 10).
 
 10. **TCP — NAK path (T2 BAD_CSR_RESPONSE):** Same as AC4 but over TCP: `event_state=2`, T2 fires with no CRITIQUE prefix, no retry. Daemon immediately marks SM2 FAILED on NAK over TCP.
+    **→ Transféré 2026-09-18 à la story 12-7, Task 12.1** (AC5 — variante TCP), qui décrit le même test mot pour mot. Ne pas rejouer ici ; c'est 12-7 qui porte la preuve.
 
 11. **TCP — timeout path (T3 EVENT_FAILED):** Same as AC5 but over TCP: simulator stopped → TCP connection refused → daemon retries up to 3 times → EVENT_FAILED T3 fires with "CRITIQUE —" prefix. Daemon log shows 3 retry attempts over TCP.
+    **→ Transféré 2026-09-18 à la story 12-7, Task 12.2** (AC7 — variante TCP). Même remarque.
 
 ## Pass/Fail Protocol
 
@@ -60,7 +78,8 @@ For each "Verify" step:
 - [x] Task 1: Prepare test environment (AC: all)
   - [x] 1.1 Verify daemon is running and HEALTHY (`supervision_state=2`): via PHP CLI or Jeedom UI
   - [x] 1.2 Verify CSR simulator is running: `pgrep -f "tests.simulator"` → if not: `cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --udp-port 10001 --host 127.0.0.1 --account 000001 &`
-        **Superseded 2026-09-17:** the simulator is no longer the validation target. All re-validation goes against the internal SIA receiver `192.168.100.15` / `test-sia-internal.lehoux.net`, **port 10002, TCP, account `001234`**, `crc_format=hex`, encryption off. Do not start `python3 -m tests.simulator`.
+        **Superseded 2026-09-17, nuancé 2026-09-18:** le simulateur n'est plus la *cible de validation*. Toute preuve de PASS terrain se fait contre le récepteur SIA interne `192.168.100.15` / `test-sia-internal.lehoux.net`, **port 10002, TCP, account `001234`**, `crc_format=hex`, chiffrement off.
+        Le simulateur n'est pas pour autant invalidé : il reste l'outil légitime — et le seul — pour provoquer les comportements que le récepteur réel ne produira pas à la demande (NAK, silence total, account non concordant). Les blocs `python3 -m tests.simulator` des tasks ci-dessous sont conservés à ce titre.
   - [x] 1.3 Confirm wizard config: `sia_wizard_step=4`, account `000001`, `sia_notify_cmd_id` set to a real notification command — **cmd id=29** (`Notify` action on `Notification` equipment)
   - [x] 1.4 Set daemon log level to DEBUG via Jeedom UI (Plugins → siaDC09 → log level → "Debug" → save → restart daemon)
   - [x] 1.5 Clear ring buffer and error state: via Jeedom diagnostic tab "Vider" buttons, or PHP CLI: `config::save('sia_last_messages','[]','siaDC09'); config::save('sia_last_errors','[]','siaDC09');`
@@ -123,8 +142,27 @@ For each "Verify" step:
   - [x] 7.3 Immediately after restart: verify `event_state` still = 1 (`"Confirmé"`) — not reset to 0: PASS
   - [x] 7.4 Verify `supervision_state` goes through 1 (INITIALIZING) then recovers to 2 (HEALTHY) — normal restart behavior: PASS
 
-- [ ] Task 8: TCP transport setup for alarm tests (AC: 8–11)
-  - [ ] 8.1 Reconfigure to TCP and start TCP simulator:
+- [ ] Task 8: TCP transport setup for alarm tests (AC: 8, 9)
+  - [ ] **8.0 — chemin de référence (autoritatif) : pointer sur le récepteur réel.** C'est cette
+        configuration qui fait foi pour AC8/AC9 ; le bloc 8.1 (simulateur local) reste disponible en
+        repli ou pour mettre au point le test hors récepteur.
+        ```bash
+        sudo -u www-data php -r "
+        require '/var/www/html/core/php/core.inc.php';
+        \$eq = siaDC09::byType('siaDC09')[0];
+        \$eq->setConfiguration('transport', 'tcp');
+        \$eq->setConfiguration('csr_ip', '192.168.100.15');
+        \$eq->setConfiguration('csr_port', 10002);
+        \$eq->setConfiguration('account_number', '001234');
+        \$eq->setConfiguration('crc_format', 'hex');
+        \$eq->setConfiguration('encryption_enabled', 0);
+        \$eq->save();
+        require '/var/www/html/core/php/core.inc.php'; siaDC09::deamon_stop(); siaDC09::deamon_start();
+        "
+        ```
+        Jeu de paramètres connu bon (prouvé le 2026-09-17 depuis l'hôte Jeedom : ACK d'une trame de
+        supervision en ~3 ms). Si ces valeurs échouent, le problème est le plugin ou le réseau, pas la config.
+  - [ ] 8.1 *(variante simulateur — conservée)* Reconfigure to TCP and start TCP simulator:
         ```bash
         sudo -u www-data php -r "
         require '/var/www/html/core/php/core.inc.php';
@@ -137,13 +175,17 @@ For each "Verify" step:
         cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --tcp-port 5000 --host 0.0.0.0 --account 000001 &
         sudo -u www-data php -r "require '/var/www/html/core/php/core.inc.php'; siaDC09::deamon_stop(); siaDC09::deamon_start();"
         ```
-  - [ ] 8.2 Verify HEALTHY over TCP: `supervision_state=2`. Confirm `--transport tcp --port 5000` in daemon cmdline: `ps aux | grep siadc09`.
+  - [ ] 8.2 Verify HEALTHY over TCP: `supervision_state=2`. Confirm `--transport tcp` and the port
+        actually used (`10002` sur le récepteur réel, `5000` sur le simulateur) in daemon cmdline: `ps aux | grep siadc09`.
   - [ ] 8.3 Clear ring buffer and error state:
         ```bash
         sudo -u www-data php -r "require '/var/www/html/core/php/core.inc.php'; config::save('sia_last_messages','[]','siaDC09'); config::save('sia_last_errors','[]','siaDC09');"
         ```
 
 - [ ] Task 9: TCP — burglarAlarm happy path (AC: 8)
+      **Déjà prouvé à 90 % le 2026-09-17 22:01:49** (8.2 AC15 / Task 11.9) : trame BA émise en TCP vers
+      `192.168.100.15:10002` et ACQUITTÉE — `D741003A"SIA-DCS"0010L0#001234[#001234|BA 001]_...`.
+      Ne reste que 9.2 : relever `event_state`, qui n'a pas été noté dans cette preuve.
   - [ ] 9.1 Trigger burglarAlarm zone="Piece1":
         ```bash
         sudo -u www-data php -r "
@@ -157,11 +199,18 @@ For each "Verify" step:
   - [ ] 9.2 **Verify** `event_state=3` (PENDING) then `event_state=1` (CONFIRMED). `event_label="Confirmé"`.
   - [ ] 9.3 **Verify** daemon log shows BA frame sent and ACK received over TCP transport.
 
-- [ ] Task 10: TCP — all event types ACK path (AC: 9)
+- [ ] Task 10: TCP — all event types ACK path (AC: 9) — **seule exécution encore due dans 12-5**
+      À faire sur le récepteur réel (config Task 8.0), même mode opératoire que Task 9.1 en changeant
+      la commande. Relever la trame côté récepteur comme pour 8.2 Task 11.9.
   - [ ] 10.1 Trigger fireAlarm zone="Piece1": **Verify** `event_state=1`, FA code in daemon log over TCP.
   - [ ] 10.2 Trigger panicAlarm zone="Piece2": **Verify** `event_state=1`, PA code in daemon log over TCP.
+  - [ ] 10.3 **Verify** le n° d'ordre de zone est présent dans les deux trames (`[#001234|FA 001]`,
+        `[#001234|PA 002]`) — cohérence avec AC3 amendé.
 
-- [ ] Task 11: TCP — NAK path T2 (AC: 10)
+- [ ] ~~Task 11: TCP — NAK path T2 (AC: 10)~~ — **TRANSFÉRÉ 2026-09-18 à la story 12-7, Task 12.1.**
+      12-7 portait déjà ce test mot pour mot et sa Task 10 fait la mise en TCP. Ne pas exécuter ici.
+      Le mode opératoire ci-dessous est conservé pour référence (le simulateur avec `--account FFFFFF`
+      reste le seul moyen de provoquer un NAK à la demande — le récepteur réel n'en fournit pas sur commande).
   - [ ] 11.1 Stop simulator, restart with mismatched account:
         ```bash
         pkill -f "tests.simulator"
@@ -176,15 +225,25 @@ For each "Verify" step:
         ```
   - [ ] 11.5 Wait for supervision recovery: `supervision_state=2`.
 
-- [ ] Task 12: TCP — timeout path T3 (AC: 11)
+- [ ] ~~Task 12: TCP — timeout path T3 (AC: 11)~~ — **TRANSFÉRÉ 2026-09-18 à la story 12-7, Task 12.2.**
+      Mode opératoire conservé pour référence. Variante sans simulateur, si besoin de rester sur le
+      récepteur réel : pointer `csr_port` sur un port fermé du même hôte → `ConnectionRefusedError` →
+      3 retries → T3 `EVENT_FAILED`.
   - [ ] 12.1 Stop simulator: `pkill -f "tests.simulator"`.
   - [ ] 12.2 Trigger burglarAlarm zone="Piece2" (same PHP CLI as Task 9.1).
   - [ ] 12.3 Wait for 3 retries (~3–35s — TCP connection refused retries faster than UDP timeout). **Verify** `event_state=2`, T3 `EVENT_FAILED` in message center with "CRITIQUE —" prefix. Notification command triggered.
   - [ ] 12.4 **Verify** daemon log shows 3 retry attempts then `event_failed`.
   - [ ] 12.5 Restart simulator: `cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --tcp-port 5000 --host 0.0.0.0 --account 000001 &`. Wait for supervision recovery.
 
-- [ ] Task 13: Revert to UDP (AC: 8–11)
-  - [ ] 13.1 Revert config and restart on UDP:
+- [ ] Task 13: Remettre la configuration de référence (AC: 8, 9)
+      **Requalifiée 2026-09-18.** La configuration de référence n'est plus UDP/10001/simulateur mais
+      **TCP / `192.168.100.15:10002` / account `001234`** — c'est la config du terrain. Le retour à UDP
+      ci-dessous n'est donc plus la fin de test attendue ; il reste utile uniquement si l'on a basculé
+      sur le simulateur UDP pour mettre au point un cas d'erreur.
+  - [ ] 13.0 **Chemin autoritatif :** réappliquer le bloc de la Task 8.0 (TCP, `192.168.100.15:10002`,
+        `001234`, `crc_format=hex`, chiffrement off), puis **Verify** `supervision_state=2` et
+        `--transport tcp` dans la cmdline du daemon.
+  - [ ] 13.1 *(variante simulateur — conservée)* Revert config and restart on UDP:
         ```bash
         sudo -u www-data php -r "
         require '/var/www/html/core/php/core.inc.php';
@@ -209,20 +268,27 @@ The dev agent's role is:
 3. Document pass/fail with observations
 4. Fix bugs inline if found (document in Dev Agent Record)
 
-### Infrastructure (from Stories 12-1 through 12-4)
+### Infrastructure
+
+**Mise à jour 2026-09-18** — la table précédente décrivait la VM `192.168.5.103` (disparue), un
+mot de passe SSH en clair et le simulateur comme cible de test. Elle contredisait la note de
+supersession de la Task 1.2 juste au-dessus. État réel du labo :
 
 | Component | Location | Notes |
 |-----------|----------|-------|
-| Jeedom VM | `192.168.5.103` | SSH: `sshpass -p "login" ssh -o StrictHostKeyChecking=no login@192.168.5.103` |
-| Plugin source | `/var/www/html/plugins/siaDC09` | Bind mount from `/mnt/hgfs/my-project` |
-| CSR Simulator | Same VM, `localhost:10001` (UDP) | `python3 -m tests.simulator --udp-port 10001 --host 127.0.0.1 --account 000001` |
+| Hôte Jeedom de test | `test-jeedom.lehoux.net` / `192.168.100.40` | Accès shell root par l'utilisateur. Aucune commande n'est lancée depuis la session de dev. |
+| Déploiement du code | `git pull` de `origin/master` sur l'hôte Jeedom | Commit **et push** obligatoires avant toute validation terrain. Pas de dossier partagé. |
+| Plugin source | `/var/www/html/plugins/siaDC09` | Clone git sur l'hôte |
+| Récepteur SIA de test | `test-sia-internal.lehoux.net` / `192.168.100.15`, **port 10002, TCP** | account `001234`, `crc_format=hex`, chiffrement off. **Cible de validation** — jeu de paramètres prouvé le 2026-09-17 (ACK supervision en ~3 ms). |
+| CSR Simulator | Sur l'hôte Jeedom, port au choix | `python3 -m tests.simulator …` — conservé comme outil pour provoquer NAK / silence / account non concordant, pas comme cible de validation. |
 | Daemon venv | `resources/python_venv/bin/python3` | Created by Jeedom dep manager |
 | Plugin config state | `sia_wizard_step=4` | Wizard complete from Story 12-2 |
 | Notification cmd | cmd id=29 (`Notify` on `Notification` eq) | `sia_notify_cmd_id=29` |
 | Daemon log | `/var/www/html/log/siaDC09_daemon` | |
 | Plugin log | `/var/www/html/log/siaDC09` | |
 
-**SSH connection:** `sshpass -p "login" ssh -o StrictHostKeyChecking=no login@192.168.5.103`
+Le poste de développement n'atteint pas le réseau `192.168.100.x` : un test de connectivité qui
+échoue depuis le Mac ne prouve rien. Toutes les vérifications réseau se font depuis l'hôte Jeedom.
 
 ### Alarm Command Execution Chain
 
@@ -451,11 +517,15 @@ claude-sonnet-4-6 (eu.anthropic.claude-sonnet-4-6)
 **AC Status:**
 - AC1 (happy path burglarAlarm ACK): PASS ✓
 - AC2 (all event types ACK): PASS — FA and PA both confirmed ✓
-- AC3 (zone handling): PASS **against the original wording only** — the frame carried the zone *label* (`zone=Piece1`), empty zone → `zone=None` no crash ✓. **Invalidated 2026-09-17:** AC3 now requires the zone *order number* (`[#001234|BA 001]`) and no zone field when unresolved → re-validation owed under Story 8.2 AC15.
-- AC4 (NAK path T2): PASS — event_state=2, no CRITIQUE prefix, no retry ✓
-- AC5 (timeout path T3): PASS — 3 retries, CRITIQUE prefix, T3 notification ✓
+- AC3 (zone handling): PASS — invalidé le 2026-09-17 (le libellé était transmis au lieu du n° d'ordre), **re-validé le 2026-09-17 22:01:49** sous Story 8.2 AC15 / Task 11.9 sur le récepteur réel : `[#001234|BA 001]` porte bien le n° d'ordre. Dette soldée ✓
+- AC4 (NAK path T2): PASS — event_state=2, no CRITIQUE prefix, no retry ✓ *(UDP)*
+- AC5 (timeout path T3): PASS — 3 retries, CRITIQUE prefix, T3 notification ✓ *(UDP)*
 - AC6 (ring buffer alarm entry): PASS (verified in 12-4 session, confirmed dialog_type=alarm) ✓
 - AC7 (event_state persists): PASS — event_state=1 survives daemon restart ✓
+- AC8 (TCP happy path): PASS — trame BA en TCP vers `192.168.100.15:10002` acquittée le 2026-09-17 22:01:49 (preuve sous 8.2 AC15). Reste à relever `event_state=1` (Task 9.2) ✓/⚠
+- AC9 (TCP FA/PA): **OPEN** — seule exécution encore due dans 12-5 (Task 10)
+- AC10 (TCP NAK T2): **TRANSFÉRÉ** à 12-7 Task 12.1 (2026-09-18)
+- AC11 (TCP timeout T3): **TRANSFÉRÉ** à 12-7 Task 12.2 (2026-09-18)
 
 ### File List
 
@@ -471,3 +541,4 @@ claude-sonnet-4-6 (eu.anthropic.claude-sonnet-4-6)
 | 2026-05-29 | Story created and executed on Jeedom VM. All 7 AC pass. 5 bugs fixed. |
 | 2026-06-01 | TCP pass added: AC8–11 + Tasks 8–13 — alarm delivery over TCP transport. |
 | 2026-09-17 | AC3 rewritten (frame carries the zone *order number*, or no zone field when unresolved); Task 0.1 corrected (`#name_zone#` → `#zone#`, which yields a label); Task 1.2 superseded (real receiver `192.168.100.15:10002` TCP, no simulator); execution chain updated with `zone_number`. AC3 re-validation is owned by Story 8.2 AC15. |
+| 2026-09-18 | **Story réouverte** — `done` était faux : Tasks 8–13 / AC8–AC11 (passe TCP) jamais exécutées, alors que TCP est le transport réel du récepteur. Statut → `in-progress`. AC3 soldé (re-validé sous 8.2 AC15 le 2026-09-17 22:01:49). AC8 coché en PASS partiel sur la preuve terrain 8.2 AC15 (trame `D741003A"SIA-DCS"0010L0#001234[#001234\|BA 001]` acquittée en TCP sur `192.168.100.15:10002`), reste `event_state=1` à relever (Task 9.2). AC9 = seule exécution encore due (Task 10, + nouvelle 10.3 sur `[#001234\|FA 001]` / `[#001234\|PA 002]`). AC10/AC11 **transférés à 12-7 Task 12.1/12.2** qui les portait déjà mot pour mot ; Tasks 11 et 12 barrées mais leurs modes opératoires simulateur **conservés** (le simulateur reste le seul moyen de provoquer NAK / silence / account non concordant), + substitut sans simulateur documenté (port fermé → `ConnectionRefusedError`). Tasks 8 et 13 dotées d'un chemin autoritatif « récepteur réel » (8.0, 13.0), variantes simulateur conservées et étiquetées. Task 13 requalifiée « remettre la configuration de référence » (TCP/10002) au lieu de « revert to UDP ». Table Infrastructure réécrite : VM morte `192.168.5.103` et mot de passe SSH en clair supprimés, déploiement par `git pull` sur `test-jeedom.lehoux.net`. |
