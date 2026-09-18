@@ -29,7 +29,7 @@
 # - SM typically creates next story ONLY after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then Dev runs code-review (fresh context, ideally different LLM)
 
-last_updated: "2026-09-18" # Story 10-3 in-progress
+last_updated: "2026-09-18" # Story 13-1 rescoped to BC / option A; story 13-2 (BR) parked
 generated: "2026-05-04"
 project: "my-project"
 project_key: "NOKEY"
@@ -138,7 +138,8 @@ development_status:
 
   # Epic 13: Alarm Event Vocabulary Extension (v1.1)
   epic-13: in-progress
-  13-1-burglary-restore-cancel-events: in-progress  # Task 1 (design, AC1) done 2026-09-18; Tasks 2-9 deferred pending 12-5, 7-2 (SM2 in daemon.py) and 10-3 (widget)
+  13-1-burglary-restore-cancel-events: ready-for-dev  # rescoped 2026-09-18 to BC only, option A (we correlate): memorise dispatched alarms per zone, fan out one BC per open zone on the single global zone-less `raz` trigger. Variant A-PHP (eqLogic cache) specified, A-daemon documented and rejected. Task 1 REOPENED — the three design sections committed in bfb2445 assert the reversed decision. BR transferred to 13-2
+  13-2-burglary-restore-event: backlog  # parked 2026-09-18, no blocker but no SOURCE: no alarm-plugin action expresses "a detector returned to normal"; `reenableTrigger` is not a substitute. Three unparking conditions recorded in the story
   epic-13-retrospective: optional
 
 # Summary Statistics
@@ -159,14 +160,18 @@ development_status:
 # counters; recounted from the status lines: ready_for_dev 3→2, in-progress 3→4)
 # Updated: 2026-09-18 (13-1 Task 1 / AC1 design done → 13-1 and epic-13 backlog → in-progress;
 # epics_backlog 1→0, epics_in_progress 4→5, stories_backlog 4→3, stories_in_progress 4→5)
+# Updated: 2026-09-18 (13-1 rescoped to BC / option A and BR transferred to the new parked story 13-2;
+# 13-1 in-progress → ready-for-dev, 13-2 registered as backlog. Recounted from the status lines:
+# total_stories 52→53, backlog 3→4, ready_for_dev 2→3, in-progress 5→4. epic-13 stays in-progress
+# — design work is active — so the epic counters are unchanged)
 summary:
   total_epics: 13
-  total_stories: 52
+  total_stories: 53
   epics_backlog: 0
   epics_in_progress: 5
   epics_done: 8
-  stories_backlog: 3
-  stories_ready_for_dev: 2
-  stories_in_progress: 5
+  stories_backlog: 4
+  stories_ready_for_dev: 3
+  stories_in_progress: 4
   stories_review: 0
   stories_done: 42
