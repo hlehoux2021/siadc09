@@ -16,8 +16,9 @@ created: "2026-09-17"
 > 12-5 → 12-7). La décision de conception n° 1 committée en `bfb2445` est **renversée** :
 > la corrélation zone n'est pas l'affaire de la centrale, c'est la nôtre.
 
-Status: ready-for-dev — Task 1 (conception, `bfb2445`) est à **reprendre** : ses trois sections
-`## Restoral events (BR / BC)` contredisent la décision de l'utilisateur du 2026-09-18.
+Status: ready-for-dev — Task 1 (conception) **close** (`613b0fe`) : les trois sections sont
+réécrites en « Burglary Cancel (BC) », conformes à la décision de l'utilisateur du 2026-09-18.
+Reste Tasks 2-9 (code, tests, doc, validation terrain).
 
 ## Story
 
@@ -192,7 +193,7 @@ le libellé n'est pas une clé de corrélation utilisable.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Réécrire les trois sections de conception de `bfb2445` (AC1) — décision n° 1 renversée,
+- [x] Task 1: Réécrire les trois sections de conception de `bfb2445` (AC1) — décision n° 1 renversée,
       A-PHP documentée face à A-démon, BR renvoyé à 13-2
 - [ ] Task 2: `burglaryCancel` dans `postSave()` + nouveau cas dans `siaDC09Cmd::execute()` (AC2, AC6)
 - [ ] Task 3: Table `sia_open_alarms` — écriture, clé, dédoublonnage, `OPEN_ALARMS_MAX`, TTL (AC3)
