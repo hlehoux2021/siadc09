@@ -1,6 +1,6 @@
 # Story 7.2: TCP Stall Detection, Reconnect & Ring Buffer Logging
 
-Status: in-progress
+Status: review
 
 > **Amendment 2026-09-17 — daemon self-stop on `TRANSPORT_PERMANENT` (AC15–AC17, Task 8).**
 > The original scope shipped and was validated, but it froze the WRONG recovery model. AC2 and the
@@ -147,7 +147,7 @@ So that the already-implemented TCP reconnect flow is verified to work correctly
 
 ### Task 8: Daemon self-stop on `TRANSPORT_PERMANENT` — amendment 2026-09-17 (AC15–AC17)
 
-- [ ] **8.1** `resources/siadc09d/daemon.py` `_tcp_reconnect_loop()` (permanent-failure tail, currently
+- [x] **8.1** `resources/siadc09d/daemon.py` `_tcp_reconnect_loop()` (permanent-failure tail, currently
   lines ~1126–1136): after the existing three statements (`_set_sm1_state(NO_NETWORK)`,
   `_notify(TRANSPORT_PERMANENT, ...)`, `_logger.error(...)`), add:
   ```python
@@ -161,21 +161,21 @@ So that the already-implemented TCP reconnect flow is verified to work correctly
   # Ref: daemon-design.md:589/616/677/684, error-handler-design.md, story 3-3 stub docstring.
   self._track_task(self.stop(), name="transport_permanent_stop")
   ```
-- [ ] **8.2** Verify no `self.stop()` is added to `_dispatch_notify()` — it stays tier-generic (AC17).
+- [x] **8.2** Verify no `self.stop()` is added to `_dispatch_notify()` — it stays tier-generic (AC17).
   The termination decision belongs to the state-machine transition, not the notification dispatcher.
-- [ ] **8.3** `tests/level2/test_tcp_reconnect_integration.py` — extend the permanent-failure test (AC2's
+- [x] **8.3** `tests/level2/test_tcp_reconnect_integration.py` — extend the permanent-failure test (AC2's
   `test_...permanent_failure`): after all 3 `open_connection` calls raise, assert a task named
   `transport_permanent_stop` is scheduled AND that `daemon.stop` (patched/spied) is invoked exactly once.
   Gather `daemon._tasks` to let it run; assert `on_stop()` ran (transport closed, tasks cancelled).
-- [ ] **8.4** Test AC16: with real `_dispatch_notify` (mock only `_send_callback`), drive the loop to
+- [x] **8.4** Test AC16: with real `_dispatch_notify` (mock only `_send_callback`), drive the loop to
   permanent failure and assert all three payloads (`message_center`, `notify`, `error_update`) were sent
   to `_send_callback` before `stop()`/`on_stop()` completes — the notify is not lost to shutdown.
-- [ ] **8.5** Test AC17: call `_notify(SUPERVISION_DISCONNECTED)` and `_notify(EVENT_FAILED)` directly →
+- [x] **8.5** Test AC17: call `_notify(SUPERVISION_DISCONNECTED)` and `_notify(EVENT_FAILED)` directly →
   assert NO `transport_permanent_stop` task is ever scheduled (self-stop is TRANSPORT_PERMANENT-scoped).
-- [ ] **8.6** Reverse the now-false Dev Notes: update the "NO_NETWORK is terminal — daemon never recovers"
+- [x] **8.6** Reverse the now-false Dev Notes: update the "NO_NETWORK is terminal — daemon never recovers"
   paragraph and AC8's "zombie state" note to state the daemon self-stops so the watchdog restarts it.
   Keep the CancelledError-during-shutdown note (that path is genuine shutdown, unchanged).
-- [ ] **8.7** Run `python3 -m pytest tests/ -q --tb=short` — full suite green (baseline: 1 pre-existing
+- [x] **8.7** Run `python3 -m pytest tests/ -q --tb=short` — full suite green (baseline: 1 pre-existing
   failure `test_tc13`). Then `python3 -m pylint resources/siadc09d/daemon.py`.
 - [ ] **8.8** VM validation is 12-7 AC11 / Task 10 (already written, `ready-for-dev`) — do NOT duplicate it
   here. Once code lands, 12-7 Task 10.5/10.6 (`pgrep -f siadc09d` → no output, watchdog restart) is the
@@ -364,20 +364,24 @@ Claude Opus 4.6 (1M context)
 - **Task 5 (ring buffer + INFO):** 3 tests: INFO commands return correct values for INITIALIZING and NO_NETWORK, ring buffer test uses real `_log_sm1_supervision` + real `RingBuffer` — verifies warning entry with `strike=3` context pushed (non-routine).
 - **Task 6 (queue consumer gate):** 2 tests verifying gate blocks during TCP_RECONNECTING and unblocks on transition to INITIALIZING, including accumulation of 3 items and sequential consumption.
 - **Task 7 (regression):** Full suite: 926 passed, 1 pre-existing failure (`test_tc13_strike_timing_precision`). No regressions.
+- **Task 8 (self-stop on `TRANSPORT_PERMANENT`, AC15–AC17):** Added `self._track_task(self.stop(), name="transport_permanent_stop")` to the `_tcp_reconnect_loop()` permanent-failure tail (daemon.py ~1146), scheduled AFTER `_notify(TRANSPORT_PERMANENT)` so the notify task is already in `_tasks` when `on_stop()` gathers (AC16). Scheduled, not awaited — awaiting inline would cancel the loop mid-call via `BaseDaemon.stop()` and drop the notify. Self-stop is scoped to this one path; `_dispatch_notify()` stays tier-generic so other T3 codes (`SUPERVISION_DISCONNECTED`, `EVENT_FAILED`) do NOT self-stop (AC17). Added `_install_stop_spy()` test helper (level2 + level3) that discards `asyncio.current_task()` from `_tasks` then awaits the real `on_stop()`, letting the scheduled stop run non-recursively — this also fixed the RecursionError/hang the naive real-`stop()` path caused at level3 event-loop teardown. Tests: level2 TCP suite 25 passed (AC15 `test_reconnect_permanent_failure_schedules_self_stop`, AC16 `test_transport_permanent_notify_survives_self_stop`, AC17 `test_other_t3_notifications_do_not_self_stop`); level3 `test_tcp_no_network_daemon_self_stop` passes at 8.22s (no hang). Reversed the two now-false Dev Notes paragraphs (8.6). **Validation gate (8.7):** full suite 11 failed / 1492 passed — all 11 failures proven pre-existing via git-stash baseline comparison (0 regressions from this change); `pylint resources/siadc09d/daemon.py` exit 0 (the 8.53/10 delta is stale-cache style warnings outside the edited region 1138–1146, not new findings). **VM validation (8.8) deferred to story 12-7 AC11 / Task 10 — NOT executed here (no duplication).**
 
 ### Change Log
 
 - 2026-05-04: Fixed D-3 dual-task race condition in `_update_sm1_from_strike()` + state regression guard in `_handle_supervision_tcp_drop()`. Created `tests/level2/test_tcp_reconnect_integration.py` with 21 integration tests covering all ACs.
+- 2026-09-17: **Testing feedback recorded (TF-1…TF-4)** from 12-4 VM supervision-loss test — see "Testing Feedback — 2026-09-17" section. Proposed AC18 (push NO_NETWORK label before self-stop, fold into AC15), AC19 (reconnect backoff schedule + total budget), AC20 (wire `--retry-count` + add `--reconnect-delay` through CSRPreset), AC21 (fix stale `TCP_CONNECT_TIMEOUT_S` log/docstring). Analysis only — awaiting go-ahead to implement.
 - 2026-09-17: **Amendment — daemon self-stop on `TRANSPORT_PERMANENT` (Option A, AC15–AC17, Task 8).** Reopened `done → in-progress`. Root cause: the reconnect loop set `NO_NETWORK` and fired `_notify(TRANSPORT_PERMANENT)` but never called `self.stop()`, so host SM1 sat in `NO_NETWORK` forever (log: `NO_NETWORK: SUPERVISION dropped (daemon stopping, counter=N)` every minute) and the Jeedom watchdog restart never triggered. AC2 + Dev Notes had frozen this "no self.stop()" behavior, contradicting `daemon-design.md:589/616/677/684` and the story 3-3 `_dispatch_notify` stub contract. Fix scopes `self._track_task(self.stop(), name="transport_permanent_stop")` to the `_tcp_reconnect_loop()` permanent-failure tail only (NOT `_dispatch_notify`). Reversed the two now-false Dev Notes paragraphs. VM validation stays owned by 12-7 AC11 / Task 10 (unchanged). Design docs were already correct — no design-first pass needed.
+- 2026-09-18: **Amendment implemented (Task 8 complete, AC15–AC17).** Wired the scheduled self-stop in `_tcp_reconnect_loop()` (daemon.py ~1146); added `_install_stop_spy()` + AC15/AC16/AC17 tests in `tests/level2/test_tcp_reconnect_integration.py` (25 passed) and wired the spy into `tests/level3/test_full_workflow_e2e.py::test_tcp_no_network_daemon_self_stop` (fixes RecursionError at teardown, passes 8.22s). Validation gate: full suite 11 failed / 1492 passed — all 11 pre-existing (proven via stash baseline), 0 regressions; pylint exit 0. VM validation (8.8) deferred to 12-7 AC11/Task 10. Status `in-progress → review`. TF-1…TF-4 (proposed AC18–AC21) remain out of scope for this story.
 
 ### File List
 
 - `resources/siadc09d/daemon.py` — modified: state regression guard + D-3 guard
 - `tests/level2/test_tcp_reconnect_integration.py` — created: 21 integration tests
 
-**Amendment 2026-09-17 (pending implementation):**
-- `resources/siadc09d/daemon.py` — to modify: schedule `self.stop()` in `_tcp_reconnect_loop()` permanent-failure tail (~line 1136)
-- `tests/level2/test_tcp_reconnect_integration.py` — to modify: extend permanent-failure test (AC15), add AC16 (notify survives shutdown) + AC17 (self-stop scoped to TRANSPORT_PERMANENT)
+**Amendment 2026-09-17 (implemented — Task 8, AC15–AC17):**
+- `resources/siadc09d/daemon.py` — modified: schedule `self._track_task(self.stop(), name="transport_permanent_stop")` in `_tcp_reconnect_loop()` permanent-failure tail (line ~1146), after `_notify(TRANSPORT_PERMANENT)`. Self-stop scoped to this path only — `_dispatch_notify()` stays tier-generic (AC17).
+- `tests/level2/test_tcp_reconnect_integration.py` — modified: added `_install_stop_spy()` helper; extended permanent-failure test into `test_reconnect_permanent_failure_schedules_self_stop` (AC15), added `test_transport_permanent_notify_survives_self_stop` (AC16) + `test_other_t3_notifications_do_not_self_stop` (AC17).
+- `tests/level3/test_full_workflow_e2e.py` — modified: added `_install_stop_spy()` and wired it into `test_tcp_no_network_daemon_self_stop` so the scheduled real `self.stop()` drains non-recursively (prevents RecursionError at event-loop teardown).
 
 ### Review Findings
 
@@ -387,3 +391,26 @@ Claude Opus 4.6 (1M context)
 - [x] [Review][Patch] AC10: `is_routine=False` not asserted in ring buffer test — test checks `level=="warning"` and `context.strike==3` but never checks `entry.get("is_routine") is False` [test_tcp_reconnect_integration.py:669-677]
 - [x] [Review][Defer] Queue consumer gate tests use `asyncio.sleep(0)` instead of `asyncio.gather()` — violates testing.md rule but structurally necessary (consumer loop cannot be joined mid-run) [test_tcp_reconnect_integration.py:715,765] — deferred, structural constraint
 - [x] [Review][Defer] Asymmetric guard strategies: `_handle_supervision_tcp_drop` guards on SM1 state while `_update_sm1_from_strike` guards on task name — edge case where the two disagree is theoretically possible [daemon.py:1019,742] — deferred, pre-existing design trade-off
+
+## Testing Feedback — 2026-09-17 (supervision-loss field test, Herve)
+
+Surfaced during 12-4 VM testing after a real connectivity loss to the CSR (`192.168.100.15:10002`, account `001234`). Log excerpt `0700–0717`. Four findings, all in the `_tcp_reconnect_loop()` path this story owns. **Recorded for analysis — not yet implemented.**
+
+### TF-1 — Widget label stuck at "Reconnexion TCP/UDP…" after reconnect fails
+- **Observed:** on permanent failure (`log 0717`, transition to NO_NETWORK), the widget `supervision_label` stays at `Reconnexion TCP/UDP…` indefinitely.
+- **Root cause:** `_set_sm1_state()` [daemon.py:577-596] only mutates `_sm1_state` + sets `_sm1_state_changed` — it never pushes an `info_update`. The last label pushed was `SM1_TCP_RECONNECTING_FR` [messages.py:41] when entering TCP_RECONNECTING (`log 0705`). The NO_NETWORK transition [daemon.py:1127] fires no `_update_info_commands()` → the widget is never told. Confirms the tested build predates the pending AC15 self-stop amendment: `on_stop()` would have pushed `"ARRÊTÉ"` [daemon.py:2059], and no such push appears in the log.
+- **Recommended fix:** fold into the open AC15 amendment (same code tail). Push an explicit `_update_info_commands()` with `SM1_NO_NETWORK_FR` ("HORS RÉSEAU — arrêt") [messages.py:42] at daemon.py:1127 **before** scheduling `self.stop()`. **Design point — RESOLVED (Herve, 2026-09-17):** the widget must read **"HORS RÉSEAU — arrêt"** during the down/restart window, so `on_stop()` must carry the terminal reason instead of the generic `"ARRÊTÉ"` [daemon.py:2059]. Implementation: pass the terminal label into `on_stop()` (or set an instance field the STOPPED push reads) so the NO_NETWORK reason survives shutdown; the label then clears to `DÉMARRAGE…` when the watchdog restarts. Proposed new **AC18**.
+
+### TF-2 — Reconnect sequence too aggressive (starts fast, probes too close, gives up in ~30s)
+- **Observed:** whole 3-attempt sequence completes in ~30s (`log 0703→0717`) then declares NO_NETWORK. Herve: too fast after the loss and too tightly spaced — give connectivity time to recover.
+- **Root cause:** fixed non-growing delay `_preset.reconnect_delay_s` = 5.0 [presets.py:43] at daemon.py:1092, and `TCP_RECONNECT_MAX_ATTEMPTS` = 3 [daemon.py:182] at daemon.py:1082. No exponential/linear backoff; total reconnect budget ≈ 3 × (5s delay + ~5s probe) ≈ 30s. A router reboot / ISP blip / IMA Protect restart routinely exceeds that.
+- **Recommended fix:** replace fixed delay with a growing backoff and raise the attempt budget so the daemon tries for ~15 min before NO_NETWORK. **Schedule — RESOLVED (Herve, 2026-09-17):** **6 attempts, delays 30 / 60 / 120 / 300 / 300 / 300s** (cap 300s), ≈ 15 min total budget before declaring NO_NETWORK. Implement as a delay-sequence helper (per-attempt lookup with cap), not a single constant. Note the interaction with the AC15 self-stop: after NO_NETWORK the watchdog restarts in ~1 min → INITIALIZING → 3 strikes over ~3 min → reconnect again, so the *outer* recovery loop already re-tries; the inner loop just needed to stop declaring defeat in 30s. Proposed new **AC19**.
+
+### TF-3 — `--retry-count` parsed but never used; `reconnect_delay_s` never wired
+- **Root cause:** `--retry-count` [siadc09d.py:382] is parsed but the loop reads the hardcoded `TCP_RECONNECT_MAX_ATTEMPTS` [daemon.py:1082]; `CSRPreset(...)` construction [siadc09d.py:389-402] omits `reconnect_delay_s`, leaving the dataclass default 5.0 [presets.py:43], and there is no `--reconnect-delay` arg at all. Neither attempt count nor delay is operator-tunable.
+- **Recommended fix:** make `TCP_RECONNECT_MAX_ATTEMPTS` a `CSRPreset` field fed by `--retry-count`; add a `--reconnect-delay` CLI arg → `reconnect_delay_s`. Full chain to expose to operators: wizard field → PHP daemon-launch args → CLI → CSRPreset → loop (touches epic 6 PHP + epic 8 wizard). **Interaction with AC19:** the new default attempt count must become **6** (was 3) to match the resolved backoff schedule, and `--retry-count` then caps how far into the 30/60/120/300… sequence the loop walks (extra attempts reuse the 300s cap). Decide whether `--reconnect-delay` overrides the *base* of the sequence or is retired in favor of a fixed schedule — recommend keeping it as the base (first) delay so operators can still widen/tighten. Proposed new **AC20**.
+
+### TF-4 — Probe-timeout log/docstring lie about the real timeout (found while tracing TF-2)
+- **Observed:** `log 0709→0710` shows the probe times out **5s** after "Probing…", but the message reads `timed out (10s)`.
+- **Root cause:** the probe actually uses `self._preset.connect_timeout_s` = 5.0 [siadc09d.py:399 → daemon.py:1099], but the warning f-string [daemon.py:1119] and the docstring [daemon.py:1066] both interpolate the stale constant `TCP_CONNECT_TIMEOUT_S` = 10 [daemon.py:183], which is no longer the value in effect. `TCP_CONNECT_TIMEOUT_S` is now a dead/misleading constant.
+- **Recommended fix:** log the real `self._preset.connect_timeout_s`; delete or repurpose `TCP_CONNECT_TIMEOUT_S`; correct the docstring. Low-risk, bundle with TF-3. Proposed new **AC21**.

@@ -29,7 +29,7 @@
 # - SM typically creates next story ONLY after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then Dev runs code-review (fresh context, ideally different LLM)
 
-last_updated: "2026-09-18" # Story 10-3 in-progress
+last_updated: "2026-09-18" # Story 7-2 self-stop amendment → review
 generated: "2026-05-04"
 project: "my-project"
 project_key: "NOKEY"
@@ -91,7 +91,7 @@ development_status:
   # Epic 7: Supervision Health Monitoring
   epic-7: in-progress  # reopened 2026-09-17 for the 7-2 self-stop-on-TRANSPORT_PERMANENT amendment
   7-1-supervision-loop-strike-management-info-updates: done
-  7-2-tcp-stall-detection-reconnect-ring-buffer-logging: in-progress  # amendment 2026-09-17: AC15-AC17 / Task 8 (schedule self.stop() on NO_NETWORK so the Jeedom watchdog restarts the daemon — Option A); AC1-AC14 stay done. Fixes SM1 NO_NETWORK dead-end. Validated by 12-7 AC11/Task 10
+  7-2-tcp-stall-detection-reconnect-ring-buffer-logging: review  # amendment 2026-09-18: AC15-AC17 / Task 8 implemented (schedule self.stop() on NO_NETWORK so the Jeedom watchdog restarts the daemon — Option A); AC1-AC14 stay done. Fixes SM1 NO_NETWORK dead-end. 0 regressions (11 pre-existing failures). VM validation (8.8) owned by 12-7 AC11/Task 10
   7-3-supervision-integration-testing: done
   epic-7-retrospective: done
 
@@ -157,6 +157,8 @@ development_status:
 # to 12-7 Task 12; done 43→42, in-progress 2→3. epic-12 was already in-progress, epic counters unchanged)
 # Updated: 2026-09-18 (10-3 moved ready-for-dev → in-progress by a parallel session without mirroring the
 # counters; recounted from the status lines: ready_for_dev 3→2, in-progress 3→4)
+# Updated: 2026-09-18 (7-2 self-stop-on-TRANSPORT_PERMANENT amendment implemented → 7-2 in-progress → review;
+# in-progress 4→3, review 0→1. epic-7 stays in-progress until 7-2 is done/reviewed)
 summary:
   total_epics: 13
   total_stories: 52
@@ -165,6 +167,6 @@ summary:
   epics_done: 8
   stories_backlog: 4
   stories_ready_for_dev: 2
-  stories_in_progress: 4
-  stories_review: 0
+  stories_in_progress: 3
+  stories_review: 1
   stories_done: 42

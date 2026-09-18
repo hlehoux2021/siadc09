@@ -21,7 +21,11 @@ from resources.siadc09d.daemon import (
     TCP_CONNECT_TIMEOUT_S,
     TCP_RECONNECT_MAX_ATTEMPTS,
 )
-from resources.siadc09d.error_handler import ErrorCode
+from resources.siadc09d.error_handler import (
+    ErrorCode,
+    EventFailedCtx,
+    SM1DisconnectedCtx,
+)
 from resources.siadc09d.messages import (
     SM1_INITIALIZING_FR,
     SM1_NO_NETWORK_FR,
@@ -87,6 +91,33 @@ def _make_udp_daemon() -> SIADaemon:
     mock_t.send_frame = AsyncMock(return_value={"status": "ack", "raw_nak": None})
     daemon._sia_transport = mock_t
     return daemon
+
+
+def _install_stop_spy(daemon: SIADaemon) -> list[int]:
+    """Replace daemon.stop() with a spy that faithfully mirrors BaseDaemon.stop().
+
+    BaseDaemon.stop() (base_daemon.py:133-149) calls on_stop() then cancels every
+    task EXCEPT the current one. Our self-stop is scheduled as the tracked task
+    'transport_permanent_stop', so when it runs, IT is the current task — the spy
+    must discard itself from _tasks before delegating to on_stop(), otherwise
+    on_stop()'s gather would await the running task on itself and deadlock/self-cancel.
+
+    Expected result:
+    - Returns a list whose length equals the number of stop() invocations
+    - Each invocation runs the real on_stop() (transport close + task cancellation)
+    """
+    calls: list[int] = []
+
+    async def _spy_stop() -> None:
+        calls.append(1)
+        # Mirror BaseDaemon.stop(): exclude the current (self-stop) task from _tasks
+        # so on_stop()'s gather does not await this coroutine on itself.
+        current = asyncio.current_task()
+        daemon._tasks.discard(current)
+        await daemon.on_stop()
+
+    daemon.stop = _spy_stop  # type: ignore[method-assign]
+    return calls
 
 
 def _make_writer_mock() -> MagicMock:
@@ -167,6 +198,12 @@ async def test_reconnect_permanent_failure_all_attempts_timeout():
     # Assert: all 3 attempts exhausted
     assert mock_open.call_count == TCP_RECONNECT_MAX_ATTEMPTS
 
+    # Cleanup: cancel the scheduled watchdog hand-off (real self.stop() not under test here;
+    # the dedicated AC15 test exercises it — see test_reconnect_permanent_failure_schedules_self_stop)
+    for task in list(daemon._tasks):
+        task.cancel()
+    await asyncio.gather(*daemon._tasks, return_exceptions=True)
+
 
 @pytest.mark.asyncio
 async def test_reconnect_permanent_failure_all_attempts_oserror():
@@ -189,6 +226,11 @@ async def test_reconnect_permanent_failure_all_attempts_oserror():
     assert daemon._sm1_state == SM1State.NO_NETWORK
     # Assert: T3 TRANSPORT_PERMANENT fired
     assert daemon._notify.call_args[0][0] == ErrorCode.TRANSPORT_PERMANENT
+
+    # Cleanup: cancel the scheduled watchdog hand-off (real self.stop() not under test here)
+    for task in list(daemon._tasks):
+        task.cancel()
+    await asyncio.gather(*daemon._tasks, return_exceptions=True)
 
 
 @pytest.mark.asyncio
@@ -225,6 +267,141 @@ async def test_reconnect_partial_failure_then_success():
     assert ErrorCode.TRANSPORT_PERMANENT not in calls
     # Assert: exactly 3 attempts made
     assert mock_open.call_count == 3
+
+
+# ===== TASK 8 (AC15–AC17): SELF-STOP ON TRANSPORT_PERMANENT (Option A) =====
+
+
+@pytest.mark.asyncio
+async def test_reconnect_permanent_failure_schedules_self_stop():
+    """Permanent TCP failure schedules a 'transport_permanent_stop' task that runs stop() once (AC15).
+
+    Scenario:
+    - All TCP_RECONNECT_MAX_ATTEMPTS reconnect probes raise TimeoutError.
+    - After NO_NETWORK + TRANSPORT_PERMANENT notify, the loop must hand the
+      process back to Jeedom's watchdog by SCHEDULING self.stop() (not awaiting it).
+
+    Expected result:
+    - A tracked task named 'transport_permanent_stop' is scheduled by the loop.
+    - Draining _tasks runs that task, which invokes stop() exactly once.
+    - stop() delegates to on_stop(): the transport is closed and reset to None.
+    """
+    daemon = _make_tcp_daemon()
+    daemon._sm1_state = SM1State.TCP_RECONNECTING
+    daemon._strike_counter = 3
+    stop_calls = _install_stop_spy(daemon)
+    mock_transport = daemon._sia_transport  # captured before on_stop() resets it to None
+
+    with patch("asyncio.open_connection", new_callable=AsyncMock) as mock_open:
+        mock_open.side_effect = asyncio.TimeoutError()
+        await daemon._tcp_reconnect_loop()
+
+    # Assert: the loop scheduled the watchdog hand-off task by name (AC15 step d)
+    scheduled_names = {t.get_name() for t in daemon._tasks}
+    assert "transport_permanent_stop" in scheduled_names
+    # Assert: NO_NETWORK reached before the hand-off
+    assert daemon._sm1_state == SM1State.NO_NETWORK
+
+    # Drain tracked tasks so the scheduled self-stop actually runs
+    await asyncio.gather(*daemon._tasks, return_exceptions=True)
+
+    # Assert: stop() ran exactly once (single clean hand-off, not per-attempt)
+    assert len(stop_calls) == 1
+    # Assert: stop() → on_stop() closed the transport
+    mock_transport.close.assert_awaited_once()
+    # Assert: on_stop() reset the transport handle to None
+    assert daemon._sia_transport is None
+
+
+@pytest.mark.asyncio
+async def test_transport_permanent_notify_survives_self_stop():
+    """The TRANSPORT_PERMANENT notify is fully dispatched before shutdown completes (AC16).
+
+    Scenario:
+    - Real _notify/_dispatch_notify (only _send_callback is mocked).
+    - Permanent TCP failure fires TRANSPORT_PERMANENT, then schedules self.stop().
+    - Because the notify task is scheduled BEFORE the stop task and the mocked
+      _send_callback never yields, the notify runs to completion before on_stop()
+      cancels tasks — so all three T3 channels reach PHP.
+
+    Expected result:
+    - message_center, notify, and error_update payloads are all sent.
+    - The notify payload carries the TRANSPORT_PERMANENT error code.
+    """
+    daemon = _make_tcp_daemon()
+    daemon._sm1_state = SM1State.TCP_RECONNECTING
+    daemon._strike_counter = 3
+    del daemon._notify  # restore the real _notify (fixture had mocked it)
+    sent: list[dict] = []
+
+    async def _record(payload: dict) -> None:
+        sent.append(payload)
+
+    daemon._send_callback = _record  # type: ignore[method-assign]
+    _install_stop_spy(daemon)
+
+    with patch("asyncio.open_connection", new_callable=AsyncMock) as mock_open:
+        mock_open.side_effect = asyncio.TimeoutError()
+        await daemon._tcp_reconnect_loop()
+
+    # Drain tracked tasks: notify task (scheduled first) then self-stop task
+    await asyncio.gather(*daemon._tasks, return_exceptions=True)
+
+    sent_types = [p.get("type") for p in sent]
+    # Assert: T3 message_center channel delivered
+    assert "message_center" in sent_types
+    # Assert: T3 notify channel delivered (survived the shutdown)
+    assert "notify" in sent_types
+    # Assert: T3 error_update channel delivered
+    assert "error_update" in sent_types
+    # Assert: the error_update carries the TRANSPORT_PERMANENT code
+    error_update = next(p for p in sent if p.get("type") == "error_update")
+    assert error_update["code"] == ErrorCode.TRANSPORT_PERMANENT.name
+
+
+@pytest.mark.asyncio
+async def test_other_t3_notifications_do_not_self_stop():
+    """SUPERVISION_DISCONNECTED and EVENT_FAILED are T3 but never trigger self-stop (AC17).
+
+    Scenario:
+    - Real _notify/_dispatch_notify (only _send_callback is mocked).
+    - Fire the two other T3 error codes directly via _notify.
+    - Only TRANSPORT_PERMANENT owns the watchdog hand-off; these must not.
+
+    Expected result:
+    - No 'transport_permanent_stop' task is ever scheduled.
+    - stop() is never invoked.
+    """
+    daemon = _make_tcp_daemon()
+    del daemon._notify  # restore the real _notify (fixture had mocked it)
+    daemon._send_callback = AsyncMock()
+    stop_calls = _install_stop_spy(daemon)
+
+    # Fire both other T3 error codes through the real dispatch path
+    daemon._notify(ErrorCode.SUPERVISION_DISCONNECTED, SM1DisconnectedCtx(
+        strike_count=3,
+        last_ack_time_utc=None,
+        time_since_last_ack_s=None,
+        supervision_interval_s=90.0,
+    ))
+    daemon._notify(ErrorCode.EVENT_FAILED, EventFailedCtx(
+        sia_code="BA",
+        sia_seq=1,
+        zone_name="Zone 1",
+        max_retries=3,
+        attempts_made=3,
+        last_error="timeout",
+    ))
+
+    # Assert: neither dispatch scheduled a self-stop task
+    scheduled_names = {t.get_name() for t in daemon._tasks}
+    assert "transport_permanent_stop" not in scheduled_names
+
+    # Drain the dispatch tasks
+    await asyncio.gather(*daemon._tasks, return_exceptions=True)
+
+    # Assert: stop() was never called for non-TRANSPORT_PERMANENT T3 errors
+    assert len(stop_calls) == 0
 
 
 @pytest.mark.asyncio
@@ -285,6 +462,9 @@ async def test_d3_guard_second_tcp_drop_no_duplicate_task():
     """
     daemon = _make_tcp_daemon()
     daemon._sm1_state = SM1State.HEALTHY
+    # Spy on stop() so the Option A self-stop scheduled once the drained loop reaches permanent
+    # failure doesn't reach the real BaseDaemon.stop() and leak to teardown.
+    _install_stop_spy(daemon)
 
     # Slow the reconnect loop: all attempts timeout (fast 0.01s delay)
     with patch("asyncio.open_connection", new_callable=AsyncMock) as mock_open:
@@ -308,7 +488,10 @@ async def test_d3_guard_second_tcp_drop_no_duplicate_task():
         )
         assert task_count_after_second == 1, "Second drop must not spawn a duplicate task"
 
-        # Drain the loop to avoid ResourceWarning
+        # Drain the loop to avoid ResourceWarning. The loop reaches permanent failure and
+        # schedules the (spied) self-stop task, which the first gather's snapshot misses — a
+        # second gather drains that follow-up task.
+        await asyncio.gather(*daemon._tasks, return_exceptions=True)
         await asyncio.gather(*daemon._tasks, return_exceptions=True)
 
 
@@ -464,6 +647,11 @@ async def test_nominal_tcp_drop_from_healthy():
     loop_tasks = [t for t in daemon._tasks if t.get_name() == "tcp_reconnect_loop"]
     assert len(loop_tasks) == 1, "tcp_reconnect_loop must be in _tasks"
 
+    # Cleanup: cancel the spawned loop rather than run it to permanent failure — this test
+    # only asserts the loop was spawned. Running it would schedule the real Option A self.stop()
+    # (exercised by test_reconnect_permanent_failure_schedules_self_stop) and leak it to teardown.
+    for task in list(daemon._tasks):
+        task.cancel()
     await asyncio.gather(*daemon._tasks, return_exceptions=True)
 
 
@@ -490,6 +678,10 @@ async def test_nominal_tcp_drop_from_degraded():
     loop_tasks = [t for t in daemon._tasks if t.get_name() == "tcp_reconnect_loop"]
     assert len(loop_tasks) == 1
 
+    # Cleanup: cancel the spawned loop rather than run it to permanent failure (see
+    # test_reconnect_permanent_failure_schedules_self_stop for the Option A self.stop() path).
+    for task in list(daemon._tasks):
+        task.cancel()
     await asyncio.gather(*daemon._tasks, return_exceptions=True)
 
 
@@ -521,6 +713,10 @@ async def test_tcp_stall_detection_timeout_path():
     loop_tasks = [t for t in daemon._tasks if t.get_name() == "tcp_reconnect_loop"]
     assert len(loop_tasks) == 1
 
+    # Cleanup: cancel the spawned loop rather than run it to permanent failure (see
+    # test_reconnect_permanent_failure_schedules_self_stop for the Option A self.stop() path).
+    for task in list(daemon._tasks):
+        task.cancel()
     await asyncio.gather(*daemon._tasks, return_exceptions=True)
 
 
@@ -556,6 +752,10 @@ async def test_tcp_stall_detection_nak_path():
     loop_tasks = [t for t in daemon._tasks if t.get_name() == "tcp_reconnect_loop"]
     assert len(loop_tasks) == 1
 
+    # Cleanup: cancel the spawned loop rather than run it to permanent failure (see
+    # test_reconnect_permanent_failure_schedules_self_stop for the Option A self.stop() path).
+    for task in list(daemon._tasks):
+        task.cancel()
     await asyncio.gather(*daemon._tasks, return_exceptions=True)
 
 
@@ -631,6 +831,9 @@ async def test_info_commands_after_permanent_failure():
     daemon = _make_tcp_daemon()
     daemon._sm1_state = SM1State.TCP_RECONNECTING
     daemon._strike_counter = 3
+    # Spy on stop() so the Option A self-stop scheduled at permanent failure doesn't reach the
+    # real BaseDaemon.stop() and leak to teardown (dedicated test covers the self-stop wiring).
+    _install_stop_spy(daemon)
 
     with patch("asyncio.open_connection", new_callable=AsyncMock) as mock_open:
         mock_open.side_effect = asyncio.TimeoutError()
@@ -642,6 +845,9 @@ async def test_info_commands_after_permanent_failure():
     assert daemon._supervision_value() == 0
     # Assert: label is NO_NETWORK string
     assert daemon._supervision_label() == SM1_NO_NETWORK_FR
+
+    # Cleanup: drain the scheduled self-stop task
+    await asyncio.gather(*daemon._tasks, return_exceptions=True)
 
 
 @pytest.mark.asyncio
@@ -658,6 +864,9 @@ async def test_ring_buffer_timeout_at_strike3_is_not_routine():
     daemon = _make_tcp_daemon()
     daemon._sm1_state = SM1State.DEGRADED
     daemon._strike_counter = 2
+    # Spy on stop() so the Option A self-stop scheduled once the spawned loop reaches permanent
+    # failure doesn't reach the real BaseDaemon.stop() and leak to teardown.
+    _install_stop_spy(daemon)
 
     # Use real ring buffer and real _log_sm1_supervision — do NOT mock them
     daemon._ring_buffer = RingBuffer()
@@ -671,6 +880,10 @@ async def test_ring_buffer_timeout_at_strike3_is_not_routine():
     with patch("asyncio.open_connection", new_callable=AsyncMock) as mock_open:
         mock_open.side_effect = asyncio.TimeoutError()
         await daemon._send_supervision()
+        # Drain the spawned reconnect loop (then its scheduled self-stop) while open_connection
+        # is still patched — otherwise the loop runs the real network path after the patch exits.
+        await asyncio.gather(*daemon._tasks, return_exceptions=True)
+        await asyncio.gather(*daemon._tasks, return_exceptions=True)
 
     # Assert: ring buffer has entries after timeout at strike=3
     buffer_entries = list(daemon._ring_buffer._buffer)
@@ -684,8 +897,6 @@ async def test_ring_buffer_timeout_at_strike3_is_not_routine():
     # Assert: is_routine=False (AC10 explicit requirement)
     non_routine_entries = [e for e in strike3_entries if e.get("is_routine") is False]
     assert len(non_routine_entries) > 0, "Strike=3 timeout entry must have is_routine=False"
-
-    await asyncio.gather(*daemon._tasks, return_exceptions=True)
 
 
 # ===== TASK 6: QUEUE CONSUMER GATE TESTS =====
@@ -823,6 +1034,9 @@ async def test_reconnect_uses_preset_connect_timeout_not_hardcoded_constant():
     daemon = _make_tcp_daemon(connect_timeout_s=preset_timeout)
     daemon._sm1_state = SM1State.TCP_RECONNECTING
     daemon._strike_counter = 3
+    # Spy on stop() so the Option A self-stop scheduled at permanent failure doesn't reach the
+    # real BaseDaemon.stop() and leak to teardown (dedicated test covers the self-stop wiring).
+    _install_stop_spy(daemon)
 
     captured_timeouts: list[float] = []
 
@@ -847,3 +1061,6 @@ async def test_reconnect_uses_preset_connect_timeout_not_hardcoded_constant():
     assert TCP_CONNECT_TIMEOUT_S not in captured_timeouts, (
         f"Old hardcoded constant {TCP_CONNECT_TIMEOUT_S}s must not be passed to wait_for"
     )
+
+    # Cleanup: drain the scheduled self-stop task
+    await asyncio.gather(*daemon._tasks, return_exceptions=True)

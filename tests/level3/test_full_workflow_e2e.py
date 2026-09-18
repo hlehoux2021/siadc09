@@ -67,6 +67,37 @@ def extract_notifications(mock: AsyncMock) -> list[dict]:
     return [c for c in calls if c.get("type") == "notify"]
 
 
+def _install_stop_spy(daemon: SIADaemon) -> list[int]:
+    """Replace daemon.stop() with a spy that faithfully mirrors BaseDaemon.stop().
+
+    The Option A recovery schedules self.stop() as the tracked task
+    'transport_permanent_stop' when SM1 reaches NO_NETWORK. The real BaseDaemon.stop()
+    is designed to run at process teardown: it cancels every task except the current one.
+    In a live level3 test the loop is still spinning, so that task is left pending and,
+    at event-loop teardown, cancelling the in-flight BaseDaemon.stop() recurses on itself
+    (RecursionError) and poisons the following test. This spy makes the scheduled task run
+    a self-contained coroutine instead: it discards itself from _tasks (mirroring stop()'s
+    "exclude current task" contract so on_stop()'s gather does not await itself), then
+    delegates to the real on_stop(). It doubles as the assertion hook that self-stop fired.
+
+    Expected result:
+    - Returns a list whose length equals the number of stop() invocations
+    - Each invocation runs the real on_stop() (transport close + task cancellation)
+    """
+    calls: list[int] = []
+
+    async def _spy_stop() -> None:
+        calls.append(1)
+        # Mirror BaseDaemon.stop(): exclude the current (self-stop) task from _tasks
+        # so on_stop()'s gather does not await this coroutine on itself.
+        current = asyncio.current_task()
+        daemon._tasks.discard(current)
+        await daemon.on_stop()
+
+    daemon.stop = _spy_stop  # type: ignore[method-assign]
+    return calls
+
+
 # ===== TASK 2: HAPPY PATH SCENARIO — UDP (AC: 1, 2) =====
 
 
@@ -916,6 +947,12 @@ async def test_tcp_no_network_daemon_self_stop(csr_sim):
 
     daemon._dispatch_notify = _capture_dispatch  # type: ignore[method-assign]
 
+    # Install the stop spy before on_start(): the reconnect loop schedules self.stop()
+    # autonomously on NO_NETWORK, and the real BaseDaemon.stop() recurses on itself at
+    # teardown while the live loop is still running. The spy makes the scheduled task a
+    # self-contained on_stop() and records that self-stop actually fired (AC13).
+    stop_calls = _install_stop_spy(daemon)
+
     try:
         await daemon.on_start()
         await _wait_for(lambda: daemon._sm1_state == SM1State.HEALTHY, timeout=E2E_SCENARIO_TIMEOUT)
@@ -946,6 +983,11 @@ async def test_tcp_no_network_daemon_self_stop(csr_sim):
         # Assert: supervision_state=0 pushed
         sup_states = extract_sup_states(daemon.send_to_jeedom)
         assert 0 in sup_states, "Expected supervision_state=0 after NO_NETWORK"
+
+        # Assert: the daemon scheduled its own stop (Option A hand-back to the watchdog).
+        # Drain first so the scheduled 'transport_permanent_stop' task runs the spy.
+        await asyncio.gather(*daemon._tasks, return_exceptions=True)
+        assert len(stop_calls) >= 1, "Expected daemon to call self.stop() after NO_NETWORK"
 
     finally:
         with suppress(Exception):

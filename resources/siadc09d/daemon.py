@@ -1135,6 +1135,16 @@ class SIADaemon(BaseDaemon):
             f"TCP reconnect failed after {max_attempts} attempts, transitioning to NO_NETWORK"
         )
 
+        # Option A: hand the process back to Jeedom's watchdog for a clean restart.
+        # BaseDaemon.stop() cancels every task except the caller, then run()'s finally
+        # block removes the PID file and sys.exit(0)s — the watchdog then re-launches us
+        # (on_start → INITIALIZING → fresh reconnect). Schedule it (do NOT await): stop()
+        # cancels _tasks including this loop, and awaiting inline would cancel ourselves
+        # mid-call and drop the TRANSPORT_PERMANENT notify. Scheduling AFTER _notify()
+        # guarantees the notify task is already in _tasks so on_stop() awaits it (AC16).
+        # Ref: daemon-design.md:589/616/677/684, error-handler-design.md, story 3-3 stub docstring.
+        self._track_task(self.stop(), name="transport_permanent_stop")
+
     async def _log_sm1_supervision(
         self,
         event: Literal["ack", "timeout", "nak_timestamp", "nak_bad"],
