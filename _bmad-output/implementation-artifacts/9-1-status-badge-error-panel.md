@@ -1,6 +1,13 @@
 # Story 9.1: Status Badge & Error Panel
 
-Status: done
+> **Amendment 2026-09-18 — SM2 event badge added to Diagnostic tab (AC11, Task 9).**
+> The Diagnostic tab showed only the SM1 (`supervision_state`/`supervision_label`) badge; `getDiagnosticData`
+> already returned `event_state`/`event_label` (SM2 — see story 9-1 Task 2.3) but nothing rendered them.
+> Added a second badge row below the SM1 badge, wired to a new `_siaDC09_eventBadgeColors` map and
+> `siaDC09_renderEventBadge()` function. Status reopened `done → in-progress → review` for AC11/Task 9
+> only; AC1–AC10 stay done.
+
+Status: review
 
 ## Story
 
@@ -32,6 +39,12 @@ So that I can understand what went wrong without opening Jeedom logs.
 9. **Given** `sia_wizard_step < 4`, **Then** Diagnostic tab is NOT rendered.
 
 10. **Given** Diagnostic tab, **Then** layout uses Bootstrap 3 panel styling consistent with Jeedom.
+
+11. **Given** Diagnostic tab opened, **When** badge renders, **Then** a second badge shows SM2 `event_state`/`event_label` below the SM1 badge, with color coding:
+   - Grey (●): `event_state=0` (IDLE) or unknown/NaN state
+   - Green (●): `event_state=1` (CONFIRMED)
+   - Red (●): `event_state=2` (FAILED)
+   - Orange (●): `event_state=3` (PENDING)
 
 ## Tasks / Subtasks
 
@@ -77,6 +90,14 @@ So that I can understand what went wrong without opening Jeedom logs.
   - [x] 7.7 Test: JS Actualiser button rate-limit (disabled 2000ms)
 
 - [x] Task 8 — Run full regression suite and PHP syntax checks
+
+- [x] Task 9 — SM2 event badge on Diagnostic tab (AC: 11) — amendment 2026-09-18
+  - [x] 9.1 Add `_siaDC09_eventBadgeColors` map (0=grey, 1=green, 2=red, 3=orange) in `siaDC09.js`
+  - [x] 9.2 Add `siaDC09_renderEventBadge(eventState, eventLabel)` — sets dot color + label text, falls back to grey on unknown/NaN state
+  - [x] 9.3 Call `siaDC09_renderEventBadge(result.event_state, result.event_label)` in `siaDC09_loadDiagnosticData()` AJAX success handler, alongside the existing SM1 `siaDC09_renderBadge` call
+  - [x] 9.4 Add second badge markup (`#siaDC09_eventBadgeDot` / `#siaDC09_eventBadgeLabel`) below the SM1 badge in `siaDC09_statusPanel`, `desktop/php/siaDC09.php`
+  - [x] 9.5 Extend `js_dom_harness.js` DOM template + `resetDOM()` with the new element IDs
+  - [x] 9.6 Write Level 1 tests: `TestRenderEventBadge` (8 tests — state 0/1/2/3, unknown state, NaN state, label text, empty label)
 
 ## Dev Notes
 
@@ -266,6 +287,19 @@ None — implementation proceeded without errors.
 - Data loads on `shown.bs.tab` event — no polling, no auto-refresh
 - 42 Level 1 tests written covering all ACs; full suite (863 tests) passes with zero regressions
 
+**Amendment 2026-09-18 (Task 9, AC11 — SM2 event badge):** `getDiagnosticData` already returned
+`event_state`/`event_label` (Task 2.3, original scope) but the Diagnostic tab never rendered them —
+only the SM1 badge existed. Added a second badge row, reusing the SM1 `_siaDC09_badgeColors` pattern
+but as its own `_siaDC09_eventBadgeColors` map, since SM2 semantics invert SM1's good/bad polarity
+(SM1: 2=good/0=bad; SM2: 1=good/2=bad) — sharing one map would have required a state-remapping layer
+for no benefit. New color convention (no prior spec existed): IDLE(0)=grey `#777777`, CONFIRMED(1)=green
+`#5cb85c`, FAILED(2)=red `#d9534f`, PENDING(3)=orange `#f0ad4e`; unknown/NaN state falls back to grey.
+TDD RED→GREEN: 8 new tests in `TestRenderEventBadge` (`tests/level1/test_diagnostic_js_dom.py`) confirmed
+failing (function not found) before implementation, then passing after. Full Level 1 suite: 1077 passed,
+2 failed — identical to the pre-existing baseline (`test_run_connection_test_preset_crc_format_used`,
+`test_csr_provider_key_in_python`, both unrelated to this change) via git-stash diff comparison; net +8
+passing, 0 regressions. `php -l desktop/php/siaDC09.php` clean.
+
 ### File List
 
 | File | Action | Reason |
@@ -274,10 +308,15 @@ None — implementation proceeded without errors.
 | `desktop/js/siaDC09.js` | UPDATE | Add `siaDC09_initDiagnosticTab`, `siaDC09_loadDiagnosticData`, `siaDC09_renderBadge`, `siaDC09_renderErrors`, `siaDC09_formatTimestamp`, refresh/clear handlers |
 | `core/ajax/siaDC09.ajax.php` | UPDATE | Add `getDiagnosticData` + `clearDiagnosticData` AJAX actions |
 | `tests/level1/test_diagnostic_tab.py` | NEW | 42 Level 1 tests for diagnostic tab (PHP syntax, AJAX structure, JS logic) |
+| `desktop/php/siaDC09.php` | UPDATE (amendment 2026-09-18) | Add SM2 event badge markup (`#siaDC09_eventBadgeDot` / `#siaDC09_eventBadgeLabel`) below the SM1 badge |
+| `desktop/js/siaDC09.js` | UPDATE (amendment 2026-09-18) | Add `_siaDC09_eventBadgeColors` map + `siaDC09_renderEventBadge()`; wire into `siaDC09_loadDiagnosticData()` |
+| `tests/fixtures/js_dom_harness.js` | UPDATE (amendment 2026-09-18) | Add SM2 badge element IDs to DOM template + `resetDOM()` |
+| `tests/level1/test_diagnostic_js_dom.py` | UPDATE (amendment 2026-09-18) | Add `TestRenderEventBadge` (8 tests) |
 
 ### Change Log
 
 - 2026-05-18: Story 9-1 implementation complete — all 8 tasks done, 42 tests passing, 863 total Level 1 tests green
+- 2026-09-18: **Amendment — SM2 event badge on Diagnostic tab (AC11, Task 9).** Reopened `done → in-progress`. Wired the already-fetched `event_state`/`event_label` into a second badge row using a new `_siaDC09_eventBadgeColors` map + `siaDC09_renderEventBadge()`. 8 new Level 1 tests (`TestRenderEventBadge`), TDD RED→GREEN. Full suite: 1077 passed / 2 failed, identical to pre-existing baseline (0 regressions). `php -l` clean. Status `in-progress → review`.
 
 ### Review Findings
 

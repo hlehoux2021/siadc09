@@ -810,6 +810,14 @@ var _siaDC09_badgeColors = {
   0: '#d9534f'
 }
 
+// SM2 event lifecycle: 0=IDLE 1=CONFIRMED 2=FAILED 3=PENDING
+var _siaDC09_eventBadgeColors = {
+  0: '#777777',
+  1: '#5cb85c',
+  2: '#d9534f',
+  3: '#f0ad4e'
+}
+
 function siaDC09_initDiagnosticTab(wizardStep) {
   if (wizardStep >= 4) {
     $('#siaDC09_diagnosticTabLi').show()
@@ -828,6 +836,7 @@ function siaDC09_loadDiagnosticData() {
     success: function(data) {
       var result = data.result || {}
       siaDC09_renderBadge(result.supervision_state, result.supervision_label)
+      siaDC09_renderEventBadge(result.event_state, result.event_label)
       siaDC09_renderErrors(result.errors || [])
       siaDC09_renderMessages(result.messages || [])
     },
@@ -843,6 +852,14 @@ function siaDC09_renderBadge(supervisionState, supervisionLabel) {
   var color = _siaDC09_badgeColors[state] || _siaDC09_badgeColors[1]
   $('#siaDC09_badgeDot').css('color', color)
   $('#siaDC09_badgeLabel').text(supervisionLabel || '')
+}
+
+function siaDC09_renderEventBadge(eventState, eventLabel) {
+  var state = parseInt(eventState)
+  if (isNaN(state)) state = 0
+  var color = _siaDC09_eventBadgeColors[state] || _siaDC09_eventBadgeColors[0]
+  $('#siaDC09_eventBadgeDot').css('color', color)
+  $('#siaDC09_eventBadgeLabel').text(eventLabel || '')
 }
 
 function siaDC09_renderErrors(errors) {

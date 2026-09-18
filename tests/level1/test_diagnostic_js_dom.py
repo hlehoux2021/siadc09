@@ -260,6 +260,109 @@ class TestRenderBadge:
         assert r["text"] == ""
 
 
+# ── renderEventBadge (SM2) ──────────────────────────────────────────────────────
+
+
+class TestRenderEventBadge:
+    """siaDC09_renderEventBadge sets dot color + text for the SM2 event badge."""
+
+    def test_state_0_idle_sets_grey_color(self) -> None:
+        """
+        event_state=0 (IDLE) must set #siaDC09_eventBadgeDot color to grey.
+
+        Expected result:
+        - dot color == rgb(119, 119, 119) [#777777]
+        """
+        r = _one({"fn": "siaDC09_renderEventBadge", "args": [0, "Inactif"],
+                  "query": "#siaDC09_eventBadgeDot"})
+        # Assert: grey for idle
+        assert r["style"]["color"] == "rgb(119, 119, 119)"
+
+    def test_state_1_confirmed_sets_green_color(self) -> None:
+        """
+        event_state=1 (CONFIRMED) must set dot color to green.
+
+        Expected result:
+        - dot color == rgb(92, 184, 92) [#5cb85c]
+        """
+        r = _one({"fn": "siaDC09_renderEventBadge", "args": [1, "Confirmé"],
+                  "query": "#siaDC09_eventBadgeDot"})
+        # Assert: green for confirmed
+        assert r["style"]["color"] == "rgb(92, 184, 92)"
+
+    def test_state_2_failed_sets_red_color(self) -> None:
+        """
+        event_state=2 (FAILED) must set dot color to red.
+
+        Expected result:
+        - dot color == rgb(217, 83, 79) [#d9534f]
+        """
+        r = _one({"fn": "siaDC09_renderEventBadge", "args": [2, "Échoué"],
+                  "query": "#siaDC09_eventBadgeDot"})
+        # Assert: red for failed
+        assert r["style"]["color"] == "rgb(217, 83, 79)"
+
+    def test_state_3_pending_sets_orange_color(self) -> None:
+        """
+        event_state=3 (PENDING) must set dot color to orange.
+
+        Expected result:
+        - dot color == rgb(240, 173, 78) [#f0ad4e]
+        """
+        r = _one({"fn": "siaDC09_renderEventBadge", "args": [3, "En cours"],
+                  "query": "#siaDC09_eventBadgeDot"})
+        # Assert: orange for pending
+        assert r["style"]["color"] == "rgb(240, 173, 78)"
+
+    def test_unknown_state_falls_back_to_grey(self) -> None:
+        """
+        Unknown event_state must fall back to grey (idle), not blank, not crash.
+
+        Expected result:
+        - dot color == rgb(119, 119, 119) [_siaDC09_eventBadgeColors[0] fallback]
+        """
+        r = _one({"fn": "siaDC09_renderEventBadge", "args": [99, "Inconnu"],
+                  "query": "#siaDC09_eventBadgeDot"})
+        # Assert: fallback color matches eventBadgeColors[0]
+        assert r["style"]["color"] == "rgb(119, 119, 119)"
+
+    def test_nan_state_falls_back_to_grey(self) -> None:
+        """
+        Non-numeric event_state (e.g. None/null from bad AJAX) must not crash.
+
+        Expected result:
+        - dot color == grey (parseInt(null) → NaN → state=0)
+        """
+        r = _one({"fn": "siaDC09_renderEventBadge", "args": [None, "?"],
+                  "query": "#siaDC09_eventBadgeDot"})
+        # Assert: NaN guard applied
+        assert r["style"]["color"] == "rgb(119, 119, 119)"
+
+    def test_label_text_set_correctly(self) -> None:
+        """
+        renderEventBadge must set #siaDC09_eventBadgeLabel text to eventLabel.
+
+        Expected result:
+        - eventBadgeLabel textContent == 'Confirmé'
+        """
+        r = _one({"fn": "siaDC09_renderEventBadge", "args": [1, "Confirmé"],
+                  "query": "#siaDC09_eventBadgeLabel"})
+        # Assert: label text matches second argument
+        assert r["text"] == "Confirmé"
+
+    def test_empty_label_sets_empty_text(self) -> None:
+        """
+        Empty/null eventLabel must set label text to empty string (not 'null').
+
+        Expected result:
+        - eventBadgeLabel textContent == ''
+        """
+        r = _one({"fn": "siaDC09_renderEventBadge", "args": [1, None],
+                  "query": "#siaDC09_eventBadgeLabel"})
+        # Assert: null label → empty string
+        assert r["text"] == ""
+
+
 # ── renderErrors ──────────────────────────────────────────────────────────────
 
 

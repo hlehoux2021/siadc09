@@ -436,6 +436,9 @@ $scenarios = scenario::all();
 					<div class="panel-body">
 						<span class="badge badge-lg" id="siaDC09_badgeDot" style="font-size:1.5em;color:#f0ad4e;">●</span>
 						<span id="siaDC09_badgeLabel"></span>
+						<br/>
+						<span class="badge badge-lg" id="siaDC09_eventBadgeDot" style="font-size:1.5em;color:#777777;">●</span>
+						<span id="siaDC09_eventBadgeLabel"></span>
 					</div>
 				</div>
 				<!-- Error panel -->
