@@ -596,13 +596,14 @@ class siaDC09 extends eqLogic {
         $labelValue = ($supervisionLabelCmd !== null) ? $supervisionLabelCmd->getValue() : '';
         $eventValue = ($eventLabelCmd !== null)       ? $eventLabelCmd->getValue()       : '';
 
-        // Command ids for the cmdValue-bound spans in the template: Jeedom's native
-        // cmd::update handler writes the pushed value in place into the span carrying
-        // the matching data-cmd_id, giving live refresh without a page reload.
+        // Command ids for the client-side live-refresh callbacks in the template.
+        // The tile overrides toHtml() and so bypasses the stock per-command widgets;
+        // its inline script registers jeedom.cmd.addUpdateFunction(<id>, ...) for each
+        // of these, so Jeedom's poll loop (cmd::update -> refreshValue) drives live
+        // updates without a page reload (story 10.3).
         $replace['#supervision_state_id#'] = ($supervisionStateCmd !== null) ? $supervisionStateCmd->getId() : '';
         $replace['#supervision_label_id#'] = ($supervisionLabelCmd !== null) ? $supervisionLabelCmd->getId() : '';
         $replace['#event_label_id#']       = ($eventLabelCmd !== null)       ? $eventLabelCmd->getId()       : '';
-        $replace['#supervision_state_value#'] = ($stateValue === null) ? '' : (string) $stateValue;
 
         if ($stateValue === null) {
             $replace['#badge_class#']       = 'text-muted';

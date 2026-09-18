@@ -3,9 +3,12 @@ Level 1 DOM tests for the siaDC09 dashboard widget live-refresh behaviour.
 
 Renders core/template/{dashboard,mobile}/siaDC09.html with #placeholders#
 substituted, executes the inline <script> in a jsdom window, then drives live
-command pushes the way Jeedom's native cmd::update handler mutates a bound
-cmdValue span (span.innerHTML = value). Asserts on the resulting DOM — badge
-class, label text, event text — not on keyword presence.
+command pushes through Jeedom's real refresh path: the widget registers
+callbacks with jeedom.cmd.addUpdateFunction(cmd_id, fn), and a push calls
+jeedom.cmd.refreshValue([...]) which invokes them with an _options payload —
+exactly what Jeedom's poll loop (cmd::update -> refreshValue) does in production.
+Asserts on the resulting DOM — badge class, label text, event text — and on the
+callback registration, not on keyword presence.
 
 Story 10.3 acceptance criteria exercised:
   - AC1: live badge + supervision_label refresh without reload
@@ -32,6 +35,11 @@ _NODE = "node"
 # A fixed clock well after any collectDate below, so the stale window is under
 # control per-scenario via the collectDate we feed the byId stub.
 _NOW_MS = 1_760_000_000_000  # 2025-10-09T… — arbitrary fixed epoch for determinism
+
+# Default command ids the harness substitutes for the three info commands.
+_STATE_ID = "101"
+_LABEL_ID = "102"
+_EVENT_ID = "103"
 
 
 def _run(scenarios: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -68,21 +76,36 @@ def test_dashboard_and_mobile_templates_identical() -> None:
     assert dashboard == mobile, "dashboard and mobile templates diverge"
 
 
+# ── AC1/AC6: the widget registers live-update callbacks ─────────────────────
+
+
+def test_widget_registers_update_callbacks_for_all_info_cmds() -> None:
+    """The tile must register a jeedom.cmd.addUpdateFunction callback per command.
+
+    - a callback is registered for supervision_state, supervision_label, event_label
+    """
+    r = _one({})
+    # AC1/AC6: without these registrations the tile never live-refreshes
+    assert _STATE_ID in r["registered"]
+    assert _LABEL_ID in r["registered"]
+    assert _EVENT_ID in r["registered"]
+
+
 # ── AC1: live badge + supervision_label refresh ─────────────────────────────
 
 
 class TestLiveSupervisionRefresh:
     """A pushed supervision_state/label updates the tile without a reload."""
 
-    def test_label_span_is_cmdvalue_bound(self) -> None:
-        """supervision_label must render inside a cmdValue-bound span.
+    def test_label_push_updates_label_text(self) -> None:
+        """A pushed supervision_label display_value replaces the label text live.
 
-        - a pushed label value replaces the span text in place
+        - the label callback writes the pushed display_value into the label span
         """
         r = _one({
             "actions": [{"type": "pushLabel", "value": "Supervision perdue"}],
         })
-        # AC1: Jeedom writes into the bound span → widget shows the new label
+        # AC1: refreshValue → registered callback → new label text, no reload
         assert r["labelText"] == "Supervision perdue"
 
     def test_push_state_degraded_sets_warning_badge(self) -> None:
@@ -92,7 +115,7 @@ class TestLiveSupervisionRefresh:
         - stale/other state colors are removed
         """
         r = _one({
-            "placeholders": {"badge_class": "text-success", "supervision_state_value": "2"},
+            "placeholders": {"badge_class": "text-success"},
             "actions": [{"type": "pushState", "value": "1"}],
         })
         # AC1: numeric state → client-side badge mapping (1 → warning)
@@ -106,7 +129,7 @@ class TestLiveSupervisionRefresh:
         - badge class contains text-danger after the push
         """
         r = _one({
-            "placeholders": {"badge_class": "text-success", "supervision_state_value": "2"},
+            "placeholders": {"badge_class": "text-success"},
             "actions": [{"type": "pushState", "value": "0"}],
         })
         # AC1: state 0 (or any non 1/2) → danger
@@ -119,7 +142,7 @@ class TestLiveSupervisionRefresh:
         - badge class contains text-success after the push
         """
         r = _one({
-            "placeholders": {"badge_class": "text-danger", "supervision_state_value": "0"},
+            "placeholders": {"badge_class": "text-danger"},
             "actions": [{"type": "pushState", "value": "2"}],
         })
         # AC1: state 2 → success
@@ -133,8 +156,8 @@ class TestLiveSupervisionRefresh:
 class TestLiveEventRefresh:
     """A pushed event_label updates the event line without a reload."""
 
-    def test_event_span_is_cmdvalue_bound(self) -> None:
-        """event_label must render inside a cmdValue-bound span.
+    def test_event_push_updates_event_text(self) -> None:
+        """A pushed event_label display_value replaces the event line live.
 
         - the initial event text is the rendered placeholder
         - a pushed 'Confirmé' replaces it in place (fixes 'reste à OK')

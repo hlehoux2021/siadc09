@@ -15,16 +15,18 @@
  *     "placeholders": { "<key>": "<value>" }, // #key# substitutions
  *     "byId": { "staleSeconds": N } | null,    // supervision_state collectDate = now - N sec
  *     "now": <epoch_ms>,                       // fixed Date.now() for deterministic stale calc
- *     "actions": [ { "type": "pushState"|"pushLabel"|"pushEvent", "value": "..." } ]
+ *     "actions": [ { "type": "pushState"|"pushLabel"|"pushEvent",
+ *                    "value": "...", "display_value": "..." } ]
  *   }
  *
  * Result per scenario:
  *   { "ok": true, "badgeClass": "...", "labelText": "...", "eventText": "...",
- *     "title": "...", "error": null }
+ *     "title": "...", "registered": ["<cmd_id>", ...], "error": null }
  *
- * A pushed value is written into the matching cmdValue span exactly the way Jeedom's
- * native cmd::update handler mutates it (span.innerHTML = value), so the widget's
- * MutationObserver sees the same event it would in production.
+ * Live pushes go through the REAL Jeedom path: the widget registers callbacks with
+ * jeedom.cmd.addUpdateFunction(cmd_id, fn); a push calls jeedom.cmd.refreshValue([...])
+ * which invokes every registered callback for that cmd_id with an _options payload —
+ * exactly what Jeedom's poll loop (cmd::update -> refreshValue) does in production.
  */
 
 'use strict'
@@ -44,7 +46,6 @@ const DEFAULT_PLACEHOLDERS = {
   badge_class: 'text-success',
   supervision_label: 'OK',
   event_label: 'Inactif',
-  supervision_state_value: '2',
   supervision_state_id: '101',
   supervision_label_id: '102',
   event_label_id: '103',
@@ -64,14 +65,14 @@ function renderTemplate(which, placeholders) {
   return html
 }
 
-// Flush pending microtasks so jsdom MutationObserver callbacks run.
+// Flush pending microtasks so any async callbacks settle.
 function flush() {
   return new Promise((resolve) => setTimeout(resolve, 0))
 }
 
 async function runScenario(scenario) {
   const result = { ok: false, badgeClass: null, labelText: null, eventText: null,
-                   title: null, error: null }
+                   title: null, registered: [], error: null }
   try {
     const body = renderTemplate(scenario.template, scenario.placeholders)
     const dom = new JSDOM(`<!DOCTYPE html><html><body>${body}</body></html>`,
@@ -105,8 +106,25 @@ async function runScenario(scenario) {
         ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds())
     }
 
-    // Stub Jeedom's eqLogic.byId used by the one-shot stale check.
+    // Stub Jeedom's cmd registry the way core/js/cmd.class.js implements it:
+    // addUpdateFunction pushes callbacks into update[cmd_id]; refreshValue invokes
+    // them with the update payload. This is the real production live-refresh path.
+    const cmdRegistry = {}
     window.jeedom = {
+      cmd: {
+        update: cmdRegistry,
+        addUpdateFunction: function (cmdId, fn) {
+          if (!cmdRegistry[cmdId]) cmdRegistry[cmdId] = []
+          cmdRegistry[cmdId].push(fn)
+        },
+        refreshValue: function (params) {
+          for (const p of params) {
+            const fns = cmdRegistry[p.cmd_id]
+            if (!fns) continue
+            for (const fn of fns) fn(p)
+          }
+        },
+      },
       eqLogic: {
         byId: function (opts) {
           if (!scenario.byId) return
@@ -129,7 +147,9 @@ async function runScenario(scenario) {
     }
     await flush()
 
-    // Apply live-push actions the way Jeedom mutates bound cmdValue spans.
+    result.registered = Object.keys(cmdRegistry)
+
+    // Drive live pushes through refreshValue, exactly like Jeedom's poll loop.
     const idMap = {
       pushState: (scenario.placeholders && scenario.placeholders.supervision_state_id)
         || DEFAULT_PLACEHOLDERS.supervision_state_id,
@@ -140,9 +160,17 @@ async function runScenario(scenario) {
     }
     for (const action of scenario.actions || []) {
       const cmdId = idMap[action.type]
-      const span = document.querySelector('.cmdValue[data-cmd_id="' + cmdId + '"]')
-      if (!span) throw new Error('no cmdValue span bound to cmd_id ' + cmdId + ' for ' + action.type)
-      span.innerHTML = String(action.value)
+      const displayValue = (action.display_value !== undefined)
+        ? action.display_value : action.value
+      window.jeedom.cmd.refreshValue([{
+        cmd_id: cmdId,
+        value: action.value,
+        display_value: displayValue,
+        valueDate: '2026-09-18 12:00:00',
+        collectDate: '2026-09-18 12:00:00',
+        unit: '',
+        alertLevel: 'none',
+      }])
       await flush()
     }
     await flush()

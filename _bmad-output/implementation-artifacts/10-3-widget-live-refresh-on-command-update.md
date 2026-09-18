@@ -158,66 +158,94 @@ one root cause:
 
 ### Implementation Plan
 
-Root cause (Task 1) confirmed by **direct source reading**, not yet by DevTools on the
-host — that observation is deferred to the Task 6 live validation. The template rendered
-`#supervision_label#` / `#event_label#` as plain interpolated text with no `cmdValue`
-class or `data-cmd_id`, so Jeedom's native `cmd::update` websocket handler (which only
-writes the pushed value in place into the DOM node bound to the changed command) had no
-node to touch. That is why a full page reload was required, and why the event line stayed
-on "OK" after the daemon pushed "Confirmé" — the value reached the DB (via
-`checkAndUpdateCmd`) but nothing in the DOM was bound to receive it.
+Root cause (Task 1) confirmed by **direct source reading of jeedom/core master**, by the
+stock `cmd.info.numeric.badge.html` template, and cross-checked against the reference
+plugin `../dev-hlx/jeedom-aiodemo`. Herve's DevTools test on the host disproved the first
+two hypotheses: **no `cmd::update` reached `document`** and no in-place span write occurred.
 
-### Binding strategy chosen (Task 1.2 → option a, extended)
+**The real mechanism (verified):** Jeedom's poll loop `jeedom.changes()`
+(core/js/jeedom.class.js) dispatches a `cmd::update` CustomEvent on **`document.body`**
+(not `document`), whose listener calls `jeedom.cmd.refreshValue(detail)`. `refreshValue`
+(core/js/cmd.class.js) then, for each changed `cmd_id`, invokes every callback registered
+via `jeedom.cmd.addUpdateFunction('<cmd_id>', fn)`, passing `_options = {value,
+display_value, valueDate, collectDate, unit, alertLevel}`. **There is no
+`cmdValue`/`data-cmd_id` in-place-write mechanism in modern Jeedom** — that assumption was
+wrong and cost the first field fix. Stock per-command widgets (e.g. the badge template)
+self-register these callbacks in their own inline `<script>`; `jeedom-aiodemo` gets live
+refresh "for free" precisely because it uses stock widgets and does **not** override
+`toHtml()`. Our tile **does** override `toHtml()`, bypassing the stock widgets and their
+registration — so it registered nothing and never live-updated. Reload worked only because
+the server re-rendered from the DB.
 
-- **Text labels** (`supervision_label`, `event_label`): native `class="cmdValue"
-  data-cmd_id="#..._id#"` spans. Jeedom writes the pushed value straight into them — this
-  is the direct fix for AC1 (label) and AC2 (the "reste à OK" event line).
-- **Badge colour** follows a *numeric* `supervision_state` (2→success, 1→warning,
-  else→danger, null→muted) — a mapping Jeedom cannot express natively. Solution: a
-  **hidden** `cmdValue`-bound `supervision_state` span + a `MutationObserver` that recolours
-  `.siaDC09-badge` whenever Jeedom writes a new value into that span. Observing the *result*
-  of the native update (not an internal event name) is robust to Jeedom internals and fully
-  testable in jsdom. A live push also proves freshness, so the observer clears any
-  `text-muted` stale-grey the 10-2 one-shot check applied (AC3). The stale check writes
-  label text + badge classList (neither is observed), so there is no feedback loop.
+### Binding strategy chosen (Task 1.2 → the real `addUpdateFunction` path)
+
+The tile's inline `<script>` now registers one `jeedom.cmd.addUpdateFunction('<cmd_id>', fn)`
+per info command (ids emitted by `toHtml()` as `#supervision_state_id#`,
+`#supervision_label_id#`, `#event_label_id#`):
+
+- **`supervision_label`** callback writes `_options.display_value` into `.siaDC09-label` —
+  direct fix for AC1 (label).
+- **`event_label`** callback writes `_options.display_value` into `.siaDC09-event` —
+  direct fix for AC2 (the "reste à OK" line moves to "Confirmé" unaided).
+- **`supervision_state`** callback maps the pushed numeric `_options.value` to the badge
+  colour (2→success, 1→warning, null/''→muted, else→danger) — a mapping Jeedom cannot
+  express natively — and clears any stale `title`. A live push proves freshness, so it
+  also clears the `text-muted` stale-grey the 10-2 one-shot check applied (AC3). The stale
+  check only runs once on render and writes label text + badge classList; the live
+  callbacks fire independently on later pushes, so there is no feedback loop.
+
+The earlier `cmdValue`/hidden-mirror/`MutationObserver` approach was removed — it was built
+on the non-existent in-place-write assumption and could never have fired in production.
 
 ### Value-source decision (Task 3, AC4): `execCmd()` → `getValue()`
 
 Reverted `siaDC09.class.php` to `getValue()` for all three INFO reads. **Rationale,
 reconciling 10-2 review F1 against `widget-design.md:199-202`:** 10-2 F1 switched to
 `execCmd()` to get "cached state" for freshness at render time. With this story, freshness
-is delivered client-side by the `cmdValue` binding, so the server render only needs the
-last persisted value — which is exactly what `getValue()` returns, with no side effects
-and no re-running of the full command path on every dashboard paint. `getValue()` also
-reads precisely what the daemon's `checkAndUpdateCmd` wrote, guaranteeing the initial
+is delivered client-side by the `addUpdateFunction` callbacks, so the server render only
+needs the last persisted value — which is exactly what `getValue()` returns, with no side
+effects and no re-running of the full command path on every dashboard paint. `getValue()`
+also reads precisely what the daemon's `checkAndUpdateCmd` wrote, guaranteeing the initial
 render, the live update, and the stale check are mutually consistent (AC4). This restores
 the behaviour mandated by `widget-design.md:199-202`; 10-2 F1 is superseded and documented
 here rather than silently flipped.
 
 Added placeholders `#supervision_state_id#`, `#supervision_label_id#`, `#event_label_id#`
-(from `$cmd->getId()`) and `#supervision_state_value#` (the numeric state, '' when null,
-seeds the hidden mirror so the observer has a correct starting point).
+(from `$cmd->getId()`) so the inline script can register a live-update callback per command.
+The `#supervision_state_value#` placeholder from the earlier approach was removed together
+with the hidden mirror span.
 
 ### Testing
 
-TDD red→green. New DOM harness `tests/fixtures/widget_dom_harness.js` renders the real
-template with `#placeholder#` substitution into jsdom, executes the inline `<script>`, and
-drives live pushes by writing `span.innerHTML = value` into the `cmdValue` spans — exactly
-how Jeedom mutates them — then asserts on resulting DOM (badge class, label/event text,
-title). `tests/level1/test_widget_live_refresh.py` (9 tests) covers AC1 (label bound;
-state 1/0/2 → warning/danger/success), AC2 (event bound, "OK"→"Confirmé"), AC3 (stale-grey
-still fires at 600s/interval 60; live push clears grey; fresh 30s keeps server badge), and
-AC5 (dashboard/mobile byte-identical). Red phase: 6 failed / 3 passed (no bindings yet).
-Green phase: **9 passed**.
+DOM harness `tests/fixtures/widget_dom_harness.js` renders the real template with
+`#placeholder#` substitution into jsdom, executes the inline `<script>`, then drives live
+pushes through Jeedom's **real** path: it stubs `jeedom.cmd` with the same
+`addUpdateFunction`/`refreshValue` semantics as `core/js/cmd.class.js` (a per-cmd_id
+callback registry that `refreshValue([...])` invokes with an `_options` payload). The
+harness reports the resulting DOM (badge class, label/event text, title) **and** the list
+of cmd_ids the widget registered, so a test can prove the tile actually subscribes.
+`tests/level1/test_widget_live_refresh.py` (10 tests) covers registration (all three info
+cmd_ids registered — this is the assertion that would have caught the original bug), AC1
+(label push updates text; state 1/0/2 → warning/danger/success), AC2 (event push
+"OK"→"Confirmé"), AC3 (stale-grey still fires at 600s/interval 60; live push clears grey;
+fresh 30s keeps server badge), and AC5 (dashboard/mobile byte-identical). **10 passed.**
 
 ### Completion Notes
 
-- `php -l` clean on `siaDC09.class.php` and across all `core/`+`desktop/` PHP.
+- `php -l` clean on `siaDC09.class.php`.
 - `node --check` clean on the harness.
-- Full `tests/level1/` = **2 failed / 1068 passed** — the 2 failures are the known
+- Full `tests/level1/` = **2 failed / 1069 passed** — the 2 failures are the known
   pre-existing baseline (`test_connection_test::test_run_connection_test_preset_crc_format_used`,
   `test_wizard_config_key_consistency::test_csr_provider_key_in_python`), unrelated to this
   story. No new failures.
+- **Correction note:** the first implementation of this story used a
+  `cmdValue`/`data-cmd_id` + hidden-mirror + `MutationObserver` scheme built on the
+  assumption that Jeedom writes pushed values into bound spans in place. Herve's DevTools
+  test on the host disproved it (no `cmd::update` on `document`, no span write). The real
+  mechanism is `jeedom.cmd.addUpdateFunction(cmd_id, fn)` driven by
+  `jeedom.cmd.refreshValue` from the `cmd::update` CustomEvent on `document.body`; the
+  template, harness, and tests were reworked accordingly. See memory
+  `jeedom-widget-live-refresh-mechanism`.
 - **Task 6 (live UI validation on test-jeedom.lehoux.net) is NOT done** — per memory
   `jeedom-ui-validation-over-reflection`, acceptance requires validating on the real
   dashboard, and per `jeedom-test-host-deploy` the code must be pushed first so the host
@@ -229,15 +257,16 @@ Green phase: **9 passed**.
 
 | File | Change |
 |------|--------|
-| `core/template/dashboard/siaDC09.html` | Added `cmdValue`/`data-cmd_id` bindings for label + event; hidden state-mirror span + `MutationObserver` for live badge recolour; kept the 10-2 one-shot stale check. |
+| `core/template/dashboard/siaDC09.html` | Inline `<script>` registers a `jeedom.cmd.addUpdateFunction(cmd_id, fn)` callback per info command (label → `.siaDC09-label` text, event → `.siaDC09-event` text, state → badge colour via `badgeClassForState` + stale-title clear); labels render as plain `<span>`s; kept the 10-2 one-shot stale check. |
 | `core/template/mobile/siaDC09.html` | Byte-for-byte copy of the dashboard template. |
-| `core/class/siaDC09.class.php` | `toHtml()`: `execCmd()` → `getValue()` (reverts 10-2 F1); added `#supervision_state_id#`, `#supervision_label_id#`, `#event_label_id#`, `#supervision_state_value#` placeholders. |
-| `tests/fixtures/widget_dom_harness.js` | New jsdom harness rendering the real template and driving live `cmdValue` pushes. |
-| `tests/level1/test_widget_live_refresh.py` | New — 9 DOM tests for AC1/AC2/AC3/AC5. |
+| `core/class/siaDC09.class.php` | `toHtml()`: `execCmd()` → `getValue()` (reverts 10-2 F1); added `#supervision_state_id#`, `#supervision_label_id#`, `#event_label_id#` placeholders (from `$cmd->getId()`) for callback registration. |
+| `tests/fixtures/widget_dom_harness.js` | New jsdom harness rendering the real template; stubs `jeedom.cmd` with `addUpdateFunction`/`refreshValue` (core/js/cmd.class.js semantics), drives pushes through `refreshValue`, and reports registered cmd_ids. |
+| `tests/level1/test_widget_live_refresh.py` | New — 10 DOM tests for callback registration + AC1/AC2/AC3/AC5. |
 
 ## Change Log
 
 | Date | Change |
 |------|--------|
 | 2026-09-18 | Story created from Herve's 2026-09-18 field observations on 12-6 (widget never auto-refreshes; "reste à OK" after SM2 CONFIRMED). |
-| 2026-09-18 | Implemented live refresh (cmdValue bindings + hidden state mirror + MutationObserver), reverted toHtml to `getValue()`, mirrored to mobile. New DOM harness + 9 tests, all green; level-1 at the known 2-failure baseline. Task 6 (live host UI validation) pending push + Herve's verification. |
+| 2026-09-18 | First attempt implemented live refresh via `cmdValue`/`data-cmd_id` bindings + hidden state mirror + `MutationObserver`, on the assumption Jeedom writes pushed values into bound spans in place. |
+| 2026-09-18 | Herve's DevTools test on the host disproved that assumption (no `cmd::update` on `document`, no span write). Reworked to the real mechanism: inline `<script>` registers `jeedom.cmd.addUpdateFunction(cmd_id, fn)` per info command, driven by `jeedom.cmd.refreshValue`. Reverted toHtml to `getValue()`, mirrored to mobile. Harness reworked to stub the real `addUpdateFunction`/`refreshValue` path; 10 tests (added a registration test), all green; level-1 at the known 2-failure baseline. Task 6 (live host UI validation) pending push + Herve's verification. |
