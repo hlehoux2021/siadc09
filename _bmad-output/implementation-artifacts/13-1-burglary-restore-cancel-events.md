@@ -196,7 +196,7 @@ le libellé n'est pas une clé de corrélation utilisable.
 - [x] Task 1: Réécrire les trois sections de conception de `bfb2445` (AC1) — décision n° 1 renversée,
       A-PHP documentée face à A-démon, BR renvoyé à 13-2
 - [ ] Task 2: `burglaryCancel` dans `postSave()` + nouveau cas dans `siaDC09Cmd::execute()` (AC2, AC6)
-- [ ] Task 3: Table `sia_open_alarms` — écriture, clé, dédoublonnage, `OPEN_ALARMS_MAX`, TTL (AC3)
+- [x] Task 3: Table `sia_open_alarms` — écriture, clé, dédoublonnage, `OPEN_ALARMS_MAX`, TTL (AC3)
 - [ ] Task 4: Éventail N BC + purge + `debug` sur `FA`/`PA` + repli compte avec `warning` (AC4, AC5)
 - [ ] Task 5: Démon — `SiaEventCode`, `_EVENT_SIA_CODES`, `error_handler.py`, libellé `Annulation` (AC7)
 - [ ] Task 6: `_event_label_from_sm2()` au format riche (divergence préexistante, cf. note ci-dessous) (AC7)
@@ -255,6 +255,41 @@ Bien plus léger qu'avant la réduction de périmètre, parce qu'A-PHP sort du p
   de conception qui ne décrit pas le code livré est un piège pour le prochain développeur qui s'y
   fie. C'est aussi ce qui invalide le constat « `order` 8/9 » de la revue adverse, retiré.
 
+## Dev Agent Record
+
+### Agent Model Used
+
+Claude Sonnet 5 (bmad-dev-story workflow, persona Amelia)
+
+### Debug Log References
+
+- Task 3 : cycle red-green-refactor sur `_recordOpenAlarm()` — 8 tests RED ajoutés dans
+  `tests/level1/test_php_eqlogic_stub.py`, GREEN obtenu par l'écriture dans
+  `siaDC09Cmd.class.php` (clé `sia_code|zone_number|account`, dédoublonnage, éviction par `ts`
+  au-delà de `OPEN_ALARMS_MAX`, purge TTL), `php -l` propre.
+- Vérification de non-régression complète : `python3 -m pytest tests/level1/ -q` → 49 échecs,
+  tous confinés à trois fichiers étrangers à ce Task : `test_diagnostic_js_dom.py` (47 —
+  `node_modules`/`jsdom` absent de ce worktree), `test_wizard_config_key_consistency.py::test_csr_provider_key_in_python`
+  et `test_connection_test.py::test_run_connection_test_preset_crc_format_used` (1 chacun — même
+  lacune préexistante côté démon : `"csr_provider"` absent de `resources/siadc09d/siadc09d.py`,
+  sans lien avec `siaDC09Cmd.class.php`). Aucun des 8 tests ciblés du Task 3 n'est dans cette liste.
+
+### Completion Notes
+
+- **Task 3 clôturé (AC3).** `_recordOpenAlarm()` mémorise chaque `burglarAlarm`/`fireAlarm`/`panicAlarm`
+  émis dans le cache eqLogic `sia_open_alarms`, à l'émission (juste après `sendToDaemon()`), avec
+  dédoublonnage par clé, éviction de la plus ancienne par `ts` au-delà de `OPEN_ALARMS_MAX` (90) et
+  purge par `OPEN_ALARMS_TTL` (86400s). 8 tests niveau 1 (source-validation, sans interpréteur PHP)
+  couvrent l'écriture, la clé, le dédoublonnage, l'éviction et le TTL.
+- Régression vérifiée : les 49 échecs de la suite `tests/level1/` sont préexistants/environnementaux
+  (voir Debug Log) et n'ont aucun rapport avec cette modification.
+
+### File List
+
+- `core/class/siaDC09Cmd.class.php` — MODIFIED (ajout de `_recordOpenAlarm()` et des constantes
+  `OPEN_ALARMS_MAX`/`OPEN_ALARMS_TTL`/`OPEN_ALARMS_SIA_CODES`)
+- `tests/level1/test_php_eqlogic_stub.py` — MODIFIED (8 tests ajoutés pour la table `sia_open_alarms`)
+
 ## Change Log
 
 | Date | Description |
@@ -262,3 +297,4 @@ Bien plus léger qu'avant la réduction de périmètre, parce qu'A-PHP sort du p
 | 2026-09-17 | Story créée depuis les constats de l'Epic 12 — support BR/BC avec trois questions de conception bloquantes |
 | 2026-09-18 | Task 1 / AC1 close (`bfb2445`) : trois questions répondues dans les docs de conception (toujours émettre, table non persistée ; `event_state` inchangé ; zone saisie dans le *Titre*) |
 | 2026-09-18 | **Story rescopée après revue adverse et arbitrage utilisateur.** Constat : le plugin alarme fournit la zone au déclenchement mais la réinitialisation est un événement global **sans zone** (N BA en → 1 réinit. out), et BR n'a aucune source. Décision : **option A** — mémoriser les alarmes émises par zone et produire un BC par zone ouverte ; variante **A-PHP** (cache eqLogic) spécifiée, A-démon documentée et écartée. BR **transféré à la story 13-2** (parquée `backlog`). La décision n° 1 de `bfb2445` est renversée → Task 1 rouverte, les trois sections de conception sont à **réécrire**. Statut in-progress → ready-for-dev, ACs et Tasks refondus. Retrait aussi d'un constat erroné de la revue adverse : les `order` 8/9 n'existent pas, `postSave()` n'utilise aucun `order` |
+| 2026-09-18 | Task 3 / AC3 close : table `sia_open_alarms` (écriture, clé, dédoublonnage, `OPEN_ALARMS_MAX`, TTL) implémentée dans `siaDC09Cmd.class.php` via `_recordOpenAlarm()`, 8 tests niveau 1 ajoutés ; régression vérifiée (49 échecs préexistants/environnementaux, sans rapport) |

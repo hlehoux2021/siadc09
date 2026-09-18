@@ -29,7 +29,7 @@
 # - SM typically creates next story ONLY after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then Dev runs code-review (fresh context, ideally different LLM)
 
-last_updated: "2026-09-18" # Story 13-1 rescoped to BC / option A; story 13-2 (BR) parked
+last_updated: "2026-09-18" # Story 13-1 → in-progress, Task 3 (AC3, sia_open_alarms table) closed, starting Task 4 (fan-out)
 generated: "2026-05-04"
 project: "my-project"
 project_key: "NOKEY"
@@ -138,7 +138,7 @@ development_status:
 
   # Epic 13: Alarm Event Vocabulary Extension (v1.1)
   epic-13: in-progress
-  13-1-burglary-restore-cancel-events: ready-for-dev  # rescoped 2026-09-18 to BC only, option A (we correlate): memorise dispatched alarms per zone, fan out one BC per open zone on the single global zone-less `raz` trigger. Variant A-PHP (eqLogic cache) specified, A-daemon documented and rejected. Task 1 REOPENED — the three design sections committed in bfb2445 assert the reversed decision. BR transferred to 13-2
+  13-1-burglary-restore-cancel-events: in-progress  # Task 1 (AC1) done (613b0fe/955cc1c). Task 3 (AC3, sia_open_alarms table) done. Starting Task 4 (fan-out) — Task 2 (postSave()) deferred, blocked by 10-3's live uncommitted edits to siaDC09.class.php per the story's sequencing table
   13-2-burglary-restore-event: backlog  # parked 2026-09-18, no blocker but no SOURCE: no alarm-plugin action expresses "a detector returned to normal"; `reenableTrigger` is not a substitute. Three unparking conditions recorded in the story
   epic-13-retrospective: optional
 
