@@ -50,10 +50,10 @@ Le plugin alarme possède l'information (cache `trigger_zone`, écrit en `:602`,
 donc **après** que `raz` ait tiré) mais ne la transmet pas — d'où l'option A plutôt qu'une lecture
 opportuniste de son cache (voir « Options écartées »).
 
-### Emplacement de la mémoire — décision à valider
+### Emplacement de la mémoire — décidé le 2026-09-18 : A-PHP
 
-Deux variantes de l'option A. La story spécifie **A-PHP** ; A-démon est documentée pour que le
-choix soit explicite et révocable.
+Deux variantes de l'option A. **A-PHP est retenue** (arbitrage utilisateur du 2026-09-18) ;
+A-démon reste documentée pour que le choix soit traçable.
 
 | | **A-PHP** (retenue) | A-démon |
 |---|---|---|
@@ -234,13 +234,25 @@ Bien plus léger qu'avant la réduction de périmètre, parce qu'A-PHP sort du p
 - `doAction()` (`:639`) ignore toute action dont la commande appartient à l'équipement alarme
   lui-même (`$this->getId() == $cmd->getEqLogic_id()` → `continue`). Sans effet pour nous, mais cela
   contraint le câblage utilisateur.
-- **Divergence doc/code relevée le 2026-09-18 :** `php-core-design.md` décrit un tableau d'`order`
-  1-7 dans `postSave()` et des noms de commandes info qui ne sont pas ceux du code. Le `postSave()`
-  livré (`core/class/siaDC09.class.php:622-665`) n'a **aucune** clé `order`, aucun appel
-  `setOrder()`, et pas de variable `$commandsSpec` : deux tableaux associatifs `$actionCmds` et
-  `$infoCmds`, avec les noms `État supervision` / `Supervision` / `État alarme` / `Alarme`.
-  Corollaire : `burglaryCancel` n'a **pas** d'`order` à choisir, et la Task 1 doit corriger le
-  tableau d'`order` de `php-core-design.md`.
+- **Divergence doc/code relevée le 2026-09-18 — cosmétique, mais à corriger (Task 1).**
+  `php-core-design.md:529-556` décrit un `$commandsSpec` unique de 7 entrées portant des `order`
+  1-7. Le `postSave()` livré (`core/class/siaDC09.class.php:622-665`) est structuré autrement :
+
+  | | doc (`php-core-design.md:529-556`) | code livré (`siaDC09.class.php:622-665`) |
+  |---|---|---|
+  | structure | un tableau `$commandsSpec` (7 entrées) | deux tableaux `$actionCmds` (3) + `$infoCmds` (4) |
+  | `order` | 1 à 7 | **absent** — aucun appel `setOrder()` |
+  | `event_state` | `Transmission alarme` | `État alarme` |
+  | `supervision_label` | `Supervision détail` | `Supervision` |
+  | `event_label` | `Dernier événement` | `Alarme` |
+  | `returnStateTime`/`returnStateValue` | sur les 7 | **sur les 7** — vérifié (`:638-639`, `:660-661`) |
+
+  Aucune conséquence fonctionnelle : le garde-fou anti-`PENDING` bloqué (`event_state = 3` figé si
+  le démon tombe en pleine alarme) est bien en place. Deux corollaires quand même :
+  `burglaryCancel` n'a **pas** d'`order` à choisir — il suffit d'une ligne de plus dans
+  `$actionCmds` — et la Task 1 doit aligner la doc sur le code (ou l'inverse), parce qu'un document
+  de conception qui ne décrit pas le code livré est un piège pour le prochain développeur qui s'y
+  fie. C'est aussi ce qui invalide le constat « `order` 8/9 » de la revue adverse, retiré.
 
 ## Change Log
 
