@@ -1064,3 +1064,70 @@ async def test_reconnect_uses_preset_connect_timeout_not_hardcoded_constant():
 
     # Cleanup: drain the scheduled self-stop task
     await asyncio.gather(*daemon._tasks, return_exceptions=True)
+
+
+# ===== AC22: on_stop() SELF-CANCELLATION GUARD =====
+
+
+@pytest.mark.asyncio
+async def test_on_stop_does_not_self_cancel_when_run_as_tracked_task():
+    """on_stop() run AS the tracked self-stop task must not cancel itself (AC22).
+
+    Reproduces the real shutdown path: the watchdog schedules self.stop() as the tracked
+    task 'transport_permanent_stop' (daemon.py:1146), and BaseDaemon.stop() then calls
+    on_stop(). When on_stop() executes, the CURRENT task IS that tracked task, so it is a
+    member of self._tasks. on_stop() step-3 (cancel loop) and step-4 (gather) must exclude
+    asyncio.current_task(), mirroring BaseDaemon.stop()'s own guard (base_daemon.py:142) —
+    otherwise on_stop() cancels/awaits itself and surfaces a stray 'CancelledError' at Exit 0.
+
+    Unlike _install_stop_spy() (which discards the current task before delegating, as a
+    workaround), this test drives on_stop() directly as a tracked task to exercise the guard
+    in production code.
+
+    Expected result:
+    - The tracked task running on_stop() completes without being cancelled (no self-cancel)
+    - on_stop() still cancels the OTHER tracked tasks (shutdown remains effective)
+    - Step-5 is reached: the transport is closed and reset to None
+    """
+    daemon = _make_tcp_daemon()
+    daemon._send_callback = AsyncMock()  # isolate step-1 IPC push from real transport
+
+    # A long-lived "other" task that on_stop() is expected to cancel during shutdown
+    async def _other() -> None:
+        await asyncio.Event().wait()
+
+    other = asyncio.ensure_future(_other())
+    daemon._tasks.add(other)
+    other.add_done_callback(daemon._tasks.discard)
+
+    # Run on_stop() AS a tracked task, exactly like the scheduled 'transport_permanent_stop'
+    stop_task = asyncio.ensure_future(daemon.on_stop())
+    daemon._tasks.add(stop_task)
+    stop_task.add_done_callback(daemon._tasks.discard)
+
+    # Bound the await: a self-cancel guard bug makes on_stop() gather on itself (step-4),
+    # which deadlocks. Treat a timeout as the defect signal so the test fails fast, not hangs.
+    try:
+        await asyncio.wait_for(asyncio.shield(stop_task), timeout=2.0)
+    except asyncio.TimeoutError:
+        stop_task.cancel()
+        await asyncio.gather(stop_task, return_exceptions=True)
+        pytest.fail(
+            "on_stop() deadlocked awaiting itself — step-4 gather must exclude "
+            "asyncio.current_task()"
+        )
+
+    # Assert: the self-stop task must NOT have cancelled itself
+    assert not stop_task.cancelled(), (
+        "on_stop() self-cancelled the running 'transport_permanent_stop' task — "
+        "step-3/step-4 must exclude asyncio.current_task()"
+    )
+    # Assert: on_stop() completed without raising (CancelledError would surface at Exit 0)
+    assert stop_task.exception() is None
+    # Assert: the OTHER task was still cancelled — shutdown stays effective
+    assert other.cancelled()
+    # Assert: step-5 reached — transport closed and handle reset to None
+    assert daemon._sia_transport is None
+
+    # Cleanup: ensure the other task is fully drained
+    await asyncio.gather(other, return_exceptions=True)

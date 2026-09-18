@@ -2085,14 +2085,20 @@ class SIADaemon(BaseDaemon):
             except asyncio.QueueEmpty:
                 break
 
-        # Step 3 — Cancel all tracked tasks
-        for task in list(self._tasks):
+        # Step 3 — Cancel all tracked tasks EXCEPT the current one.
+        # on_stop() may itself run as a tracked task (the watchdog schedules self.stop()
+        # as 'transport_permanent_stop', see _tcp_reconnect_loop). Cancelling/awaiting the
+        # running task would self-cancel and surface a stray CancelledError at Exit 0, so we
+        # exclude asyncio.current_task() — mirroring BaseDaemon.stop()'s own guard.
+        current = asyncio.current_task()
+        other_tasks = [task for task in self._tasks if task is not current]
+        for task in other_tasks:
             task.cancel()
 
         # Step 4 — Await task completion with hard timeout
         try:
             await asyncio.wait_for(
-                asyncio.gather(*self._tasks, return_exceptions=True),
+                asyncio.gather(*other_tasks, return_exceptions=True),
                 timeout=ON_STOP_TASK_TIMEOUT_S,
             )
         except asyncio.TimeoutError:

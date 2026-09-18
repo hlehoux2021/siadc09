@@ -62,6 +62,38 @@ def _make_daemon(transport: str = 'UDP') -> SIADaemon:
     return daemon
 
 
+def _install_stop_spy(daemon: SIADaemon) -> list[int]:
+    """Replace daemon.stop() with a spy that faithfully mirrors BaseDaemon.stop().
+
+    The permanent-failure path schedules self.stop() as the tracked task
+    'transport_permanent_stop' (daemon.py:1146). Under the real
+    BaseDaemon.stop() (base_daemon.py:133-149), on_stop() runs, then the loop
+    cancels every task EXCEPT current_task() via asyncio.all_tasks() — which in
+    a pytest event loop includes the TEST's own driver task, cancelling the
+    awaiting `await asyncio.gather(*daemon._tasks)`. That process-level sweep is
+    correct in production (run()'s finally then sys.exit(0)s for the watchdog)
+    but cannot execute inside the test loop. The spy runs the real on_stop()
+    while discarding the self-stop task from _tasks first, so on_stop()'s own
+    gather does not await the running task on itself.
+
+    Expected result:
+    - Returns a list whose length equals the number of stop() invocations
+    - Each invocation runs the real on_stop() (transport close + task cancellation)
+    """
+    calls: list[int] = []
+
+    async def _spy_stop() -> None:
+        calls.append(1)
+        # Mirror BaseDaemon.stop(): exclude the current (self-stop) task from
+        # _tasks so on_stop()'s gather does not await this coroutine on itself.
+        current = asyncio.current_task()
+        daemon._tasks.discard(current)
+        await daemon.on_stop()
+
+    daemon.stop = _spy_stop  # type: ignore[method-assign]
+    return calls
+
+
 async def _make_started_daemon(transport: str = 'UDP') -> tuple[SIADaemon, MagicMock]:
     """Create a SIADaemon with on_start() called (full lifecycle).
 
@@ -395,6 +427,13 @@ async def test_tcp_strike3_to_no_network():
     """
     daemon = _make_daemon(transport='TCP')
     mock_t = daemon._sia_transport
+    daemon.send_to_jeedom = AsyncMock()  # on_stop() step-1 pushes STOPPED via _send_callback
+
+    # The permanent-failure path schedules self.stop() as a tracked task. Replace
+    # stop() with a spy so on_stop() runs faithfully WITHOUT BaseDaemon.stop()'s
+    # process-level asyncio.all_tasks() sweep, which would cancel this test's own
+    # driver task (see _install_stop_spy docstring).
+    _install_stop_spy(daemon)
 
     # Get to HEALTHY first
     await daemon._send_supervision()

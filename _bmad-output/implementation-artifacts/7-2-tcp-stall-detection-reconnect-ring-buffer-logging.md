@@ -79,6 +79,31 @@ So that the already-implemented TCP reconnect flow is verified to work correctly
     callbacks for all codes and has no business terminating the process). Test: firing `_notify(SUPERVISION_DISCONNECTED)`
     or `_notify(EVENT_FAILED)` directly does NOT schedule a `transport_permanent_stop` task.
 
+### Amendment 2026-09-18 — `on_stop()` self-cancellation guard (shutdown-warning follow-up)
+
+22. **`on_stop()` must not cancel or await the task that is running it** — AC15's scheduled
+    `self._track_task(self.stop(), name="transport_permanent_stop")` means `on_stop()` frequently runs
+    *as a member of `self._tasks`*. Step 3 (cancel loop) and step 4 (gather) MUST exclude
+    `asyncio.current_task()` before cancelling/awaiting — `other_tasks = [t for t in self._tasks if t is not
+    asyncio.current_task()]` — mirroring `BaseDaemon.stop()`'s own guard (`base_daemon.py:142`). Without the
+    guard, the `transport_permanent_stop` task cancels itself mid-`on_stop()`, then step 4 gathers on the
+    already-cancelled current task and deadlocks, surfacing `WARNING: Exception occurred when calling
+    on_stop_cb: CancelledError` at Exit 0. Test (RED/GREEN): drive `on_stop()` directly as a tracked task and
+    assert (a) it completes without self-cancelling, (b) it still cancels the *other* tracked tasks, (c) step 5
+    is reached (transport closed → `None`). The naive "cancel all `_tasks`" version deadlocks/hangs; the guarded
+    version passes.
+
+    **Known-benign shutdown artifact (documented, deferred — not this story's fix):** at intentional Exit 0
+    a second, harmless message can appear — `_GatheringFuture exception was never retrieved / CancelledError`.
+    Its source is the pip-reinstalled `jeedomdaemon` dependency, NOT this repo: `BaseDaemon.stop()`
+    (`base_daemon.py:147`) fires a bare, never-awaited `asyncio.gather(*tasks, return_exceptions=True)` over the
+    expected CancelledErrors of the tasks it just cancelled. Because `jeedomdaemon` is installed via
+    `plugin_info/packages.json` (`"jeedomdaemon": {"reinstall": true}`) and not vendored, it is not durably
+    patchable from this repo — a local edit would be reverted on the next `reinstall`. AC22 fixes only the
+    in-repo WARNING #1 (`on_stop_cb: CancelledError`); this framework-side artifact is benign (it is the
+    documented, expected teardown of tasks cancelled at a clean Exit 0) and is deferred rather than worked
+    around. Decision (Herve, 2026-09-18): document as benign, defer; close on the WARNING #1 fix.
+
 ## Tasks / Subtasks
 
 ### Task 1: Fix dual-task race condition D-3 + state regression guard (AC6, AC7)
@@ -180,6 +205,33 @@ So that the already-implemented TCP reconnect flow is verified to work correctly
 - [ ] **8.8** VM validation is 12-7 AC11 / Task 10 (already written, `ready-for-dev`) — do NOT duplicate it
   here. Once code lands, 12-7 Task 10.5/10.6 (`pgrep -f siadc09d` → no output, watchdog restart) is the
   end-to-end gate. Re-run against SM1.
+
+### Task 9: `on_stop()` self-cancellation guard — amendment 2026-09-18 (AC22)
+
+- [x] **9.1** (RED) `tests/level2/test_tcp_reconnect_integration.py` — add
+  `test_on_stop_does_not_self_cancel_when_run_as_tracked_task`: run `on_stop()` directly as a member of
+  `self._tasks` (exactly like the scheduled `transport_permanent_stop`), assert it completes without
+  self-cancelling, still cancels the *other* tracked tasks, and reaches step 5 (transport → `None`). Bound the
+  await with `asyncio.wait_for(..., 2.0)` so the self-cancel deadlock fails fast instead of hanging. Confirm it
+  FAILS against the naive "cancel all `_tasks`" `on_stop()`.
+- [x] **9.2** (GREEN) `resources/siadc09d/daemon.py` `on_stop()` step 3/4: compute
+  `current = asyncio.current_task()` and `other_tasks = [t for t in self._tasks if t is not current]`; cancel
+  and `gather(*other_tasks, ...)` over that filtered list (daemon.py:2093–2103). Mirrors
+  `BaseDaemon.stop()`'s own `current_task()` exclusion.
+- [x] **9.3** Fix the two regressions the guard surfaced (once `on_stop()` completes cleanly,
+  `BaseDaemon.stop()`'s `asyncio.all_tasks()` sweep cancels the pytest driver task): add `_install_stop_spy()`
+  to `tests/level2/test_daemon_integration.py` and wire it into `test_tcp_strike3_to_no_network`
+  (+ `daemon.send_to_jeedom = AsyncMock()` for the step-1 STOPPED push); add an inline `_spy_stop` to
+  `tests/level3/test_supervision_e2e.py::test_ac8_tcp_reconnect_permanent_failure`. The spy discards the
+  current task from `_tasks` then awaits the real `on_stop()` — faithful shutdown without the process-level
+  sweep that cannot run inside a pytest event loop.
+- [x] **9.4** Document WARNING #2 (`_GatheringFuture exception was never retrieved`) as a known-benign
+  third-party artifact from `jeedomdaemon` `base_daemon.py:147` (not durably patchable — `packages.json`
+  `reinstall`); defer per decision. See AC22 note.
+- [x] **9.5** Validation: AC22 + both regression tests green; full suite = 67 failures, **identical set** to
+  the git-stash baseline (net-zero regressions, diff empty); `pylint resources/siadc09d/daemon.py` = 8.54/10
+  vs 8.53/10 baseline (no new warnings — the edited step-3/step-4 lines 2093–2103 are finding-free; the four
+  findings in `on_stop()` at 2076/2078/2079/2105 are pre-existing, on lines this change did not touch).
 
 ## Dev Notes
 
@@ -365,6 +417,7 @@ Claude Opus 4.6 (1M context)
 - **Task 6 (queue consumer gate):** 2 tests verifying gate blocks during TCP_RECONNECTING and unblocks on transition to INITIALIZING, including accumulation of 3 items and sequential consumption.
 - **Task 7 (regression):** Full suite: 926 passed, 1 pre-existing failure (`test_tc13_strike_timing_precision`). No regressions.
 - **Task 8 (self-stop on `TRANSPORT_PERMANENT`, AC15–AC17):** Added `self._track_task(self.stop(), name="transport_permanent_stop")` to the `_tcp_reconnect_loop()` permanent-failure tail (daemon.py ~1146), scheduled AFTER `_notify(TRANSPORT_PERMANENT)` so the notify task is already in `_tasks` when `on_stop()` gathers (AC16). Scheduled, not awaited — awaiting inline would cancel the loop mid-call via `BaseDaemon.stop()` and drop the notify. Self-stop is scoped to this one path; `_dispatch_notify()` stays tier-generic so other T3 codes (`SUPERVISION_DISCONNECTED`, `EVENT_FAILED`) do NOT self-stop (AC17). Added `_install_stop_spy()` test helper (level2 + level3) that discards `asyncio.current_task()` from `_tasks` then awaits the real `on_stop()`, letting the scheduled stop run non-recursively — this also fixed the RecursionError/hang the naive real-`stop()` path caused at level3 event-loop teardown. Tests: level2 TCP suite 25 passed (AC15 `test_reconnect_permanent_failure_schedules_self_stop`, AC16 `test_transport_permanent_notify_survives_self_stop`, AC17 `test_other_t3_notifications_do_not_self_stop`); level3 `test_tcp_no_network_daemon_self_stop` passes at 8.22s (no hang). Reversed the two now-false Dev Notes paragraphs (8.6). **Validation gate (8.7):** full suite 11 failed / 1492 passed — all 11 failures proven pre-existing via git-stash baseline comparison (0 regressions from this change); `pylint resources/siadc09d/daemon.py` exit 0 (the 8.53/10 delta is stale-cache style warnings outside the edited region 1138–1146, not new findings). **VM validation (8.8) deferred to story 12-7 AC11 / Task 10 — NOT executed here (no duplication).**
+- **Task 9 (`on_stop()` self-cancellation guard, AC22 — amendment 2026-09-18):** Root-caused two daemon shutdown warnings that appeared once AC15's scheduled self-stop landed. **WARNING #1** (`Exception occurred when calling on_stop_cb: CancelledError`): `on_stop()` runs *as* the tracked `transport_permanent_stop` task, and its step-3 cancel loop + step-4 gather covered ALL of `self._tasks` including the running task — self-cancel → step-4 deadlock. Fix: exclude `asyncio.current_task()` (daemon.py:2093–2103, `other_tasks = [t for t in self._tasks if t is not current]`), mirroring `BaseDaemon.stop()`'s own guard (`base_daemon.py:142`). RED/GREEN test `test_on_stop_does_not_self_cancel_when_run_as_tracked_task` drives `on_stop()` directly as a tracked task (deadlock → `wait_for` timeout → `pytest.fail`, not a hang); asserts no self-cancel, other tasks still cancelled, transport reset to `None`. **Regression fallout & fix:** with WARNING #1 gone, `on_stop()` returns cleanly, so control resumes in `BaseDaemon.stop()`'s `asyncio.all_tasks()` sweep (line 142) which cancels EVERY task except current — including the *pytest driver task* awaiting `gather(*daemon._tasks)`. Correct in production (run() finally → `sys.exit(0)` → watchdog restart) but fatal inside a pytest loop. Fixed by adding `_install_stop_spy()` to `test_daemon_integration.py` (+ wiring into `test_tcp_strike3_to_no_network` with `daemon.send_to_jeedom = AsyncMock()` for the step-1 STOPPED push) and an inline `_spy_stop` in `test_supervision_e2e.py::test_ac8_tcp_reconnect_permanent_failure`; the spy discards the current task from `_tasks` then awaits the real `on_stop()` — faithful shutdown without the process-level sweep. **WARNING #2** (`_GatheringFuture exception was never retrieved / CancelledError` at Exit 0): originates in the pip-reinstalled `jeedomdaemon` framework (`base_daemon.py:147` fires a bare never-awaited `asyncio.gather` over the CancelledErrors of the tasks it just cancelled), NOT in this repo, and is not durably patchable (`packages.json` `"jeedomdaemon": {"reinstall": true}`). Decision (Herve, 2026-09-18): **document as benign, defer**; close 7-2 on the WARNING #1 fix. **Validation:** AC22 test + both regression tests green; full suite = 67 failures, **identical set** to the git-stash baseline (diff empty → net-zero regressions); `pylint resources/siadc09d/daemon.py` = 8.54/10 vs 8.53/10 baseline (no new warnings — the edited step-3/step-4 lines 2093–2103 are finding-free; the four `on_stop()` findings at 2076/2078/2079/2105 are pre-existing, on lines this change did not touch).
 
 ### Change Log
 
@@ -372,6 +425,7 @@ Claude Opus 4.6 (1M context)
 - 2026-09-17: **Testing feedback recorded (TF-1…TF-4)** from 12-4 VM supervision-loss test — see "Testing Feedback — 2026-09-17" section. Proposed AC18 (push NO_NETWORK label before self-stop, fold into AC15), AC19 (reconnect backoff schedule + total budget), AC20 (wire `--retry-count` + add `--reconnect-delay` through CSRPreset), AC21 (fix stale `TCP_CONNECT_TIMEOUT_S` log/docstring). Analysis only — awaiting go-ahead to implement.
 - 2026-09-17: **Amendment — daemon self-stop on `TRANSPORT_PERMANENT` (Option A, AC15–AC17, Task 8).** Reopened `done → in-progress`. Root cause: the reconnect loop set `NO_NETWORK` and fired `_notify(TRANSPORT_PERMANENT)` but never called `self.stop()`, so host SM1 sat in `NO_NETWORK` forever (log: `NO_NETWORK: SUPERVISION dropped (daemon stopping, counter=N)` every minute) and the Jeedom watchdog restart never triggered. AC2 + Dev Notes had frozen this "no self.stop()" behavior, contradicting `daemon-design.md:589/616/677/684` and the story 3-3 `_dispatch_notify` stub contract. Fix scopes `self._track_task(self.stop(), name="transport_permanent_stop")` to the `_tcp_reconnect_loop()` permanent-failure tail only (NOT `_dispatch_notify`). Reversed the two now-false Dev Notes paragraphs. VM validation stays owned by 12-7 AC11 / Task 10 (unchanged). Design docs were already correct — no design-first pass needed.
 - 2026-09-18: **Amendment implemented (Task 8 complete, AC15–AC17).** Wired the scheduled self-stop in `_tcp_reconnect_loop()` (daemon.py ~1146); added `_install_stop_spy()` + AC15/AC16/AC17 tests in `tests/level2/test_tcp_reconnect_integration.py` (25 passed) and wired the spy into `tests/level3/test_full_workflow_e2e.py::test_tcp_no_network_daemon_self_stop` (fixes RecursionError at teardown, passes 8.22s). Validation gate: full suite 11 failed / 1492 passed — all 11 pre-existing (proven via stash baseline), 0 regressions; pylint exit 0. VM validation (8.8) deferred to 12-7 AC11/Task 10. Status `in-progress → review`. TF-1…TF-4 (proposed AC18–AC21) remain out of scope for this story.
+- 2026-09-18: **Amendment — `on_stop()` self-cancellation guard (AC22, Task 9).** Follow-up to the AC15 self-stop: fixed daemon shutdown WARNING #1 (`Exception occurred when calling on_stop_cb: CancelledError`) by excluding `asyncio.current_task()` from `on_stop()` step-3 cancel + step-4 gather (daemon.py:2093–2103) — `on_stop()` runs as the tracked `transport_permanent_stop` task and was cancelling/awaiting itself. RED/GREEN test added (`test_on_stop_does_not_self_cancel_when_run_as_tracked_task`). Fixed the two pytest regressions the clean-return surfaced (`BaseDaemon.stop()`'s `all_tasks()` sweep cancels the driver task) via `_install_stop_spy()` in `test_daemon_integration.py` + inline `_spy_stop` in `test_supervision_e2e.py`. WARNING #2 (`_GatheringFuture exception was never retrieved` — from `jeedomdaemon` `base_daemon.py:147`, not durably patchable) documented as **known-benign, deferred** per Herve's decision. Validation: AC22 + regressions green; full suite = 67 failures = **identical** to git-stash baseline (0 regressions); pylint 8.54/10 vs 8.53/10 baseline (no new findings in the edited `on_stop()` region). Status stays `review`.
 
 ### File List
 
@@ -382,6 +436,12 @@ Claude Opus 4.6 (1M context)
 - `resources/siadc09d/daemon.py` — modified: schedule `self._track_task(self.stop(), name="transport_permanent_stop")` in `_tcp_reconnect_loop()` permanent-failure tail (line ~1146), after `_notify(TRANSPORT_PERMANENT)`. Self-stop scoped to this path only — `_dispatch_notify()` stays tier-generic (AC17).
 - `tests/level2/test_tcp_reconnect_integration.py` — modified: added `_install_stop_spy()` helper; extended permanent-failure test into `test_reconnect_permanent_failure_schedules_self_stop` (AC15), added `test_transport_permanent_notify_survives_self_stop` (AC16) + `test_other_t3_notifications_do_not_self_stop` (AC17).
 - `tests/level3/test_full_workflow_e2e.py` — modified: added `_install_stop_spy()` and wired it into `test_tcp_no_network_daemon_self_stop` so the scheduled real `self.stop()` drains non-recursively (prevents RecursionError at event-loop teardown).
+
+**Amendment 2026-09-18 (implemented — Task 9, AC22 `on_stop()` self-cancellation guard):**
+- `resources/siadc09d/daemon.py` — modified: `on_stop()` step-3/step-4 now exclude `asyncio.current_task()` (`current = asyncio.current_task()`; `other_tasks = [t for t in self._tasks if t is not current]`; cancel + `gather(*other_tasks, ...)`), daemon.py:2093–2103. Fixes WARNING #1 (`on_stop_cb: CancelledError`) when `on_stop()` runs as the tracked `transport_permanent_stop` task.
+- `tests/level2/test_tcp_reconnect_integration.py` — modified: added RED/GREEN test `test_on_stop_does_not_self_cancel_when_run_as_tracked_task` (AC22).
+- `tests/level2/test_daemon_integration.py` — modified: added `_install_stop_spy()` helper; wired into `test_tcp_strike3_to_no_network` (+ `daemon.send_to_jeedom = AsyncMock()` for the step-1 STOPPED push) to run faithful shutdown without `BaseDaemon.stop()`'s process-level `all_tasks()` sweep cancelling the pytest driver task.
+- `tests/level3/test_supervision_e2e.py` — modified: added inline `_spy_stop` to `test_ac8_tcp_reconnect_permanent_failure` (same driver-task-cancel fix as level2).
 
 ### Review Findings
 

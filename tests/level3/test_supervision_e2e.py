@@ -522,6 +522,20 @@ async def test_ac8_tcp_reconnect_permanent_failure(csr_sim):
 
     daemon._dispatch_notify = _capture_dispatch  # type: ignore[method-assign]
 
+    # The permanent-failure path schedules self.stop() as the tracked task
+    # 'transport_permanent_stop' (daemon.py:1146). Now that on_stop() completes
+    # cleanly (AC22 self-cancellation guard), BaseDaemon.stop() would proceed to
+    # its process-level asyncio.all_tasks() sweep and cancel this test's own
+    # _wait_for driver task. Replace stop() with a spy that runs the real
+    # on_stop() while excluding the self-stop task, so the assertions below can
+    # observe NO_NETWORK / TRANSPORT_PERMANENT without the test task being cancelled.
+    async def _spy_stop() -> None:
+        current = asyncio.current_task()
+        daemon._tasks.discard(current)
+        await daemon.on_stop()
+
+    daemon.stop = _spy_stop  # type: ignore[method-assign]
+
     try:
         await daemon.on_start()
         await _wait_for(lambda: daemon._sm1_state == SM1State.HEALTHY, timeout=10.0)
