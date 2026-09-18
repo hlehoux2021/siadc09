@@ -336,6 +336,10 @@ displays it verbatim in the last event section.
 The string wraps naturally in the tile (`word-break:break-word`). No PHP-side string
 splitting is needed.
 
+> **v1.1 (Story 13.1):** `BR` / `BC` add rows to this table (`Rétablissement`, `Annulation`)
+> without changing the template or `event_state` — see "Restoral events (BR / BC)" at the end
+> of this document.
+
 ---
 
 ## Impact on other components
@@ -391,3 +395,78 @@ All 7 commands must have `isVisible = 0` (already noted in Task 2.4; confirmed h
 | Tile caching | Call `toHtml()` twice without cmd update → verify second call returns cached HTML (same string) |
 | Action commands hidden | Open Jeedom dashboard → verify no burglarAlarm/fireAlarm/panicAlarm buttons on tile |
 | preToHtml cache invalidation | Change `supervision_state` value → verify tile re-renders (cache invalidated) |
+
+---
+
+## Restoral events (BR / BC) — Story 13.1 design decisions
+
+**Status:** design accepted 2026-09-18 (Story 13.1 Task 1 / AC1). No code written yet.
+
+### Decision 2 — `event_state` keeps its four values; the restoral shows up in `event_label`
+
+Answer to Story 13.1 **Open question 2**: **no new numeric values.** `event_state` stays
+`0/1/2/3` and applies to BR/BC unchanged — a BR whose ACK arrives sets `event_state = 1`,
+exactly like a BA. The *kind* of the last event is carried by `event_label`.
+
+`event_state` measures **delivery status**, not event kind. The two are orthogonal axes and
+adding `4 = Rétabli` / `5 = Annulé` would collapse them, with three concrete costs:
+
+1. **It breaks every existing scenario trigger.** The documented contract is
+   `event_state == 1` → "last transmission confirmed", `== 2` → "failed"
+   (`php-core-design.md`, "Scenario use examples"). A confirmed BR landing on `4` would stop
+   matching a user's "transmission OK" scenario and, worse, a *failed* BR would have no value
+   at all — `4`/`5` describe the event, leaving nowhere to say it did not reach the CSR.
+2. **It would be invisible anyway.** Nothing renders `event_state` today: the dashboard and
+   mobile templates interpolate `#event_label#` only, `toHtml()` reads `event_label` for the
+   event section (`supervision_state` drives the badge), and
+   `siaDC09_loadDiagnosticData()` in `desktop/js/siaDC09.js` consumes
+   `supervision_state`, `supervision_label`, `errors` and `messages` — it drops both
+   `event_state` and `event_label`. A new value would add scenario breakage with no UI gain.
+3. **The `returnStateValue = 0` auto-revert is calibrated on "3 = in progress".** New
+   terminal values would each need their own reasoning about the 30-minute reset; `1`/`2`
+   already have it.
+
+Restoral is therefore expressed through the SIA code → French label map, extended in the same
+change: `BA → Intrusion`, `FA → Incendie`, `PA → Panique`, **`BR → Rétablissement`**,
+**`BC → Annulation`**.
+
+### `event_label` rows added by Story 13.1
+
+| Event / SM2 state | `event_label` |
+|---|---|
+| `BR` PENDING | `Rétablissement — Salon — envoi en cours (tentative 1/3)` |
+| `BR` CONFIRMED | `Rétablissement — Salon — 14:35:02 — Confirmé par la centrale` |
+| `BR` FAILED (timeout) | `Rétablissement — Salon — 14:35:02 — Échec (3 tentatives)` |
+| `BC` CONFIRMED | `Annulation — Salon — 14:35:02 — Confirmé par la centrale` |
+| `BR`/`BC` without a resolved zone | same strings with the zone segment omitted |
+
+A restoral with no resolved zone renders `Rétablissement — 14:35:02 — Confirmé par la
+centrale`: the label never shows an unmatched zone name, mirroring the frame that carries no
+zone field.
+
+### What AC7 actually requires
+
+| Surface | Change needed |
+|---|---|
+| `event_state` numeric values | **none** — 0/1/2/3 unchanged |
+| Badge classes / `supervision_state` mapping | **none** |
+| `core/template/{dashboard,mobile}/siaDC09.html` | **none** — `#event_label#` is rendered verbatim |
+| `toHtml()` | **none** — reads `event_label` as-is |
+| Daemon `_event_label_from_sm2()` | extended with the BR/BC labels above |
+| Diagnostic tab (`desktop/js/siaDC09.js`) | display `event_label` (and `event_state`), which `siaDC09_loadDiagnosticData()` currently discards although `getDiagnosticData` already returns both |
+
+> **Pre-existing divergence to settle in the same task.** `daemon.py::_event_label_from_sm2()`
+> returns the terse strings `Inactif` / `En cours` / `Confirmé` / `Échoué`, while this document
+> and `daemon-design.md` specify the rich format
+> `Intrusion — Salon — HH:MM:SS — Confirmé par la centrale`. AC7 asserts a French label
+> containing `Rétablissement`, which is only meaningful in the rich format — so Story 13.1
+> Task 4 brings the code up to the documented format for every SM2 state, not just for BR/BC.
+
+### Deferred — numeric `event_type` command
+
+If a user ever needs a scenario to trigger on "the restoral was transmitted", the clean
+extension is a **separate** numeric INFO command `event_type`
+(`0` aucun, `1` intrusion, `2` incendie, `3` panique, `4` rétablissement, `5` annulation)
+alongside the unchanged `event_state`. Two orthogonal commands, no breakage. Deferred to
+v1.2 — it is not needed by Story 13.1, because the alarm plugin that triggers the restoral
+already knows the intrusion ended.

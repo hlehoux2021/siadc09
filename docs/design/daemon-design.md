@@ -783,6 +783,9 @@ stateDiagram-v2
 SIA code → French label mapping: `BA` → `Intrusion`, `FA` → `Incendie`, `PA` → `Panique`.
 Format decided by Component 6 (Widget) to serve the night-time emergency use case.
 
+> **v1.1 (Story 13.1):** restoral codes `BR` / `BC` add no SM2 state and no `event_state`
+> value — see "Restoral events (BR / BC)" at the end of this document.
+
 **On `SM2State.FAILED`:** call `_notify(code, ctx)` → dual-channel dispatch via Component 5a.
 - Timeout exhausted → `_notify(ErrorCode.EVENT_FAILED, EventFailedCtx(...))`
 - NAK received → `_notify(ErrorCode.BAD_CSR_RESPONSE)` — no ctx needed
@@ -1331,3 +1334,112 @@ See `error-handler-design.md` for full dispatch and tier routing.
 | `SM1State.DEGRADED` strike 3 UDP — alarm sent and ACK'd | 3 supervision timeouts (UDP), then alarm | `SM2State.CONFIRMED` despite DEGRADED(3); only `ErrorCode.SUPERVISION_DISCONNECTED` fired, not `ErrorCode.EVENT_FAILED` |
 | `SM1State.DEGRADED` strike 3 UDP — alarm fails | 3 supervision timeouts (UDP), alarm times out | `SM2State.FAILED`; `ErrorCode.SUPERVISION_DISCONNECTED` + `ErrorCode.EVENT_FAILED` both fired |
 | Supervision dropped during `SM1State.TCP_RECONNECTING` | supervision timer fires while reconnecting | Supervision item dequeued and silently dropped; no send on closed socket |
+
+---
+
+## Restoral events (BR / BC) — Story 13.1 design decisions
+
+**Status:** design accepted 2026-09-18 (Story 13.1 Task 1 / AC1). **No code written yet** —
+Tasks 2 to 9 of Story 13.1 are still open. Where this section and `daemon.py` disagree, the
+code is behind, not the doc.
+
+### Protocol basis — DC-09 carries no correlation field
+
+`BR` (Burglary Restoral) and `BC` (Burglary Cancel) are event codes from the SIA event-code
+table, not DC-09 transport features: the string `docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md`
+contains no notion of restoral at all. A DC-09 frame offers exactly one place to say *which*
+alarm is being closed — the zone field — and nothing else:
+
+```
+[#001234|BA 001]      ← alarm opened on zone 1
+[#001234|BR 001]      ← the frame that closes it
+```
+
+The sequence number is **not** an event identifier: it is a transport-level duplicate
+discriminator and is deliberately *not* incremented on retry (SIA DC-09 § 5.5.1.5). There is
+therefore no field in which the daemon could reference the BA it is closing, and no protocol
+obligation to prove that such a BA exists. Correlation is performed by the CSR, keyed on
+(account, zone, code family).
+
+### Decision 1 — SM2 gains no persisted per-zone state; BR/BC are never suppressed
+
+Answer to Story 13.1 **Open question 1**: **BR and BC are always transmitted.** The daemon
+keeps a small in-memory map of open alarms for logging and labelling only; the map never
+gates a frame and is never persisted.
+
+Why not gate on a per-zone map:
+
+- **The suppression case is the dangerous case.** After a daemon restart the map is empty,
+  but the physical alarm is still open at the CSR — and the very frame that would close it is
+  the one a gate would drop. Silence then reads at the CSR as "incident still running".
+- **It contradicts the plugin's existing never-block policy.** An unresolved zone already
+  yields a frame without a zone field rather than a dropped alarm
+  (`php-core-design.md`, "No zone in mapping → send alarm anyway"). A restoral is held to the
+  same rule.
+- **Persistence would create a second source of truth.** The Jeedom alarm plugin already owns
+  the fact "is an intrusion in progress"; a daemon-side file would drift from it on every
+  crash, manual reset or config change, and would need its own eviction policy for a zone
+  that never restores. None of that buys protocol correctness (see above).
+
+**SM2 itself is unchanged.** BR and BC travel the identical path as BA/FA/PA: `EVENT`
+priority 0 in the queue, `_queue_consumer()` → `_send_with_retry()`, `SM2State.PENDING` at
+dequeue, one sequence increment per event, `CONFIRMED` on ACK, `FAILED` on NAK or exhausted
+retries. No new SM2 state, no new transition, no change to the SM2 diagram above.
+
+### The open-alarm map (observability only)
+
+```python
+OPEN_ALARMS_MAX: Final[int] = 64  # zones tracked; oldest entry dropped on overflow
+
+_ALARM_SIA_CODES: Final[frozenset[SiaEventCode]] = frozenset({'BA', 'FA', 'PA'})
+_RESTORAL_SIA_CODES: Final[frozenset[SiaEventCode]] = frozenset({'BR', 'BC'})
+
+
+@dataclass(frozen=True)
+class OpenAlarm:
+    """Last alarm the CSR acknowledged for one zone. Diagnostics only — never gates a frame."""
+    sia_code: SiaEventCode  # 'BA' | 'FA' | 'PA'
+    sia_seq: int            # sequence of the acknowledged alarm frame
+    timestamp: str          # UTC, as sent
+
+
+# In SIADaemon.__init__() — insertion-ordered, so the oldest entry is next(iter(...)).
+# Key is zone_number (int) or None for an account-level alarm (no zone field in the frame).
+self._open_alarms: dict[int | None, OpenAlarm] = {}
+```
+
+Write points — all three inside `_send_with_retry()`, on the ACK branch only:
+
+| Event | Effect on `_open_alarms` |
+|---|---|
+| `BA`/`FA`/`PA` → `CONFIRMED` | `self._open_alarms[zone_number] = OpenAlarm(...)`; if over `OPEN_ALARMS_MAX`, drop the oldest key |
+| `BR`/`BC` → `CONFIRMED` | `self._open_alarms.pop(zone_number, None)` |
+| any event → `FAILED` | no write — an alarm the CSR never acknowledged opened no incident |
+
+The map is empty at `on_start()` by construction; nothing to reset, nothing to load.
+
+### Deterministic behaviour required by AC6
+
+| Situation | Behaviour | Log |
+|---|---|---|
+| `BR` on a zone with no entry in `_open_alarms` | frame sent normally, ACK path unchanged | `WARNING` — `Rétablissement zone N sans alarme ouverte connue — trame transmise` |
+| `BR` twice on the same zone | both frames sent; the first pops the entry, the second warns as above | `WARNING` on the second |
+| `BR` after a daemon restart | frame sent, warning logged (map empty) | `WARNING` |
+| `BR` whose zone label matched no mapping entry | `[#account|BR]`, no zone field, key `None` | `WARNING` from PHP (`AC5`, unchanged) |
+| `BR` after a `BA` that ended `FAILED` | frame sent, warning logged (no entry was recorded) | `WARNING` |
+
+The warning is emitted where the decision is observable — at dequeue, before the send — and
+carries the zone number and label. It is a diagnostic, never a branch.
+
+### Consequences for the rest of Component 1 (Story 13.1 Task 2)
+
+- `SiaEventCode` becomes `Literal['BA', 'FA', 'PA', 'BR', 'BC']`.
+- `_EVENT_SIA_CODES` gains `"burglaryRestore": "BR"` and `"burglaryCancel": "BC"`
+  (logical ids decided in `php-core-design.md`, "Restoral events (BR / BC)").
+- `error_handler.py`: `EventFailedCtx.sia_code` widens to the same `Literal`, and
+  `event_type_fr()` gains `burglaryRestore`/`BR` → `rétablissement` and
+  `burglaryCancel`/`BC` → `annulation`.
+- `_build_event_frame()` needs no change: it already formats `zone_number` as three padded
+  digits and omits the zone field when it is `None`.
+- `event_state` / `event_label` semantics for restorals: see `widget-design.md`,
+  "Restoral events (BR / BC)".

@@ -3,13 +3,14 @@ story_id: "13-1"
 story_key: "13-1-burglary-restore-cancel-events"
 epic_id: "epic-13"
 epic_name: "Alarm Event Vocabulary Extension (v1.1)"
-status: "backlog"
+status: "in-progress"
 created: "2026-09-17"
 ---
 
 # Story 13.1: Burglary Restore (BR) & Burglary Cancel (BC) Events
 
-Status: backlog
+Status: in-progress — Task 1 (design, AC1) done 2026-09-18; Tasks 2-9 deferred, see
+"Sequencing" below.
 
 ## Story
 
@@ -149,7 +150,8 @@ zone number as the BA it closes, and the zone label is not usable as a correlati
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Answer the three open design questions and update the three design docs (AC1)
+- [x] Task 1: Answer the three open design questions and update the three design docs (AC1)
+      — done 2026-09-18, see "Design decisions (Task 1 / AC1)" below
 - [ ] Task 2: Extend `SiaEventCode`, `_EVENT_SIA_CODES`, `error_handler` code/label maps (AC2)
 - [ ] Task 3: SM2 restoral handling per the Open question 1 decision (AC6)
 - [ ] Task 4: `event_state` vocabulary + widget + diagnostic tab per Open question 2 (AC7)
@@ -158,6 +160,75 @@ zone number as the BA it closes, and the zone label is not usable as a correlati
 - [ ] Task 7: Tests — level 1 frame building, level 2 SM2 correlation, level 2.5 IPC payload
 - [ ] Task 8: Documentation (plugin doc + `.claude/skills/jeedom-alarm/SKILL.md` wiring note)
 - [ ] Task 9: UI validation on `test-jeedom` against the internal receiver (AC8)
+
+## Design decisions (Task 1 / AC1) — 2026-09-18
+
+The three open questions are answered. Full reasoning lives in the design docs; this is the
+binding summary for Tasks 2-9.
+
+**Protocol basis found while answering:** grepping the spec
+(`docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md`) for restoral/cancel returns
+**nothing** — DC-09 is a transport and defines no back-reference field. The zone number is the
+only correlation key a frame can carry, and the sequence number is a duplicate discriminator,
+not an event id (§ 5.5.1.5). Correlation is therefore the CSR's job by construction, not by
+convenience.
+
+### Answer 1 — always emit; no persisted per-zone state (`daemon-design.md`, "Restoral events (BR / BC)")
+
+BR and BC are **never suppressed**. SM2 gains **no new state** and no new transition: restorals
+travel the BA/FA/PA path (EVENT priority 0 → PENDING → CONFIRMED/FAILED). A bounded
+**in-memory, non-persisted** map `_open_alarms: dict[int | None, OpenAlarm]`
+(`sia_code`, `sia_seq`, `timestamp`; `OPEN_ALARMS_MAX = 64`) is filled on the ACK of an alarm
+and popped on the ACK of a restoral — for **logging and labelling only**. An uncorrelated or
+duplicate restoral logs a `WARNING` and is transmitted anyway. Rationale: the suppression case
+is the dangerous one (after a restart the map is empty while the incident is still open at the
+CSR), never-drop is already the plugin's policy for an unresolved zone, and persistence would
+create a second source of truth against the alarm plugin.
+
+### Answer 2 — `event_state` keeps 0/1/2/3 (`widget-design.md`, "Restoral events (BR / BC)")
+
+No values 4/5. `event_state` is a **delivery-status** axis; the event *kind* is an orthogonal
+axis carried by `event_label`. A confirmed BR sets `event_state = 1` like any other confirmed
+event. Adding values would break the documented scenario contract (`== 1` OK / `== 2` failed),
+leave a *failed* restoral with no value to report, and be invisible anyway: **no template or JS
+renders `event_state` today** (the tile interpolates `#event_label#` only; `toHtml()` reads
+`supervision_state`/`supervision_label`/`event_label`; `siaDC09_loadDiagnosticData()` drops
+`event_state`). Restoral surfaces through the label map: `BR` → `Rétablissement`,
+`BC` → `Annulation`. A separate numeric `event_type` command is recorded as a v1.2 candidate.
+
+> **Scope found for Task 4:** `daemon.py::_event_label_from_sm2()` returns the terse strings
+> `Inactif`/`En cours`/`Confirmé`/`Échoué`, while both design docs specify the rich
+> `Intrusion — Salon — HH:MM:SS — Confirmé par la centrale`. AC7 asserts a French label, which
+> is only meaningful in the rich format, so Task 4 must close this pre-existing divergence for
+> **every** SM2 state, and add the `event_label` line the diagnostic tab currently discards.
+
+### Answer 3 — two commands, zone typed in *Titre* (`php-core-design.md`, "Restoral events (BR / BC)")
+
+Expose `burglaryRestore` ("Rétablissement intrusion", order 8) and `burglaryCancel`
+("Annulation intrusion", order 9): ACTION / `subType message`, `isVisible 0`,
+`returnStateTime 30` / `returnStateValue 0`, created idempotently by `postSave()`. Two new
+cases in `siaDC09Cmd::execute()` reuse the Story 8.2 `$_options['title']` →
+`_resolveZoneNumber()` path **verbatim** — no new resolution code, no `media_url` on a restoral.
+Zone source = **option (b)**: the user types the literal zone name in the action's *Titre*
+(one action per zone), because `release`/`raz` supply `#mode#` only. An empty title gives
+`zone_number = null` → `[#001234|BR]`, i.e. **option (c) as a free fallback** and AC5 satisfied.
+**Option (a) rejected**: sourcing the zone from our own map makes one command emit different
+frames depending on daemon memory, falls back to no zone exactly after a restart, and would
+invent frames for zones the user never wired. BR vs BC is a user wiring choice (`release` → BR,
+`raz` → BC); the alarm plugin has no "abandon" trigger to distinguish them for us.
+
+## Sequencing — why Tasks 2-9 are deferred
+
+Task 1 is doc-only, which is the one slice of this story that can be done while other stories
+are open. Tasks 2-9 touch files under active concurrent edit:
+
+| Blocked task | Touches | Waiting on |
+|---|---|---|
+| Tasks 2, 3, 6 | `daemon.py` SM2 + `error_handler.py` | 12-5, 7-2, 12-4, 12-7 |
+| Task 4 | widget templates + `desktop/js/siaDC09.js` | 10-3 (live-refresh, in-progress) |
+| Tasks 5, 7, 8, 9 | `siaDC09.class.php`, tests, field validation | the above |
+
+Resume Tasks 2-9 once 12-5 and 7-2 close (they own SM2) and 10-3 merges.
 
 ## Dev Notes
 
@@ -176,3 +247,4 @@ zone number as the BA it closes, and the zone label is not usable as a correlati
 | Date | Description |
 |------|-------------|
 | 2026-09-17 | Story created from Epic 12 findings — BR/BC support with the three blocking design questions (zone correlation, `event_state` vocabulary, commands + alarm plugin wiring) |
+| 2026-09-18 | Task 1 / AC1 done: the three questions answered and recorded in `daemon-design.md`, `widget-design.md` and `php-core-design.md` (always emit BR/BC + non-persisted open-alarm map; `event_state` unchanged, restoral carried by `event_label`; `burglaryRestore`/`burglaryCancel` with the zone typed in *Titre*). Status backlog → in-progress; Tasks 2-9 deferred pending 12-5, 7-2 and 10-3. Done in an isolated git worktree on `story/13-1-br-bc-design` to avoid conflicts with the parallel sessions |

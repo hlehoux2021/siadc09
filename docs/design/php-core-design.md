@@ -433,7 +433,9 @@ it has no zone identifier to offer. Hence the label → number resolution below.
 `#zone#` is only supplied by `outbreak`, `outbreakImmediate`, the zone-level
 `actions`/`actionsImmediate`, `reenableTrigger` and `activationKo`. `release`, `raz`,
 `razImmediate`, `activationOk` and `activationImmediateOk` pass **`#mode#` only** — which is
-why restoral events (BR/BC, Story 13.1) cannot get their zone from the alarm plugin.
+why restoral events (BR/BC, Story 13.1) cannot get their zone from the alarm plugin. The
+resulting wiring (literal zone name typed in *Titre*) is specified in "Restoral events
+(BR / BC)" at the end of this document.
 
 **User configuration required:** In the alarm plugin's zone action settings, the user must manually configure the ACTION command with `title` = `#zone#` (or any text containing `#zone#`). This is NOT automatic — the user must set this up once during configuration.
 
@@ -1211,3 +1213,98 @@ if (!isConnect('admin')) {
 | checkAndUpdateCmd → scenario | Créer scénario sur `supervision_state == 0` → vérifier déclenchement |
 | preRemove() | Supprimer équipement → vérifier daemon stoppé proprement |
 | dependancy_info() | Sans pycryptodome installé → état `nok` affiché dans UI |
+
+---
+
+## Restoral events (BR / BC) — Story 13.1 design decisions
+
+**Status:** design accepted 2026-09-18 (Story 13.1 Task 1 / AC1). **Doc ahead of code** —
+neither command exists yet; Tasks 5 and 8 of Story 13.1 implement this section.
+
+### Decision 3 — two new ACTION commands, zone taken from the action's *Titre*
+
+Answer to Story 13.1 **Open question 3**:
+
+| logicalId | name | type | subType | order | isVisible | SIA code |
+|---|---|---|---|---|---|---|
+| `burglaryRestore` | `Rétablissement intrusion` | action | message | 8 | 0 | `BR` |
+| `burglaryCancel` | `Annulation intrusion` | action | message | 9 | 0 | `BC` |
+
+Both are created idempotently by `postSave()` → `_ensureCommands()` with the same
+`returnStateTime = 30` / `returnStateValue = 0` auto-revert as the three alarm actions, and
+both use `subType message` so the alarm plugin's *Titre* field is available (see below).
+
+> The logicalId spelling follows the SIA code names (`BR` = *Burglary Restoral*,
+> `BC` = *Burglary Cancel*), not the shipped `burglarAlarm`. `burglarAlarm` keeps its
+> spelling: it is already in users' scenarios and renaming it would break them.
+
+**Zone source: option (b) — the user types the zone name in the action's *Titre*.** Because
+`release`, `raz`, `razImmediate`, `activationOk` and `activationImmediateOk` supply `#mode#`
+only (see "How the alarm plugin passes zone name" above), no tag can produce the zone on the
+restoral path. The user therefore wires **one action per protected zone**, typing the zone
+label exactly as it appears in the plugin's zone-mapping table — the same string they already
+typed there.
+
+**Empty *Titre* → account-level restoral.** This is option (c), obtained for free: an empty
+title resolves to `zone_number = null` and `_buildEventFrame()` omits the zone field, yielding
+`[#001234|BR]`. It is the correct wiring for a single-zone installation and satisfies AC5
+without a line of extra code.
+
+**Option (a) — reading the zone from the daemon's own SM2 map — is rejected:**
+
+- The same Jeedom command would emit different frames depending on daemon memory: unreproducible
+  for the user, untestable for us.
+- The map does not survive a restart by design (`daemon-design.md`, "Restoral events (BR / BC)"),
+  so exactly when a restoral matters most the command would silently fall back to no zone.
+- With several zones open, one `release` action would have to fan out to N frames the user never
+  configured — the plugin would be inventing events.
+
+### `siaDC09Cmd::execute()` — two new cases, no new resolution code
+
+The restoral cases join the existing switch arm verbatim; the `$_options['title']` →
+`_resolveZoneNumber()` path shipped by Story 8.2 is reused as-is:
+
+```php
+switch ($logicalId) {
+    case 'burglarAlarm':
+    case 'fireAlarm':
+    case 'panicAlarm':
+    case 'burglaryRestore':   // Story 13.1 — BR
+    case 'burglaryCancel':    // Story 13.1 — BC
+        $zone = trim($_options['title'] ?? '');
+        siaDC09::sendToDaemon([
+            'cmd'         => $logicalId,
+            'zone'        => $zone !== '' ? $zone : null,
+            'zone_number' => $this->_resolveZoneNumber($zone),
+        ]);
+        break;
+}
+```
+
+The IPC payload keys are unchanged (`cmd`, `zone`, `zone_number`), so no change is needed in
+`sendToDaemon()` or in the daemon's `on_message()` dispatch beyond the two new
+`_EVENT_SIA_CODES` entries. `_resolveZoneNumber()` keeps its existing behaviour, including the
+`warning` log when the typed name is absent from `sia_zone_mappings`.
+
+**No `media_url` on a restoral.** The camera action and `_resolveMediaUrl()` (design, Task 2.3)
+stay on the alarm commands only: there is nothing to record about an intrusion that has ended,
+and an empty `media_url` key would add a branch for no benefit.
+
+### Wiring the user has to do (Story 13.1 Task 8 — plugin documentation)
+
+On the **alarm** equipment, in its actions configuration:
+
+| Alarm plugin action | Our command | Why |
+|---|---|---|
+| *À la désactivation* (`release`) | `Rétablissement intrusion` (`BR`) | the siren stopped / the intrusion is over → the zone is back to normal |
+| *À la remise à zéro* (`raz`, `razImmediate`) | `Annulation intrusion` (`BC`) | the user acknowledged and cleared the alarm → the event is cancelled |
+
+with *Titre* = the zone label, one action per zone to close. Several actions on the same
+trigger produce several frames, serialised by the daemon's priority queue in configuration
+order — each one gets its own sequence number.
+
+The alarm plugin has **no distinct "abandon" trigger**: nothing tells us whether the user
+stopped a real intrusion or cancelled a false alarm. The BR / BC distinction is therefore a
+*wiring choice by the user*, which is exactly why both commands are exposed rather than one.
+The documentation must say so, and must also spell out that `#zone#` is unavailable here — it
+is undocumented in the alarm plugin's own UI.

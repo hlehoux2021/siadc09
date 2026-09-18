@@ -137,8 +137,8 @@ development_status:
   epic-12-retrospective: optional
 
   # Epic 13: Alarm Event Vocabulary Extension (v1.1)
-  epic-13: backlog
-  13-1-burglary-restore-cancel-events: backlog
+  epic-13: in-progress
+  13-1-burglary-restore-cancel-events: in-progress  # Task 1 (design, AC1) done 2026-09-18; Tasks 2-9 deferred pending 12-5, 7-2 (SM2 in daemon.py) and 10-3 (widget)
   epic-13-retrospective: optional
 
 # Summary Statistics
@@ -157,14 +157,16 @@ development_status:
 # to 12-7 Task 12; done 43→42, in-progress 2→3. epic-12 was already in-progress, epic counters unchanged)
 # Updated: 2026-09-18 (10-3 moved ready-for-dev → in-progress by a parallel session without mirroring the
 # counters; recounted from the status lines: ready_for_dev 3→2, in-progress 3→4)
+# Updated: 2026-09-18 (13-1 Task 1 / AC1 design done → 13-1 and epic-13 backlog → in-progress;
+# epics_backlog 1→0, epics_in_progress 4→5, stories_backlog 4→3, stories_in_progress 4→5)
 summary:
   total_epics: 13
   total_stories: 52
-  epics_backlog: 1
-  epics_in_progress: 4
+  epics_backlog: 0
+  epics_in_progress: 5
   epics_done: 8
-  stories_backlog: 4
+  stories_backlog: 3
   stories_ready_for_dev: 2
-  stories_in_progress: 4
+  stories_in_progress: 5
   stories_review: 0
   stories_done: 42
