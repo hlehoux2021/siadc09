@@ -586,9 +586,23 @@ class siaDC09 extends eqLogic {
         $supervisionLabelCmd = $this->getCmd('info', 'supervision_label');
         $eventLabelCmd       = $this->getCmd('info', 'event_label');
 
-        $stateValue = ($supervisionStateCmd !== null) ? intval($supervisionStateCmd->execCmd()) : null;
-        $labelValue = ($supervisionLabelCmd !== null) ? $supervisionLabelCmd->execCmd() : '';
-        $eventValue = ($eventLabelCmd !== null)       ? $eventLabelCmd->execCmd()       : '';
+        // Read the DB-cached values (getValue), NOT execCmd(): the daemon pushes state
+        // through checkAndUpdateCmd(), so getValue() returns exactly what was persisted,
+        // with no side effects. Freshness now comes from the client-side cmdValue binding
+        // (story 10.3), so the execCmd() live-fetch introduced by 10-2 F1 is no longer
+        // needed here and would only re-run the full command path on every render.
+        $stateRaw   = ($supervisionStateCmd !== null) ? $supervisionStateCmd->getValue() : null;
+        $stateValue = ($stateRaw === null || $stateRaw === '') ? null : intval($stateRaw);
+        $labelValue = ($supervisionLabelCmd !== null) ? $supervisionLabelCmd->getValue() : '';
+        $eventValue = ($eventLabelCmd !== null)       ? $eventLabelCmd->getValue()       : '';
+
+        // Command ids for the cmdValue-bound spans in the template: Jeedom's native
+        // cmd::update handler writes the pushed value in place into the span carrying
+        // the matching data-cmd_id, giving live refresh without a page reload.
+        $replace['#supervision_state_id#'] = ($supervisionStateCmd !== null) ? $supervisionStateCmd->getId() : '';
+        $replace['#supervision_label_id#'] = ($supervisionLabelCmd !== null) ? $supervisionLabelCmd->getId() : '';
+        $replace['#event_label_id#']       = ($eventLabelCmd !== null)       ? $eventLabelCmd->getId()       : '';
+        $replace['#supervision_state_value#'] = ($stateValue === null) ? '' : (string) $stateValue;
 
         if ($stateValue === null) {
             $replace['#badge_class#']       = 'text-muted';

@@ -16,14 +16,20 @@
 
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
         <i class="fas fa-circle #badge_class# siaDC09-badge" style="font-size:0.75em;"></i>
-        <span style="font-size:0.9em;" class="siaDC09-label">#supervision_label#</span>
+        <span style="font-size:0.9em;" class="siaDC09-label cmdValue" data-cmd_id="#supervision_label_id#">#supervision_label#</span>
       </div>
 
       <hr style="margin:4px 0;" />
 
       <div style="font-size:0.8em;color:#555;word-break:break-word;">
-        #event_label#
+        <span class="siaDC09-event cmdValue" data-cmd_id="#event_label_id#">#event_label#</span>
       </div>
+
+      <!-- Hidden mirror of supervision_state. Jeedom's native cmd::update writes
+           the pushed numeric value in place here; the observer below recolors the
+           badge from it. This needs no knowledge of Jeedom's internal event name. -->
+      <span class="siaDC09-state cmdValue" data-cmd_id="#supervision_state_id#"
+            style="display:none;">#supervision_state_value#</span>
 
     </div>
   </div>
@@ -36,6 +42,40 @@
     var interval = parseInt('#supervision_interval#', 10) || 60;
     var staleThreshold = interval * 3;
 
+    var badge = rootEl.querySelector('.siaDC09-badge');
+    var stateEl = rootEl.querySelector('.siaDC09-state');
+
+    // Map a supervision_state numeric value to its badge color class.
+    // Mirrors toHtml(): 2 -> success, 1 -> warning, null/'' -> muted, else danger.
+    function badgeClassForState(raw) {
+      var txt = (raw === null || raw === undefined) ? '' : String(raw).trim();
+      if (txt === '') return 'text-muted';
+      var n = parseInt(txt, 10);
+      if (isNaN(n)) return 'text-danger';
+      if (n === 2) return 'text-success';
+      if (n === 1) return 'text-warning';
+      return 'text-danger';
+    }
+
+    // Recolor the badge from the hidden state mirror. A live push here proves the
+    // tile is fresh, so it also clears any stale-grey the one-shot check applied.
+    function applyState() {
+      if (!badge || !stateEl) return;
+      var cls = badgeClassForState(stateEl.textContent);
+      badge.classList.remove('text-success', 'text-warning', 'text-danger', 'text-muted');
+      badge.classList.add(cls);
+      badge.removeAttribute('title');
+    }
+
+    // Watch the hidden mirror for Jeedom's in-place cmd::update writes.
+    if (stateEl && typeof MutationObserver !== 'undefined') {
+      var observer = new MutationObserver(applyState);
+      observer.observe(stateEl, { childList: true, characterData: true, subtree: true });
+    }
+
+    // One-shot staleness check (story 10-2): grey the badge + relabel when the last
+    // supervision_state update is older than 3 x the supervision interval. Runs once
+    // on render; the live observer above takes over the moment a fresh value arrives.
     jeedom.eqLogic.byId({
       id: eqId,
       getCmdState: 1,
@@ -55,7 +95,6 @@
         var staleSince = (Date.now() - collectTime) / 1000;
 
         if (staleSince > staleThreshold) {
-          var badge = rootEl.querySelector('.siaDC09-badge');
           var label = rootEl.querySelector('.siaDC09-label');
           if (badge) {
             badge.classList.remove('text-success', 'text-warning', 'text-danger');
