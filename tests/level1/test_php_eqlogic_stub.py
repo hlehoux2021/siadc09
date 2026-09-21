@@ -1095,6 +1095,35 @@ def test_no_dependancy_install_override(php_source: str) -> None:
     )
 
 
+def test_guard3d_supervision_interval_default_matches_system_default(
+    deamon_info_body: str,
+) -> None:
+    """
+    Guard 3d in deamon_info() must default supervision_interval to 60, matching
+    the system-wide default used by deamon_start() and siadc09d.py's CLI arg.
+    A default of 0 blocks daemon launch whenever the wizard field is left blank
+    (trusting the "60" placeholder hint text, which sets no actual value) —
+    the exact bug observed in the field on 2026-09-21.
+
+    Expected result:
+    - getConfiguration('supervision_interval', <default>) in Guard 3d defaults to 60, not 0
+    """
+    match = re.search(
+        r"""getConfiguration\(\s*['"]supervision_interval['"]\s*,\s*(\d+)\s*\)""",
+        deamon_info_body,
+    )
+    # Assert: Guard 3d reads supervision_interval with an explicit numeric default
+    assert match is not None, (
+        "Guard 3d must call getConfiguration('supervision_interval', <default>)"
+    )
+    # Assert: default matches the system-wide default (60s), not 0
+    assert match.group(1) == "60", (
+        f"Guard 3d defaults supervision_interval to {match.group(1)}, expected 60 — "
+        "leaving the wizard field blank (trusting the '60' placeholder) would "
+        "incorrectly block daemon launch"
+    )
+
+
 def test_deamon_info_does_not_call_dependancy_info(deamon_info_body: str) -> None:
     """
     deamon_info() must NOT call dependancy_info() — the Jeedom core's

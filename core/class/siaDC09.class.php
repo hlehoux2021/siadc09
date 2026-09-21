@@ -143,8 +143,11 @@ class siaDC09 extends eqLogic {
             return $return;
         }
 
-        // Guard 3d — supervision interval must be positive
-        if ((int) $eqLogic->getConfiguration('supervision_interval', 0) <= 0) {
+        // Guard 3d — supervision interval must be positive. Default 60 matches the
+        // system-wide default (deamon_start(), siadc09d.py's --supervision-interval),
+        // so leaving the wizard field blank (trusting its "60" placeholder, which sets
+        // no actual value) does not incorrectly block the daemon from launching.
+        if ((int) $eqLogic->getConfiguration('supervision_interval', 60) <= 0) {
             $return['launchable'] = 'nok';
             $return['launchable_message'] = __(
                 "Intervalle de supervision invalide (étape 1 de l'assistant).", __FILE__
