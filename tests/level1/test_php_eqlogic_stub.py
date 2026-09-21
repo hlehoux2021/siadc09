@@ -99,6 +99,21 @@ def deamon_info_body(php_source: str) -> str:
 
 
 @pytest.fixture(scope="module")
+def action_cmds_loop_body(postsave_body: str) -> str:
+    """The foreach ($actionCmds ...) block only, excluding the info cmds loop."""
+    start = postsave_body.index("foreach ($actionCmds")
+    end = postsave_body.index("foreach ($infoCmds")
+    return postsave_body[start:end]
+
+
+@pytest.fixture(scope="module")
+def info_cmds_loop_body(postsave_body: str) -> str:
+    """The foreach ($infoCmds ...) block only (the last statement in postSave())."""
+    start = postsave_body.index("foreach ($infoCmds")
+    return postsave_body[start:]
+
+
+@pytest.fixture(scope="module")
 def get_auto_equipment_body(php_source: str) -> str:
     # _getAutoEquipmentSafe ends with 'Safe(' so \s*\( won't match it
     return _extract_method_body(php_source, "_getAutoEquipment")
@@ -941,43 +956,68 @@ def test_t1_resolve_codes_match_error_handler_enum() -> None:
 # ── Story 6.4 — returnStateTime / returnStateValue ────────────────────────
 
 
-def test_postsave_sets_return_state_time_on_commands(postsave_body: str) -> None:
+def test_postsave_sets_return_state_time_on_commands(action_cmds_loop_body: str) -> None:
     """
-    All commands must have returnStateTime=30 to prevent stuck PENDING state
-    (event_state=3) if the daemon crashes mid-alarm. Jeedom auto-reverts the
-    command value after this many minutes of no update.
+    Momentary action alarm commands (burglarAlarm/fireAlarm/panicAlarm) must
+    have returnStateTime=30 to prevent stuck PENDING state (event_state=3)
+    if the daemon crashes mid-alarm. Jeedom auto-reverts the command value
+    after this many minutes of no update.
 
     Expected result:
-    - 'returnStateTime' appears in postSave() body
+    - 'returnStateTime' appears in the action cmds loop of postSave() body
     - The value 30 appears associated with returnStateTime
     """
-    # Assert: returnStateTime is set in postSave()
-    assert "returnStateTime" in postsave_body, (
-        "postSave() must set returnStateTime on commands — "
+    # Assert: returnStateTime is set on the momentary action cmds
+    assert "returnStateTime" in action_cmds_loop_body, (
+        "postSave() must set returnStateTime on the momentary action cmds — "
         "prevents event_state=3 stuck if daemon crashes"
     )
     # Assert: value 30 is used (spec: 30 minutes)
-    assert "'returnStateTime', 30" in postsave_body or '"returnStateTime", 30' in postsave_body, (
-        "postSave() must set returnStateTime=30 (30-minute auto-revert)"
-    )
+    assert (
+        "'returnStateTime', 30" in action_cmds_loop_body
+        or '"returnStateTime", 30' in action_cmds_loop_body
+    ), "postSave() must set returnStateTime=30 (30-minute auto-revert) on action cmds"
 
 
-def test_postsave_sets_return_state_value_zero(postsave_body: str) -> None:
+def test_postsave_sets_return_state_value_zero(action_cmds_loop_body: str) -> None:
     """
-    All commands must revert to 0 (not null) after returnStateTime expires.
-    Value 0 for event_state means 'no alarm' — a safe idle state.
+    Momentary action alarm commands must revert to 0 (not null) after
+    returnStateTime expires. Value 0 means 'no alarm' — a safe idle state.
 
     Expected result:
-    - 'returnStateValue' appears in postSave() body
+    - 'returnStateValue' appears in the action cmds loop of postSave() body
     - The revert value is 0
     """
-    # Assert: returnStateValue is set in postSave()
-    assert "returnStateValue" in postsave_body, (
-        "postSave() must set returnStateValue on commands"
+    # Assert: returnStateValue is set on the momentary action cmds
+    assert "returnStateValue" in action_cmds_loop_body, (
+        "postSave() must set returnStateValue on the momentary action cmds"
     )
     # Assert: revert value is 0 (safe idle state)
-    assert "'returnStateValue', 0" in postsave_body or '"returnStateValue", 0' in postsave_body, (
-        "postSave() must set returnStateValue=0 (safe idle revert)"
+    assert (
+        "'returnStateValue', 0" in action_cmds_loop_body
+        or '"returnStateValue", 0' in action_cmds_loop_body
+    ), "postSave() must set returnStateValue=0 (safe idle revert) on action cmds"
+
+
+def test_postsave_info_cmds_do_not_get_return_state_config(info_cmds_loop_body: str) -> None:
+    """
+    Persistent 'info' commands (supervision_state/label, event_state/label) must
+    NOT get returnStateTime/returnStateValue — that auto-revert-to-0 config is for
+    the momentary action alarm commands (burglarAlarm/fireAlarm/panicAlarm) only.
+    Applying it to info cmds (copy-pasted from the action-cmd block) caused the
+    event/supervision badges to auto-revert to a bare "0" during normal operation.
+
+    Expected result:
+    - 'returnStateTime' does not appear in the info cmds foreach loop
+    - 'returnStateValue' does not appear in the info cmds foreach loop
+    """
+    # Assert: no auto-revert timer on the persistent info cmds
+    assert "returnStateTime" not in info_cmds_loop_body, (
+        "info cmds must not have returnStateTime — that's for momentary action cmds only"
+    )
+    # Assert: no auto-revert value on the persistent info cmds
+    assert "returnStateValue" not in info_cmds_loop_body, (
+        "info cmds must not have returnStateValue — persistent state is driven by the daemon, not a timer"
     )
 
 
