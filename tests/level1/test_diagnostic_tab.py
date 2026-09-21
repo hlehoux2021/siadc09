@@ -170,33 +170,36 @@ class TestGetDiagnosticDataAjax:
         assert "'errors'" in ajax_source
         assert "'messages'" in ajax_source
 
-    def test_reads_info_cmds_via_get_value_not_exec_cmd(self, ajax_source: str) -> None:
+    def test_reads_info_cmds_via_exec_cmd_not_get_value(self, ajax_source: str) -> None:
         """
-        getDiagnosticData must read the 4 info cmds via getValue(), not execCmd().
+        getDiagnosticData must read the 4 info cmds via execCmd(), not getValue().
 
-        For 'info' cmds, execCmd() reads a separate JSON cache (cmdCacheAttr<id>)
-        that is written conditionally inside cmd::event() and can diverge from the
-        DB-persisted value. getValue() reads that DB-persisted value directly, with
-        no side effects — the same fix already applied to the dashboard widget's
-        toHtml() in story 10-3. Using execCmd() here caused the Diagnostic tab to
-        show a stale event/supervision state after it had already changed.
+        Verified against Jeedom core (cmd.class.php): for non-historized 'info' cmds,
+        cmd::event() (invoked by the daemon's checkAndUpdateCmd on every push) only
+        writes to the cmd cache (setCache()) — it never touches the cmd table's own
+        'value' column. getValue() reads that column directly and stays frozen at
+        whatever it held at cmd creation; execCmd() reads the cache that event()
+        actually updates. Using getValue() here (an earlier fix, since reverted)
+        caused the Diagnostic tab to show a permanently stale state (a bare "0",
+        no label) even on a freshly created equipment with an actively running
+        daemon — field-confirmed 2026-09-21.
 
         Expected result:
-        - execCmd() is not called on the 4 diagnostic info cmds
-        - getValue() is called instead, on all 4
+        - getValue() is not called on the 4 diagnostic info cmds
+        - execCmd() is called instead, on all 4
         """
         diagnostic_block = ajax_source[ajax_source.index("getDiagnosticData") :]
         end = diagnostic_block.find("clearDiagnosticData")
         if end != -1:
             diagnostic_block = diagnostic_block[:end]
-        # Assert: no execCmd() reads in the diagnostic data block (stale cache path)
-        assert "execCmd()" not in diagnostic_block, (
-            "getDiagnosticData must not read info cmds via execCmd() — "
-            "that cache can diverge from the persisted value (see story 10-3 fix)"
+        # Assert: no getValue() reads in the diagnostic data block (frozen-forever path)
+        assert "->getValue()" not in diagnostic_block, (
+            "getDiagnosticData must not read info cmds via getValue() — "
+            "it never reflects the daemon's live pushes for non-historized info cmds"
         )
-        # Assert: getValue() is used for all 4 info cmds instead
-        assert diagnostic_block.count("->getValue()") >= 4, (
-            "getDiagnosticData must read supervision_state/label and event_state/label via getValue()"
+        # Assert: execCmd() is used for all 4 info cmds instead
+        assert diagnostic_block.count("->execCmd()") >= 4, (
+            "getDiagnosticData must read supervision_state/label and event_state/label via execCmd()"
         )
 
 

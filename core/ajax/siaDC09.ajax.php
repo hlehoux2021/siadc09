@@ -141,17 +141,24 @@ try {
         }
         $eqLogic = $eqLogics[0];
 
+        // execCmd(), not getValue(): for non-historized 'info' cmds, cmd::event()
+        // (called by the daemon's checkAndUpdateCmd on every push) only writes to
+        // the cmd cache (setCache()) — it never touches the cmd table's own 'value'
+        // column. getValue() reads that column directly and so stays frozen at
+        // whatever it held at cmd creation; execCmd() reads the cache that event()
+        // actually updates, which is the live value. Verified against Jeedom core
+        // (cmd.class.php: event()/execCmd()/getCache()/getValue()).
         $stateCmd = $eqLogic->getCmd('info', 'supervision_state');
-        $supervisionState = $stateCmd ? (int) $stateCmd->getValue() : 1;
+        $supervisionState = $stateCmd ? (int) $stateCmd->execCmd() : 1;
 
         $labelCmd = $eqLogic->getCmd('info', 'supervision_label');
-        $supervisionLabel = $labelCmd ? (string) $labelCmd->getValue() : '';
+        $supervisionLabel = $labelCmd ? (string) $labelCmd->execCmd() : '';
 
         $eventStateCmd = $eqLogic->getCmd('info', 'event_state');
-        $eventState = $eventStateCmd ? (int) $eventStateCmd->getValue() : 0;
+        $eventState = $eventStateCmd ? (int) $eventStateCmd->execCmd() : 0;
 
         $eventLabelCmd = $eqLogic->getCmd('info', 'event_label');
-        $eventLabel = $eventLabelCmd ? (string) $eventLabelCmd->getValue() : '';
+        $eventLabel = $eventLabelCmd ? (string) $eventLabelCmd->execCmd() : '';
 
         $rawErrors = config::byKey('sia_last_errors', 'siaDC09', '[]');
         $errors = is_array($rawErrors) ? $rawErrors : (json_decode($rawErrors, true) ?: []);

@@ -592,15 +592,18 @@ class siaDC09 extends eqLogic {
         $supervisionLabelCmd = $this->getCmd('info', 'supervision_label');
         $eventLabelCmd       = $this->getCmd('info', 'event_label');
 
-        // Read the DB-cached values (getValue), NOT execCmd(): the daemon pushes state
-        // through checkAndUpdateCmd(), so getValue() returns exactly what was persisted,
-        // with no side effects. Freshness now comes from the client-side cmdValue binding
-        // (story 10.3), so the execCmd() live-fetch introduced by 10-2 F1 is no longer
-        // needed here and would only re-run the full command path on every render.
-        $stateRaw   = ($supervisionStateCmd !== null) ? $supervisionStateCmd->getValue() : null;
+        // Read via execCmd(), NOT getValue(): for non-historized 'info' cmds, cmd::event()
+        // (invoked by the daemon's checkAndUpdateCmd on every push) only writes to the cmd
+        // cache (setCache()) — it never touches the cmd table's own 'value' column that
+        // getValue() reads, which stays frozen at whatever it held at cmd creation.
+        // execCmd() reads the cache that event() actually updates, i.e. the live value.
+        // 10-3 Task 3/AC4 reverted this to getValue() on the (incorrect) assumption that
+        // getValue() reflects what checkAndUpdateCmd wrote — verified against Jeedom core
+        // (cmd.class.php) that it does not, for this cmd type; reverted back to execCmd().
+        $stateRaw   = ($supervisionStateCmd !== null) ? $supervisionStateCmd->execCmd() : null;
         $stateValue = ($stateRaw === null || $stateRaw === '') ? null : intval($stateRaw);
-        $labelValue = ($supervisionLabelCmd !== null) ? $supervisionLabelCmd->getValue() : '';
-        $eventValue = ($eventLabelCmd !== null)       ? $eventLabelCmd->getValue()       : '';
+        $labelValue = ($supervisionLabelCmd !== null) ? $supervisionLabelCmd->execCmd() : '';
+        $eventValue = ($eventLabelCmd !== null)       ? $eventLabelCmd->execCmd()       : '';
 
         // Command ids for the client-side live-refresh callbacks in the template.
         // The tile overrides toHtml() and so bypasses the stock per-command widgets;

@@ -229,6 +229,24 @@ render, the live update, and the stale check are mutually consistent (AC4). This
 the behaviour mandated by `widget-design.md:199-202`; 10-2 F1 is superseded and documented
 here rather than silently flipped.
 
+> **Correction (2026-09-21) — the `getValue()` premise above was verified WRONG against
+> Jeedom core, not just theorized.** Traced `cmd.class.php` completely: `cmd::event()`
+> (which the daemon's `checkAndUpdateCmd` calls on every push) only writes to the cmd
+> *cache* (`setCache()`) — it never touches the `cmd` table's own `value` column that
+> `getValue()` reads (`getValue()` is a trivial `return $this->value`, hydrated once from
+> that column at load time). `addHistoryValue()` only writes to the separate `history`
+> table, and only when historization is enabled (it isn't, for these cmds). So `getValue()`
+> is frozen at cmd-creation time forever for these info cmds — the opposite of the claim
+> above. `execCmd()` (for `type == 'info'`) reads exactly the cache `event()` writes — it
+> is the correct live accessor. Also: 10-2 F1's original disabled-equipment-throw concern
+> (the reason `execCmd()` was first avoided) does not apply here either — `execCmd()`
+> returns early for `type == 'info'` before the throw path, which only exists for
+> `type == 'action'` (see deferred-work.md D-25, withdrawn same day). Reverted `toHtml()`
+> back to `execCmd()`; also fixed the same mistaken `getValue()` direction in
+> `getDiagnosticData()` (story 9-x's Diagnostic tab), which is how this was caught —
+> field-confirmed permanently frozen badges on a freshly created equipment with an actively
+> running daemon. Task 3/AC4 needs re-validation on the live host; not yet done.
+
 Added placeholders `#supervision_state_id#`, `#supervision_label_id#`, `#event_label_id#`
 (from `$cmd->getId()`) so the inline script can register a live-update callback per command.
 The `#supervision_state_value#` placeholder from the earlier approach was removed together
