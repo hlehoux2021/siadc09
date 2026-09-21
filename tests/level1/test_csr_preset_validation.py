@@ -137,10 +137,11 @@ def test_preset_is_frozen():
 
 def test_preset_reconnect_delay_default():
     """
-    reconnect_delay_s defaults to 5.0 if not specified.
+    reconnect_delay_s defaults to 30.0 if not specified (story 7-2 AC20 — base of the
+    growing backoff schedule, was 5.0).
 
     Expected result:
-    - Default value is 5.0 (from dataclass field default)
+    - Default value is 30.0 (from dataclass field default)
     """
     preset = CSRPreset(
         csr_provider='test',
@@ -156,4 +157,56 @@ def test_preset_reconnect_delay_default():
         supervision_interval_s=60.0,
     )
     # Assert: default value applied
-    assert preset.reconnect_delay_s == 5.0
+    assert preset.reconnect_delay_s == 30.0
+
+
+def test_preset_reconnect_max_attempts_default():
+    """
+    reconnect_max_attempts defaults to 6 if not specified (story 7-2 AC20 — was the dead
+    TCP_RECONNECT_MAX_ATTEMPTS=3 module constant).
+
+    Expected result:
+    - Default value is 6 (from dataclass field default)
+    """
+    preset = CSRPreset(
+        csr_provider='test',
+        schema_version=1,
+        host='192.168.1.100',
+        port=5000,
+        account_number='001234',
+        transport='UDP',
+        crc_format='hex',
+        encryption_enabled=False,
+        connect_timeout_s=10.0,
+        receive_timeout_s=20.0,
+        supervision_interval_s=60.0,
+    )
+    # Assert: default value applied
+    assert preset.reconnect_max_attempts == 6
+
+
+@pytest.mark.parametrize("bad_max_attempts", [0, -1])
+def test_reconnect_max_attempts_below_one_raises(bad_max_attempts):
+    """
+    reconnect_max_attempts < 1 raises ValueError (story 7-2 code-review patch).
+    A value of 0 would silently skip the reconnect loop entirely with no probe
+    and no warning — fail fast instead, mirroring the transport validation precedent.
+
+    Expected result:
+    - ValueError raised for 0 and negative values
+    """
+    with pytest.raises(ValueError):
+        _make_preset(reconnect_max_attempts=bad_max_attempts)
+
+
+def test_reconnect_delay_s_negative_raises():
+    """
+    reconnect_delay_s < 0 raises ValueError (story 7-2 code-review patch).
+    A negative delay would be passed straight into asyncio.sleep(), which
+    raises at runtime with a confusing error deep in the reconnect loop.
+
+    Expected result:
+    - ValueError raised for a negative reconnect_delay_s
+    """
+    with pytest.raises(ValueError):
+        _make_preset(reconnect_delay_s=-1.0)

@@ -161,6 +161,7 @@ $scenarios = scenario::all();
 												data-preset-encryption_enabled="<?= $imaPreset['encryption_enabled'] ? '1' : '0' ?>"
 												data-preset-supervision_interval="<?= (int) $imaPreset['supervision_interval'] ?>"
 												data-preset-retry_count="<?= (int) $imaPreset['retry_count'] ?>"
+												data-preset-reconnect_delay="<?= (int) $imaPreset['reconnect_delay'] ?>"
 												<?php endif; ?>
 												style="cursor:pointer;text-align:center;padding:15px;">
 												<i class="fas fa-shield-alt fa-2x"></i>
@@ -234,7 +235,13 @@ $scenarios = scenario::all();
 									<div class="form-group">
 										<label class="col-sm-4 control-label">{{Tentatives}}</label>
 										<div class="col-sm-6">
-											<input type="number" class="eqLogicAttr form-control siaDC09-csr-field" data-l1key="configuration" data-l2key="retry_count" placeholder="3">
+											<input type="number" class="eqLogicAttr form-control siaDC09-csr-field" data-l1key="configuration" data-l2key="retry_count" placeholder="6">
+										</div>
+									</div>
+									<div class="form-group">
+										<label class="col-sm-4 control-label">{{Délai de reconnexion (s)}}</label>
+										<div class="col-sm-6">
+											<input type="number" class="eqLogicAttr form-control siaDC09-csr-field" data-l1key="configuration" data-l2key="reconnect_delay" placeholder="30">
 										</div>
 									</div>
 

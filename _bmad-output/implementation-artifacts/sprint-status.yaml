@@ -29,7 +29,7 @@
 # - SM typically creates next story ONLY after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then Dev runs code-review (fresh context, ideally different LLM)
 
-last_updated: "2026-09-18" # Story 7-2 self-stop amendment → review; 9-1 SM2 event-badge amendment
+last_updated: "2026-09-21" # Story 7-2 AC19-21 amendment code-reviewed → done; epic-7 closed
 generated: "2026-05-04"
 project: "my-project"
 project_key: "NOKEY"
@@ -89,9 +89,9 @@ development_status:
   epic-6-retrospective: optional
 
   # Epic 7: Supervision Health Monitoring
-  epic-7: in-progress  # reopened 2026-09-17 for the 7-2 self-stop-on-TRANSPORT_PERMANENT amendment
+  epic-7: done  # closed 2026-09-21 after the 7-2 AC19-AC21 code review completed
   7-1-supervision-loop-strike-management-info-updates: done
-  7-2-tcp-stall-detection-reconnect-ring-buffer-logging: review  # amendment 2026-09-18: AC15-AC17 / Task 8 implemented (schedule self.stop() on NO_NETWORK so the Jeedom watchdog restarts the daemon — Option A); AC1-AC14 stay done. Fixes SM1 NO_NETWORK dead-end. 0 regressions (11 pre-existing failures). VM validation (8.8) owned by 12-7 AC11/Task 10
+  7-2-tcp-stall-detection-reconnect-ring-buffer-logging: done  # amendment 2026-09-21: AC19-AC21 / Task 10 implemented + code-reviewed (2 decisions resolved, 6 patches applied, 2 deferred, 5 dismissed). Reconnect backoff schedule, --retry-count/--reconnect-delay CLI+wizard wiring, stale TCP_CONNECT_TIMEOUT_S log fix, formalizing TF-2/TF-3/TF-4. AC1-AC22 all done. 0 regressions (11 pre-existing failures). VM validation (8.8) still owned by 12-7 AC11/Task 10
   7-3-supervision-integration-testing: done
   epic-7-retrospective: done
 
@@ -159,14 +159,20 @@ development_status:
 # counters; recounted from the status lines: ready_for_dev 3→2, in-progress 3→4)
 # Updated: 2026-09-18 (7-2 self-stop-on-TRANSPORT_PERMANENT amendment implemented → 7-2 in-progress → review;
 # in-progress 4→3, review 0→1. epic-7 stays in-progress until 7-2 is done/reviewed)
+# Updated: 2026-09-21 (7-2 reopened for the AC19-AC21 backoff/CLI-wiring amendment → review → in-progress;
+# in-progress 3→4, review 1→0)
+# Updated: 2026-09-21 (7-2 AC19-AC21 amendment implemented → in-progress → review;
+# in-progress 4→3, review 0→1)
+# Updated: 2026-09-21 (7-2 code-reviewed and closed → review → done; epic-7 all stories done → epic-7 closed;
+# review 1→0, done 42→43, epics_in_progress 4→3, epics_done 8→9)
 summary:
   total_epics: 13
   total_stories: 52
   epics_backlog: 1
-  epics_in_progress: 4
-  epics_done: 8
+  epics_in_progress: 3
+  epics_done: 9
   stories_backlog: 4
   stories_ready_for_dev: 2
   stories_in_progress: 3
-  stories_review: 1
-  stories_done: 42
+  stories_review: 0
+  stories_done: 43

@@ -16,10 +16,10 @@ import pytest
 from resources.siadc09d.daemon import (
     QUEUE_PRIORITY_SUPERVISION,
     QUEUE_TYPE_SUPERVISION,
+    RECONNECT_BACKOFF_CAP_S,
     SIADaemon,
     SM1State,
-    TCP_CONNECT_TIMEOUT_S,
-    TCP_RECONNECT_MAX_ATTEMPTS,
+    _reconnect_backoff_delay_s,
 )
 from resources.siadc09d.error_handler import (
     ErrorCode,
@@ -171,10 +171,10 @@ async def test_reconnect_success_first_attempt():
 
 @pytest.mark.asyncio
 async def test_reconnect_permanent_failure_all_attempts_timeout():
-    """All 3 reconnect attempts fail with TimeoutError → SM1=NO_NETWORK, TRANSPORT_PERMANENT fired once.
+    """All reconnect attempts fail with TimeoutError → SM1=NO_NETWORK, TRANSPORT_PERMANENT fired once.
 
     Expected result:
-    - All TCP_RECONNECT_MAX_ATTEMPTS calls to open_connection raise TimeoutError
+    - All reconnect_max_attempts calls to open_connection raise TimeoutError
     - SM1 transitions to NO_NETWORK
     - _notify called exactly once with ErrorCode.TRANSPORT_PERMANENT
     - _sm1_state_changed event is set
@@ -195,8 +195,8 @@ async def test_reconnect_permanent_failure_all_attempts_timeout():
     assert daemon._notify.call_args[0][0] == ErrorCode.TRANSPORT_PERMANENT
     # Assert: state_changed event woke queue consumer
     assert daemon._sm1_state_changed.is_set()
-    # Assert: all 3 attempts exhausted
-    assert mock_open.call_count == TCP_RECONNECT_MAX_ATTEMPTS
+    # Assert: all attempts exhausted
+    assert mock_open.call_count == daemon._preset.reconnect_max_attempts
 
     # Cleanup: cancel the scheduled watchdog hand-off (real self.stop() not under test here;
     # the dedicated AC15 test exercises it — see test_reconnect_permanent_failure_schedules_self_stop)
@@ -277,7 +277,7 @@ async def test_reconnect_permanent_failure_schedules_self_stop():
     """Permanent TCP failure schedules a 'transport_permanent_stop' task that runs stop() once (AC15).
 
     Scenario:
-    - All TCP_RECONNECT_MAX_ATTEMPTS reconnect probes raise TimeoutError.
+    - All reconnect_max_attempts probes raise TimeoutError.
     - After NO_NETWORK + TRANSPORT_PERMANENT notify, the loop must hand the
       process back to Jeedom's watchdog by SCHEDULING self.stop() (not awaiting it).
 
@@ -1017,18 +1017,19 @@ async def test_queue_consumer_gate_multiple_items_all_consumed_after_recovery():
 async def test_reconnect_uses_preset_connect_timeout_not_hardcoded_constant():
     """_tcp_reconnect_loop() passes preset.connect_timeout_s to asyncio.wait_for, not hardcoded 10s.
 
-    Regression guard: before fix, TCP_CONNECT_TIMEOUT_S (10s) was hardcoded in the wait_for
-    call. This verifies the fix (self._preset.connect_timeout_s) is correct and that the old
-    constant is NOT used.
+    Regression guard: before fix, a hardcoded 10s constant (formerly TCP_CONNECT_TIMEOUT_S,
+    removed in story 7-2 AC21) was used in the wait_for call. This verifies the fix
+    (self._preset.connect_timeout_s) is correct and that the old hardcoded value is NOT used.
 
     Expected result:
-    - Preset has connect_timeout_s=0.5 (deliberately != TCP_CONNECT_TIMEOUT_S=10s)
+    - Preset has connect_timeout_s=0.5 (deliberately != the old hardcoded 10s)
     - asyncio.wait_for is called with timeout=0.5 on every reconnect attempt
-    - timeout=TCP_CONNECT_TIMEOUT_S (10s) is never passed to wait_for
+    - timeout=10.0 (the old hardcoded value) is never passed to wait_for
     """
+    old_hardcoded_timeout_s = 10.0
     preset_timeout = 0.5
-    assert preset_timeout != TCP_CONNECT_TIMEOUT_S, (
-        "Test requires preset_timeout != hardcoded constant to detect regression"
+    assert preset_timeout != old_hardcoded_timeout_s, (
+        "Test requires preset_timeout != old hardcoded value to detect regression"
     )
 
     daemon = _make_tcp_daemon(connect_timeout_s=preset_timeout)
@@ -1049,18 +1050,134 @@ async def test_reconnect_uses_preset_connect_timeout_not_hardcoded_constant():
         await daemon._tcp_reconnect_loop()
 
     # Assert: wait_for was called for each reconnect attempt
-    assert len(captured_timeouts) == TCP_RECONNECT_MAX_ATTEMPTS, (
-        f"Expected {TCP_RECONNECT_MAX_ATTEMPTS} wait_for calls, got {len(captured_timeouts)}"
+    assert len(captured_timeouts) == daemon._preset.reconnect_max_attempts, (
+        f"Expected {daemon._preset.reconnect_max_attempts} wait_for calls, "
+        f"got {len(captured_timeouts)}"
     )
     # Assert: preset value used (not hardcoded constant)
     for t in captured_timeouts:
         assert t == preset_timeout, (
             f"wait_for called with timeout={t}, expected preset.connect_timeout_s={preset_timeout}"
         )
-    # Assert: hardcoded constant was never used
-    assert TCP_CONNECT_TIMEOUT_S not in captured_timeouts, (
-        f"Old hardcoded constant {TCP_CONNECT_TIMEOUT_S}s must not be passed to wait_for"
+    # Assert: old hardcoded value was never used
+    assert old_hardcoded_timeout_s not in captured_timeouts, (
+        f"Old hardcoded value {old_hardcoded_timeout_s}s must not be passed to wait_for"
     )
+
+    # Cleanup: drain the scheduled self-stop task
+    await asyncio.gather(*daemon._tasks, return_exceptions=True)
+
+
+# ===== AC19-AC21: RECONNECT BACKOFF SCHEDULE, CLI/WIZARD WIRING, STALE TIMEOUT LOG =====
+
+
+def test_reconnect_backoff_delay_pure_function_default_schedule():
+    """_reconnect_backoff_delay_s() produces the resolved 30/60/120/300/300/300s schedule.
+
+    Expected result:
+    - With base_delay_s=30.0, attempts 0-5 (0-based) yield 30/60/120/300/300/300
+    - Attempt 6 (beyond the 6-entry factor table) also yields the 300s cap
+    """
+    base = 30.0
+    expected = [30.0, 60.0, 120.0, 300.0, 300.0, 300.0]
+    # Assert: default base produces the resolved schedule for the first 6 attempts
+    for index, expected_delay in enumerate(expected):
+        assert _reconnect_backoff_delay_s(base, index) == expected_delay
+    # Assert: extra attempts beyond the factor table reuse the cap
+    assert _reconnect_backoff_delay_s(base, 6) == RECONNECT_BACKOFF_CAP_S
+
+
+@pytest.mark.asyncio
+async def test_reconnect_loop_sleeps_with_growing_schedule():
+    """_tcp_reconnect_loop() sleeps the growing backoff schedule, not a fixed delay (AC19).
+
+    Expected result:
+    - With the test preset's reconnect_delay_s=0.01 base, the 6 sleep calls are
+      [0.01, 0.02, 0.04, 0.1, 0.1, 0.1] (factors 1/2/4/10/10/10)
+    """
+    daemon = _make_tcp_daemon()
+    daemon._sm1_state = SM1State.TCP_RECONNECTING
+    _install_stop_spy(daemon)
+
+    captured_delays: list[float] = []
+
+    async def _spy_sleep(delay: float) -> None:
+        captured_delays.append(delay)
+
+    with patch("asyncio.open_connection", new_callable=AsyncMock) as mock_open:
+        mock_open.side_effect = asyncio.TimeoutError()
+        with patch("resources.siadc09d.daemon.asyncio.sleep", side_effect=_spy_sleep):
+            await daemon._tcp_reconnect_loop()
+
+    # Assert: growing schedule, not a fixed delay repeated 6 times
+    assert captured_delays == [0.01, 0.02, 0.04, 0.1, 0.1, 0.1]
+
+    # Cleanup: drain the scheduled self-stop task
+    await asyncio.gather(*daemon._tasks, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_reconnect_loop_extra_attempts_reuse_cap():
+    """Attempts beyond the 6-entry factor table (--retry-count > 6) reuse the 300s cap (AC19/TF-3).
+
+    Expected result:
+    - With reconnect_delay_s=50.0 and reconnect_max_attempts=8: delays are
+      [50, 100, 200, 300, 300, 300, 300, 300] — attempts 4-6 hit the cap via the
+      factor table (10x), attempts 7-8 hit the cap via the beyond-table fallback.
+    """
+    daemon = _make_tcp_daemon()
+    daemon._preset = dataclasses.replace(
+        daemon._preset, reconnect_delay_s=50.0, reconnect_max_attempts=8
+    )
+    daemon._sm1_state = SM1State.TCP_RECONNECTING
+    _install_stop_spy(daemon)
+
+    captured_delays: list[float] = []
+
+    async def _spy_sleep(delay: float) -> None:
+        captured_delays.append(delay)
+
+    with patch("asyncio.open_connection", new_callable=AsyncMock) as mock_open:
+        mock_open.side_effect = asyncio.TimeoutError()
+        with patch("resources.siadc09d.daemon.asyncio.sleep", side_effect=_spy_sleep):
+            await daemon._tcp_reconnect_loop()
+
+    # Assert: 8 attempts, delays capped at 300s from attempt 4 onward
+    assert captured_delays == [50.0, 100.0, 200.0, 300.0, 300.0, 300.0, 300.0, 300.0]
+    # Assert: all 8 attempts actually probed
+    assert mock_open.call_count == 8
+    # Assert: terminal NO_NETWORK state reached after exhausting the extended attempt count
+    assert daemon._sm1_state == SM1State.NO_NETWORK
+    # Assert: TRANSPORT_PERMANENT notified exactly once for the cap-reuse path
+    daemon._notify.assert_called_once()
+    assert daemon._notify.call_args[0][0] == ErrorCode.TRANSPORT_PERMANENT
+
+    # Cleanup: drain the scheduled self-stop task
+    await asyncio.gather(*daemon._tasks, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_reconnect_timeout_warning_logs_real_connect_timeout(caplog):
+    """TimeoutError warning logs preset.connect_timeout_s, not the old stale hardcoded value (AC21).
+
+    Expected result:
+    - Preset has connect_timeout_s=0.5 (deliberately != the old hardcoded 10s)
+    - The warning log line contains "0.5s"
+    - The warning log line does NOT contain the old stale "(10s)" text
+    """
+    daemon = _make_tcp_daemon(connect_timeout_s=0.5)
+    daemon._sm1_state = SM1State.TCP_RECONNECTING
+    _install_stop_spy(daemon)
+
+    with patch("asyncio.open_connection", new_callable=AsyncMock) as mock_open:
+        mock_open.side_effect = asyncio.TimeoutError()
+        with caplog.at_level("WARNING"):
+            await daemon._tcp_reconnect_loop()
+
+    # Assert: warning logs the real preset connect_timeout_s value
+    assert "(0.5s)" in caplog.text, "Warning must log the real preset.connect_timeout_s"
+    # Assert: the old stale hardcoded value is not logged
+    assert "(10s)" not in caplog.text, "Warning must not log the old stale hardcoded 10s value"
 
     # Cleanup: drain the scheduled self-stop task
     await asyncio.gather(*daemon._tasks, return_exceptions=True)

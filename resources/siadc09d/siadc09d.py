@@ -379,7 +379,8 @@ if __name__ == "__main__":
     _config.add_argument("--encryption-enabled", action="store_true")
     _config.add_argument("--encryption-key", type=str, default="")
     _config.add_argument("--supervision-interval", type=int, default=60)
-    _config.add_argument("--retry-count", type=int, default=3)
+    _config.add_argument("--retry-count", type=int, default=6)
+    _config.add_argument("--reconnect-delay", type=float, default=30.0)
     _config.add_argument("--receiver-prefix", type=str, default="")
     _config.add_argument("--account-prefix", type=str, default="")
     _config.add_argument("--notify-cmd-id", type=int, default=0)
@@ -399,6 +400,8 @@ if __name__ == "__main__":
         connect_timeout_s=5.0,
         receive_timeout_s=10.0,
         supervision_interval_s=float(_config.supervision_interval),
+        reconnect_delay_s=_config.reconnect_delay,
+        reconnect_max_attempts=_config.retry_count,
     )
 
     SIADaemon(preset=_preset, config=_config).run()

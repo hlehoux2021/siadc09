@@ -142,6 +142,7 @@ _STEP1_CONFIG_FIELDS = [
     "encryption_key",
     "supervision_interval",
     "retry_count",
+    "reconnect_delay",
 ]
 
 

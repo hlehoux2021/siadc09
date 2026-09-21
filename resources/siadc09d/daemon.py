@@ -179,11 +179,29 @@ class EventItem:
 # ===== CONSTANTS =====
 
 SUPERVISION_INTERVAL_S = 60  # Default supervision interval (seconds)
-TCP_RECONNECT_DELAY_S = 5  # Default TCP reconnect backoff (seconds)
-TCP_RECONNECT_MAX_ATTEMPTS = 3  # Max reconnect attempts before NO_NETWORK
-TCP_CONNECT_TIMEOUT_S = 10  # Timeout for asyncio.wait_for() on TCP connect
+RECONNECT_BACKOFF_FACTORS: Final[tuple[float, ...]] = (1.0, 2.0, 4.0, 10.0, 10.0, 10.0)
+RECONNECT_BACKOFF_CAP_S: Final[float] = 300.0  # Ceiling for any single reconnect attempt's delay
 STRIKE_CAP = 3  # Strike counter capped at 3
 SIA_SEQ_MAX: Final[int] = 10000  # Sequence wraps 9999 → 0000 (SIA DC-09 § 5.5.1.5)
+
+
+def _reconnect_backoff_delay_s(base_delay_s: float, attempt_index: int) -> float:
+    """Compute the TCP reconnect delay for a given attempt (story 7-2 AC19).
+
+    Growing backoff schedule: delay = base_delay_s * RECONNECT_BACKOFF_FACTORS[attempt_index],
+    capped at RECONNECT_BACKOFF_CAP_S. Attempts beyond the factor table (a --retry-count larger
+    than len(RECONNECT_BACKOFF_FACTORS)) reuse the cap.
+
+    Args:
+        base_delay_s: CSRPreset.reconnect_delay_s — the schedule's base (first-attempt) delay.
+        attempt_index: 0-based attempt number.
+
+    Returns:
+        Delay in seconds to wait before this attempt's probe.
+    """
+    if attempt_index < len(RECONNECT_BACKOFF_FACTORS):
+        return min(base_delay_s * RECONNECT_BACKOFF_FACTORS[attempt_index], RECONNECT_BACKOFF_CAP_S)
+    return RECONNECT_BACKOFF_CAP_S
 
 
 # ===== TASK 1 (Story 5-3): PRIORITY QUEUE CONSTANTS AND TYPES =====
@@ -1088,9 +1106,10 @@ class SIADaemon(BaseDaemon):
 
         Behavior:
             - Only for TCP transport (UDP never enters this state)
-            - Probe: asyncio.wait_for(asyncio.open_connection(...), TCP_CONNECT_TIMEOUT_S)
-            - Reconnect interval: _preset.reconnect_delay_s (default 5s)
-            - Max attempts: TCP_RECONNECT_MAX_ATTEMPTS (default 3)
+            - Probe: asyncio.wait_for(asyncio.open_connection(...), _preset.connect_timeout_s)
+            - Reconnect interval: growing backoff (_reconnect_backoff_delay_s()), base
+              _preset.reconnect_delay_s (default 30s), capped at RECONNECT_BACKOFF_CAP_S (300s)
+            - Max attempts: _preset.reconnect_max_attempts (default 6)
             - On success: reset strike=0, t3_fired=False, set state=INITIALIZING
             - On permanent failure: set state=NO_NETWORK, fire T3 (TRANSPORT_PERMANENT)
             - Logged via _logger.debug() with per-attempt details
@@ -1104,17 +1123,18 @@ class SIADaemon(BaseDaemon):
         if self._preset.transport is not TransportType.TCP:
             return  # UDP never enters TCP_RECONNECTING
 
-        max_attempts = TCP_RECONNECT_MAX_ATTEMPTS
+        max_attempts = self._preset.reconnect_max_attempts
         attempt = 0
 
         while attempt < max_attempts:
+            delay = _reconnect_backoff_delay_s(self._preset.reconnect_delay_s, attempt)
             attempt += 1
             self._logger.debug(
                 f"TCP reconnect attempt {attempt}/{max_attempts}, "
-                f"waiting {self._preset.reconnect_delay_s}s before probe"
+                f"waiting {delay}s before probe"
             )
 
-            await asyncio.sleep(self._preset.reconnect_delay_s)
+            await asyncio.sleep(delay)
 
             self._logger.debug(f"Probing TCP reachability {attempt}/{max_attempts}...")
 
@@ -1141,7 +1161,7 @@ class SIADaemon(BaseDaemon):
             except asyncio.TimeoutError:
                 self._logger.warning(
                     f"TCP reconnect probe {attempt}/{max_attempts} timed out "
-                    f"({TCP_CONNECT_TIMEOUT_S}s)"
+                    f"({self._preset.connect_timeout_s}s)"
                 )
             except OSError as e:
                 self._logger.warning(

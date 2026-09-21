@@ -151,6 +151,7 @@ _PRESET_RENDERED_FIELDS = [
     "encryption_enabled",
     "supervision_interval",
     "retry_count",
+    "reconnect_delay",
 ]
 
 
@@ -365,7 +366,7 @@ def test_csr_provider_key_in_python(python_source: str) -> None:
 
 # ── Supervision config keys: PHP ↔ JS ↔ Python CLI ────────────────────────────
 
-_SUPERVISION_KEYS = ["supervision_interval", "retry_count"]
+_SUPERVISION_KEYS = ["supervision_interval", "retry_count", "reconnect_delay"]
 
 
 @pytest.mark.parametrize("key", _SUPERVISION_KEYS)

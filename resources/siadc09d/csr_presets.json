@@ -10,7 +10,8 @@
       "encryption_enabled": true,
       "crc_format": "hex",
       "supervision_interval": 60,
-      "retry_count": 3
+      "retry_count": 6,
+      "reconnect_delay": 30
     }
   ]
 }

@@ -121,7 +121,7 @@ function siaDC09_selectCard(provider) {
 
 function siaDC09_fillFromPreset() {
   var $card = $('#card-ima-protect')
-  var fields = ['csr_ip', 'csr_port', 'transport', 'encryption_enabled', 'supervision_interval', 'retry_count']
+  var fields = ['csr_ip', 'csr_port', 'transport', 'encryption_enabled', 'supervision_interval', 'retry_count', 'reconnect_delay']
   fields.forEach(function(key) {
     var val = $card.data('preset-' + key)
     if (val !== undefined) {
@@ -671,7 +671,7 @@ function siaDC09_populateConfigSummary(eqLogic) {
   $('<div>').append(
     $('<strong>').text('Supervision : ')
   ).append(
-    $('<span>').text((cfg.supervision_interval || 60) + 's, ' + (cfg.retry_count || 3) + ' tentatives')
+    $('<span>').text((cfg.supervision_interval || 60) + 's, ' + (cfg.retry_count || 6) + ' tentatives')
   ).appendTo($conn)
   $('<div>').append(
     $('<strong>').text('Chiffrement : ')

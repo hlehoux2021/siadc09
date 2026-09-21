@@ -17,7 +17,6 @@ from resources.siadc09d.daemon import (
     SM1State,
     SM2State,
     SIADaemon,
-    TCP_RECONNECT_MAX_ATTEMPTS,
 )
 from resources.siadc09d.error_handler import ErrorCode
 from tests.level3.conftest import (

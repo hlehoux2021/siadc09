@@ -28,6 +28,7 @@ class CSRPreset:
 
     Raises:
         ValueError: If transport string is not 'UDP' or 'TCP' (via TransportType(value)).
+        ValueError: If reconnect_max_attempts < 1 or reconnect_delay_s < 0.
     """
     csr_provider: str
     schema_version: int
@@ -40,7 +41,8 @@ class CSRPreset:
     connect_timeout_s: float
     receive_timeout_s: float
     supervision_interval_s: float
-    reconnect_delay_s: float = 5.0
+    reconnect_delay_s: float = 30.0
+    reconnect_max_attempts: int = 6
 
     def __post_init__(self) -> None:
         """Validate and convert preset fields after initialization.
@@ -50,3 +52,9 @@ class CSRPreset:
         """
         if not isinstance(self.transport, TransportType):
             object.__setattr__(self, 'transport', TransportType(self.transport))
+        if self.reconnect_max_attempts < 1:
+            raise ValueError(
+                f"reconnect_max_attempts must be >= 1, got {self.reconnect_max_attempts}"
+            )
+        if self.reconnect_delay_s < 0:
+            raise ValueError(f"reconnect_delay_s must be >= 0, got {self.reconnect_delay_s}")

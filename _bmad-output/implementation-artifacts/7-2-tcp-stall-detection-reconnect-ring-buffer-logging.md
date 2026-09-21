@@ -1,6 +1,12 @@
 # Story 7.2: TCP Stall Detection, Reconnect & Ring Buffer Logging
 
-Status: review
+Status: done
+
+> **Amendment 2026-09-21 — reconnect backoff schedule, CLI/wizard wiring, stale timeout log
+> (AC19–AC21, Task 10).** Reopened `review → in-progress`, implemented, back to `review`,
+> code-reviewed (2 decisions resolved, 6 patches applied, 2 deferred, 5 dismissed) → `done`.
+> Formalizes TF-2/TF-3/TF-4 (recorded 2026-09-17, analysis-only until now) into ACs and a Task
+> block. AC1–AC18, AC22 stay done.
 
 > **Amendment 2026-09-17 — daemon self-stop on `TRANSPORT_PERMANENT` (AC15–AC17, Task 8).**
 > The original scope shipped and was validated, but it froze the WRONG recovery model. AC2 and the
@@ -78,6 +84,41 @@ So that the already-implemented TCP reconnect flow is verified to work correctly
     at the `NO_NETWORK` transition, NOT in `_dispatch_notify()` (which must stay tier-generic — it dispatches
     callbacks for all codes and has no business terminating the process). Test: firing `_notify(SUPERVISION_DISCONNECTED)`
     or `_notify(EVENT_FAILED)` directly does NOT schedule a `transport_permanent_stop` task.
+
+### Amendment 2026-09-21 — reconnect backoff schedule, CLI/wizard wiring, stale timeout log (TF-2/TF-3/TF-4)
+
+19. **`_tcp_reconnect_loop()` uses a growing backoff schedule, not a fixed delay** — replace the
+    single fixed `_preset.reconnect_delay_s` sleep with a per-attempt schedule derived from a base
+    delay: `delay[i] = min(base * FACTOR[i], 300.0)` for `FACTOR = (1, 2, 4, 10, 10, 10)`, where
+    `base = self._preset.reconnect_delay_s`. With the new default `base=30.0` this produces the
+    resolved sequence **30 / 60 / 120 / 300 / 300 / 300s** (Herve, 2026-09-17) — a ~18.5 min total
+    budget (1110s) before declaring `NO_NETWORK`, instead of the old fixed-5s × 3-attempt ~15-30s budget
+    that gave a router reboot / ISP blip no time to recover (TF-2). Attempts beyond the 6-entry
+    factor table (see AC20 — `--retry-count` can request more) reuse the `300.0` cap. This is a
+    *schedule*, not exponential backoff on the wire — each attempt still probes once via
+    `asyncio.open_connection()`.
+
+20. **`--retry-count` and a new `--reconnect-delay` CLI flag are wired through `CSRPreset` into the
+    loop** — `--retry-count` (parsed since story 6-x, previously read by PHP into the CLI but never
+    consumed by `daemon.py`) now sets `CSRPreset.reconnect_max_attempts` (new field, default `6`,
+    was the dead `TCP_RECONNECT_MAX_ATTEMPTS=3` constant); its CLI default becomes `6` to match
+    AC19's resolved schedule. A new `--reconnect-delay` flag (default `30.0`) sets
+    `CSRPreset.reconnect_delay_s` (dataclass default also becomes `30.0`, was `5.0`) — this is the
+    *base* of AC19's schedule, so operators can widen/tighten the whole sequence proportionally
+    without losing the growth shape (TF-3). The existing wizard field `retry_count` (label
+    "{{Tentatives}}", already wired PHP→CLI, previously inert) is reused for this purpose — its
+    wizard default and `csr_presets.json` IMA Protect value both move `3→6`. A new wizard field
+    `reconnect_delay` (default `30`) is added end-to-end: PHP config key → `desktop/php/siaDC09.php`
+    input + preset data attribute → `desktop/js/siaDC09.js` `fillFromPreset` → `core/class/siaDC09.class.php`
+    `deamon_start()` appends `--reconnect-delay` → `siadc09d.py` argparse → `CSRPreset`.
+
+21. **Stale `TCP_CONNECT_TIMEOUT_S` log message and docstring fixed** — the reconnect probe's
+    `asyncio.wait_for()` timeout already correctly uses `self._preset.connect_timeout_s` (fixed in
+    story 7-3), but the `TimeoutError` warning log and the loop's docstring still hardcoded/quoted
+    the dead `TCP_CONNECT_TIMEOUT_S=10` module constant, so the logged timeout value could lie about
+    the real one in effect (TF-4). Fix: the warning interpolates `self._preset.connect_timeout_s`;
+    the docstring references the real preset field; the now-fully-dead `TCP_CONNECT_TIMEOUT_S`
+    constant is removed (its only remaining reference was this stale log line).
 
 ### Amendment 2026-09-18 — `on_stop()` self-cancellation guard (shutdown-warning follow-up)
 
@@ -232,6 +273,55 @@ So that the already-implemented TCP reconnect flow is verified to work correctly
   the git-stash baseline (net-zero regressions, diff empty); `pylint resources/siadc09d/daemon.py` = 8.54/10
   vs 8.53/10 baseline (no new warnings — the edited step-3/step-4 lines 2093–2103 are finding-free; the four
   findings in `on_stop()` at 2076/2078/2079/2105 are pre-existing, on lines this change did not touch).
+
+### Task 10: Reconnect backoff schedule + CLI/wizard wiring + stale timeout log — amendment 2026-09-21 (AC19–AC21)
+
+- [x] **10.1** (RED) `resources/siadc09d/presets.py` — add `reconnect_max_attempts: int = 6` field to
+  `CSRPreset`; bump `reconnect_delay_s` default `5.0 → 30.0`. Update
+  `tests/level1/test_csr_preset_validation.py::test_preset_reconnect_delay_default` to assert `30.0`;
+  add `test_preset_reconnect_max_attempts_default` asserting `6`.
+- [x] **10.2** (GREEN) `resources/siadc09d/daemon.py` — remove `TCP_RECONNECT_MAX_ATTEMPTS` and
+  `TCP_CONNECT_TIMEOUT_S` constants; add `RECONNECT_BACKOFF_FACTORS: Final[tuple[float, ...]] = (1.0,
+  2.0, 4.0, 10.0, 10.0, 10.0)` and `RECONNECT_BACKOFF_CAP_S: Final[float] = 300.0`; add a pure helper
+  `_reconnect_backoff_delay_s(base_delay_s: float, attempt_index: int) -> float` (0-based index) that
+  returns `min(base_delay_s * RECONNECT_BACKOFF_FACTORS[attempt_index], RECONNECT_BACKOFF_CAP_S)`, or
+  `RECONNECT_BACKOFF_CAP_S` when `attempt_index >= len(RECONNECT_BACKOFF_FACTORS)` (extra attempts
+  from a `--retry-count` > 6 reuse the cap, per TF-3). Rewrite `_tcp_reconnect_loop()`: `max_attempts =
+  self._preset.reconnect_max_attempts`; per-attempt delay via the helper instead of the fixed
+  `self._preset.reconnect_delay_s` sleep; update the debug log to show the computed delay. Update the
+  docstring (lines ~1091–1093) to describe the schedule instead of the fixed interval/dead constant.
+- [x] **10.3** (GREEN) Same file — in the `TimeoutError` branch, change the warning log from
+  interpolating `TCP_CONNECT_TIMEOUT_S` to `self._preset.connect_timeout_s` (the real value already
+  used by `wait_for`, fixed in story 7-3 but never reflected in this log line — TF-4).
+- [x] **10.4** `tests/level2/test_tcp_reconnect_integration.py` — remove the `TCP_RECONNECT_MAX_ATTEMPTS,
+  TCP_CONNECT_TIMEOUT_S` imports; replace attempt-count assertions with
+  `daemon._preset.reconnect_max_attempts` and the timeout regression test's hardcoded-constant
+  assertion with an inline sentinel (`10.0`, documented as "the old buggy hardcoded value"). Add:
+  (a) a test asserting `asyncio.sleep` is called with the growing sequence `[0.01, 0.02, 0.04, 0.1,
+  0.1, 0.1]` for the default test preset (`reconnect_delay_s=0.01`); (b) a test for the cap-reuse case
+  — `reconnect_max_attempts=8` with a larger base (e.g. `50.0`) asserts attempts 7–8 both use
+  `300.0`; (c) a test (via `caplog`, per testing.md — never mock the logger) asserting the
+  `TimeoutError` warning log contains the preset's real `connect_timeout_s`, not `10`/`10s`.
+- [x] **10.5** `resources/siadc09d/siadc09d.py` — change `--retry-count` default `3 → 6`; add
+  `--reconnect-delay` (`type=float`, `default=30.0`); pass both into the `CSRPreset(...)` construction
+  as `reconnect_max_attempts=_config.retry_count, reconnect_delay_s=_config.reconnect_delay`.
+- [x] **10.6** `core/class/siaDC09.class.php` `deamon_start()` — bump the `retry_count` config default
+  `3 → 6`; add `$reconnectDelay = (int) $eqLogic->getConfiguration('reconnect_delay', 30); $cmd .= '
+  --reconnect-delay ' . $reconnectDelay;` alongside the existing `--retry-count` append.
+- [x] **10.7** `desktop/php/siaDC09.php` — bump the `retry_count` input placeholder `3 → 6`; add a new
+  form-group input for `reconnect_delay` (`data-l2key="reconnect_delay"`, placeholder `30`) with a new
+  `{{...}}` label; add `data-preset-reconnect_delay` to the IMA Protect preset card.
+  `desktop/js/siaDC09.js` — add `'reconnect_delay'` to the `siaDC09_fillFromPreset()` fields array.
+  `resources/siadc09d/csr_presets.json` — bump `ima_protect.retry_count` `3 → 6`; add
+  `"reconnect_delay": 30`.
+- [x] **10.8** Update the cross-layer consistency tests to include the new/changed keys: add
+  `"reconnect_delay"` to `_SUPERVISION_KEYS` (`test_wizard_config_key_consistency.py`) and to
+  `_PRESET_RENDERED_FIELDS` in the same file; add `"reconnect_delay"` to `_STEP1_CONFIG_FIELDS`
+  (`test_wizard_php_structure.py`); add `"reconnect_delay"` to the required-fields list and a
+  non-negative-int test in `test_csr_presets_json.py` (mirroring the existing `retry_count` ones).
+- [x] **10.9** Run `python3 -m pytest tests/ -q --tb=short` (full suite, compare against this session's
+  baseline: 10 failed / 1502 passed, all pre-existing) and `python3 -m pylint resources/siadc09d/`;
+  run `php -l` on the two edited PHP files.
 
 ## Dev Notes
 
@@ -419,6 +509,8 @@ Claude Opus 4.6 (1M context)
 - **Task 8 (self-stop on `TRANSPORT_PERMANENT`, AC15–AC17):** Added `self._track_task(self.stop(), name="transport_permanent_stop")` to the `_tcp_reconnect_loop()` permanent-failure tail (daemon.py ~1146), scheduled AFTER `_notify(TRANSPORT_PERMANENT)` so the notify task is already in `_tasks` when `on_stop()` gathers (AC16). Scheduled, not awaited — awaiting inline would cancel the loop mid-call via `BaseDaemon.stop()` and drop the notify. Self-stop is scoped to this one path; `_dispatch_notify()` stays tier-generic so other T3 codes (`SUPERVISION_DISCONNECTED`, `EVENT_FAILED`) do NOT self-stop (AC17). Added `_install_stop_spy()` test helper (level2 + level3) that discards `asyncio.current_task()` from `_tasks` then awaits the real `on_stop()`, letting the scheduled stop run non-recursively — this also fixed the RecursionError/hang the naive real-`stop()` path caused at level3 event-loop teardown. Tests: level2 TCP suite 25 passed (AC15 `test_reconnect_permanent_failure_schedules_self_stop`, AC16 `test_transport_permanent_notify_survives_self_stop`, AC17 `test_other_t3_notifications_do_not_self_stop`); level3 `test_tcp_no_network_daemon_self_stop` passes at 8.22s (no hang). Reversed the two now-false Dev Notes paragraphs (8.6). **Validation gate (8.7):** full suite 11 failed / 1492 passed — all 11 failures proven pre-existing via git-stash baseline comparison (0 regressions from this change); `pylint resources/siadc09d/daemon.py` exit 0 (the 8.53/10 delta is stale-cache style warnings outside the edited region 1138–1146, not new findings). **VM validation (8.8) deferred to story 12-7 AC11 / Task 10 — NOT executed here (no duplication).**
 - **Task 9 (`on_stop()` self-cancellation guard, AC22 — amendment 2026-09-18):** Root-caused two daemon shutdown warnings that appeared once AC15's scheduled self-stop landed. **WARNING #1** (`Exception occurred when calling on_stop_cb: CancelledError`): `on_stop()` runs *as* the tracked `transport_permanent_stop` task, and its step-3 cancel loop + step-4 gather covered ALL of `self._tasks` including the running task — self-cancel → step-4 deadlock. Fix: exclude `asyncio.current_task()` (daemon.py:2093–2103, `other_tasks = [t for t in self._tasks if t is not current]`), mirroring `BaseDaemon.stop()`'s own guard (`base_daemon.py:142`). RED/GREEN test `test_on_stop_does_not_self_cancel_when_run_as_tracked_task` drives `on_stop()` directly as a tracked task (deadlock → `wait_for` timeout → `pytest.fail`, not a hang); asserts no self-cancel, other tasks still cancelled, transport reset to `None`. **Regression fallout & fix:** with WARNING #1 gone, `on_stop()` returns cleanly, so control resumes in `BaseDaemon.stop()`'s `asyncio.all_tasks()` sweep (line 142) which cancels EVERY task except current — including the *pytest driver task* awaiting `gather(*daemon._tasks)`. Correct in production (run() finally → `sys.exit(0)` → watchdog restart) but fatal inside a pytest loop. Fixed by adding `_install_stop_spy()` to `test_daemon_integration.py` (+ wiring into `test_tcp_strike3_to_no_network` with `daemon.send_to_jeedom = AsyncMock()` for the step-1 STOPPED push) and an inline `_spy_stop` in `test_supervision_e2e.py::test_ac8_tcp_reconnect_permanent_failure`; the spy discards the current task from `_tasks` then awaits the real `on_stop()` — faithful shutdown without the process-level sweep. **WARNING #2** (`_GatheringFuture exception was never retrieved / CancelledError` at Exit 0): originates in the pip-reinstalled `jeedomdaemon` framework (`base_daemon.py:147` fires a bare never-awaited `asyncio.gather` over the CancelledErrors of the tasks it just cancelled), NOT in this repo, and is not durably patchable (`packages.json` `"jeedomdaemon": {"reinstall": true}`). Decision (Herve, 2026-09-18): **document as benign, defer**; close 7-2 on the WARNING #1 fix. **Validation:** AC22 test + both regression tests green; full suite = 67 failures, **identical set** to the git-stash baseline (diff empty → net-zero regressions); `pylint resources/siadc09d/daemon.py` = 8.54/10 vs 8.53/10 baseline (no new warnings — the edited step-3/step-4 lines 2093–2103 are finding-free; the four `on_stop()` findings at 2076/2078/2079/2105 are pre-existing, on lines this change did not touch).
 
+- **Task 10 (reconnect backoff schedule + CLI/wizard wiring + stale timeout log, AC19–AC21, amendment 2026-09-21):** Formalized TF-2/TF-3/TF-4 (recorded 2026-09-17, analysis-only) into ACs and implemented. **AC19:** replaced the fixed `_preset.reconnect_delay_s` sleep with a growing schedule — new pure helper `_reconnect_backoff_delay_s(base_delay_s, attempt_index)` returns `min(base * RECONNECT_BACKOFF_FACTORS[i], RECONNECT_BACKOFF_CAP_S)` for `RECONNECT_BACKOFF_FACTORS=(1,2,4,10,10,10)`, `RECONNECT_BACKOFF_CAP_S=300.0`; with the new default base `30.0` this reproduces the resolved 30/60/120/300/300/300s sequence; attempts beyond the 6-entry table (larger `--retry-count`) reuse the cap. **AC20:** added `CSRPreset.reconnect_max_attempts: int = 6` (replacing the dead `TCP_RECONNECT_MAX_ATTEMPTS=3` constant, now removed) and bumped `reconnect_delay_s` default `5.0→30.0`; wired the existing (previously inert) `--retry-count` CLI arg into `reconnect_max_attempts` (default bumped `3→6`) and added a new `--reconnect-delay` CLI arg (default `30.0`) into `reconnect_delay_s`; wired both end-to-end through the wizard: `core/class/siaDC09.class.php` `deamon_start()` now appends `--reconnect-delay`, `desktop/php/siaDC09.php` gained a new `reconnect_delay` form field (+ preset data attribute), `desktop/js/siaDC09.js`'s `fillFromPreset()` reads it, and `csr_presets.json`'s `ima_protect` preset carries `retry_count: 6, reconnect_delay: 30`. **AC21:** the `TimeoutError` warning log and the loop's docstring no longer reference the stale `TCP_CONNECT_TIMEOUT_S=10` constant (removed — it was already dead for the actual `wait_for()` call since story 7-3, only the log line still lied); the warning now interpolates the real `self._preset.connect_timeout_s`. **Tests:** updated `test_tcp_reconnect_integration.py` to drop the two removed-constant imports (replaced attempt-count assertions with `daemon._preset.reconnect_max_attempts`, the AC21 regression test's constant reference with an inline `10.0` "old hardcoded value" sentinel) and added 4 new tests (pure-function default schedule, loop sleeps the growing schedule via a `asyncio.sleep` spy, extra attempts beyond the factor table reuse the cap, and a `caplog`-based test proving the warning logs the real `connect_timeout_s` and not the old stale value); fixed an unrelated pre-existing unused import (`TCP_RECONNECT_MAX_ATTEMPTS`) in `tests/level3/test_supervision_e2e.py` that the constant's removal broke; updated `test_csr_preset_validation.py` (reconnect_delay_s default 5.0→30.0, added a `reconnect_max_attempts` default test) and the three wizard cross-layer consistency test files (`test_wizard_config_key_consistency.py`, `test_wizard_php_structure.py`, `test_csr_presets_json.py`) to cover the new `reconnect_delay` key end-to-end, plus a new non-negative-int test for it mirroring the existing `retry_count` one. **Validation:** full suite 11 failed / 1514 passed; all 11 failures confirmed pre-existing via git-stash baseline comparison (the 11th, `test_alarm_retry_exhaustion_sm2_failed`, reproduces identically on clean master in isolation — an unrelated, order-sensitive level3 test, not a regression); `pylint resources/siadc09d/` 8.84/10 vs 8.83/10 baseline (no new findings — score improved slightly from removing the two dead constants); `php -l` clean on both edited PHP files; `node --check` clean on the edited JS file.
+
 ### Change Log
 
 - 2026-05-04: Fixed D-3 dual-task race condition in `_update_sm1_from_strike()` + state regression guard in `_handle_supervision_tcp_drop()`. Created `tests/level2/test_tcp_reconnect_integration.py` with 21 integration tests covering all ACs.
@@ -426,6 +518,30 @@ Claude Opus 4.6 (1M context)
 - 2026-09-17: **Amendment — daemon self-stop on `TRANSPORT_PERMANENT` (Option A, AC15–AC17, Task 8).** Reopened `done → in-progress`. Root cause: the reconnect loop set `NO_NETWORK` and fired `_notify(TRANSPORT_PERMANENT)` but never called `self.stop()`, so host SM1 sat in `NO_NETWORK` forever (log: `NO_NETWORK: SUPERVISION dropped (daemon stopping, counter=N)` every minute) and the Jeedom watchdog restart never triggered. AC2 + Dev Notes had frozen this "no self.stop()" behavior, contradicting `daemon-design.md:589/616/677/684` and the story 3-3 `_dispatch_notify` stub contract. Fix scopes `self._track_task(self.stop(), name="transport_permanent_stop")` to the `_tcp_reconnect_loop()` permanent-failure tail only (NOT `_dispatch_notify`). Reversed the two now-false Dev Notes paragraphs. VM validation stays owned by 12-7 AC11 / Task 10 (unchanged). Design docs were already correct — no design-first pass needed.
 - 2026-09-18: **Amendment implemented (Task 8 complete, AC15–AC17).** Wired the scheduled self-stop in `_tcp_reconnect_loop()` (daemon.py ~1146); added `_install_stop_spy()` + AC15/AC16/AC17 tests in `tests/level2/test_tcp_reconnect_integration.py` (25 passed) and wired the spy into `tests/level3/test_full_workflow_e2e.py::test_tcp_no_network_daemon_self_stop` (fixes RecursionError at teardown, passes 8.22s). Validation gate: full suite 11 failed / 1492 passed — all 11 pre-existing (proven via stash baseline), 0 regressions; pylint exit 0. VM validation (8.8) deferred to 12-7 AC11/Task 10. Status `in-progress → review`. TF-1…TF-4 (proposed AC18–AC21) remain out of scope for this story.
 - 2026-09-18: **Amendment — `on_stop()` self-cancellation guard (AC22, Task 9).** Follow-up to the AC15 self-stop: fixed daemon shutdown WARNING #1 (`Exception occurred when calling on_stop_cb: CancelledError`) by excluding `asyncio.current_task()` from `on_stop()` step-3 cancel + step-4 gather (daemon.py:2093–2103) — `on_stop()` runs as the tracked `transport_permanent_stop` task and was cancelling/awaiting itself. RED/GREEN test added (`test_on_stop_does_not_self_cancel_when_run_as_tracked_task`). Fixed the two pytest regressions the clean-return surfaced (`BaseDaemon.stop()`'s `all_tasks()` sweep cancels the driver task) via `_install_stop_spy()` in `test_daemon_integration.py` + inline `_spy_stop` in `test_supervision_e2e.py`. WARNING #2 (`_GatheringFuture exception was never retrieved` — from `jeedomdaemon` `base_daemon.py:147`, not durably patchable) documented as **known-benign, deferred** per Herve's decision. Validation: AC22 + regressions green; full suite = 67 failures = **identical** to git-stash baseline (0 regressions); pylint 8.54/10 vs 8.53/10 baseline (no new findings in the edited `on_stop()` region). Status stays `review`.
+- 2026-09-21: **Amendment implemented (Task 10 complete, AC19–AC21).** Formalized TF-2/TF-3/TF-4 into
+  ACs and implemented: reconnect backoff schedule (30/60/120/300/300/300s default, replacing the fixed
+  5s×3-attempt budget), `--retry-count`/`--reconnect-delay` CLI+wizard wiring through `CSRPreset`
+  (defaults `3→6` attempts, new `30.0`s base delay), and the stale `TCP_CONNECT_TIMEOUT_S` log/docstring
+  fix (constant removed). Full suite: 11 failed / 1514 passed — all 11 pre-existing (verified via
+  git-stash baseline, including one order-sensitive level3 test not previously seen in this session's
+  baseline run but reproduced identically on clean master in isolation); pylint 8.84/10 vs 8.83/10
+  baseline (no new findings); `php -l` and `node --check` clean on edited PHP/JS files. Status
+  `in-progress → review`.
+- 2026-09-21: **Code review (Task 10, AC19–AC21).** 3-layer adversarial review (Blind Hunter, Edge Case
+  Hunter, Acceptance Auditor). 2 decisions resolved (keep the 30s pre-first-probe delay as spec'd;
+  accept manual wizard re-visit for existing installs rather than adding a migration). 6 patches applied:
+  removed the now-doubly-stale `TCP_RECONNECT_DELAY_S` constant; added `CSRPreset.__post_init__`
+  validation (`reconnect_max_attempts >= 1`, `reconnect_delay_s >= 0`, mirroring the transport-validation
+  precedent) + 3 new tests; strengthened `test_reconnect_loop_extra_attempts_reuse_cap` with terminal
+  `NO_NETWORK`/`TRANSPORT_PERMANENT` assertions; updated `docs/design/daemon-design.md` Task 1.2
+  pseudocode/parameters (was describing the pre-amendment 5-attempt/10s-fixed/~90s model); bumped the
+  stale `desktop/js/siaDC09.js` config-summary fallback `retry_count || 3` → `|| 6`; corrected AC19's
+  own "~15 min" claim to the actual ~18.5 min (1110s). 2 items deferred (daemon-restart-on-config-change
+  is a pre-existing plugin-wide pattern; the new `reconnect_delay` required-field test is only exercised
+  against the file's one preset). 5 dismissed as noise (one was a verified false positive — the
+  `dataclasses` import the Blind Hunter flagged as missing was already present). Full suite: 11 failed /
+  1517 passed (same 11 pre-existing failures, +3 new validation tests); pylint 8.84/10 (unchanged);
+  `php -l`/`node --check` clean. Status `review → done`.
 
 ### File List
 
@@ -443,6 +559,30 @@ Claude Opus 4.6 (1M context)
 - `tests/level2/test_daemon_integration.py` — modified: added `_install_stop_spy()` helper; wired into `test_tcp_strike3_to_no_network` (+ `daemon.send_to_jeedom = AsyncMock()` for the step-1 STOPPED push) to run faithful shutdown without `BaseDaemon.stop()`'s process-level `all_tasks()` sweep cancelling the pytest driver task.
 - `tests/level3/test_supervision_e2e.py` — modified: added inline `_spy_stop` to `test_ac8_tcp_reconnect_permanent_failure` (same driver-task-cancel fix as level2).
 
+**Amendment 2026-09-21 (implemented — Task 10, AC19–AC21 reconnect backoff/CLI-wizard wiring/stale timeout log):**
+- `resources/siadc09d/presets.py` — modified: added `CSRPreset.reconnect_max_attempts: int = 6`; bumped `reconnect_delay_s` default `5.0 → 30.0`.
+- `resources/siadc09d/daemon.py` — modified: removed `TCP_RECONNECT_MAX_ATTEMPTS`/`TCP_CONNECT_TIMEOUT_S` constants; added `RECONNECT_BACKOFF_FACTORS`, `RECONNECT_BACKOFF_CAP_S`, and pure helper `_reconnect_backoff_delay_s()`; `_tcp_reconnect_loop()` now reads `self._preset.reconnect_max_attempts` and computes each attempt's delay via the helper instead of a fixed sleep; the `TimeoutError` warning now logs `self._preset.connect_timeout_s` instead of the removed stale constant; docstring updated.
+- `resources/siadc09d/siadc09d.py` — modified: `--retry-count` default `3 → 6`; added `--reconnect-delay` (default `30.0`); both wired into the `CSRPreset(...)` construction (`reconnect_max_attempts`, `reconnect_delay_s`).
+- `core/class/siaDC09.class.php` — modified: `deamon_start()` `retry_count` default `3 → 6`; added `reconnect_delay` config read + `--reconnect-delay` CLI append.
+- `desktop/php/siaDC09.php` — modified: `retry_count` placeholder `3 → 6`; added new `reconnect_delay` form field + `data-preset-reconnect_delay` attribute.
+- `desktop/js/siaDC09.js` — modified: added `'reconnect_delay'` to `siaDC09_fillFromPreset()` fields array.
+- `resources/siadc09d/csr_presets.json` — modified: `ima_protect.retry_count` `3 → 6`; added `reconnect_delay: 30`.
+- `tests/level1/test_csr_preset_validation.py` — modified: updated `reconnect_delay_s` default assertion to `30.0`; added `test_preset_reconnect_max_attempts_default`.
+- `tests/level1/test_csr_presets_json.py` — modified: added `"reconnect_delay"` to required fields; added `test_ima_protect_reconnect_delay_is_non_negative_int`.
+- `tests/level1/test_wizard_config_key_consistency.py` — modified: added `"reconnect_delay"` to `_SUPERVISION_KEYS` and `_PRESET_RENDERED_FIELDS`.
+- `tests/level1/test_wizard_php_structure.py` — modified: added `"reconnect_delay"` to `_STEP1_CONFIG_FIELDS`.
+- `tests/level2/test_tcp_reconnect_integration.py` — modified: dropped `TCP_RECONNECT_MAX_ATTEMPTS`/`TCP_CONNECT_TIMEOUT_S` imports (replaced with `daemon._preset.reconnect_max_attempts` / inline sentinel); added 4 new tests (default-schedule pure-function test, growing-schedule sleep-spy test, cap-reuse-beyond-table test, AC21 warning-log `caplog` test).
+- `tests/level3/test_supervision_e2e.py` — modified: removed the now-unused `TCP_RECONNECT_MAX_ATTEMPTS` import (broken by its removal from `daemon.py`).
+
+**Code review patches (2026-09-21, Task 10 AC19–AC21 review):**
+- `resources/siadc09d/daemon.py` — modified: removed the now-doubly-stale `TCP_RECONNECT_DELAY_S` constant.
+- `resources/siadc09d/presets.py` — modified: `CSRPreset.__post_init__` now validates `reconnect_max_attempts >= 1` and `reconnect_delay_s >= 0` (raises `ValueError`).
+- `tests/level1/test_csr_preset_validation.py` — modified: added `test_reconnect_max_attempts_below_one_raises` and `test_reconnect_delay_s_negative_raises`.
+- `tests/level2/test_tcp_reconnect_integration.py` — modified: `test_reconnect_loop_extra_attempts_reuse_cap` now also asserts terminal `SM1State.NO_NETWORK` and a single `TRANSPORT_PERMANENT` notify.
+- `docs/design/daemon-design.md` — modified: Task 1.2 pseudocode/parameters table updated to match the shipped 6-attempt/growing-backoff/~18.5min model (was describing the pre-amendment 5-attempt/10s-fixed/~90s model).
+- `desktop/js/siaDC09.js` — modified: config-summary fallback `cfg.retry_count || 3` → `|| 6`.
+- `_bmad-output/implementation-artifacts/7-2-tcp-stall-detection-reconnect-ring-buffer-logging.md` — modified: corrected AC19's "~15 min" claim to ~18.5 min (1110s).
+
 ### Review Findings
 
 - [x] [Review][Decision] AC6: D-3 task-name guard missing from `_handle_supervision_tcp_drop()` — DISMISSED: state regression guard (TCP_RECONNECTING | NO_NETWORK) covers AC6's intent; task-name guard is redundant here. Spec bullet was over-specified.
@@ -451,6 +591,19 @@ Claude Opus 4.6 (1M context)
 - [x] [Review][Patch] AC10: `is_routine=False` not asserted in ring buffer test — test checks `level=="warning"` and `context.strike==3` but never checks `entry.get("is_routine") is False` [test_tcp_reconnect_integration.py:669-677]
 - [x] [Review][Defer] Queue consumer gate tests use `asyncio.sleep(0)` instead of `asyncio.gather()` — violates testing.md rule but structurally necessary (consumer loop cannot be joined mid-run) [test_tcp_reconnect_integration.py:715,765] — deferred, structural constraint
 - [x] [Review][Defer] Asymmetric guard strategies: `_handle_supervision_tcp_drop` guards on SM1 state while `_update_sm1_from_strike` guards on task name — edge case where the two disagree is theoretically possible [daemon.py:1019,742] — deferred, pre-existing design trade-off
+
+### Review Findings — Task 10 amendment (AC19–AC21, code-review 2026-09-21)
+
+- [x] [Review][Decision] AC19: `_tcp_reconnect_loop()` sleeps the full backoff delay BEFORE the first probe too (30s default), so a TCP drop that would have cleared instantly now waits a minimum of 30s before the first reachability check — RESOLVED (Herve, 2026-09-21): keep as-is — 30s before the first probe is intentional per AC19's resolved schedule, no code change. [daemon.py:1127-1130]
+- [x] [Review][Decision] AC20: bumping the CLI/dataclass *defaults* (`retry_count` 3→6, new `reconnect_delay_s` 30.0) only changes behavior for fresh installs or configs where the key is absent — any eqLogic with `retry_count` already persisted as `3` (e.g. the field host that motivated this story) keeps the old ~15-30s budget indefinitely unless the operator manually revisits the wizard — RESOLVED (Herve, 2026-09-21): accept manual re-visit — no migration code added; operators (incl. the SM1 field host) must revisit wizard step 1 and re-save to pick up `retry_count=6`/`reconnect_delay=30`. [core/class/siaDC09.class.php:242-246]
+- [x] [Review][Patch] `TCP_RECONNECT_DELAY_S = 5` constant is now doubly stale — unused (superseded by `preset.reconnect_delay_s`) and holds the pre-amendment value (5, not the new default 30) — exactly the "logged/held value lies about the real one in effect" pattern AC21 fixes elsewhere in this same change [daemon.py:182]
+- [x] [Review][Patch] No validation that `reconnect_max_attempts >= 1` or `reconnect_delay_s >= 0` — a `0`/negative value from `--retry-count`/`--reconnect-delay` (CLI has no range check; PHP wizard number inputs have no `min` attribute) silently skips the reconnect loop entirely or passes a negative delay to `asyncio.sleep()`; `CSRPreset.__post_init__` already has a precedent for fail-fast validation (rejects invalid `transport` strings) that these two new fields don't follow [presets.py:45-53, daemon.py:189-205, siadc09d.py:382-383, core/class/siaDC09.class.php:242-246]
+- [x] [Review][Patch] `test_reconnect_loop_extra_attempts_reuse_cap` only asserts the sleep sequence and `mock_open.call_count` — unlike its sibling exhaustion test, it never asserts the terminal `SM1State.NO_NETWORK` transition or that `TRANSPORT_PERMANENT` was notified exactly once for the >6-attempt cap-reuse path [test_tcp_reconnect_integration.py: `test_reconnect_loop_extra_attempts_reuse_cap`]
+- [x] [Review][Patch] `docs/design/daemon-design.md` Task 1.2 pseudocode/parameters table still describes the pre-amendment model ("for attempt in range(1, 6): # max 5 attempts", "timeout=10.0", "Max attempts: 5 / Delay between attempts: 10 s fixed / Total window ~90 s") — contradicts the shipped 6-attempt/30-300s-growing/~18.5min-budget code [docs/design/daemon-design.md:1028-1062]
+- [x] [Review][Patch] `desktop/js/siaDC09.js` config-summary fallback still reads the old default: `(cfg.retry_count || 3) + ' tentatives'` should be `|| 6` to match the new system default [desktop/js/siaDC09.js:674]
+- [x] [Review][Patch] AC19's own text claims "a ~15 min total budget" for the 30/60/120/300/300/300s schedule, but the sum is 1110s = 18.5 minutes, not 15 [7-2-tcp-stall-detection-reconnect-ring-buffer-logging.md, Amendment 2026-09-21, AC19]
+- [x] [Review][Defer] Changing an eqLogic's `retry_count`/`reconnect_delay` config does not restart the running daemon subprocess, so it keeps stale CLI args until a manual restart — pre-existing pattern across every config field in this plugin (host, port, account, etc. have the same limitation), not introduced by this change [core/class/siaDC09.class.php `deamon_start()`/`postSave()`] — deferred, pre-existing architecture
+- [x] [Review][Defer] `test_csr_presets_json.py`'s `_REQUIRED_PRESET_FIELDS` (now including `reconnect_delay`) is only exercised against the single `ima_protect` preset — not proven to generalize if the file gains a second preset entry — deferred, no current impact (file has exactly one preset)
 
 ## Testing Feedback — 2026-09-17 (supervision-loss field test, Herve)
 

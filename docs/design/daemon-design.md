@@ -1033,33 +1033,38 @@ For **TCP**: on socket drop → SM1 → `SM1State.TCP_RECONNECTING`. Launch `_tc
 
 ```
 _tcp_reconnect_loop():
-    for attempt in range(1, 6):          # max 5 attempts
+    for attempt in range(1, self._preset.reconnect_max_attempts + 1):   # default 6 attempts
+        delay = _reconnect_backoff_delay_s(self._preset.reconnect_delay_s, attempt - 1)
+        await asyncio.sleep(delay)                                     # growing backoff, see below
         try:
             await asyncio.wait_for(
                 asyncio.open_connection(csr_ip, csr_port),
-                timeout=10.0,
+                timeout=self._preset.connect_timeout_s,
             )
             self._strike_counter = 0          # reset: fresh INITIALIZING, not poisoned by prior DEGRADED
             self._sm1_t3_fired = False         # reset: next DEGRADED(strike=3) must fire T3 again
             SM1 → SM1State.INITIALIZING
             return
         except SIATransportError:
-            log DEBUG "TCP reconnect attempt {attempt}/5 failed"
-            if attempt < 5:
-                await _update_info_commands()   # heartbeat: keeps collectDate fresh
-                                                # so widget stale detector stays silent
-                await asyncio.sleep(self._preset.reconnect_delay_s)  # fixed delay (default 5 s)
+            log WARNING "TCP reconnect probe {attempt}/{max_attempts} failed"
     # exhausted
     SM1 → SM1State.NO_NETWORK
-    self._notify(ErrorCode.TRANSPORT_PERMANENT, TransportPermanentCtx(retry_count=5))
-    self.stop()
+    self._notify(ErrorCode.TRANSPORT_PERMANENT, TransportPermanentCtx(retry_count=max_attempts))
+    self._track_task(self.stop(), name="transport_permanent_stop")  # scheduled, not awaited (AC15)
 ```
 
-Parameters (not configurable in v1.0):
-- **Max attempts:** 5
-- **Per-attempt connect timeout:** 10 s (via `asyncio.wait_for`)
-- **Delay between attempts:** 10 s fixed
-- **Total window before `SM1State.NO_NETWORK`:** ~90 s (5 × 10 s connect + 4 × 10 s delay)
+Parameters (story 7-2 AC19/AC20 — CLI/wizard-configurable via `--retry-count`/`--reconnect-delay`):
+- **Max attempts:** `self._preset.reconnect_max_attempts` (default **6**)
+- **Per-attempt connect timeout:** `self._preset.connect_timeout_s` (via `asyncio.wait_for`, default 5 s)
+- **Delay between attempts:** growing backoff via `_reconnect_backoff_delay_s(base, attempt_index)` =
+  `min(base * FACTOR[attempt_index], 300.0)` for `FACTOR = (1, 2, 4, 10, 10, 10)`; base is
+  `self._preset.reconnect_delay_s` (default **30 s**). With the defaults this produces the sequence
+  **30 / 60 / 120 / 300 / 300 / 300 s**; attempts beyond the 6-entry table (a `--retry-count` > 6)
+  reuse the 300 s cap.
+- **Total window before `SM1State.NO_NETWORK`:** ~18.5 min at defaults (30+60+120+300+300+300 = 1110 s)
+- On exhaustion, `self.stop()` is **scheduled** as a tracked task (`_track_task`), never awaited inline
+  — `BaseDaemon.stop()` cancels all tasks except the caller, so awaiting inline would cancel the loop
+  mid-call and drop the `TRANSPORT_PERMANENT` notify (see AC15/AC16, Amendment 2026-09-17).
 
 During `SM1State.TCP_RECONNECTING`: `_queue_consumer()` continues running; EVENT items are re-queued
 (held); SUPERVISION items are dropped silently. PriorityQueue retains alarm events until

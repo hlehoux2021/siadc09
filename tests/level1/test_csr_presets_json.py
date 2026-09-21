@@ -27,6 +27,7 @@ _REQUIRED_PRESET_FIELDS = [
     "encryption_enabled",
     "supervision_interval",
     "retry_count",
+    "reconnect_delay",
 ]
 
 _VALID_TRANSPORTS = {"udp", "tcp"}
@@ -181,6 +182,26 @@ def test_ima_protect_retry_count_is_non_negative_int(presets_data: dict) -> None
     )
     # Assert: non-negative
     assert retries >= 0, f"ima_protect.retry_count={retries} must be >= 0"
+
+
+def test_ima_protect_reconnect_delay_is_non_negative_int(presets_data: dict) -> None:
+    """
+    IMA Protect preset reconnect_delay must be a non-negative integer (story 7-2 AC20).
+    Negative values would be nonsensical; non-int would break int() conversion.
+
+    Expected result:
+    - reconnect_delay is an int
+    - reconnect_delay is >= 0
+    """
+    preset = next((p for p in presets_data["presets"] if p.get("id") == "ima_protect"), None)
+    assert preset is not None
+    delay = preset.get("reconnect_delay")
+    # Assert: stored as integer
+    assert isinstance(delay, int), (
+        f"ima_protect.reconnect_delay must be int, got {type(delay).__name__}"
+    )
+    # Assert: non-negative
+    assert delay >= 0, f"ima_protect.reconnect_delay={delay} must be >= 0"
 
 
 def test_ima_protect_encryption_enabled_is_bool(presets_data: dict) -> None:

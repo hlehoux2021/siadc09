@@ -239,8 +239,11 @@ class siaDC09 extends eqLogic {
             $cmd .= ' --supervision-interval ' . $supervisionInterval;
         }
 
-        $retryCount = (int) $eqLogic->getConfiguration('retry_count', 3);
+        $retryCount = (int) $eqLogic->getConfiguration('retry_count', 6);
         $cmd .= ' --retry-count ' . $retryCount;
+
+        $reconnectDelay = (int) $eqLogic->getConfiguration('reconnect_delay', 30);
+        $cmd .= ' --reconnect-delay ' . $reconnectDelay;
 
         $notifyCmdId = (int) $eqLogic->getConfiguration('sia_notify_cmd_id', 0);
         if ($notifyCmdId > 0) {
