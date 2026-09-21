@@ -142,16 +142,16 @@ try {
         $eqLogic = $eqLogics[0];
 
         $stateCmd = $eqLogic->getCmd('info', 'supervision_state');
-        $supervisionState = $stateCmd ? (int) $stateCmd->execCmd() : 1;
+        $supervisionState = $stateCmd ? (int) $stateCmd->getValue() : 1;
 
         $labelCmd = $eqLogic->getCmd('info', 'supervision_label');
-        $supervisionLabel = $labelCmd ? (string) $labelCmd->execCmd() : '';
+        $supervisionLabel = $labelCmd ? (string) $labelCmd->getValue() : '';
 
         $eventStateCmd = $eqLogic->getCmd('info', 'event_state');
-        $eventState = $eventStateCmd ? (int) $eventStateCmd->execCmd() : 0;
+        $eventState = $eventStateCmd ? (int) $eventStateCmd->getValue() : 0;
 
         $eventLabelCmd = $eqLogic->getCmd('info', 'event_label');
-        $eventLabel = $eventLabelCmd ? (string) $eventLabelCmd->execCmd() : '';
+        $eventLabel = $eventLabelCmd ? (string) $eventLabelCmd->getValue() : '';
 
         $rawErrors = config::byKey('sia_last_errors', 'siaDC09', '[]');
         $errors = is_array($rawErrors) ? $rawErrors : (json_decode($rawErrors, true) ?: []);

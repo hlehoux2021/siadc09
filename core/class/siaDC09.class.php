@@ -675,8 +675,6 @@ class siaDC09 extends eqLogic {
                 $cmd->setType('info');
                 $cmd->setSubType($spec['subType']);
                 $cmd->setIsVisible(0);
-                $cmd->setConfiguration('returnStateTime', 30);
-                $cmd->setConfiguration('returnStateValue', 0);
                 $cmd->save();
                 $this->checkAndUpdateCmd($logicalId, $spec['default']);
             }
