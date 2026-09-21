@@ -110,6 +110,11 @@ def execute_body(php_cmd_source: str) -> str:
 
 
 @pytest.fixture(scope="module")
+def fan_out_body(php_cmd_source: str) -> str:
+    return _extract_method_body(php_cmd_source, "_fanOutBurglaryCancel")
+
+
+@pytest.fixture(scope="module")
 def run_notify_target_body(php_source: str) -> str:
     """Single entry point for critical notifications — every caller delegates here."""
     return _extract_method_body(php_source, "_runNotifyTarget")
@@ -1593,3 +1598,118 @@ def test_open_alarms_sia_code_mapping_covers_all_alarm_commands(php_cmd_source: 
             f"missing mapping '{logical_id}' => '{sia_code}' — sia_open_alarms needs the "
             "SIA code, not the Jeedom logicalId, as its key prefix"
         )
+
+
+# ── Story 13.1 — burglaryCancel fan-out (Task 4, AC4, AC5) ───────────────────
+
+
+def test_fan_out_method_exists(php_cmd_source: str) -> None:
+    """
+    Design: the fan-out algorithm (story doc "Éventail sur annulation") lives
+    in its own method so it stays testable in isolation from the execute()
+    wiring, which is deferred to Task 2 (blocked by 10-3).
+
+    Expected result:
+    - a private method _fanOutBurglaryCancel() is declared on siaDC09Cmd
+    """
+    # Assert: the fan-out method is declared
+    assert re.search(
+        r"private\s+function\s+_fanOutBurglaryCancel\s*\(", php_cmd_source
+    ), "expected a private _fanOutBurglaryCancel() method implementing the AC4/AC5 algorithm"
+
+
+def test_fan_out_emits_one_bc_per_open_ba_entry(fan_out_body: str) -> None:
+    """
+    Design (AC4): a burglaryCancel with an empty Titre emits exactly N BC for
+    N open BA zones, by iterating the sia_open_alarms table and dispatching
+    one sendToDaemon() per BA entry.
+
+    Expected result:
+    - the method reads sia_open_alarms via getCache
+    - it iterates the entries and dispatches via sendToDaemon() for 'BA' entries
+    """
+    # Assert: the open-alarms table is read back from the eqLogic cache
+    assert re.search(r"getCache\s*\(\s*['\"]sia_open_alarms['\"]", fan_out_body), (
+        "fan-out must read the sia_open_alarms table via getCache()"
+    )
+    # Assert: a dispatch call is made for BA entries (the only code BC closes)
+    assert re.search(r"sendToDaemon\s*\(", fan_out_body), (
+        "fan-out must call sendToDaemon() to emit BC frames for open BA entries"
+    )
+    # Assert: the code discriminates on the BA sia_code before dispatching
+    assert re.search(r"['\"]BA['\"]", fan_out_body), (
+        "fan-out must check for the 'BA' sia_code — BC only closes burglary entries"
+    )
+
+
+def test_fan_out_bc_carries_matching_zone_number(fan_out_body: str) -> None:
+    """
+    Design: each BC must carry the same zone_number as the BA it closes —
+    the zone label is not a usable correlation key (story Dépendance section).
+
+    Expected result:
+    - the sendToDaemon() payload sources 'zone_number' from the open-alarm entry
+    """
+    # Assert: zone_number is forwarded from the stored entry, not recomputed
+    assert re.search(r"zone_number.*entry\[['\"]zone_number['\"]\]", fan_out_body) or re.search(
+        r"entry\[['\"]zone_number['\"]\].*zone_number", fan_out_body
+    ), "each BC frame must carry the zone_number of the BA entry it closes"
+
+
+def test_fan_out_skips_fa_pa_and_logs_debug(fan_out_body: str) -> None:
+    """
+    Design: BC never closes FA/PA — they are abandoned and logged at debug
+    level so they remain traceable without producing a frame (future
+    FC/PC of story 13-3).
+
+    Expected result:
+    - the method distinguishes 'FA' and 'PA' sia_codes from 'BA'
+    - abandoned FA/PA entries are logged via log::add(..., 'debug', ...)
+    """
+    # Assert: FA and PA are recognized as distinct from BA
+    assert re.search(r"['\"]FA['\"]", fan_out_body) and re.search(r"['\"]PA['\"]", fan_out_body), (
+        "fan-out must distinguish FA/PA entries from BA so they are never closed by a BC"
+    )
+    # Assert: abandoned FA/PA entries are logged at debug level, not silently dropped
+    assert re.search(r"log::add\([^)]*['\"]debug['\"]", fan_out_body), (
+        "abandoned FA/PA entries must be logged at 'debug' level"
+    )
+
+
+def test_fan_out_purges_table_after_processing(fan_out_body: str) -> None:
+    """
+    Design (AC4): after emitting the BC fan-out (or the fallback), the table
+    is emptied so a later burglaryCancel does not re-close stale entries.
+
+    Expected result:
+    - setCache('sia_open_alarms', ...) is called with an empty array
+    """
+    # Assert: the table is purged (written back empty) after fan-out
+    assert re.search(
+        r"setCache\s*\(\s*['\"]sia_open_alarms['\"]\s*,\s*\[\s*\]\s*\)", fan_out_body
+    ), "sia_open_alarms must be purged (set back to []) once the fan-out is processed"
+
+
+def test_fan_out_empty_table_falls_back_to_single_account_level_bc(fan_out_body: str) -> None:
+    """
+    Design (AC5): an empty table (duplicate cancel, cleared cache, daemon or
+    Redis restart) must never produce zero frames — exactly one account-level
+    BC is emitted, flagged with a warning so the operator sees the anomaly.
+
+    Expected result:
+    - an emptiness check on the BA entries exists
+    - the fallback branch still calls sendToDaemon() with a null zone/zone_number
+    - the fallback branch logs a 'warning'
+    """
+    # Assert: the code checks whether any BA entry was found before deciding the fallback
+    assert re.search(r"empty\s*\(", fan_out_body) or re.search(r"===\s*0", fan_out_body), (
+        "fan-out must check whether the open BA entries are empty to trigger the AC5 fallback"
+    )
+    # Assert: the fallback still dispatches a frame — AC5 forbids zero frames
+    assert len(re.findall(r"sendToDaemon\s*\(", fan_out_body)) >= 2, (
+        "the empty-table fallback must still call sendToDaemon() — AC5 forbids zero frames"
+    )
+    # Assert: the fallback is flagged with a warning so the anomaly is visible
+    assert re.search(r"log::add\([^)]*['\"]warning['\"]", fan_out_body), (
+        "the account-level fallback BC must be logged at 'warning' level"
+    )
