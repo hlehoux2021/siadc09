@@ -568,44 +568,44 @@ async def test_tc15_info_commands_update_per_transition(mock_daemon):
     Test info command updates: supervision_state & label change with each transition.
 
     Expected result:
-    - INITIALIZING: supervision_state=1, label="DÉMARRAGE…"
-    - ACK→HEALTHY: supervision_state=2, label="OK"
-    - Timeout→DEGRADED(1): supervision_state=1, label="DÉGRADÉ (1/3)"
-    - Timeout→DEGRADED(3): supervision_state=0, label="PERDUE"
+    - INITIALIZING: supervision_state=1, label="Connexion en cours d'initialisation"
+    - ACK→HEALTHY: supervision_state=2, label="Connexion OK"
+    - Timeout→DEGRADED(1): supervision_state=1, label="Connexion dégradée (1/3)"
+    - Timeout→DEGRADED(3): supervision_state=0, label="Connexion perdue"
     - Each transition pushes update to PHP via info_update callback
     """
     daemon = mock_daemon
 
     # INITIALIZING (already set)
     assert daemon._supervision_value() == 1
-    assert daemon._supervision_label() == 'DÉMARRAGE…'
+    assert daemon._supervision_label() == "Connexion en cours d'initialisation"
 
     # ACK → HEALTHY
     daemon._send_raw.return_value = {'status': 'ack', 'raw_hex': '05051300'}
     daemon._sm1_state = SM1State.HEALTHY
     assert daemon._supervision_value() == 2
-    assert daemon._supervision_label() == 'OK'
+    assert daemon._supervision_label() == 'Connexion OK'
 
     # Timeout → DEGRADED(1)
     daemon._sm1_state = SM1State.DEGRADED
     daemon._strike_counter = 1
     assert daemon._supervision_value() == 1
-    assert daemon._supervision_label() == 'DÉGRADÉ (1/3)'
+    assert daemon._supervision_label() == 'Connexion dégradée (1/3)'
 
     # Timeout → DEGRADED(3)
     daemon._strike_counter = 3
     assert daemon._supervision_value() == 0
-    assert daemon._supervision_label() == 'PERDUE'
+    assert daemon._supervision_label() == 'Connexion perdue'
 
 
 @pytest.mark.asyncio
 async def test_tc16_healthy_label_static_no_timestamp(mock_daemon):
     """
-    Test supervision_label static for HEALTHY: always "OK", no time embedding.
+    Test supervision_label static for HEALTHY: always "Connexion OK", no time embedding.
 
     Expected result:
     - Multiple ACKs received in succession
-    - supervision_label always "OK" (never "OK — HH:MM")
+    - supervision_label always "Connexion OK" (never "Connexion OK — HH:MM")
     - No spurious value-change detection in PHP (no DB writes per ACK)
     - Last ACK timestamp available via collectDate
     """
@@ -614,7 +614,7 @@ async def test_tc16_healthy_label_static_no_timestamp(mock_daemon):
 
     # First ACK
     label1 = daemon._supervision_label()
-    assert label1 == 'OK'
+    assert label1 == 'Connexion OK'
     assert '—' not in label1  # No time separator
     assert ':' not in label1  # No HH:MM
 
@@ -623,7 +623,7 @@ async def test_tc16_healthy_label_static_no_timestamp(mock_daemon):
 
     # Second ACK
     label2 = daemon._supervision_label()
-    assert label2 == 'OK'
+    assert label2 == 'Connexion OK'
 
     # Labels must be identical (not time-varying)
     assert label1 == label2
@@ -788,7 +788,7 @@ async def test_tc22_udp_strike_3_no_reconnect(mock_daemon):
     Expected result:
     - UDP transport, strike=3
     - SM1 state = DEGRADED (not TCP_RECONNECTING)
-    - supervision_label = "PERDUE" (not "Reconnexion UDP…")
+    - supervision_label = "Connexion perdue" (not "Reconnexion UDP…")
     - No _tcp_reconnect_loop scheduled
     - Can recover directly via ACK → HEALTHY
     """
@@ -802,7 +802,7 @@ async def test_tc22_udp_strike_3_no_reconnect(mock_daemon):
 
     # Verify label
     label = daemon._supervision_label()
-    assert label == 'PERDUE'
+    assert label == 'Connexion perdue'
     assert 'Reconnexion' not in label
 
     # Simulate recovery

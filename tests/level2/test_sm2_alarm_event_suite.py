@@ -179,24 +179,50 @@ class TestSM2StateHelpers:
         assert mock_daemon._event_state_from_sm2() == 2
 
     def test_event_label_from_sm2_idle(self, mock_daemon):
-        """Test that IDLE state returns French label."""
+        """Test that IDLE state returns the bare inactive label.
+
+        - IDLE has no active event, so no type/zone prefix is shown
+        """
         mock_daemon._sm2_state = SM2State.IDLE
+        # IDLE stays bare "Inactif" — no alarm in progress to name
         assert mock_daemon._event_label_from_sm2() == "Inactif"
 
     def test_event_label_from_sm2_pending(self, mock_daemon):
-        """Test that PENDING state returns French label."""
+        """Test that PENDING interpolates the alarm type/zone into the label.
+
+        - Type comes from _event_sia_code via event_type_fr(), capitalised
+        - Zone comes from _event_zone
+        - State clause is "En cours"
+        """
         mock_daemon._sm2_state = SM2State.PENDING
-        assert mock_daemon._event_label_from_sm2() == "En cours"
+        mock_daemon._event_sia_code = "BA"
+        mock_daemon._event_zone = "3"
+        # BA → "intrusion" → "Intrusion", zone inline, then state clause
+        assert mock_daemon._event_label_from_sm2() == "Intrusion (zone 3) : En cours"
 
     def test_event_label_from_sm2_confirmed(self, mock_daemon):
-        """Test that CONFIRMED state returns French label."""
+        """Test that CONFIRMED names the alarm and reports central confirmation.
+
+        - Type/zone prefix identifies the alarm in progress
+        - State clause is "Confirmée par la centrale"
+        """
         mock_daemon._sm2_state = SM2State.CONFIRMED
-        assert mock_daemon._event_label_from_sm2() == "Confirmé"
+        mock_daemon._event_sia_code = "BA"
+        mock_daemon._event_zone = "3"
+        # Confirmed alarm names the event and the central's acceptance
+        assert mock_daemon._event_label_from_sm2() == "Intrusion (zone 3) : Confirmée par la centrale"
 
     def test_event_label_from_sm2_failed(self, mock_daemon):
-        """Test that FAILED state returns French label."""
+        """Test that FAILED names the alarm and reports central refusal.
+
+        - Type/zone prefix identifies the alarm in progress
+        - State clause is "Refusé par la centrale"
+        """
         mock_daemon._sm2_state = SM2State.FAILED
-        assert mock_daemon._event_label_from_sm2() == "Échoué"
+        mock_daemon._event_sia_code = "FA"
+        mock_daemon._event_zone = "2"
+        # FA → "incendie" → "Incendie"; failed alarm reports refusal
+        assert mock_daemon._event_label_from_sm2() == "Incendie (zone 2) : Refusé par la centrale"
 
 
 # ===== Task 3: Alarm Retry Logic Tests =====
@@ -556,7 +582,7 @@ class TestSM2Persistence:
 
         Expected result:
         - SM2=CONFIRMED → event_state=1 (persisted value)
-        - event_label="Confirmé" (persisted label)
+        - event_label="Intrusion (zone Salon) : Confirmée par la centrale"
         - These values are stable (same on every call, no side effects)
         """
         # Arrange: simulate daemon reaching CONFIRMED state after successful alarm
@@ -564,15 +590,17 @@ class TestSM2Persistence:
         mock_daemon._event_sia_code = "BA"
         mock_daemon._event_zone = "Salon"
 
+        confirmed_label = "Intrusion (zone Salon) : Confirmée par la centrale"
+
         # Assert: event_state=1 for CONFIRMED (value that would be persisted)
         assert mock_daemon._event_state_from_sm2() == 1
 
-        # Assert: event_label="Confirmé" for CONFIRMED (label that would be persisted)
-        assert mock_daemon._event_label_from_sm2() == "Confirmé"
+        # Assert: event_label names the alarm + central confirmation (persisted label)
+        assert mock_daemon._event_label_from_sm2() == confirmed_label
 
         # Assert: Values are stable (idempotent calls produce same result)
         assert mock_daemon._event_state_from_sm2() == 1
-        assert mock_daemon._event_label_from_sm2() == "Confirmé"
+        assert mock_daemon._event_label_from_sm2() == confirmed_label
 
         # Simulate "restart": manually restore state from persisted numeric value
         # (This is what Task 2.4 will implement via PHP config reading)

@@ -49,6 +49,7 @@ from .error_handler import (
     SM1NakCtx,
     SM1TimeoutCtx,
     TransportPermanentCtx,
+    event_type_fr,
 )
 from .messages import (
     SM1_DEGRADED_1_2_FR,
@@ -653,6 +654,26 @@ class SIADaemon(BaseDaemon):
             # Defensive: should not reach here
             return 0
 
+    def _event_context_prefix(self) -> str:
+        """Build the "{Type} (zone {zone})" prefix for active SM2 labels.
+
+        The alarm type is derived from the latest SIA code via event_type_fr()
+        and capitalised for display (e.g. "intrusion" → "Intrusion"). The zone
+        comes from the alarm command #zone# tag stored at PENDING entry.
+
+        Returns:
+            str: e.g. "Intrusion (zone 3)". Falls back to "Alarme" if the type
+                 is unknown and omits the zone clause if no zone is recorded.
+        """
+        if self._event_sia_code:
+            type_fr = event_type_fr(self._event_sia_code)
+            type_label = type_fr[:1].upper() + type_fr[1:]
+        else:
+            type_label = "Alarme"
+        if self._event_zone:
+            return f"{type_label} (zone {self._event_zone})"
+        return type_label
+
     def _event_label_from_sm2(self) -> str:
         """Return French label for event_label INFO command based on SM2 state.
 
@@ -661,20 +682,24 @@ class SIADaemon(BaseDaemon):
 
         Logic:
             - IDLE → "Inactif" (no alarm received)
-            - PENDING → "En cours" (alarm transmission in progress)
-            - CONFIRMED → "Confirmé" (CSR confirmed alarm reception)
-            - FAILED → "Échoué" (alarm failed)
+            - PENDING → "{Type} (zone {zone}) : En cours"
+            - CONFIRMED → "{Type} (zone {zone}) : Confirmée par la centrale"
+            - FAILED → "{Type} (zone {zone}) : Refusé par la centrale"
+
+        The type/zone prefix (built by _event_context_prefix) names the alarm in
+        progress so the widget shows which event is being transmitted, not just a
+        bare status word. IDLE has no active event, so it stays "Inactif".
 
         Reference: daemon-design.md SM2 state → INFO command mapping
         """
         if self._sm2_state == SM2State.IDLE:
             return "Inactif"
         elif self._sm2_state == SM2State.PENDING:
-            return "En cours"
+            return f"{self._event_context_prefix()} : En cours"
         elif self._sm2_state == SM2State.CONFIRMED:
-            return "Confirmé"
+            return f"{self._event_context_prefix()} : Confirmée par la centrale"
         elif self._sm2_state == SM2State.FAILED:
-            return "Échoué"
+            return f"{self._event_context_prefix()} : Refusé par la centrale"
         else:
             # Defensive: should not reach here
             return "Inactif"
@@ -713,32 +738,32 @@ class SIADaemon(BaseDaemon):
             str: Localized French label describing SM1 state
 
         Labels:
-            - INITIALIZING → "DÉMARRAGE…" (daemon starting)
-            - HEALTHY → "OK" (static, no timestamp embedded)
-            - DEGRADED(strike 1-2) → "DÉGRADÉ (N/3)" (N = current strike)
-            - DEGRADED(strike 3) → "PERDUE" (lost)
-            - TCP_RECONNECTING → "Reconnexion TCP/UDP…" (reconnecting)
-            - NO_NETWORK → "HORS RÉSEAU — arrêt" (network unavailable, terminal)
+            - INITIALIZING → "Connexion en cours d'initialisation" (daemon starting)
+            - HEALTHY → "Connexion OK" (static, no timestamp embedded)
+            - DEGRADED(strike 1-2) → "Connexion dégradée (N/3)" (N = current strike)
+            - DEGRADED(strike 3) → "Connexion perdue" (lost)
+            - TCP_RECONNECTING → "Tentative de reconnexion en cours" (reconnecting)
+            - NO_NETWORK → "Hors Réseau" (network unavailable, terminal)
 
-        Note: HEALTHY label is static "OK" (not time-varying) to avoid DB writes on every ACK.
+        Note: HEALTHY label is static "Connexion OK" (not time-varying) to avoid DB writes on every ACK.
         The last-ACK timestamp is available via supervision_state.collectDate for display.
 
         Reference: supervision-design.md SM1 state → INFO command mapping
         """
         if self._sm1_state == SM1State.INITIALIZING:
-            return SM1_INITIALIZING_FR  # "DÉMARRAGE…"
+            return SM1_INITIALIZING_FR  # "Connexion en cours d'initialisation"
         elif self._sm1_state == SM1State.HEALTHY:
-            return SM1_HEALTHY_FR  # "OK"
+            return SM1_HEALTHY_FR  # "Connexion OK"
         elif self._sm1_state == SM1State.DEGRADED:
             if self._strike_counter >= 3:
-                return SM1_DEGRADED_3_FR  # "PERDUE"
+                return SM1_DEGRADED_3_FR  # "Connexion perdue"
             else:
-                # "DÉGRADÉ (N/3)" — replace N with current strike
+                # "Connexion dégradée (N/3)" — replace N with current strike
                 return SM1_DEGRADED_1_2_FR.format(self._strike_counter)
         elif self._sm1_state == SM1State.TCP_RECONNECTING:
-            return SM1_TCP_RECONNECTING_FR  # "Reconnexion TCP/UDP…"
+            return SM1_TCP_RECONNECTING_FR  # "Tentative de reconnexion en cours"
         else:  # NO_NETWORK
-            return SM1_NO_NETWORK_FR  # "HORS RÉSEAU — arrêt"
+            return SM1_NO_NETWORK_FR  # "Hors Réseau"
 
     async def _update_sm1_from_strike(self) -> bool:
         """Centralized strike → state transition helper.

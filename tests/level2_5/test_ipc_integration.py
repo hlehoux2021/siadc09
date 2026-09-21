@@ -173,7 +173,7 @@ class TestUpdateInfoCommands:
         - type == 'info_update' even when partial data provided
         - Only provided fields present (no extra state computation)
         """
-        await daemon._update_info_commands({"supervision_state": 2, "supervision_label": "OK"})
+        await daemon._update_info_commands({"supervision_state": 2, "supervision_label": "Connexion OK"})
         assert len(captured_payloads) == 1
         p = captured_payloads[0]
         assert p["type"] == "info_update"  # type always injected

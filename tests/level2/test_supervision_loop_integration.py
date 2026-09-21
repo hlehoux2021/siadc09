@@ -378,7 +378,7 @@ async def test_on_start_initializing_push_is_first_call():
     """on_start() sends INITIALIZING push as first send_to_jeedom call.
 
     Expected result:
-    - First send_to_jeedom call has supervision_state==1, supervision_label=="DÉMARRAGE…"
+    - First send_to_jeedom call has supervision_state==1, supervision_label=="Connexion en cours d'initialisation"
     - No event_state or event_label keys in payload
     """
     daemon = _make_daemon()
@@ -396,7 +396,7 @@ async def test_on_start_initializing_push_is_first_call():
     # Assert: first call is the INITIALIZING push
     first_call_payload = daemon.send_to_jeedom.call_args_list[0][0][0]
     assert first_call_payload["supervision_state"] == 1
-    assert first_call_payload["supervision_label"] == "DÉMARRAGE…"
+    assert first_call_payload["supervision_label"] == "Connexion en cours d'initialisation"
     # Assert: event_state/event_label NOT included
     assert "event_state" not in first_call_payload
     assert "event_label" not in first_call_payload
@@ -551,7 +551,7 @@ async def test_supervision_value_no_network_returns_0():
 
 @pytest.mark.asyncio
 async def test_supervision_label_healthy():
-    """HEALTHY → "OK" label from messages.py.
+    """HEALTHY → "Connexion OK" label from messages.py.
 
     Expected result:
     - _supervision_label() returns SM1_HEALTHY_FR
@@ -562,12 +562,12 @@ async def test_supervision_label_healthy():
 
     # Assert: uses constant from messages.py
     assert daemon._supervision_label() == SM1_HEALTHY_FR
-    assert daemon._supervision_label() == "OK"
+    assert daemon._supervision_label() == "Connexion OK"
 
 
 @pytest.mark.asyncio
 async def test_supervision_label_degraded_strike_1():
-    """DEGRADED(strike=1) → "DÉGRADÉ (1/3)" from messages.py format string.
+    """DEGRADED(strike=1) → "Connexion dégradée (1/3)" from messages.py format string.
 
     Expected result:
     - _supervision_label() returns SM1_DEGRADED_1_2_FR.format(1)
@@ -578,12 +578,12 @@ async def test_supervision_label_degraded_strike_1():
 
     # Assert: formatted label with current strike
     assert daemon._supervision_label() == SM1_DEGRADED_1_2_FR.format(1)
-    assert daemon._supervision_label() == "DÉGRADÉ (1/3)"
+    assert daemon._supervision_label() == "Connexion dégradée (1/3)"
 
 
 @pytest.mark.asyncio
 async def test_supervision_label_degraded_strike_2():
-    """DEGRADED(strike=2) → "DÉGRADÉ (2/3)" from messages.py format string.
+    """DEGRADED(strike=2) → "Connexion dégradée (2/3)" from messages.py format string.
 
     Expected result:
     - _supervision_label() returns SM1_DEGRADED_1_2_FR.format(2)
@@ -594,12 +594,12 @@ async def test_supervision_label_degraded_strike_2():
 
     # Assert: formatted label with strike=2
     assert daemon._supervision_label() == SM1_DEGRADED_1_2_FR.format(2)
-    assert daemon._supervision_label() == "DÉGRADÉ (2/3)"
+    assert daemon._supervision_label() == "Connexion dégradée (2/3)"
 
 
 @pytest.mark.asyncio
 async def test_supervision_label_degraded_strike_3():
-    """DEGRADED(strike=3) → "PERDUE" from messages.py constant.
+    """DEGRADED(strike=3) → "Connexion perdue" from messages.py constant.
 
     Expected result:
     - _supervision_label() returns SM1_DEGRADED_3_FR
@@ -610,12 +610,12 @@ async def test_supervision_label_degraded_strike_3():
 
     # Assert: critical lost label
     assert daemon._supervision_label() == SM1_DEGRADED_3_FR
-    assert daemon._supervision_label() == "PERDUE"
+    assert daemon._supervision_label() == "Connexion perdue"
 
 
 @pytest.mark.asyncio
 async def test_supervision_label_initializing():
-    """INITIALIZING → "DÉMARRAGE…" from messages.py constant.
+    """INITIALIZING → "Connexion en cours d'initialisation" from messages.py constant.
 
     Expected result:
     - _supervision_label() returns SM1_INITIALIZING_FR
@@ -626,12 +626,12 @@ async def test_supervision_label_initializing():
 
     # Assert: startup label
     assert daemon._supervision_label() == SM1_INITIALIZING_FR
-    assert daemon._supervision_label() == "DÉMARRAGE…"
+    assert daemon._supervision_label() == "Connexion en cours d'initialisation"
 
 
 @pytest.mark.asyncio
 async def test_supervision_label_tcp_reconnecting():
-    """TCP_RECONNECTING → "Reconnexion TCP/UDP…" from messages.py constant.
+    """TCP_RECONNECTING → "Tentative de reconnexion en cours" from messages.py constant.
 
     Expected result:
     - _supervision_label() returns SM1_TCP_RECONNECTING_FR
@@ -642,12 +642,12 @@ async def test_supervision_label_tcp_reconnecting():
 
     # Assert: reconnecting label
     assert daemon._supervision_label() == SM1_TCP_RECONNECTING_FR
-    assert daemon._supervision_label() == "Reconnexion TCP/UDP…"
+    assert daemon._supervision_label() == "Tentative de reconnexion en cours"
 
 
 @pytest.mark.asyncio
 async def test_supervision_label_no_network():
-    """NO_NETWORK → "HORS RÉSEAU — arrêt" from messages.py constant.
+    """NO_NETWORK → "Hors Réseau" from messages.py constant.
 
     Expected result:
     - _supervision_label() returns SM1_NO_NETWORK_FR
@@ -658,7 +658,7 @@ async def test_supervision_label_no_network():
 
     # Assert: terminal label
     assert daemon._supervision_label() == SM1_NO_NETWORK_FR
-    assert daemon._supervision_label() == "HORS RÉSEAU — arrêt"
+    assert daemon._supervision_label() == "Hors Réseau"
 
 
 # ===== AR-3: _send_supervision() full flow with SIATransportError =====
@@ -1175,7 +1175,7 @@ async def test_update_info_commands_full_payload_healthy():
     assert payload["type"] == "info_update"
     # Assert: supervision values from HEALTHY state
     assert payload["supervision_state"] == 2
-    assert payload["supervision_label"] == "OK"
+    assert payload["supervision_label"] == "Connexion OK"
     # Assert: event values from IDLE state
     assert payload["event_state"] == 0
     assert payload["event_label"] == "Inactif"
@@ -1183,16 +1183,18 @@ async def test_update_info_commands_full_payload_healthy():
 
 @pytest.mark.asyncio
 async def test_update_info_commands_full_payload_degraded_strike_2():
-    """_update_info_commands(None) for DEGRADED(strike=2) returns state=1, label="DÉGRADÉ (2/3)".
+    """_update_info_commands(None) for DEGRADED(strike=2) returns state=1, label="Connexion dégradée (2/3)".
 
     Expected result:
     - supervision_state == 1
-    - supervision_label == "DÉGRADÉ (2/3)"
+    - supervision_label == "Connexion dégradée (2/3)"
     """
     daemon = _make_daemon()
     daemon._sm1_state = SM1State.DEGRADED
     daemon._strike_counter = 2
     daemon._sm2_state = SM2State.CONFIRMED
+    daemon._event_sia_code = "BA"
+    daemon._event_zone = "3"
     daemon._send_callback = AsyncMock()
     daemon._update_info_commands = SIADaemon._update_info_commands.__get__(daemon)
 
@@ -1202,10 +1204,11 @@ async def test_update_info_commands_full_payload_degraded_strike_2():
     # Assert: impaired state
     assert payload["supervision_state"] == 1
     # Assert: French label with strike count
-    assert payload["supervision_label"] == "DÉGRADÉ (2/3)"
+    assert payload["supervision_label"] == "Connexion dégradée (2/3)"
     # Assert: SM2 CONFIRMED → event_state=1
     assert payload["event_state"] == 1
-    assert payload["event_label"] == "Confirmé"
+    # Assert: event label names the alarm + central confirmation
+    assert payload["event_label"] == "Intrusion (zone 3) : Confirmée par la centrale"
 
 
 # =============================================================================

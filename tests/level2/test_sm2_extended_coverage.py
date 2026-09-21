@@ -333,11 +333,12 @@ class TestInfoCommandPayloads:
 
     @pytest.mark.asyncio
     async def test_update_info_on_confirmed(self, daemon):
-        """Test: _update_info_commands called with event_state=1, event_label='Confirmé' on ACK.
+        """Test: _update_info_commands called with event_state=1 + confirmed label on ACK.
 
         Expected result:
         - _update_info_commands called at least once
-        - Final call payload has event_state=1 (CONFIRMED) and event_label='Confirmé'
+        - Final call payload has event_state=1 (CONFIRMED) and
+          event_label="Intrusion (zone Salon) : Confirmée par la centrale"
         """
         event = EventItem(sia_code="BA", zone="Salon", timestamp="12:30:45,04-13-2026")
         daemon._send_raw = AsyncMock(return_value=SIATransportResult(status="ack", raw_nak=None))
@@ -353,17 +354,18 @@ class TestInfoCommandPayloads:
         assert payload.get('event_state') == 1, (
             f"Expected event_state=1 (CONFIRMED), got {payload.get('event_state')}"
         )
-        assert payload.get('event_label') == "Confirmé", (
-            f"Expected event_label='Confirmé', got {payload.get('event_label')}"
+        assert payload.get('event_label') == "Intrusion (zone Salon) : Confirmée par la centrale", (
+            f"Expected confirmed label, got {payload.get('event_label')}"
         )
 
     @pytest.mark.asyncio
     async def test_update_info_on_max_retries_failed(self, daemon):
-        """Test: _update_info_commands called with event_state=2, event_label='Échoué' on FAILED.
+        """Test: _update_info_commands called with event_state=2 + refused label on FAILED.
 
         Expected result:
         - _update_info_commands called after final timeout failure
-        - Payload has event_state=2 (FAILED) and event_label='Échoué'
+        - Payload has event_state=2 (FAILED) and
+          event_label="Panique (zone Bureau) : Refusé par la centrale"
         """
         event = EventItem(sia_code="PA", zone="Bureau", timestamp="12:30:45,04-13-2026")
         daemon._send_raw = AsyncMock(return_value=SIATransportResult(status="timeout", raw_nak=None))
@@ -380,8 +382,8 @@ class TestInfoCommandPayloads:
         assert payload.get('event_state') == 2, (
             f"Expected event_state=2 (FAILED), got {payload.get('event_state')}"
         )
-        assert payload.get('event_label') == "Échoué", (
-            f"Expected event_label='Échoué', got {payload.get('event_label')}"
+        assert payload.get('event_label') == "Panique (zone Bureau) : Refusé par la centrale", (
+            f"Expected refused label, got {payload.get('event_label')}"
         )
 
 

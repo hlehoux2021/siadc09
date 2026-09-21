@@ -127,6 +127,25 @@ one root cause:
   - [ ] 6.4 Verify stale-grey still appears after daemon stop > 3× interval (no live-refresh
         interference).
 
+- [x] Task 7: Clarify SM1/SM2 widget labels (amendment 2026-09-18) (AC: 1, 2)
+  - [x] 7.1 Rewrite the SM1 connection labels (`messages.py:37-42` `SM1_*_FR`) so the badge
+        line reads in plain French: INITIALIZING → "Connexion en cours d'initialisation",
+        HEALTHY → "Connexion OK", DEGRADED(1-2) → "Connexion dégradée ({}/3)", DEGRADED(3) →
+        "Connexion perdue", TCP_RECONNECTING → "Tentative de reconnexion en cours",
+        NO_NETWORK → "Hors Réseau".
+  - [x] 7.2 Rework the SM2 alarm labels so the event line conveys an intrusion in progress
+        instead of the ambiguous "Confirmé". Added an "Alarme" widget heading above the event
+        line (both templates) with the type/zone inline in the state line:
+        IDLE → "Inactif"; PENDING → "{Type} (zone {zone}) : En cours";
+        CONFIRMED → "{Type} (zone {zone}) : Confirmée par la centrale";
+        FAILED → "{Type} (zone {zone}) : Refusé par la centrale".
+  - [x] 7.3 Derive {Type} from `event_type_fr()` (BA→intrusion, FA→incendie, PA→panique,
+        capitalised first letter; fallback "Alarme") and {zone} from `self._event_zone`
+        (zone clause omitted when no zone). Implemented `_event_context_prefix()` and
+        rewrote `_event_label_from_sm2()` in `daemon.py`.
+  - [x] 7.4 Update the affected level1/level2/level2.5 tests to the new vocabulary (asserting
+        both the constants and their literal values); confirm no regressions against baseline.
+
 ## Dev Notes
 
 ### Prior art — read before implementing
@@ -253,6 +272,30 @@ fresh 30s keeps server badge), and AC5 (dashboard/mobile byte-identical). **10 p
   live refresh on DEGRADED+recovery, event line moving off "OK" to "Confirmé" unaided, and
   stale-grey still appearing after a >3×interval daemon stop.
 
+#### Amendment 2026-09-18 — SM1/SM2 label clarity (Task 7)
+
+- **Motivation:** during live use Herve found the "Confirmé" event label unclear — it did
+  not convey that an intrusion alarm was in progress. SM1 and SM2 short widget labels were
+  reworked together (Herve's decision: review all 4 states together, type/zone inline in the
+  state line, amend 10-3 on the same branch).
+- **SM1** now reads as plain French next to the badge (no heading): "Connexion en cours
+  d'initialisation" / "Connexion OK" / "Connexion dégradée ({}/3)" / "Connexion perdue" /
+  "Tentative de reconnexion en cours" / "Hors Réseau".
+- **SM2** now renders under an "Alarme" widget heading with type/zone inline: "Inactif" /
+  "{Type} (zone {zone}) : En cours" / "{Type} (zone {zone}) : Confirmée par la centrale" /
+  "{Type} (zone {zone}) : Refusé par la centrale". {Type} comes from `event_type_fr()`
+  (capitalised), {zone} from `self._event_zone`; the zone clause is omitted when no zone and
+  the type falls back to "Alarme" when no SIA code is known.
+- **Validation (GREEN):**
+  - `python3 -m pytest tests/level1/` = **2 failed / 1069 passed** — the 2 failures are the
+    known pre-existing baseline (memory `level1-test-baseline-failures`); no new failures.
+  - Full suite on this branch = **9 failed / 1467 passed**; the 9 failures were proven
+    pre-existing by stashing the amendment and re-running against clean HEAD (identical
+    failures) — **zero regressions** from the label work.
+  - `php -l` clean on both `core/template/dashboard/siaDC09.html` and
+    `core/template/mobile/siaDC09.html`; the two templates remain byte-for-byte identical.
+  - `pylint -E` on `daemon.py` and `messages.py` = 10.00/10.
+
 ### File List
 
 | File | Change |
@@ -261,7 +304,18 @@ fresh 30s keeps server badge), and AC5 (dashboard/mobile byte-identical). **10 p
 | `core/template/mobile/siaDC09.html` | Byte-for-byte copy of the dashboard template. |
 | `core/class/siaDC09.class.php` | `toHtml()`: `execCmd()` → `getValue()` (reverts 10-2 F1); added `#supervision_state_id#`, `#supervision_label_id#`, `#event_label_id#` placeholders (from `$cmd->getId()`) for callback registration. |
 | `tests/fixtures/widget_dom_harness.js` | New jsdom harness rendering the real template; stubs `jeedom.cmd` with `addUpdateFunction`/`refreshValue` (core/js/cmd.class.js semantics), drives pushes through `refreshValue`, and reports registered cmd_ids. |
-| `tests/level1/test_widget_live_refresh.py` | New — 10 DOM tests for callback registration + AC1/AC2/AC3/AC5. |
+| `tests/level1/test_widget_live_refresh.py` | New — 10 DOM tests for callback registration + AC1/AC2/AC3/AC5. Amendment: event push placeholder/value updated to the new SM2 vocabulary ("Inactif" → "Intrusion (zone 3) : Confirmée par la centrale"). |
+| `resources/siadc09d/messages.py` | Amendment: `SM1_*_FR` labels (lines 37-42) rewritten to plain-French connection wording ("Connexion OK", "Connexion dégradée ({}/3)", "Connexion perdue", …). |
+| `resources/siadc09d/daemon.py` | Amendment: imported `event_type_fr`; added `_event_context_prefix()` building "{Type} (zone {zone})"; rewrote `_event_label_from_sm2()` for IDLE/PENDING/CONFIRMED/FAILED; `_send_with_retry()` records `_event_sia_code`/`_event_zone`; updated `_supervision_label()` docstring/comments. |
+| `core/template/dashboard/siaDC09.html` | Amendment: added an "Alarme" heading `<div>` above the event line. |
+| `core/template/mobile/siaDC09.html` | Amendment: identical "Alarme" heading (byte-for-byte with dashboard). |
+| `tests/level2/test_sm2_alarm_event_suite.py` | Amendment: SM2 label helper tests + CONFIRMED persistence test updated to the new vocabulary. |
+| `tests/level2/test_supervision_loop_integration.py` | Amendment: SM1 literals bulk-updated; DEGRADED-strike-2 CONFIRMED test updated. |
+| `tests/level2/test_sm1_extended_suite.py` | Amendment: tc15/tc16/tc22 docstrings + asserts updated to the new SM1 labels. |
+| `tests/level2/test_sm2_extended_coverage.py` | Amendment: CONFIRMED (BA/Salon) and max-retries FAILED (PA/Bureau) asserts + docstrings updated to the new SM2 labels. |
+| `tests/level2/test_tcp_reconnect_integration.py` | Amendment: docstrings updated to the new SM1 wording (asserts use constants). |
+| `tests/level2_5/test_callback_schema.py` | Amendment: sample partial-payload labels updated ("Connexion OK", "Intrusion (zone 3) : Confirmée par la centrale"). |
+| `tests/level2_5/test_ipc_integration.py` | Amendment: passthrough `supervision_label` updated to "Connexion OK". |
 
 ## Change Log
 
@@ -270,3 +324,4 @@ fresh 30s keeps server badge), and AC5 (dashboard/mobile byte-identical). **10 p
 | 2026-09-18 | Story created from Herve's 2026-09-18 field observations on 12-6 (widget never auto-refreshes; "reste à OK" after SM2 CONFIRMED). |
 | 2026-09-18 | First attempt implemented live refresh via `cmdValue`/`data-cmd_id` bindings + hidden state mirror + `MutationObserver`, on the assumption Jeedom writes pushed values into bound spans in place. |
 | 2026-09-18 | Herve's DevTools test on the host disproved that assumption (no `cmd::update` on `document`, no span write). Reworked to the real mechanism: inline `<script>` registers `jeedom.cmd.addUpdateFunction(cmd_id, fn)` per info command, driven by `jeedom.cmd.refreshValue`. Reverted toHtml to `getValue()`, mirrored to mobile. Harness reworked to stub the real `addUpdateFunction`/`refreshValue` path; 10 tests (added a registration test), all green; level-1 at the known 2-failure baseline. Task 6 (live host UI validation) pending push + Herve's verification. |
+| 2026-09-18 | Amendment (Task 7): reworked the SM1 connection labels and SM2 alarm labels for clarity ("Confirmé" was ambiguous). SM2 now renders under an "Alarme" heading with {Type}/{zone} inline via `_event_context_prefix()` + `event_type_fr()`. Updated 8 test files to the new vocabulary. Validation: level1 2/1069 (baseline), full suite 9/1467 with zero regressions (stash-and-compare vs clean HEAD), templates `php -l` clean + byte-identical, pylint -E 10.00/10. Task 6 live host UI validation still pending. |
