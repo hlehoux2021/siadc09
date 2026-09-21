@@ -47,7 +47,7 @@
 
 ## Deferred from: code review of 9-2-protocol-inspector-hex-viewer-decryption (2026-05-19)
 
-- **D-25: `execCmd()` on disabled equipment in `getDiagnosticData`** — `$stateCmd->execCmd()` on info commands may throw on disabled equipment, propagating as AJAX error instead of returning partial diagnostic data. Fix: use `getValue()` instead. Pre-existing pattern from story 9-1.
+- **D-25: `execCmd()` on disabled equipment in `getDiagnosticData`** — ~~FIXED 2026-09-21~~ — `core/ajax/siaDC09.ajax.php` now reads `supervision_state/label`, `event_state/label` via `getValue()` instead of `execCmd()` (merged from `story/7-2-supervision-fixes`).
 - **D-26: `$python3` not shell-escaped in `decodeFrame` subprocess command** — `system::getCmdPython3()` return value concatenated directly into shell command without `escapeshellarg()`. If interpreter path contains spaces (venv), command breaks. Pre-existing: same unescaped pattern in `testConnection` action. Fix: wrap `$python3` with `escapeshellarg()` at both call sites.
 - **D-27: `raw_response=raw` on timeout branch in `_parse_response()`** — Docstring says `raw_response=None` on timeout, but code passes the raw (potentially garbled) bytes. Low impact for inspector use. Fix: set `raw_response=None` on timeout branch to match docstring contract.
 - **D-28: CRC format runtime detection in `decode()` contradicts ADR-06** — `decode()` infers `crc_format` from `len(crc_bytes)` (4=hex, 2=bin). ADR-06 establishes crc_format as a preset config field, not runtime-detected. Acceptable for display-only inspector; no operational impact.
