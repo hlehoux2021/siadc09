@@ -32,3 +32,4 @@ _bmad/
 .claude/commands/bmad_*
 .claude/skills/bmad-*/
 node_modules/
+.claude/worktrees/

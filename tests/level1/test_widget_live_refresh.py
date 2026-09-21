@@ -160,14 +160,15 @@ class TestLiveEventRefresh:
         """A pushed event_label display_value replaces the event line live.
 
         - the initial event text is the rendered placeholder
-        - a pushed 'Confirmé' replaces it in place (fixes 'reste à OK')
+        - a pushed confirmed label replaces it in place (fixes 'reste à Inactif')
         """
+        confirmed = "Intrusion (zone 3) : Confirmée par la centrale"
         r = _one({
-            "placeholders": {"event_label": "OK"},
-            "actions": [{"type": "pushEvent", "value": "Confirmé"}],
+            "placeholders": {"event_label": "Inactif"},
+            "actions": [{"type": "pushEvent", "value": confirmed}],
         })
-        # AC2: the event line moves off 'OK' to the confirmed value on its own
-        assert r["eventText"] == "Confirmé"
+        # AC2: the event line moves off 'Inactif' to the confirmed value on its own
+        assert r["eventText"] == confirmed
 
 
 # ── AC3: stale detection + cooperation with live push ────────────────────────

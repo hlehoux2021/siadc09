@@ -798,7 +798,7 @@ async def test_info_commands_after_reconnect_success():
     Expected result:
     - _tcp_reconnect_loop() transitions SM1 to INITIALIZING on success
     - _supervision_value() returns 1 (impaired: INITIALIZING)
-    - _supervision_label() returns SM1_INITIALIZING_FR ("DÉMARRAGE…")
+    - _supervision_label() returns SM1_INITIALIZING_FR ("Connexion en cours d'initialisation")
     """
     daemon = _make_tcp_daemon()
     daemon._sm1_state = SM1State.TCP_RECONNECTING
@@ -826,7 +826,7 @@ async def test_info_commands_after_permanent_failure():
     Expected result:
     - _tcp_reconnect_loop() all attempts fail → SM1=NO_NETWORK
     - _supervision_value() returns 0 (problem)
-    - _supervision_label() returns SM1_NO_NETWORK_FR ("HORS RÉSEAU — arrêt")
+    - _supervision_label() returns SM1_NO_NETWORK_FR ("Hors Réseau")
     """
     daemon = _make_tcp_daemon()
     daemon._sm1_state = SM1State.TCP_RECONNECTING

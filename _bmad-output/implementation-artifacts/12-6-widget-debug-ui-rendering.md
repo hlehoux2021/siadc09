@@ -268,6 +268,36 @@ For each "Verify" step:
 
 3. **`resources/siadc09d/csr_simulator.py` — hardcoded `127.0.0.1` bind:** Simulator bound only to loopback but daemon connects to VM's external IP (`192.168.5.103:10001`). Fixed by changing UDP socket and TCP server bind address to `0.0.0.0`.
 
+### Field Observations — 2026-09-18 (Herve, live VM)
+
+Two symptoms reported during manual widget use; both trace to the same defect.
+
+1. **[OPEN BUG] Dashboard tile does not auto-refresh — full page reload required.**
+   `docs/design/widget-design.md:20-22,66-70` asserts the `cmd::update` websocket re-renders
+   the tile with no custom JS. **False for this template.** Jeedom's socket handler updates
+   in place only DOM nodes carrying a `data-cmd_id` bound to the changed command.
+   `core/template/dashboard/siaDC09.html:19,25` renders `#supervision_label#` and
+   `#event_label#` as plain interpolated text — no `data-cmd_id` anywhere. So the daemon's
+   `checkAndUpdateCmd()` fires the socket event but has nothing bound to update → tile stays
+   frozen until a manual page reload. The only inline JS (`siaDC09.html:31-79`) is one-shot
+   stale detection, not live update. **Root cause: the widget was never wired for live
+   refresh.** Candidate fixes: (a) subscribe to `cmd::update` for this eqLogic in
+   `desktop/js/siaDC09.js` and re-fetch/re-render, or (b) emit `data-cmd_id`-bound spans so
+   Jeedom's native updater targets them.
+
+2. **[OPEN BUG] After SM2 CONFIRMED, widget "reste à OK" — same root cause + the deferred
+   `execCmd()` bug.** Daemon log `[2026-09-17 21:58:48] INFO : Centrale confirmée — alarme BA
+   transmise (zone: Zone1)` fires and the daemon *does* push the new `event_label` ("Confirmé"
+   via `_event_label_from_sm2()`, daemon.py:1365/1411/1457/1502/1532/1552) — value lands in DB.
+   But the tile never re-renders (bug 1), and `toHtml()` reads INFO values via `execCmd()`
+   instead of `getValue()` (`siaDC09.class.php:589-591`), contradicting
+   `widget-design.md:199-202`. Net effect: displayed label stays "OK" until manual reload.
+   Ties to the pre-existing KNOWN/deferred `execCmd()` note below.
+
+Both are widget-refresh defects, not daemon defects — the daemon state pushes are correct.
+Recommend a follow-up story (Epic 10 widget or a 12-6 amendment) to wire live refresh and
+switch `toHtml()` to `getValue()`.
+
 ### Deviations from Design
 - **[RESOLVED — not a bug]** Pre-story note about missing `getIsEnable()` in `toHtml()`: Jeedom framework removes disabled equipment from the dashboard before rendering — `toHtml()` is never called for disabled equipment. The check is unnecessary.
 - **[KNOWN BUG — deferred]** `toHtml()` uses `execCmd()` instead of `getValue()`. Impact: stale detection via `collectDate` backdate is defeated; Task 5 required real wait time. Not fixed in this story.
@@ -355,3 +385,4 @@ Timestamps rendered by `siaDC09_formatTimestamp` are in **UTC**. Local timezone 
 |------|--------|
 | 2026-05-29 | Story created and executed on Jeedom VM. All 14 AC pass (AC4 stale detection blocked by watchdog). 3 bugs fixed. |
 | 2026-06-01 | TCP pass added: AC15–16 + Tasks 16–19 — TCP_RECONNECTING and NO_NETWORK widget badge states. |
+| 2026-09-18 | Field observations (Herve): 2 OPEN widget-refresh bugs recorded — (1) tile never auto-refreshes, no `data-cmd_id` binding; (2) "reste à OK" after SM2 CONFIRMED, same root cause + deferred `execCmd()`. Follow-up story recommended. |
