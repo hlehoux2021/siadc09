@@ -16,48 +16,6 @@ set -u
 cmd=$(jq -r '.tool_input.command // empty' 2>/dev/null)
 [ -n "$cmd" ] || exit 0
 
-# Drop the harmless redirections first: `2>&1` must go before the `&` test below.
-norm=$cmd
-norm=${norm//2>&1/}
-norm=${norm//&>\/dev\/null/}
-norm=${norm//2>\/dev\/null/}
-norm=${norm//>\/dev\/null/}
-
-# `a && b` gets the same treatment as `a | b` — both are ignored by the prefix rules, and
-# both are safe to approve only when every part is allowed on its own. Rewriting `&&` to `|`
-# lets one split handle the two. `||` becomes an empty segment and falls through to the
-# prompt (see below), which is the conservative outcome.
-norm=${norm//&&/|}
-
-# Plain commands are already handled by the permission rules — chains are our job.
-case "$norm" in
-	*'|'*) ;;
-	*) exit 0 ;;
-esac
-
-# Refuse anything that can write, background, chain or substitute. A leftover `&` at this
-# point is a background job or an unrecognized redirection, never a chain.
-case "$norm" in
-	*'>'* | *'<'* | *';'* | *'&'* | *'$('* | *'`'*) exit 0 ;;
-esac
-
-# `xargs [options] cmd …` is allowed only when `cmd …` is itself an allowed segment, so
-# `grep -l … | xargs rm` still prompts.
-unwrap_xargs() {
-	# shellcheck disable=SC2086 # deliberate word splitting on the option list
-	set -- $1
-	shift # drop `xargs`
-	while [ $# -gt 0 ]; do
-		case "$1" in
-		-[nIPLdsaE]) shift 2 || return 1 ;;
-		-*) shift ;;
-		*) break ;;
-		esac
-	done
-	[ $# -gt 0 ] || return 1
-	printf '%s' "$*"
-}
-
 # Mirrors permissions.allow in .claude/settings.json.
 allowed_segment() {
 	case "$1" in
@@ -81,11 +39,149 @@ allowed_segment() {
 	esac
 }
 
-IFS='|' read -r -a segments <<<"$norm"
-for seg in "${segments[@]}"; do
+# `xargs [options] cmd …` is allowed only when `cmd …` is itself an allowed segment, so
+# `grep -l … | xargs rm` still prompts.
+unwrap_xargs() {
+	# shellcheck disable=SC2086 # deliberate word splitting on the option list
+	set -- $1
+	shift # drop `xargs`
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		-[nIPLdsaE]) shift 2 || return 1 ;;
+		-*) shift ;;
+		*) break ;;
+		esac
+	done
+	[ $# -gt 0 ] || return 1
+	printf '%s' "$*"
+}
+
+# Splits $1 on top-level `|` and `&&` (and, when $2=1, also `;`) into the TOP_SEGS array,
+# skipping delimiters that appear inside '...' or "..." quotes — a literal `|` in a grep
+# pattern like "^a\|^b" must not be mistaken for a pipe. Returns 1 (unsafe / unparsable) on:
+# an unterminated quote, `$(...)`/backtick command substitution anywhere except inside single
+# quotes, `>`/`<` redirection, a lone `&` background job, `||`, or (when $2!=1) a top-level `;`.
+split_top_level() {
+	local s="$1" allow_semicolon="${2:-0}" i=0 n c nextc insq=0 indq=0 cur=''
+	TOP_SEGS=()
+	n=${#s}
+	while [ "$i" -lt "$n" ]; do
+		c="${s:$i:1}"
+
+		if [ "$insq" -eq 1 ]; then
+			cur="$cur$c"
+			[ "$c" = "'" ] && insq=0
+			i=$((i + 1))
+			continue
+		fi
+
+		if [ "$c" = '\' ]; then
+			cur="$cur$c"
+			i=$((i + 1))
+			if [ "$i" -lt "$n" ]; then
+				cur="$cur${s:$i:1}"
+				i=$((i + 1))
+			fi
+			continue
+		fi
+
+		nextc="${s:$((i + 1)):1}"
+		if [ "$c" = '$' ] && [ "$nextc" = '(' ]; then
+			return 1
+		fi
+		if [ "$c" = '`' ]; then
+			return 1
+		fi
+
+		if [ "$indq" -eq 1 ]; then
+			cur="$cur$c"
+			[ "$c" = '"' ] && indq=0
+			i=$((i + 1))
+			continue
+		fi
+
+		# Outside any quotes.
+		if [ "$c" = "'" ]; then
+			insq=1
+			cur="$cur$c"
+		elif [ "$c" = '"' ]; then
+			indq=1
+			cur="$cur$c"
+		elif [ "$c" = '|' ]; then
+			[ "$nextc" = '|' ] && return 1
+			TOP_SEGS+=("$cur")
+			cur=''
+		elif [ "$c" = ';' ]; then
+			[ "$allow_semicolon" = 1 ] || return 1
+			TOP_SEGS+=("$cur")
+			cur=''
+		elif [ "$c" = '&' ]; then
+			if [ "$nextc" = '&' ]; then
+				TOP_SEGS+=("$cur")
+				cur=''
+				i=$((i + 2))
+				continue
+			else
+				return 1
+			fi
+		elif [ "$c" = '>' ] || [ "$c" = '<' ]; then
+			return 1
+		else
+			cur="$cur$c"
+		fi
+		i=$((i + 1))
+	done
+
+	[ "$insq" -eq 0 ] && [ "$indq" -eq 0 ] || return 1
+	TOP_SEGS+=("$cur")
+	return 0
+}
+
+# `for VAR in LIST; do BODY; done` — batch read-only inspection across a fixed file
+# list (e.g. `for f in a.md b.md; do grep ... "$f" | head -5; done`). Approve only when
+# every LIST item is a literal token (no globs/substitution) and every statement in
+# BODY is itself an allowed segment.
+try_allow_for_loop() {
+	[[ $cmd =~ ^for\ [A-Za-z_][A-Za-z0-9_]*\ in\ ([^\;]+)\;[[:space:]]*do[[:space:]](.*)\;[[:space:]]*done$ ]] || return 1
+	list=${BASH_REMATCH[1]}
+	body=${BASH_REMATCH[2]}
+
+	for item in $list; do
+		case "$item" in
+		*[\$\`\*\?\[\]\(\)\<\>\&\;\|\'\"]*) return 1 ;;
+		esac
+	done
+
+	split_top_level "$body" 1 || return 1
+	for seg in "${TOP_SEGS[@]}"; do
+		seg="${seg#"${seg%%[![:space:]]*}"}"
+		seg="${seg%"${seg##*[![:space:]]}"}"
+		[ -n "$seg" ] || return 1
+		allowed_segment "$seg" || return 1
+	done
+
+	printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"Boucle for en lecture seule — chaque item de la liste et chaque segment du corps sont déjà autorisés par .claude/settings.json"}}'
+	return 0
+}
+
+try_allow_for_loop && exit 0
+
+# Drop the harmless redirections first: `2>&1` must go before the `&` test below.
+norm=$cmd
+norm=${norm//2>&1/}
+norm=${norm//&>\/dev\/null/}
+norm=${norm//2>\/dev\/null/}
+norm=${norm//>\/dev\/null/}
+
+split_top_level "$norm" 0 || exit 0
+
+# Plain commands are already handled by the permission rules — chains are our job.
+[ "${#TOP_SEGS[@]}" -gt 1 ] || exit 0
+
+for seg in "${TOP_SEGS[@]}"; do
 	seg="${seg#"${seg%%[![:space:]]*}"}" # ltrim
 	seg="${seg%"${seg##*[![:space:]]}"}" # rtrim
-	[ -n "$seg" ] || exit 0              # empty segment => `||` or a malformed pipeline
+	[ -n "$seg" ] || exit 0              # empty segment => malformed pipeline
 	allowed_segment "$seg" || exit 0
 done
 
