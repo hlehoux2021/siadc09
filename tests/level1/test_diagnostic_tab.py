@@ -170,6 +170,35 @@ class TestGetDiagnosticDataAjax:
         assert "'errors'" in ajax_source
         assert "'messages'" in ajax_source
 
+    def test_reads_info_cmds_via_get_value_not_exec_cmd(self, ajax_source: str) -> None:
+        """
+        getDiagnosticData must read the 4 info cmds via getValue(), not execCmd().
+
+        For 'info' cmds, execCmd() reads a separate JSON cache (cmdCacheAttr<id>)
+        that is written conditionally inside cmd::event() and can diverge from the
+        DB-persisted value. getValue() reads that DB-persisted value directly, with
+        no side effects — the same fix already applied to the dashboard widget's
+        toHtml() in story 10-3. Using execCmd() here caused the Diagnostic tab to
+        show a stale event/supervision state after it had already changed.
+
+        Expected result:
+        - execCmd() is not called on the 4 diagnostic info cmds
+        - getValue() is called instead, on all 4
+        """
+        diagnostic_block = ajax_source[ajax_source.index("getDiagnosticData") :]
+        end = diagnostic_block.find("clearDiagnosticData")
+        if end != -1:
+            diagnostic_block = diagnostic_block[:end]
+        # Assert: no execCmd() reads in the diagnostic data block (stale cache path)
+        assert "execCmd()" not in diagnostic_block, (
+            "getDiagnosticData must not read info cmds via execCmd() — "
+            "that cache can diverge from the persisted value (see story 10-3 fix)"
+        )
+        # Assert: getValue() is used for all 4 info cmds instead
+        assert diagnostic_block.count("->getValue()") >= 4, (
+            "getDiagnosticData must read supervision_state/label and event_state/label via getValue()"
+        )
+
 
 # ── AJAX clearDiagnosticData Structure ───────────────────────────────────────
 
