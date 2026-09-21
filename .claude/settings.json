@@ -1,6 +1,10 @@
 {
   "env": {
-    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "60"
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "80"
+  },
+  "enabledPlugins": {
+    "bivwak-weweb@hlx-marketplace": false,
+    "bivwak-xano@hlx-marketplace": false
   },
   "permissions": {
     "allow": [
