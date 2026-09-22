@@ -46,17 +46,13 @@ function saveEqLogic(_eqLogic) {
       // The row keeps the number it was displayed with — never recomputed here, so a number
       // already declared to the CSR stays attached to the same zone.
       var zoneNumber = parseInt($(this).attr('data-zone-number'), 10)
-      var $takeSelect = $(this).find('.siaDC09-zone-camera-take')
-      var $urlSelect = $(this).find('.siaDC09-zone-media-url')
-      var cameraActionCmdId = $takeSelect.val() || null
-      var mediaUrlCmdId = $urlSelect.val() || null
+      var $cameraSelect = $(this).find('.siaDC09-zone-frigate-camera')
+      var frigateCameraEqlogicId = $cameraSelect.val() || null
       mappings.push({
         zone_number: zoneNumber || null,
         zone_name: zoneName,
-        camera_action_cmd_id: cameraActionCmdId ? parseInt(cameraActionCmdId) : null,
-        camera_action_cmd_label: cameraActionCmdId ? $takeSelect.find(':selected').text() : null,
-        media_url_cmd_id: mediaUrlCmdId ? parseInt(mediaUrlCmdId) : null,
-        media_url_cmd_label: mediaUrlCmdId ? $urlSelect.find(':selected').text() : null
+        frigate_camera_eqlogic_id: frigateCameraEqlogicId ? parseInt(frigateCameraEqlogicId) : null,
+        frigate_camera_label: frigateCameraEqlogicId ? $cameraSelect.find(':selected').text() : null
       })
     })
     _eqLogic.configuration.sia_zone_mappings = mappings
@@ -436,11 +432,12 @@ function siaDC09_loadZoneData(eqLogic) {
   $.ajax({
     type: 'POST',
     url: 'plugins/siaDC09/core/ajax/siaDC09.ajax.php',
-    data: { action: 'getCameraCommands', ajax: 1 },
+    data: { action: 'getFrigateCameras', ajax: 1 },
     dataType: 'json',
     global: false,
     success: function(data) {
-      var cameraCommands = data.result || { camera_take: [], camera_url: [] }
+      var cameras = (data.result || {}).cameras || []
+      $('#siaDC09-step3-nocamera').toggle(cameras.length === 0)
       $.ajax({
         type: 'POST',
         url: 'plugins/siaDC09/core/ajax/siaDC09.ajax.php',
@@ -454,7 +451,7 @@ function siaDC09_loadZoneData(eqLogic) {
             $('#siaDC09-zone-tbody').empty()
           } else {
             $('#siaDC09-step3-nozone').hide()
-            siaDC09_loadZoneTable(result2.zones || [], savedMapping, cameraCommands)
+            siaDC09_loadZoneTable(result2.zones || [], savedMapping, cameras)
           }
         },
         error: function() {
@@ -463,7 +460,8 @@ function siaDC09_loadZoneData(eqLogic) {
       })
     },
     error: function() {
-      // Camera commands failed — still load zones but with empty camera dropdowns
+      // Camera discovery failed — still load zones but with an empty camera dropdown
+      $('#siaDC09-step3-nocamera').show()
       $.ajax({
         type: 'POST',
         url: 'plugins/siaDC09/core/ajax/siaDC09.ajax.php',
@@ -476,7 +474,7 @@ function siaDC09_loadZoneData(eqLogic) {
             $('#siaDC09-step3-nozone').show()
           } else {
             $('#siaDC09-step3-nozone').hide()
-            siaDC09_loadZoneTable(result2.zones || [], savedMapping, { camera_take: [], camera_url: [] })
+            siaDC09_loadZoneTable(result2.zones || [], savedMapping, [])
           }
         },
         error: function() {
@@ -487,7 +485,7 @@ function siaDC09_loadZoneData(eqLogic) {
   })
 }
 
-function siaDC09_loadZoneTable(zones, zoneMapping, cameraCommands) {
+function siaDC09_loadZoneTable(zones, zoneMapping, cameras) {
   var $tbody = $('#siaDC09-zone-tbody')
   $tbody.empty()
   var mapping = zoneMapping || []
@@ -505,38 +503,27 @@ function siaDC09_loadZoneTable(zones, zoneMapping, cameraCommands) {
     if (!zoneNumber) {
       zoneNumber = mapping.length === 0 ? index + 1 : ++nextNumber
     }
-    $tbody.append(siaDC09_buildZoneRow(zoneNumber, zoneName, saved, cameraCommands))
+    $tbody.append(siaDC09_buildZoneRow(zoneNumber, zoneName, saved, cameras))
   })
 }
 
-function siaDC09_buildZoneRow(zoneNumber, zoneName, saved, cameraCommands) {
+function siaDC09_buildZoneRow(zoneNumber, zoneName, saved, cameras) {
   var $tr = $('<tr>')
   $tr.append($('<td>').text(zoneNumber))
   $tr.append($('<td>').text(zoneName))
 
-  // Camera action select (CAMERA_TAKE)
-  var $takeSelect = $('<select class="form-control siaDC09-zone-camera-take">')
-  $takeSelect.append($('<option value="">').text('(aucune)'))
-  ;(cameraCommands.camera_take || []).forEach(function(cmd) {
-    var $opt = $('<option>').val(cmd.id).text(cmd.label)
-    if (saved.camera_action_cmd_id && String(saved.camera_action_cmd_id) === String(cmd.id)) {
+  // Single Frigate camera select — info_detect_person/info_url_snapshot are derived by
+  // logicalId at alarm time (ADR-17), never stored as separate config fields.
+  var $cameraSelect = $('<select class="form-control siaDC09-zone-frigate-camera">')
+  $cameraSelect.append($('<option value="">').text('(aucune)'))
+  ;(cameras || []).forEach(function(cam) {
+    var $opt = $('<option>').val(cam.id).text(cam.label)
+    if (saved.frigate_camera_eqlogic_id && String(saved.frigate_camera_eqlogic_id) === String(cam.id)) {
       $opt.prop('selected', true)
     }
-    $takeSelect.append($opt)
+    $cameraSelect.append($opt)
   })
-  $tr.append($('<td>').append($takeSelect))
-
-  // Media URL select (CAMERA_URL)
-  var $urlSelect = $('<select class="form-control siaDC09-zone-media-url">')
-  $urlSelect.append($('<option value="">').text('(aucune)'))
-  ;(cameraCommands.camera_url || []).forEach(function(cmd) {
-    var $opt = $('<option>').val(cmd.id).text(cmd.label)
-    if (saved.media_url_cmd_id && String(saved.media_url_cmd_id) === String(cmd.id)) {
-      $opt.prop('selected', true)
-    }
-    $urlSelect.append($opt)
-  })
-  $tr.append($('<td>').append($urlSelect))
+  $tr.append($('<td>').append($cameraSelect))
 
   // The displayed <td> is for the user; these attributes are the serialization contract.
   $tr.attr('data-zone-number', zoneNumber)
@@ -695,17 +682,11 @@ function siaDC09_populateConfigSummary(eqLogic) {
         $row.append($('<strong>').text('N° ' + m.zone_number + ' '))
       }
       $row.append($('<span>').text(m.zone_name))
-      if (m.camera_action_cmd_label) {
+      if (m.frigate_camera_label) {
         $row.append($('<span>').text(' → '))
         $row.append($('<i class="fas fa-camera" style="margin-right:3px;">'))
-        $row.append($('<span>').text(m.camera_action_cmd_label))
-      }
-      if (m.media_url_cmd_label) {
-        $row.append($('<span>').text(' | '))
-        $row.append($('<i class="fas fa-link" style="margin-right:3px;">'))
-        $row.append($('<span>').text(m.media_url_cmd_label))
-      }
-      if (!m.camera_action_cmd_id && !m.media_url_cmd_id) {
+        $row.append($('<span>').text(m.frigate_camera_label))
+      } else {
         $row.append($('<span class="text-muted">').text(' → (aucune caméra)'))
       }
       $row.appendTo($zones)

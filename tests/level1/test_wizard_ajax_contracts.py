@@ -302,81 +302,71 @@ def test_get_zones_returns_zone_names(ajax_source: str) -> None:
     assert "array_column" in ajax_source
 
 
-# ── getCameraCommands Action ───────────────────────────────────────────────────
+# ── getFrigateCameras Action (story 14.1, replaced getCameraCommands per ADR-17) ────────────────
 
 
-def test_get_camera_commands_action_exists(ajax_source: str) -> None:
+def test_get_frigate_cameras_action_exists(ajax_source: str) -> None:
     """
-    getCameraCommands action must be handled.
+    getFrigateCameras action must be handled. Replaced getCameraCommands
+    (deleted as dead code once the wizard stopped calling it — ADR-17
+    simplified zone mapping to a single Frigate-camera pick).
 
     Expected result:
-    - init('action') == 'getCameraCommands' check present
+    - init('action') == 'getFrigateCameras' check present
     """
-    # Assert: getCameraCommands action handler present
-    assert "'getCameraCommands'" in ajax_source
+    # Assert: getFrigateCameras action handler present
+    assert "'getFrigateCameras'" in ajax_source
 
 
-def test_get_camera_commands_uses_generic_type(ajax_source: str) -> None:
+def test_get_frigate_cameras_starts_from_camera_take_generic_type(ajax_source: str) -> None:
     """
-    Must use cmd::byGenericType() to find camera commands.
-    Generic types CAMERA_TAKE and CAMERA_URL are standard Jeedom patterns.
+    Candidate discovery still starts from cmd::byGenericType('CAMERA_TAKE') —
+    the plugin-agnostic Jeedom pattern — then narrows to real Frigate cameras.
 
     Expected result:
-    - CAMERA_TAKE and CAMERA_URL generic type queries
+    - CAMERA_TAKE generic type query present
     """
-    # Assert: generic type queries for camera commands
+    # Assert: generic-type discovery reused as the candidate pool
     assert "CAMERA_TAKE" in ajax_source
-    assert "CAMERA_URL" in ajax_source
 
 
-def test_get_camera_commands_returns_both_types(ajax_source: str) -> None:
+def test_get_frigate_cameras_filters_by_frigate_specific_commands(ajax_source: str) -> None:
     """
-    Response must include both camera_take and camera_url arrays so JS
-    can populate two separate select dropdowns in the zone table.
+    Candidates are filtered to equipments that also expose info_detect_person
+    and info_url_snapshot by logicalId — the Frigate-specific signal that
+    CAMERA_TAKE alone doesn't guarantee.
 
     Expected result:
-    - Response structure with camera_take and camera_url keys
+    - byLogicalId lookups for both Frigate-specific commands present
     """
-    # Assert: both camera command types in response
-    assert "'camera_take'" in ajax_source
-    assert "'camera_url'" in ajax_source
+    # Assert: precise Frigate-camera filter beyond the generic tag
+    assert "info_detect_person" in ajax_source
+    assert "info_url_snapshot" in ajax_source
 
 
-def test_get_camera_commands_includes_id_and_label(ajax_source: str) -> None:
+def test_get_frigate_cameras_returns_single_list(ajax_source: str) -> None:
     """
-    Each camera command entry must include id (for persistence) and label
+    Response is a single 'cameras' list (ADR-17 simplification: one dropdown,
+    not the old camera_take/camera_url pair).
+
+    Expected result:
+    - Response structure with a single cameras key
+    """
+    # Assert: unified camera list in response
+    assert "'cameras'" in ajax_source
+
+
+def test_get_frigate_cameras_includes_id_and_label(ajax_source: str) -> None:
+    """
+    Each camera entry must include id (for persistence) and label
     (for display in dropdown).
 
     Expected result:
-    - 'id' and 'label' keys in format closure
+    - 'id' and 'label' keys in the response construction
     """
-    # Assert: command entries have id and label
+    # Assert: camera entries have id and label
     assert "'id'" in ajax_source
     assert "'label'" in ajax_source
-
-
-def test_get_camera_commands_label_includes_eq_name(ajax_source: str) -> None:
-    """
-    Label must include the parent eqLogic name for disambiguation
-    (multiple cameras may have same command name).
-
-    Expected result:
-    - getEqLogic()->getName() concatenated with command name
-    """
-    # Assert: equipment name in label
-    assert "getEqLogic" in ajax_source
-    assert "getName" in ajax_source
-
-
-def test_get_camera_commands_filters_null_entries(ajax_source: str) -> None:
-    """
-    array_filter must remove null entries (from commands with no valid eqLogic).
-
-    Expected result:
-    - array_filter call in response construction
-    """
-    # Assert: null entries filtered out
-    assert "array_filter" in ajax_source
 
 
 # ── Error Handling ─────────────────────────────────────────────────────────────

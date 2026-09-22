@@ -109,21 +109,34 @@ try {
         ajax::success(['zones' => array_column($zones, 'name')]);
     }
 
-    if (init('action') == 'getCameraCommands') {
-        $format = function ($cmd) {
-            $eqLogic = $cmd->getEqLogic();
+    if (init('action') == 'getFrigateCameras') {
+        // ADR-17 simplification: a zone maps to one Frigate camera equipment — everything else
+        // (info_detect_person, info_url_snapshot) is derived by logicalId at alarm time, never
+        // stored separately. CAMERA_TAKE is plugin-agnostic (any camera plugin can tag it), so
+        // candidates are filtered to equipments that also expose both Frigate-specific commands.
+        $cameras = [];
+        $seenEqLogicIds = [];
+        foreach (cmd::byGenericType('CAMERA_TAKE') ?? [] as $takeCmd) {
+            $eqLogic = $takeCmd->getEqLogic();
             if (!is_object($eqLogic)) {
-                return null;
+                continue;
             }
-            return [
-                'id'    => (int) $cmd->getId(),
-                'label' => $eqLogic->getName() . ' > ' . $cmd->getName(),
+            $eqLogicId = $eqLogic->getId();
+            if (isset($seenEqLogicIds[$eqLogicId])) {
+                continue;
+            }
+            $seenEqLogicIds[$eqLogicId] = true;
+            $detectCmd = cmd::byLogicalId('info_detect_person', $eqLogicId, false);
+            $snapshotCmd = cmd::byLogicalId('info_url_snapshot', $eqLogicId, false);
+            if ($detectCmd === null || $snapshotCmd === null) {
+                continue;
+            }
+            $cameras[] = [
+                'id'    => (int) $eqLogicId,
+                'label' => $eqLogic->getName(),
             ];
-        };
-        ajax::success([
-            'camera_take' => array_values(array_filter(array_map($format, cmd::byGenericType('CAMERA_TAKE') ?? []))),
-            'camera_url'  => array_values(array_filter(array_map($format, cmd::byGenericType('CAMERA_URL') ?? []))),
-        ]);
+        }
+        ajax::success(['cameras' => $cameras]);
     }
 
     if (init('action') == 'getDiagnosticData') {

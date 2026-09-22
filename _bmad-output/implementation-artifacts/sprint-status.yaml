@@ -29,7 +29,7 @@
 # - SM typically creates next story ONLY after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then Dev runs code-review (fresh context, ideally different LLM)
 
-last_updated: "2026-09-22" # Story 14-1 registered (ADR-17, Frigate snapshot attachment) → ready-for-dev; epic-14 backlog→in-progress
+last_updated: "2026-09-22" # Story 14-1 Tasks 1-3 implemented → ready-for-dev → in-progress; Task 4 (live host validation) pending
 generated: "2026-05-04"
 project: "my-project"
 project_key: "NOKEY"
@@ -144,7 +144,7 @@ development_status:
 
   # Epic 14: Camera Snapshot Attachment (Frigate Integration)
   epic-14: in-progress  # registered 2026-09-22 per ADR-17 (architecture.md) — Option A, majority-case-only
-  14-1-attach-frigate-snapshot-alarm-frame: ready-for-dev  # ADR-17 decision: Frigate plugin's own commands only, person-already-detected case only; fallback/clip/Option B explicitly deferred
+  14-1-attach-frigate-snapshot-alarm-frame: in-progress  # Tasks 1-3 done (zone mapping simplified, media_url wired into execute(), Level 1 tests green, 0 regressions). Task 4 (live host validation) pending push + Herve's verification
   epic-14-retrospective: optional
 
 # Summary Statistics
@@ -187,6 +187,8 @@ development_status:
 # stories_backlog unchanged at 4 (13-2 added, 11-2/11-4/12-8 unchanged), total_stories 52→53)
 # Updated: 2026-09-22 (14-1 registered per ADR-17, epic-14 created backlog→in-progress on first story;
 # total_epics 13→14, total_stories 53→54, stories_ready_for_dev 2→3)
+# Updated: 2026-09-22 (14-1 Tasks 1-3 implemented → ready-for-dev → in-progress;
+# stories_ready_for_dev 3→2, stories_in_progress 4→5)
 summary:
   total_epics: 14
   total_stories: 54
@@ -194,7 +196,7 @@ summary:
   epics_in_progress: 5
   epics_done: 9
   stories_backlog: 4
-  stories_ready_for_dev: 3
-  stories_in_progress: 4
+  stories_ready_for_dev: 2
+  stories_in_progress: 5
   stories_review: 0
   stories_done: 43

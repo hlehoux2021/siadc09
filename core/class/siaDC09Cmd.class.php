@@ -39,11 +39,20 @@ class siaDC09Cmd extends cmd {
                 // context and the inspector; only zone_number reaches the SIA frame.
                 $zone = trim($_options['title'] ?? '');
                 $zoneNumber = $this->_resolveZoneNumber($zone);
-                siaDC09::sendToDaemon([
+                $payload = [
                     'cmd'         => $logicalId,
                     'zone'        => $zone !== '' ? $zone : null,
                     'zone_number' => $zoneNumber,
-                ]);
+                ];
+                // ADR-17: majority case only — a person already detected by Frigate before the
+                // alarm fired. Key is omitted entirely (not set to null) when unavailable, so a
+                // missing camera/plugin never changes the payload shape sent to the daemon.
+                $zoneEntry = $this->_findZoneEntry($zone, $this->_getZoneMapping()) ?? [];
+                $snapshotUrl = $this->_resolveFrigateSnapshotUrl($zoneEntry);
+                if ($snapshotUrl !== null) {
+                    $payload['media_url'] = $snapshotUrl;
+                }
+                siaDC09::sendToDaemon($payload);
                 $this->_recordOpenAlarm($logicalId, $zone !== '' ? $zone : null, $zoneNumber);
                 break;
         }
@@ -113,6 +122,36 @@ class siaDC09Cmd extends cmd {
         log::add('siaDC09', 'warning', 'Zone "' . $zone . '" '
             . __('absente de la table des zones — trame envoyée sans numéro de zone', __FILE__));
         return null;
+    }
+
+    /**
+     * ADR-17 (majority case only): if the zone's mapped Frigate camera already has an active
+     * `info_detect_person` (person caught before the alarm fired), returns its `info_url_snapshot`
+     * value — live, via execCmd() (getValue() is frozen forever for these info cmds, per project
+     * memory jeedom-info-cmd-execcmd-vs-getvalue). Returns null for every other case (no camera
+     * mapped, plugin/commands absent, no active detection) — never throws. The fallback
+     * create-event case and clip attachment are explicitly out of scope (deferred in ADR-17).
+     */
+    private function _resolveFrigateSnapshotUrl(array $zoneEntry): ?string {
+        try {
+            $eqLogicId = $zoneEntry['frigate_camera_eqlogic_id'] ?? null;
+            if (empty($eqLogicId)) {
+                return null;
+            }
+            $detectCmd = cmd::byLogicalId('info_detect_person', (int) $eqLogicId, false);
+            if ($detectCmd === null || (int) $detectCmd->execCmd() !== 1) {
+                return null;
+            }
+            $snapshotCmd = cmd::byLogicalId('info_url_snapshot', (int) $eqLogicId, false);
+            if ($snapshotCmd === null) {
+                return null;
+            }
+            $url = $snapshotCmd->execCmd();
+            return is_string($url) && $url !== '' ? $url : null;
+        } catch (\Throwable $e) {
+            log::add('siaDC09', 'warning', 'Résolution du snapshot Frigate échouée : ' . $e->getMessage());
+            return null;
+        }
     }
 
     private function _getZoneMapping(): array {

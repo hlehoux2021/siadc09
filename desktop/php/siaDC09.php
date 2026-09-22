@@ -291,14 +291,16 @@ $scenarios = scenario::all();
 									<div id="siaDC09-step3-nozone" class="alert alert-warning" style="display:none;">
 										<i class="fas fa-exclamation-triangle"></i> {{Aucune zone détectée — configurez d'abord votre plugin alarme.}}
 									</div>
+									<div id="siaDC09-step3-nocamera" class="alert alert-warning" style="display:none;">
+										<i class="fas fa-exclamation-triangle"></i> {{Aucune caméra Frigate détectée — installez et configurez le plugin Frigate NVR pour rattacher un aperçu aux alarmes.}}
+									</div>
 									<div class="table-responsive">
 										<table id="siaDC09-zone-table" class="table table-bordered table-condensed">
 											<thead>
 												<tr>
 													<th style="width:60px;">{{N°}}</th>
 													<th>{{Zone d'alarme}}</th>
-													<th>{{Action caméra}} <small class="text-muted">{{(optionnel)}}</small></th>
-													<th>{{URL média}} <small class="text-muted">{{(optionnel)}}</small></th>
+													<th>{{Caméra Frigate}} <small class="text-muted">{{(optionnel)}}</small></th>
 												</tr>
 											</thead>
 											<tbody id="siaDC09-zone-tbody">

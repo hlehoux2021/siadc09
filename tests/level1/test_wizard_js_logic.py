@@ -271,30 +271,31 @@ def test_zone_row_has_zone_name_data_attribute(js_source: str) -> None:
     assert "data-zone-name" in js_source
 
 
-def test_zone_mapping_includes_camera_fields(js_source: str) -> None:
+def test_zone_mapping_includes_frigate_camera_field(js_source: str) -> None:
     """
-    Zone mapping serialization must include camera_action_cmd_id and
-    media_url_cmd_id for each zone row.
+    Zone mapping serialization must include frigate_camera_eqlogic_id for each
+    zone row (ADR-17 simplification: story 14.1 replaced the separate
+    camera_action_cmd_id/media_url_cmd_id pair with a single camera-equipment
+    reference — info_detect_person/info_url_snapshot are derived by logicalId
+    at alarm time, never stored).
 
     Expected result:
-    - Both camera field keys present in mapping object construction
+    - frigate_camera_eqlogic_id key present in mapping object construction
     """
-    # Assert: camera fields serialized
-    assert "camera_action_cmd_id" in js_source
-    assert "media_url_cmd_id" in js_source
+    # Assert: single camera-equipment field serialized
+    assert "frigate_camera_eqlogic_id" in js_source
 
 
-def test_zone_mapping_includes_labels(js_source: str) -> None:
+def test_zone_mapping_includes_frigate_camera_label(js_source: str) -> None:
     """
-    Zone mapping must include denormalized labels (camera_action_cmd_label,
-    media_url_cmd_label) for config summary display without AJAX lookups.
+    Zone mapping must include a denormalized frigate_camera_label for config
+    summary display without AJAX lookups (ADR-17 simplification).
 
     Expected result:
-    - Label fields present in mapping object
+    - Label field present in mapping object
     """
-    # Assert: labels denormalized in mapping
-    assert "camera_action_cmd_label" in js_source
-    assert "media_url_cmd_label" in js_source
+    # Assert: label denormalized in mapping
+    assert "frigate_camera_label" in js_source
 
 
 # ── Step 4: Notification Command Picker ───────────────────────────────────────

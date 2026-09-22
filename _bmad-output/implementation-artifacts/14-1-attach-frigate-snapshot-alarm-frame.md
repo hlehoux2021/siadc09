@@ -3,13 +3,13 @@ story_id: "14-1"
 story_key: "14-1-attach-frigate-snapshot-alarm-frame"
 epic_id: "epic-14"
 epic_name: "Camera Snapshot Attachment (Frigate Integration)"
-status: "ready-for-dev"
+status: "in-progress"
 created: "2026-09-22"
 ---
 
 # Story 14.1: Attach Frigate Snapshot to Alarm Frame (Majority Case Only)
 
-Status: ready-for-dev
+Status: in-progress
 
 ## Story
 
@@ -66,45 +66,45 @@ camera missed the person), clip/video attachment, and the independent MQTT/REST 
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Simplify zone mapping schema and wizard UI (AC: 1, 2)
-  - [ ] 1.1 Add a `frigate_camera_eqlogic_id` field to each `sia_zone_mappings` entry (replacing
-        `camera_action_cmd_id`/`camera_action_cmd_label`/`media_url_cmd_id`/`media_url_cmd_label`, which are
-        currently dead data — never read by any PHP code per this story's Dev Notes below).
-  - [ ] 1.2 Add a new AJAX action (e.g. `getFrigateCameras`) in `core/ajax/siaDC09.ajax.php` that lists candidate
-        camera equipments — discover via the equipment owning the command found by
-        `cmd::byGenericType('CAMERA_TAKE')` filtered to those whose eqLogic also has an `info_detect_person`
-        AND `info_url_snapshot` command by logicalId (see Dev Notes: this is stricter than the existing
-        plugin-agnostic `getCameraCommands`, since it must resolve to a real Frigate camera, not any
-        CAMERA_TAKE-tagged command).
-  - [ ] 1.3 Update the Step 3 zone mapping table in `desktop/php/siaDC09.php` / `desktop/js/siaDC09.js`: replace
-        the two `<select>` dropdowns (Action caméra / URL média) with a single "Caméra Frigate" dropdown per
-        zone, populated from `getFrigateCameras`.
-  - [ ] 1.4 On save, if a zone has no matching camera in the discovered list (plugin absent, wrong version), show
-        a warning banner but do not block "Suivant"/save — matches 8-2's "no alarm plugin zones" warning pattern.
+- [x] Task 1: Simplify zone mapping schema and wizard UI (AC: 1, 2)
+  - [x] 1.1 Added `frigate_camera_eqlogic_id` (+ denormalized `frigate_camera_label` for display) to each
+        `sia_zone_mappings` entry, replacing `camera_action_cmd_id`/`camera_action_cmd_label`/`media_url_cmd_id`/
+        `media_url_cmd_label` (deleted — dead data, never read by any PHP code).
+  - [x] 1.2 Added `getFrigateCameras` AJAX action in `core/ajax/siaDC09.ajax.php`: candidates from
+        `cmd::byGenericType('CAMERA_TAKE')`, filtered to equipments that also expose `info_detect_person` AND
+        `info_url_snapshot` by logicalId. Deleted `getCameraCommands` (dead code once nothing called it).
+  - [x] 1.3 Step 3 zone table (`desktop/php/siaDC09.php` / `desktop/js/siaDC09.js`): replaced the two
+        `<select>` dropdowns with a single "Caméra Frigate" dropdown per zone, populated from
+        `getFrigateCameras`.
+  - [x] 1.4 Added `#siaDC09-step3-nocamera` warning banner (shown when the discovered camera list is empty or
+        the AJAX call fails) — non-blocking, mirrors 8-2's "no alarm plugin zones" pattern.
 
-- [ ] Task 2: Derive Frigate commands and resolve `media_url` at alarm time (AC: 3, 4, 5, 6)
-  - [ ] 2.1 Add a PHP helper (e.g. `siaDC09::_resolveFrigateSnapshot(string $zone): ?string`) that: looks up the
-        zone's mapping entry (reuse `_findZoneEntry()` pattern from `siaDC09Cmd.class.php:105-145`), reads
-        `frigate_camera_eqlogic_id`, and if present, resolves `info_detect_person` and `info_url_snapshot` via
-        `cmd::byLogicalId('info_detect_person', $eqLogicId)` / `cmd::byLogicalId('info_url_snapshot', $eqLogicId)`.
-  - [ ] 2.2 If `info_detect_person` exists and `execCmd()` returns `1`: read `info_url_snapshot->execCmd()` and
-        return it. Otherwise (any other state, or any command/equipment missing) return `null` — no exception
-        ever escapes this helper.
-  - [ ] 2.3 Wrap the whole helper body in a broad `try/catch` that logs a warning and returns `null` on any
-        failure — this is the AC5 guarantee; the alarm path must be unconditionally safe.
-  - [ ] 2.4 In `siaDC09Cmd::execute()` (`core/class/siaDC09Cmd.class.php:31-50`), call the helper after
-        `_resolveZoneNumber()` and, only if it returns non-null, add `'media_url' => $snapshotUrl` to the
-        `sendToDaemon()` payload array (key omitted entirely when null — do not send `'media_url' => null`).
+- [x] Task 2: Derive Frigate commands and resolve `media_url` at alarm time (AC: 3, 4, 5, 6)
+  - [x] 2.1 Added `siaDC09Cmd::_resolveFrigateSnapshotUrl(array $zoneEntry): ?string` that reads
+        `frigate_camera_eqlogic_id` and resolves `info_detect_person`/`info_url_snapshot` via
+        `cmd::byLogicalId(..., $eqLogicId, false)`.
+  - [x] 2.2 Returns `info_url_snapshot->execCmd()` only if `info_detect_person->execCmd() === 1`; `null`
+        otherwise (any other state, or any command/equipment missing).
+  - [x] 2.3 Whole body wrapped in `try/catch (\Throwable $e)`, logs a warning, returns `null` on any failure.
+  - [x] 2.4 `execute()` calls the helper after `_resolveZoneNumber()`; `media_url` key added to the
+        `sendToDaemon()` payload only when non-null (key omitted, never sent as literal `null`).
 
-- [ ] Task 3: Level 1 tests (AC: 5)
-  - [ ] 3.1 Test `_resolveFrigateSnapshot()` via PHP structure/regex tests (following the `test_php_eqlogic_stub.py`
-        pattern already used in this repo) for: person detected → URL returned; not detected → null; camera
-        eqLogic missing → null, no throw; `info_detect_person`/`info_url_snapshot` cmd missing on the equipment →
-        null, no throw.
-  - [ ] 3.2 Test that `sendToDaemon()`'s payload omits the `media_url` key entirely (not `null`) in the
-        fallback/absent cases, and includes it only in the detected case.
-  - [ ] 3.3 `php -l` on all modified PHP files; `python3 -m pytest tests/level1/` — compare against the known
-        2-failure baseline (memory `level1-test-baseline-failures`).
+- [x] Task 3: Level 1 tests (AC: 5)
+  - [x] 3.1 `tests/level1/test_frigate_snapshot_resolution.py` (new): structural/regex tests for
+        `_resolveFrigateSnapshotUrl()` (exists, reads `frigate_camera_eqlogic_id`, resolves both commands by
+        logicalId, never touches `info_url_clip`, uses `execCmd()` never `getValue()`, wrapped in try/catch,
+        `?string` return type) and for `getFrigateCameras` (exists, starts from `CAMERA_TAKE`, filters by both
+        Frigate-specific commands, single `cameras` list). TDD RED→GREEN for all of it.
+  - [x] 3.2 Test that `execute()`'s alarm case adds `media_url` conditionally, not as a literal key in the base
+        payload array.
+  - [x] 3.3 `php -l` clean on all modified PHP files; `node --check` clean on `siaDC09.js`. Full
+        `tests/level1/` suite: 1115 passed / 8 failed — identical to the pre-existing baseline (2 known + 6
+        known-RED from story 13-1's in-progress fan-out work, unrelated to this story). Updated 2 pre-existing
+        tests that asserted on the deleted `camera_action_cmd_id`/`media_url_cmd_id` JS fields
+        (`test_wizard_js_logic.py`) and replaced the obsolete "getCameraCommands Action" test section (6 tests)
+        with a "getFrigateCameras Action" section in `test_wizard_ajax_contracts.py`, plus updated
+        `_AJAX_ACTIONS` in `test_wizard_config_key_consistency.py` — all following the deletion of the now-dead
+        `getCameraCommands` handler. 0 regressions.
 
 - [ ] Task 4: Live validation on the Jeedom test host (AC: 2, 7)
   - [ ] 4.1 Deploy (git push then pull on the host — code arrives by git pull, per memory
@@ -234,18 +234,56 @@ reflection-based "should work" is not acceptable for this AC.
 
 ### Implementation Plan
 
-_Not yet started._
+Implemented Tasks 1-3 in dependency order: PHP resolver + `execute()` wiring first (Task 2, since it's the
+core alarm-path behavior and independently testable), then the AJAX discovery action and wizard UI
+simplification (Task 1), with Level 1 tests written red-first for each piece (Task 3 interleaved, not a
+separate pass at the end).
+
+`_resolveFrigateSnapshotUrl()` deliberately duplicates the `_findZoneEntry()` lookup already done by
+`_resolveZoneNumber()` inside `execute()`, rather than refactoring `_resolveZoneNumber()` to accept a
+pre-fetched entry — kept the two resolutions (zone number vs. Frigate snapshot) independent so a failure in
+one can never affect the other, at the cost of one small redundant array scan per alarm (negligible: zone
+mappings are a handful of entries).
+
+`getCameraCommands` was deleted rather than kept alongside the new `getFrigateCameras` action: once the
+wizard stopped calling it, it had zero callers — dead code per project convention — and the story's own
+Dev Notes draft had originally argued to keep it "for a future non-Frigate camera story," but that's exactly
+the kind of speculative code the project avoids. If a future story needs generic camera support again, it can
+be re-added then with a real caller.
 
 ### Completion Notes
 
-_Not yet started._
+- Tasks 1-3 complete: zone mapping simplified to a single Frigate-camera pick, `media_url` resolution wired
+  into the alarm-trigger path (majority case only, per ADR-17), Level 1 tests green.
+- `php -l` clean on `core/class/siaDC09Cmd.class.php`, `core/ajax/siaDC09.ajax.php`, `desktop/php/siaDC09.php`.
+  `node --check` clean on `desktop/js/siaDC09.js`.
+- Full `tests/level1/` suite: 1115 passed / 8 failed — identical to the pre-existing baseline (2 known +
+  6 known-RED from story 13-1's in-progress fan-out work, confirmed unrelated by inspection). 0 regressions
+  from this story's changes.
+- **Task 4 (live validation on `test-jeedom.lehoux.net`) is NOT done** — per memory
+  `jeedom-ui-validation-over-reflection`, acceptance requires validating on the real dashboard with a real
+  Frigate camera, and per `jeedom-test-host-deploy` the code must be pushed first so the host can `git pull`.
+  Awaiting push + Herve's verification of: zone mapping shows the new single-camera dropdown with a real
+  Frigate camera; an alarm fired while Frigate has an active person detection carries a working snapshot URL
+  in the SIA frame's `[V...]` field (protocol inspector); an alarm fired with no active detection sends
+  normally with no `media_url` and no delay.
 
 ### File List
 
-_Not yet started._
+| File | Change |
+|------|--------|
+| `core/class/siaDC09Cmd.class.php` | Added `_resolveFrigateSnapshotUrl()`; wired conditional `media_url` into `execute()`'s alarm-trigger payload. |
+| `core/ajax/siaDC09.ajax.php` | Added `getFrigateCameras` action; deleted `getCameraCommands` (dead code, no remaining callers). |
+| `desktop/php/siaDC09.php` | Step 3 zone table: merged two camera/media columns into one "Caméra Frigate" column; added `#siaDC09-step3-nocamera` warning banner. |
+| `desktop/js/siaDC09.js` | `saveEqLogic()`, `siaDC09_loadZoneData()`, `siaDC09_loadZoneTable()`, `siaDC09_buildZoneRow()`, `siaDC09_populateConfigSummary()` updated for the single-camera schema (`frigate_camera_eqlogic_id`/`frigate_camera_label`) and the new `getFrigateCameras` AJAX action. |
+| `tests/level1/test_frigate_snapshot_resolution.py` | New — structural tests for `_resolveFrigateSnapshotUrl()`, `getFrigateCameras`, and the conditional `media_url` wiring in `execute()`. |
+| `tests/level1/test_wizard_js_logic.py` | Updated 2 tests that asserted on the deleted `camera_action_cmd_id`/`media_url_cmd_id`/labels JS fields to assert on `frigate_camera_eqlogic_id`/`frigate_camera_label` instead. |
+| `tests/level1/test_wizard_ajax_contracts.py` | Replaced the obsolete 6-test "getCameraCommands Action" section with a 5-test "getFrigateCameras Action" section. |
+| `tests/level1/test_wizard_config_key_consistency.py` | `_AJAX_ACTIONS`: `getCameraCommands` → `getFrigateCameras`. |
 
 ## Change Log
 
 | Date | Change |
 |------|--------|
 | 2026-09-22 | Story created from ADR-17 (Option A, majority-case-only Frigate snapshot attachment), following an adversarial review and a Winston/Amelia/John party-mode architecture discussion. |
+| 2026-09-22 | Tasks 1-3 implemented: zone mapping simplified to a single Frigate-camera pick, `media_url` resolution wired into the alarm-trigger path, Level 1 tests green (0 regressions). Task 4 (live host validation) pending push + Herve's verification. Status `ready-for-dev → in-progress`. |

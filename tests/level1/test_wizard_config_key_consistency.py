@@ -294,7 +294,7 @@ def test_zone_mappings_key_in_summary(js_source: str) -> None:
 
 # ── AJAX actions: JS callers ↔ PHP handlers ────────────────────────────────────
 
-_AJAX_ACTIONS = ["testConnection", "getZones", "getCameraCommands"]
+_AJAX_ACTIONS = ["testConnection", "getZones", "getFrigateCameras"]
 
 
 @pytest.mark.parametrize("action", _AJAX_ACTIONS)
