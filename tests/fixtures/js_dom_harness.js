@@ -51,7 +51,7 @@ const $ = window.$
 // Stub unavailable jQuery plugins / Jeedom APIs
 $.fn.sortable = function() { return this }
 $.fn.showAlert = function() { return this }
-$.ajax = function() {}
+$.ajax = function(opts) { window.__lastAjaxOpts = opts }
 window.jeedomUtils = { saveEquipment: function() {} }
 
 // Load the diagnostic section of siaDC09.js — everything above it needs jQuery UI.
@@ -111,6 +111,12 @@ function runScenario(scenario) {
       const $detail = window.$('<div class="sia-msg-detail">')
       window.$('#siaDC09_inspectorList').append($detail)
       fn.apply(window, [$detail].concat(scenario.args || []))
+      returnValue = null
+    } else if (scenario.fn === 'siaDC09_loadDiagnosticData') {
+      // $.ajax is stubbed to capture its options; call the function, then
+      // manually invoke the captured success callback with the scenario's fake payload.
+      fn.apply(window, scenario.args || [])
+      window.__lastAjaxOpts.success({ result: scenario.ajax_result || {} })
       returnValue = null
     } else {
       returnValue = fn.apply(window, scenario.args || [])

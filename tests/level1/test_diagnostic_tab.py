@@ -390,23 +390,31 @@ class TestJsBadgeRendering:
 
     def test_render_badge_sets_dot_color(self, js_source: str) -> None:
         """
-        renderBadge must set the color CSS on the badge dot element.
+        renderBadge must set the color CSS on the badge dot element, via the
+        shared siaDC09_renderStateBadge helper (also used by renderEventBadge).
 
         Expected result:
-        - siaDC09_badgeDot color style manipulation present
+        - siaDC09_renderBadge passes the badge dot id to siaDC09_renderStateBadge
+        - siaDC09_renderStateBadge itself performs the color style manipulation
         """
-        # Assert: dot color set (single-line match inside renderBadge body)
-        assert re.search(r"siaDC09_badgeDot.*?css\('color'", js_source)
+        # Assert: renderBadge wires the dot id into the shared helper
+        assert re.search(r"siaDC09_renderStateBadge\('#siaDC09_badgeDot'", js_source)
+        # Assert: the shared helper sets dot color
+        assert re.search(r"\$\(dotId\)\.css\('color'", js_source)
 
     def test_render_badge_sets_label_text(self, js_source: str) -> None:
         """
-        renderBadge must set the text of the badge label element.
+        renderBadge must set the text of the badge label element, via the
+        shared siaDC09_renderStateBadge helper (also used by renderEventBadge).
 
         Expected result:
-        - siaDC09_badgeLabel text manipulation present
+        - siaDC09_renderBadge passes the badge label id to siaDC09_renderStateBadge
+        - siaDC09_renderStateBadge itself performs the label text manipulation
         """
-        # Assert: label text set (single-line match inside renderBadge body)
-        assert re.search(r"siaDC09_badgeLabel.*?\.text\(", js_source)
+        # Assert: renderBadge wires the label id into the shared helper
+        assert re.search(r"siaDC09_renderStateBadge\('#siaDC09_badgeDot',\s*'#siaDC09_badgeLabel'", js_source)
+        # Assert: the shared helper sets label text
+        assert re.search(r"\$\(labelId\)\.text\(", js_source)
 
 
 # ── JS Error Panel Rendering ─────────────────────────────────────────────────
@@ -932,8 +940,9 @@ class TestDataFlowBadgeErrorsInspector:
         assert re.search(r"_siaDC09_badgeColors\s*=\s*\{[^}]*\b2\s*:", js_source, re.DOTALL)
         assert re.search(r"_siaDC09_badgeColors\s*=\s*\{[^}]*\b1\s*:", js_source, re.DOTALL)
         assert re.search(r"_siaDC09_badgeColors\s*=\s*\{[^}]*\b0\s*:", js_source, re.DOTALL)
-        # Assert: fallback to a default when state is unknown
-        pattern = r"_siaDC09_badgeColors\[.*?\]\s*\|\|"
+        # Assert: fallback to a default when state is unknown (now in the shared
+        # siaDC09_renderStateBadge helper, generic over colorMap/fallbackKey)
+        pattern = r"colorMap\[s\]\s*\|\|\s*colorMap\[fallbackKey\]"
         assert re.search(pattern, js_source)
 
     def test_tier_map_covers_all_six_error_codes(self, js_source: str) -> None:

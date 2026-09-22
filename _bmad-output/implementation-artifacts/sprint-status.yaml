@@ -29,7 +29,7 @@
 # - SM typically creates next story ONLY after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then Dev runs code-review (fresh context, ideally different LLM)
 
-last_updated: "2026-09-21" # Story 7-2 AC19-21 amendment code-reviewed → done; epic-7 closed
+last_updated: "2026-09-22" # Story 9-1 AC11 amendment code-reviewed → done; epic-9 closed
 generated: "2026-05-04"
 project: "my-project"
 project_key: "NOKEY"
@@ -103,8 +103,8 @@ development_status:
   epic-8-retrospective: optional
 
   # Epic 9: Debug UI & Diagnostics Panel
-  epic-9: in-progress  # reopened 2026-09-18 for the 9-1 SM2 event-badge amendment
-  9-1-status-badge-error-panel: review  # amendment 2026-09-18: AC11/Task 9 — SM2 event badge added to Diagnostic tab (event_state/event_label wired into a second badge row); AC1-AC10 stay done. 8 new tests, 0 regressions (1077 passed / 2 pre-existing failures)
+  epic-9: done  # closed 2026-09-22 after the 9-1 AC11 amendment code review completed
+  9-1-status-badge-error-panel: done  # amendment 2026-09-18: AC11/Task 9 — SM2 event badge added to Diagnostic tab (event_state/event_label wired into a second badge row); AC1-AC10 stay done. Code-reviewed 2026-09-22: 5 patches applied (shared siaDC09_renderStateBadge helper, AJAX-wiring tests, <br/> → div layout), 6 deferred (D-43-D-48), 6 dismissed. 0 regressions (1094 passed / 2 pre-existing failures)
   9-2-protocol-inspector-hex-viewer-decryption: done
   9-3-diagnostic-tab-integration-testing: done
   epic-9-retrospective: optional
@@ -165,6 +165,11 @@ development_status:
 # in-progress 4→3, review 0→1)
 # Updated: 2026-09-21 (7-2 code-reviewed and closed → review → done; epic-7 all stories done → epic-7 closed;
 # review 1→0, done 42→43, epics_in_progress 4→3, epics_done 8→9)
+# Updated: 2026-09-22 (this block was already stale before this edit — it showed done:43/review:0/epics_done:9/
+# epics_in_progress:3 as if 9-1 and epic-9 were already closed, but the status lines above still had
+# 9-1:review and epic-9:in-progress; actual pre-edit tally recounted from the status lines was
+# done:42/review:1/epics_done:8/epics_in_progress:4. Now 9-1 code-reviewed and closed → review → done;
+# epic-9 (9-1/9-2/9-3 all done) → closed: review 1→0, done 42→43, epics_in_progress 4→3, epics_done 8→9)
 summary:
   total_epics: 13
   total_stories: 52

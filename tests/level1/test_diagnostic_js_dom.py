@@ -362,6 +362,35 @@ class TestRenderEventBadge:
         # Assert: null label → empty string
         assert r["text"] == ""
 
+    def test_load_diagnostic_data_wires_event_state_into_event_badge(self) -> None:
+        """
+        siaDC09_loadDiagnosticData's AJAX success handler must extract
+        result.event_state/result.event_label and forward them to
+        siaDC09_renderEventBadge, not just siaDC09_renderBadge.
+
+        Expected result:
+        - dot color == rgb(92, 184, 92) [#5cb85c, CONFIRMED] from the mocked payload
+        """
+        r = _one({"fn": "siaDC09_loadDiagnosticData",
+                  "ajax_result": {"event_state": 1, "event_label": "Confirmé"},
+                  "query": "#siaDC09_eventBadgeDot"})
+        # Assert: end-to-end wiring reaches the event badge, not just the direct call path
+        assert r["style"]["color"] == "rgb(92, 184, 92)"
+
+    def test_load_diagnostic_data_missing_event_state_falls_back_to_grey(self) -> None:
+        """
+        event_state/event_label missing entirely from the AJAX payload (undefined,
+        not explicit null) must still fall back to grey without crashing.
+
+        Expected result:
+        - dot color == rgb(119, 119, 119) [#777777 fallback]
+        """
+        r = _one({"fn": "siaDC09_loadDiagnosticData",
+                  "ajax_result": {"supervision_state": 2, "supervision_label": "OK"},
+                  "query": "#siaDC09_eventBadgeDot"})
+        # Assert: missing key (not just null) still falls back to grey
+        assert r["style"]["color"] == "rgb(119, 119, 119)"
+
 
 # ── renderErrors ──────────────────────────────────────────────────────────────
 

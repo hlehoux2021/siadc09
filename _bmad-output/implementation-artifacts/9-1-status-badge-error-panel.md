@@ -7,7 +7,7 @@
 > `siaDC09_renderEventBadge()` function. Status reopened `done → in-progress → review` for AC11/Task 9
 > only; AC1–AC10 stay done.
 
-Status: review
+Status: done
 
 ## Story
 
@@ -317,6 +317,7 @@ passing, 0 regressions. `php -l desktop/php/siaDC09.php` clean.
 
 - 2026-05-18: Story 9-1 implementation complete — all 8 tasks done, 42 tests passing, 863 total Level 1 tests green
 - 2026-09-18: **Amendment — SM2 event badge on Diagnostic tab (AC11, Task 9).** Reopened `done → in-progress`. Wired the already-fetched `event_state`/`event_label` into a second badge row using a new `_siaDC09_eventBadgeColors` map + `siaDC09_renderEventBadge()`. 8 new Level 1 tests (`TestRenderEventBadge`), TDD RED→GREEN. Full suite: 1077 passed / 2 failed, identical to pre-existing baseline (0 regressions). `php -l` clean. Status `in-progress → review`.
+- 2026-09-22: **Code review of the AC11/Task 9 amendment.** 3 layers (Blind Hunter, Edge Case Hunter, Acceptance Auditor — AC11 fully satisfied, zero spec violations) + `/jeedom-plugin` domain check. 5 patches applied: parseInt radix fix (subsumed into a new shared `siaDC09_renderStateBadge` helper extracted from `siaDC09_renderBadge`/`siaDC09_renderEventBadge`), two new tests covering the actual `siaDC09_loadDiagnosticData` AJAX wiring (harness now captures `$.ajax` options), and the `<br/>` badge layout replaced with wrapping `<div>`s. Updated 3 pre-existing structural tests in `test_diagnostic_tab.py` that asserted on the old inline pattern. 6 items deferred as pre-existing (D-43–D-48, shared with the SM1 badge), 6 dismissed as noise/spec-conforming. Full suite: 1094 passed / 2 failed, identical to pre-existing baseline (0 regressions). `php -l` clean. Status `review → done`.
 
 ### Review Findings
 
@@ -338,3 +339,22 @@ passing, 0 regressions. `php -l desktop/php/siaDC09.php` clean.
 - [x] [Review][Defer] **`_siaDC09_decodeCache` unbounded growth** [`desktop/js/siaDC09.js`] — deferred, 9-2 scope; track for 9-2 review (D-22)
 - [x] [Review][Defer] **Inspector detail panel lost after re-render while AJAX decode in-flight** [`desktop/js/siaDC09.js`] — deferred, 9-2 scope (D-23)
 - [x] [Review][Defer] **`siaDC09_copyHexFallback` — `$ta` not removed on `select()` throw** [`desktop/js/siaDC09.js`] — deferred, 9-2 scope (D-24)
+
+### Review Findings — AC11/Task 9 amendment (2026-09-22)
+
+- [x] [Review][Patch] **P5 — `parseInt(eventState)` called without a radix argument** [`desktop/js/siaDC09.js:857`] — Fixed: subsumed by P9's shared helper, which calls `parseInt(state, 10)`.
+- [x] [Review][Patch] **P6 — No test exercises the actual AJAX wiring in `siaDC09_loadDiagnosticData`** [`tests/level1/test_diagnostic_js_dom.py`] — Fixed: harness now captures `$.ajax` options (`window.__lastAjaxOpts`) and a new test drives `siaDC09_loadDiagnosticData`'s success callback end-to-end.
+- [x] [Review][Patch] **P7 — No test for `event_state`/`event_label` absent from the payload (`undefined`)** [`tests/level1/test_diagnostic_js_dom.py`] — Fixed: added `test_load_diagnostic_data_missing_event_state_falls_back_to_grey`.
+- [x] [Review][Patch] **P8 — Event badge stacked with a bare `<br/>` instead of a row/column wrapper** [`desktop/php/siaDC09.php:439`] — Fixed: each badge now wrapped in its own `<div>`.
+- [x] [Review][Patch] **P9 — `siaDC09_renderEventBadge` duplicates `siaDC09_renderBadge`'s parseInt+isNaN+lookup+jQuery-update logic verbatim** [`desktop/js/siaDC09.js`] — Fixed: extracted shared `siaDC09_renderStateBadge(dotId, labelId, state, label, colorMap, fallbackKey)` helper; both badges now call it. Updated the 3 pre-existing structural regex tests in `test_diagnostic_tab.py` that asserted on the old inline pattern (0 net regressions — full Level 1 suite: 1094 passed / 2 pre-existing failures, same baseline as before this review).
+
+- [x] [Review][Defer] **No request-sequencing guard against overlapping/out-of-order `getDiagnosticData` responses** [`desktop/js/siaDC09.js`] — deferred, pre-existing pattern shared with the SM1 badge, not introduced by this amendment (D-43)
+- [x] [Review][Defer] **AJAX error handler doesn't mark either badge stale/unknown on failure** [`desktop/js/siaDC09.js`] — deferred, pre-existing pattern shared with the SM1 badge (D-44)
+- [x] [Review][Defer] **No guard if `#siaDC09_eventBadgeDot`/`#siaDC09_eventBadgeLabel` aren't yet in the DOM when the success callback fires** [`desktop/js/siaDC09.js`] — deferred, mirrors pre-existing SM1 badge behavior (D-45)
+- [x] [Review][Defer] **`#777777` duplicated as a literal in the JS color map and the PHP inline default style** [`desktop/js/siaDC09.js`, `desktop/php/siaDC09.php`] — deferred, same duplication pattern already exists for the SM1 badge's `#f0ad4e` default (D-46)
+- [x] [Review][Defer] **Event status conveyed by color alone, no `title`/`aria-label` text equivalent** [`desktop/php/siaDC09.php`] — deferred, pre-existing accessibility gap shared with the SM1 badge (D-47)
+- [x] [Review][Defer] **Event lifecycle enum (0-3) documented only via a JS comment, no shared/authoritative source of truth** [`desktop/js/siaDC09.js`] — deferred, matches the existing SM1 badge color convention (D-48)
+
+**Dismissed as noise (6):** unrecognized/out-of-range state falling back to grey (this is exactly what AC11 specifies for "unknown/NaN state"); SM1-orange vs SM2-grey "no data yet" default divergence (intentional per the amendment's documented SM1/SM2 polarity inversion); no test for string/float `event_state` (confirmed via `daemon.py` trace that `_event_state_from_sm2()` is `Literal[0,1,2,3]` and only ever emits bare ints — unreachable input shape); truthy `||` fallback on the color map (currently safe, all values are non-empty hex strings, purely hypothetical); stray blank line in the test file (lint-level noise); `eventLabel || ''` collapsing falsy-but-meaningful values (label is documented as always a French display string, never boolean/numeric, and mirrors the pre-existing identical SM1 idiom).
+
+**Review layers:** Blind Hunter, Edge Case Hunter, Acceptance Auditor (all completed — Acceptance Auditor found AC11 fully satisfied, zero spec violations), plus a `/jeedom-plugin` domain-convention check.

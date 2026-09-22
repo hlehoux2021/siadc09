@@ -441,11 +441,14 @@ $scenarios = scenario::all();
 				<!-- Status badge -->
 				<div class="panel panel-default" id="siaDC09_statusPanel">
 					<div class="panel-body">
-						<span class="badge badge-lg" id="siaDC09_badgeDot" style="font-size:1.5em;color:#f0ad4e;">●</span>
-						<span id="siaDC09_badgeLabel"></span>
-						<br/>
-						<span class="badge badge-lg" id="siaDC09_eventBadgeDot" style="font-size:1.5em;color:#777777;">●</span>
-						<span id="siaDC09_eventBadgeLabel"></span>
+						<div>
+							<span class="badge badge-lg" id="siaDC09_badgeDot" style="font-size:1.5em;color:#f0ad4e;">●</span>
+							<span id="siaDC09_badgeLabel"></span>
+						</div>
+						<div>
+							<span class="badge badge-lg" id="siaDC09_eventBadgeDot" style="font-size:1.5em;color:#777777;">●</span>
+							<span id="siaDC09_eventBadgeLabel"></span>
+						</div>
 					</div>
 				</div>
 				<!-- Error panel -->

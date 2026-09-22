@@ -846,20 +846,20 @@ function siaDC09_loadDiagnosticData() {
   })
 }
 
+function siaDC09_renderStateBadge(dotId, labelId, state, label, colorMap, fallbackKey) {
+  var s = parseInt(state, 10)
+  if (isNaN(s)) s = fallbackKey
+  var color = colorMap[s] || colorMap[fallbackKey]
+  $(dotId).css('color', color)
+  $(labelId).text(label || '')
+}
+
 function siaDC09_renderBadge(supervisionState, supervisionLabel) {
-  var state = parseInt(supervisionState)
-  if (isNaN(state)) state = 1
-  var color = _siaDC09_badgeColors[state] || _siaDC09_badgeColors[1]
-  $('#siaDC09_badgeDot').css('color', color)
-  $('#siaDC09_badgeLabel').text(supervisionLabel || '')
+  siaDC09_renderStateBadge('#siaDC09_badgeDot', '#siaDC09_badgeLabel', supervisionState, supervisionLabel, _siaDC09_badgeColors, 1)
 }
 
 function siaDC09_renderEventBadge(eventState, eventLabel) {
-  var state = parseInt(eventState)
-  if (isNaN(state)) state = 0
-  var color = _siaDC09_eventBadgeColors[state] || _siaDC09_eventBadgeColors[0]
-  $('#siaDC09_eventBadgeDot').css('color', color)
-  $('#siaDC09_eventBadgeLabel').text(eventLabel || '')
+  siaDC09_renderStateBadge('#siaDC09_eventBadgeDot', '#siaDC09_eventBadgeLabel', eventState, eventLabel, _siaDC09_eventBadgeColors, 0)
 }
 
 function siaDC09_renderErrors(errors) {
