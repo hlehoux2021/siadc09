@@ -29,7 +29,7 @@
 # - SM typically creates next story ONLY after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then Dev runs code-review (fresh context, ideally different LLM)
 
-last_updated: "2026-09-22" # Merge of story/13-1-br-bc-design into master: 9-1/epic-9 closed (this branch) + 13-1 in-progress/13-2 registered/epic-13 in-progress (merged branch)
+last_updated: "2026-09-22" # Story 14-1 registered (ADR-17, Frigate snapshot attachment) → ready-for-dev; epic-14 backlog→in-progress
 generated: "2026-05-04"
 project: "my-project"
 project_key: "NOKEY"
@@ -142,6 +142,11 @@ development_status:
   13-2-burglary-restore-event: backlog  # parked 2026-09-18, no blocker but no SOURCE: no alarm-plugin action expresses "a detector returned to normal"; `reenableTrigger` is not a substitute. Three unparking conditions recorded in the story
   epic-13-retrospective: optional
 
+  # Epic 14: Camera Snapshot Attachment (Frigate Integration)
+  epic-14: in-progress  # registered 2026-09-22 per ADR-17 (architecture.md) — Option A, majority-case-only
+  14-1-attach-frigate-snapshot-alarm-frame: ready-for-dev  # ADR-17 decision: Frigate plugin's own commands only, person-already-detected case only; fallback/clip/Option B explicitly deferred
+  epic-14-retrospective: optional
+
 # Summary Statistics
 # Updated: 2026-09-17 (Epic 13 / Story 13-1 registered; counters recounted from the
 # status lines above — the previous block was stale: it claimed 45 done / 1 backlog /
@@ -180,14 +185,16 @@ development_status:
 # 9-1/epic-9 done (this branch) + epic-13:in-progress/13-1:in-progress/13-2:backlog (merged branch) combine to
 # epics_backlog 1→0, epics_in_progress 3→4, epics_done unchanged at 9; stories_in_progress 3→4 (13-1 added),
 # stories_backlog unchanged at 4 (13-2 added, 11-2/11-4/12-8 unchanged), total_stories 52→53)
+# Updated: 2026-09-22 (14-1 registered per ADR-17, epic-14 created backlog→in-progress on first story;
+# total_epics 13→14, total_stories 53→54, stories_ready_for_dev 2→3)
 summary:
-  total_epics: 13
-  total_stories: 53
+  total_epics: 14
+  total_stories: 54
   epics_backlog: 0
-  epics_in_progress: 4
+  epics_in_progress: 5
   epics_done: 9
   stories_backlog: 4
-  stories_ready_for_dev: 2
+  stories_ready_for_dev: 3
   stories_in_progress: 4
   stories_review: 0
   stories_done: 43

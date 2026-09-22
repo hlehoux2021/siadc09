@@ -2226,3 +2226,41 @@ This story carries three **blocking design questions** that must be answered in 
 **And** BR for a zone that never alarmed, and a duplicate BR, both have a test proving the chosen behaviour
 
 **And** the whole flow is validated through the real Jeedom UI on `test-jeedom.lehoux.net`, alarm triggered *and* ended, both frames read in the protocol inspector
+
+---
+
+## Epic 14: Camera Snapshot Attachment (Frigate Integration)
+
+Attach a camera snapshot URL to the SIA frame's `[V...]` Verification field when a zone's alarm fires, so the receiving operator has a visual on the alarm. Scoped per ADR-17 (`architecture.md`) to the majority case only — a person Frigate's AI already detected *before* the alarm fired — using the existing Jeedom "Frigate NVR" plugin's own commands. The fallback case (camera hasn't detected anyone yet) is explicitly deferred: no create-event call, no wait/poll logic, no `media_url` in that branch this version.
+
+**Dependencies:** Epic 8 (zone mapping, 8-2) for the zone → camera association pattern being adapted; the user's Jeedom instance must have the Frigate NVR plugin installed and configured with MQTT (via `mqtt2`) for `info_detect_person`/`info_url_snapshot` to be real-time.
+**FRs covered:** new (post-MVP, adjacent to PRD Vision v1.5+ "Frigate NVR integration," implemented here in a deliberately narrower majority-case-only form — see ADR-17 rationale for why the full v1.5 vision (clip attachment, fallback-case event creation) is not in scope)
+**Testing:** level 1 PHP structure tests (zone mapping schema, camera-derivation logic) with mocked `cmd::execCmd()`; level 3 manual validation on `test-jeedom.lehoux.net` against a real Frigate camera
+
+### Story 14.1: Attach Frigate Snapshot to Alarm Frame (Majority Case Only)
+
+As a monitored Jeedom user with a Frigate camera covering an alarm zone,
+I want the SIA alarm frame to carry a snapshot URL when Frigate already caught the person before the alarm fired,
+So that the monitoring center has a visual without me building or waiting on anything that could delay the alarm itself.
+
+**Acceptance criteria:**
+
+**Given** a zone mapped to a Frigate camera equipment,
+**When** the zone mapping is saved,
+**Then** only the camera equipment is selected — `info_detect_person` and `info_url_snapshot` command IDs are derived by `logicalId` lookup on that same equipment, not stored as separate config fields
+
+**And** if the selected camera equipment doesn't expose both `info_detect_person` and `info_url_snapshot` (plugin absent, wrong version, or command missing), saving the mapping warns the user but does not block save — same "never crash on unmapped/misconfigured camera" principle as 8-2's zone mapping
+
+**Given** an alarm fires for a zone mapped to a Frigate camera,
+**When** `info_detect_person` reads `1` (person already detected — the expected majority case),
+**Then** `info_url_snapshot`'s current value is read via `execCmd()` (live cache read, per the execCmd-vs-getValue project finding — never `getValue()`, which is frozen for these info cmds) with zero wait, and attached as `media_url` in the SIA frame
+
+**And** when `info_detect_person` reads `0` (fallback case) or the camera/plugin/commands are unavailable for any reason, the frame is sent with `media_url` omitted — no create-event call, no wait, no exception, no delay to the alarm send path
+
+**And** a test proves the alarm-send path never blocks or throws regardless of camera/plugin state (mapped-and-detected, mapped-and-not-detected, camera deleted, plugin absent) — promoted from a review finding to a hard AC given the life-safety framing of this path
+
+**And** `media_url` never maps to a clip/video URL in this story — snapshot only, matching ADR-17
+
+**And** the whole flow is validated through the real Jeedom UI on `test-jeedom.lehoux.net` against a real Frigate camera: trigger an alarm while Frigate has an active person detection, confirm the SIA frame's `[V...]` field carries a working snapshot URL in the protocol inspector
+
+**Explicitly out of scope (deferred, tracked in ADR-17):** the fallback case (create-event call for when the camera missed the person), clip/video attachment, and the independent MQTT/REST Frigate integration (Option B) — revisit only if production telemetry shows the fallback case is common enough to justify the added complexity.

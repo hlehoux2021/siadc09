@@ -23,7 +23,7 @@ elicitationState:
   method: 'self-consistency-validation'
   pendingFindings: []
   resolvedFindings: [F1-moot, F2, F3, F4, F5]
-  adrsCompleted: [ADR-01, ADR-02, ADR-03, ADR-04, ADR-05, ADR-06, ADR-07, ADR-08, ADR-09, ADR-10, ADR-11, ADR-12, ADR-13, ADR-14, ADR-15, ADR-16]
+  adrsCompleted: [ADR-01, ADR-02, ADR-03, ADR-04, ADR-05, ADR-06, ADR-07, ADR-08, ADR-09, ADR-10, ADR-11, ADR-12, ADR-13, ADR-14, ADR-15, ADR-16, ADR-17]
 ---
 
 # Architecture Decision Document
@@ -291,6 +291,25 @@ The plugin delivers 12 functional capabilities across four domains:
 | `messages.py` flat constants (chosen) | Zero build complexity; single migration point | Not translatable until refactored |
 | gettext from v1.0 | Future-proof | Build complexity; no immediate benefit |
 | Inline strings | Zero abstraction | French scattered everywhere; unmigrateable |
+
+---
+
+### ADR-17 — Camera Snapshot Attachment on Alarm (Frigate Integration) *(added 2026-09-22)*
+
+**Decision:** For this version, siaDC09 attaches a camera snapshot URL to the SIA frame's `[V...]` Verification field **only** for the majority case — a person already detected by Frigate's AI object tracker *before* the alarm fired — and **only** via the existing Jeedom "Frigate NVR" plugin's own commands (Option A). The fallback case (camera hasn't detected anyone yet when the alarm fires) is explicitly **out of scope for this version** — no fallback create-event call, no wait/poll logic, no `media_url` attached in that branch. Zone mapping is simplified to "pick a Frigate camera equipment"; `info_detect_person` and `info_url_snapshot` are derived by `logicalId` lookup on that same equipment rather than stored as separate config fields. `media_url` maps exclusively to `info_url_snapshot` (`getValue()`/`execCmd()` read, no write) — never to `info_url_clip`, which the Frigate plugin unconditionally withholds until its event type reaches `"end"` (confirmed from `frigate.class.php` source), incompatible with prompt alarm delivery under any circumstance. Camera/plugin/equipment absence is treated exactly like any other camera failure (established in 8-2): the alarm send path never blocks or throws on it — no snapshot is attached, and the frame goes out regardless. This decision does not touch the Python daemon at all — `resources/siadc09d/` retains zero Jeedom dependencies (existing invariant, "Protocol Isolation"); the enrichment happens entirely in PHP core, which passes the resolved `media_url` string to the daemon via the existing IPC payload field already defined for it.
+
+**Rationale:** An adversarial review and a multi-agent architecture discussion (Winston/Amelia/John) converged independently on the same shape: the majority-case read (`info_detect_person`/`info_url_snapshot`) is a zero-cost value read that never touches the Frigate plugin's known problems (a confirmed 5-10s+ async pipeline latency from a hardcoded `sleep()`, redundant local file re-caching, and a confirmed silent, non-retried clip-download failure) — those issues live exclusively in the plugin's create-event/fallback path, which this version doesn't invoke at all. Building an independent Frigate integration (Option B: direct MQTT subscription via `mqtt2` + direct REST calls to Frigate, bypassing the Frigate plugin) was rejected for now: it wasn't confirmed to fix the underlying Frigate-side file-write race the plugin's `sleep()` exists to dodge, it would add a new persistent MQTT subscription and third-party NVR API surface, and any daemon-side placement would be a first-of-its-kind violation of the "zero Jeedom dependencies" boundary with no described fit into ADR-01's push-callback IPC model. The "majority case is actually the majority" assumption is **not yet measured** — this is the main open risk carried forward (see Deferred below).
+
+| Option | Pro | Con |
+|--------|-----|-----|
+| Option A, majority-case-only (chosen) | Zero new infrastructure; reuses field-tested plugin read path; never touches the plugin's known bugs since those live only in the untouched fallback path; daemon boundary untouched | No snapshot at all when the camera hasn't detected the person yet (deferred, not solved) |
+| Option A, both cases (majority + fallback via the plugin's create-event action) | Some coverage in the fallback case too | Inherits the plugin's 5-10s+ latency and clip bug for no proven benefit, since the alarm still can't wait that long — rejected this round, see 12-x/future story for revisit |
+| Option B — independent Frigate integration (MQTT via `mqtt2` + direct REST) | Full control over timeout/polling; removes the plugin's specific bugs for the calls we'd own | Doesn't confirm it fixes the underlying Frigate file-write race; new persistent MQTT subscription; new third-party NVR API/schema dependency; daemon placement would violate the zero-Jeedom-dependencies invariant |
+
+**Deferred (tracked, not decided):**
+- Fallback-case snapshot acquisition (if the majority-case measurement below shows fallback is common enough to be worth engineering for).
+- Whether Frigate's snapshot/clip URLs are directly guessable/constructible from an `event_id` (`/api/events/{id}/snapshot.jpg`, `/api/events/{id}/clip.mp4` — confirmed as Frigate's own real endpoint shapes from its FastAPI source) and, if so, whether polling those directly (bypassing the plugin's DB-row/MQTT-driven `has_snapshot` gate entirely) changes the timing picture for a future fallback-case design. A standalone investigation script (`scripts/frigate_latency_probe.py`) was written to measure this empirically against a real Frigate server — not yet run.
+- Whether the observed clip-download silent-failure bug should be reported upstream to the Frigate plugin maintainer.
 
 ---
 
