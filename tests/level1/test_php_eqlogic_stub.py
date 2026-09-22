@@ -125,6 +125,11 @@ def execute_body(php_cmd_source: str) -> str:
 
 
 @pytest.fixture(scope="module")
+def fan_out_body(php_cmd_source: str) -> str:
+    return _extract_method_body(php_cmd_source, "_fanOutBurglaryCancel")
+
+
+@pytest.fixture(scope="module")
 def run_notify_target_body(php_source: str) -> str:
     """Single entry point for critical notifications — every caller delegates here."""
     return _extract_method_body(php_source, "_runNotifyTarget")
@@ -1489,4 +1494,291 @@ def test_daemon_not_required_to_reach_the_wizard(php_source: str) -> None:
     assert len(call_sites) >= 2, (
         "_getAutoEquipment() is only called from deamon_start(), which throws when "
         "launchable != 'ok' — equipment can never be created before the wizard runs"
+    )
+
+
+# ── Story 13.1 — sia_open_alarms table (Task 3, AC3) ─────────────────────────
+
+
+def test_execute_records_open_alarm_after_dispatch(execute_body: str) -> None:
+    """
+    Task 3 / AC3: every alarm dispatch (burglarAlarm/fireAlarm/panicAlarm) must
+    create or refresh an entry in the sia_open_alarms table, written right
+    after sendToDaemon() so a later burglaryCancel fan-out has something to
+    close — per php-core-design.md's "Point d'écriture" note.
+
+    Expected result:
+    - execute() calls a _recordOpenAlarm()-style helper
+    - that call appears after the sendToDaemon() call, not before
+    """
+    dispatch = re.search(r"sendToDaemon\s*\(", execute_body)
+    record = re.search(r"_record\w*OpenAlarm\w*\s*\(", execute_body)
+    # Assert: a recording helper is called from execute()
+    assert record is not None, (
+        "execute() must call a _recordOpenAlarm()-style helper — otherwise no BA/FA/PA "
+        "is ever memorized and burglaryCancel has nothing to fan out to"
+    )
+    # Assert: the recording happens after sendToDaemon(), matching the design's write point
+    assert dispatch is not None and dispatch.start() < record.start(), (
+        "sia_open_alarms must be written right after sendToDaemon() — "
+        "recording before dispatch could memorize an alarm that never actually sent"
+    )
+
+
+def test_open_alarms_cache_key_matches_design(php_cmd_source: str) -> None:
+    """
+    php-core-design.md specifies the eqLogic cache key literal 'sia_open_alarms'
+    for the table (setCache/getCache, Redis-backed, survives daemon restarts —
+    the A-PHP decision of 2026-09-18).
+
+    Expected result:
+    - the literal cache key 'sia_open_alarms' appears in the source
+    - setCache() and getCache() are both used to persist/read the table
+    """
+    # Assert: the documented cache key literal is present
+    assert "'sia_open_alarms'" in php_cmd_source, (
+        "sia_open_alarms cache key literal missing — must match php-core-design.md exactly"
+    )
+    # Assert: the table is persisted via setCache()
+    assert re.search(r"->setCache\s*\(", php_cmd_source), (
+        "sia_open_alarms must be persisted via eqLogic::setCache() (A-PHP decision, Redis-backed)"
+    )
+    # Assert: the table is read back via getCache()
+    assert re.search(r"->getCache\s*\(", php_cmd_source), (
+        "sia_open_alarms must be read back via eqLogic::getCache()"
+    )
+
+
+def test_open_alarms_key_format_dedups_by_zone_or_account(php_cmd_source: str) -> None:
+    """
+    Design: key = sia_code . '|' . (zone_number !== null ? zone_number : 'account').
+    This dedups repeated BA on the same zone and collapses every unresolved
+    zone onto a single 'account' entry instead of producing one doublon per
+    unknown label.
+
+    Expected result:
+    - the key concatenation uses the '|' separator
+    - the literal fallback 'account' is used when zone_number is null
+    """
+    # Assert: keys are built with the '|' separator (sia_code|zone_number-or-account)
+    assert re.search(r"\.\s*['\"]\|['\"]\s*\.", php_cmd_source), (
+        "sia_open_alarms key must concatenate sia_code and zone with a '|' separator"
+    )
+    # Assert: unresolved/account-wide entries fall back to the literal 'account'
+    assert "'account'" in php_cmd_source, (
+        "sia_open_alarms key must fall back to the literal 'account' when zone_number is null — "
+        "otherwise unresolved zones never dedup onto a single entry"
+    )
+
+
+def test_open_alarms_entry_shape(php_cmd_source: str) -> None:
+    """
+    Design: entry = ['sia_code' => .., 'zone' => .., 'zone_number' => .., 'ts' => ..].
+    Missing any field breaks either the fan-out (needs sia_code + zone_number),
+    the debug log for abandoned FA/PA (needs zone), or eviction/TTL (needs ts).
+
+    Expected result:
+    - all four keys 'sia_code', 'zone', 'zone_number', 'ts' appear in the source
+    """
+    for entry_key in ("'sia_code'", "'zone'", "'zone_number'", "'ts'"):
+        # Assert: each entry field from the design is present in the table's shape
+        assert entry_key in php_cmd_source, (
+            f"sia_open_alarms entry missing {entry_key} — required by the design's entry shape"
+        )
+
+
+def test_open_alarms_max_and_ttl_constants_declared(php_cmd_source: str) -> None:
+    """
+    Design: a hard cap OPEN_ALARMS_MAX guards against a corrupted cache, and a
+    TTL OPEN_ALARMS_TTL guards the case where no reset ever arrives (alarm
+    plugin disabled mid-alarm).
+
+    Expected result:
+    - both OPEN_ALARMS_MAX and OPEN_ALARMS_TTL are declared as class constants
+    """
+    # Assert: OPEN_ALARMS_MAX is declared
+    assert re.search(r"const\s+OPEN_ALARMS_MAX\s*=", php_cmd_source), (
+        "OPEN_ALARMS_MAX constant missing — table has no hard cap against a corrupted cache"
+    )
+    # Assert: OPEN_ALARMS_TTL is declared
+    assert re.search(r"const\s+OPEN_ALARMS_TTL\s*=", php_cmd_source), (
+        "OPEN_ALARMS_TTL constant missing — an alarm with no reset would stay open forever"
+    )
+
+
+def test_open_alarms_eviction_is_oldest_by_timestamp(php_cmd_source: str) -> None:
+    """
+    Design: eviction beyond OPEN_ALARMS_MAX must drop the oldest entry BY
+    'ts', never "the first in the dict" — insertion order is not a contract
+    for a PHP associative array after a json_decode()/setCache() round-trip.
+
+    Expected result:
+    - a sort-by-ts comparator drives eviction (uasort/usort comparing 'ts')
+    - array_shift() is not used as an eviction shortcut
+    """
+    # Assert: a sort-by-ts comparator drives eviction (uasort/usort comparing 'ts')
+    assert re.search(r"(uasort|usort)\s*\(", php_cmd_source) and "'ts'" in php_cmd_source, (
+        "eviction must sort by the 'ts' field — insertion order is not a contract"
+    )
+    # Assert: the forbidden shortcut (evict "first in dict") is not used
+    assert "array_shift(" not in php_cmd_source, (
+        "array_shift() evicts by insertion order, not by 'ts' — forbidden by the design"
+    )
+
+
+def test_open_alarms_ttl_prunes_by_elapsed_time(php_cmd_source: str) -> None:
+    """
+    Design: OPEN_ALARMS_TTL protects the case where no reset ever arrives by
+    expiring stale entries, measured from a captured $now = time().
+
+    Expected result:
+    - $now = time() is captured to measure elapsed time
+    - OPEN_ALARMS_TTL is used (not just declared) to prune expired entries
+    """
+    # Assert: a $now timestamp is captured to measure how stale an entry is
+    assert re.search(r"\$now\s*=\s*time\s*\(\s*\)", php_cmd_source), (
+        "sia_open_alarms must capture $now = time() to measure how stale an entry is"
+    )
+    # Assert: OPEN_ALARMS_TTL is referenced outside its own declaration, i.e. actually used
+    assert len(re.findall(r"OPEN_ALARMS_TTL", php_cmd_source)) >= 2, (
+        "OPEN_ALARMS_TTL constant must actually be used to prune expired entries, not just declared"
+    )
+
+
+def test_open_alarms_sia_code_mapping_covers_all_alarm_commands(php_cmd_source: str) -> None:
+    """
+    The table's key and the future fan-out rely on the actual SIA code
+    ('BA'/'FA'/'PA'), not the Jeedom logicalId ('burglarAlarm') — the daemon
+    dispatch key and the SIA code are two different vocabularies.
+
+    Expected result:
+    - 'burglarAlarm' -> 'BA', 'fireAlarm' -> 'FA', 'panicAlarm' -> 'PA' are
+      each mapped somewhere in the source
+    """
+    mapping = {
+        "burglarAlarm": "BA",
+        "fireAlarm": "FA",
+        "panicAlarm": "PA",
+    }
+    for logical_id, sia_code in mapping.items():
+        pattern = rf"'{logical_id}'\s*=>\s*'{sia_code}'"
+        # Assert: each logicalId is mapped to its SIA code for the open-alarms table
+        assert re.search(pattern, php_cmd_source), (
+            f"missing mapping '{logical_id}' => '{sia_code}' — sia_open_alarms needs the "
+            "SIA code, not the Jeedom logicalId, as its key prefix"
+        )
+
+
+# ── Story 13.1 — burglaryCancel fan-out (Task 4, AC4, AC5) ───────────────────
+
+
+def test_fan_out_method_exists(php_cmd_source: str) -> None:
+    """
+    Design: the fan-out algorithm (story doc "Éventail sur annulation") lives
+    in its own method so it stays testable in isolation from the execute()
+    wiring, which is deferred to Task 2 (blocked by 10-3).
+
+    Expected result:
+    - a private method _fanOutBurglaryCancel() is declared on siaDC09Cmd
+    """
+    # Assert: the fan-out method is declared
+    assert re.search(
+        r"private\s+function\s+_fanOutBurglaryCancel\s*\(", php_cmd_source
+    ), "expected a private _fanOutBurglaryCancel() method implementing the AC4/AC5 algorithm"
+
+
+def test_fan_out_emits_one_bc_per_open_ba_entry(fan_out_body: str) -> None:
+    """
+    Design (AC4): a burglaryCancel with an empty Titre emits exactly N BC for
+    N open BA zones, by iterating the sia_open_alarms table and dispatching
+    one sendToDaemon() per BA entry.
+
+    Expected result:
+    - the method reads sia_open_alarms via getCache
+    - it iterates the entries and dispatches via sendToDaemon() for 'BA' entries
+    """
+    # Assert: the open-alarms table is read back from the eqLogic cache
+    assert re.search(r"getCache\s*\(\s*['\"]sia_open_alarms['\"]", fan_out_body), (
+        "fan-out must read the sia_open_alarms table via getCache()"
+    )
+    # Assert: a dispatch call is made for BA entries (the only code BC closes)
+    assert re.search(r"sendToDaemon\s*\(", fan_out_body), (
+        "fan-out must call sendToDaemon() to emit BC frames for open BA entries"
+    )
+    # Assert: the code discriminates on the BA sia_code before dispatching
+    assert re.search(r"['\"]BA['\"]", fan_out_body), (
+        "fan-out must check for the 'BA' sia_code — BC only closes burglary entries"
+    )
+
+
+def test_fan_out_bc_carries_matching_zone_number(fan_out_body: str) -> None:
+    """
+    Design: each BC must carry the same zone_number as the BA it closes —
+    the zone label is not a usable correlation key (story Dépendance section).
+
+    Expected result:
+    - the sendToDaemon() payload sources 'zone_number' from the open-alarm entry
+    """
+    # Assert: zone_number is forwarded from the stored entry, not recomputed
+    assert re.search(r"zone_number.*entry\[['\"]zone_number['\"]\]", fan_out_body) or re.search(
+        r"entry\[['\"]zone_number['\"]\].*zone_number", fan_out_body
+    ), "each BC frame must carry the zone_number of the BA entry it closes"
+
+
+def test_fan_out_skips_fa_pa_and_logs_debug(fan_out_body: str) -> None:
+    """
+    Design: BC never closes FA/PA — they are abandoned and logged at debug
+    level so they remain traceable without producing a frame (future
+    FC/PC of story 13-3).
+
+    Expected result:
+    - the method distinguishes 'FA' and 'PA' sia_codes from 'BA'
+    - abandoned FA/PA entries are logged via log::add(..., 'debug', ...)
+    """
+    # Assert: FA and PA are recognized as distinct from BA
+    assert re.search(r"['\"]FA['\"]", fan_out_body) and re.search(r"['\"]PA['\"]", fan_out_body), (
+        "fan-out must distinguish FA/PA entries from BA so they are never closed by a BC"
+    )
+    # Assert: abandoned FA/PA entries are logged at debug level, not silently dropped
+    assert re.search(r"log::add\([^)]*['\"]debug['\"]", fan_out_body), (
+        "abandoned FA/PA entries must be logged at 'debug' level"
+    )
+
+
+def test_fan_out_purges_table_after_processing(fan_out_body: str) -> None:
+    """
+    Design (AC4): after emitting the BC fan-out (or the fallback), the table
+    is emptied so a later burglaryCancel does not re-close stale entries.
+
+    Expected result:
+    - setCache('sia_open_alarms', ...) is called with an empty array
+    """
+    # Assert: the table is purged (written back empty) after fan-out
+    assert re.search(
+        r"setCache\s*\(\s*['\"]sia_open_alarms['\"]\s*,\s*\[\s*\]\s*\)", fan_out_body
+    ), "sia_open_alarms must be purged (set back to []) once the fan-out is processed"
+
+
+def test_fan_out_empty_table_falls_back_to_single_account_level_bc(fan_out_body: str) -> None:
+    """
+    Design (AC5): an empty table (duplicate cancel, cleared cache, daemon or
+    Redis restart) must never produce zero frames — exactly one account-level
+    BC is emitted, flagged with a warning so the operator sees the anomaly.
+
+    Expected result:
+    - an emptiness check on the BA entries exists
+    - the fallback branch still calls sendToDaemon() with a null zone/zone_number
+    - the fallback branch logs a 'warning'
+    """
+    # Assert: the code checks whether any BA entry was found before deciding the fallback
+    assert re.search(r"empty\s*\(", fan_out_body) or re.search(r"===\s*0", fan_out_body), (
+        "fan-out must check whether the open BA entries are empty to trigger the AC5 fallback"
+    )
+    # Assert: the fallback still dispatches a frame — AC5 forbids zero frames
+    assert len(re.findall(r"sendToDaemon\s*\(", fan_out_body)) >= 2, (
+        "the empty-table fallback must still call sendToDaemon() — AC5 forbids zero frames"
+    )
+    # Assert: the fallback is flagged with a warning so the anomaly is visible
+    assert re.search(r"log::add\([^)]*['\"]warning['\"]", fan_out_body), (
+        "the account-level fallback BC must be logged at 'warning' level"
     )

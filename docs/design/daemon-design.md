@@ -783,6 +783,10 @@ stateDiagram-v2
 SIA code → French label mapping: `BA` → `Intrusion`, `FA` → `Incendie`, `PA` → `Panique`.
 Format decided by Component 6 (Widget) to serve the night-time emergency use case.
 
+> **v1.1 (Story 13.1):** code `BC` adds no SM2 state and no `event_state` value — see
+> "Burglary Cancel (BC)" at the end of this document. `BR` has no source event and is out of
+> scope (story 13-2, parked).
+
 **On `SM2State.FAILED`:** call `_notify(code, ctx)` → dual-channel dispatch via Component 5a.
 - Timeout exhausted → `_notify(ErrorCode.EVENT_FAILED, EventFailedCtx(...))`
 - NAK received → `_notify(ErrorCode.BAD_CSR_RESPONSE)` — no ctx needed
@@ -1336,3 +1340,87 @@ See `error-handler-design.md` for full dispatch and tier routing.
 | `SM1State.DEGRADED` strike 3 UDP — alarm sent and ACK'd | 3 supervision timeouts (UDP), then alarm | `SM2State.CONFIRMED` despite DEGRADED(3); only `ErrorCode.SUPERVISION_DISCONNECTED` fired, not `ErrorCode.EVENT_FAILED` |
 | `SM1State.DEGRADED` strike 3 UDP — alarm fails | 3 supervision timeouts (UDP), alarm times out | `SM2State.FAILED`; `ErrorCode.SUPERVISION_DISCONNECTED` + `ErrorCode.EVENT_FAILED` both fired |
 | Supervision dropped during `SM1State.TCP_RECONNECTING` | supervision timer fires while reconnecting | Supervision item dequeued and silently dropped; no send on closed socket |
+
+---
+
+## Burglary Cancel (BC) — Story 13.1 design decisions
+
+**Status:** rewritten 2026-09-18 after user arbitration (Story 13.1 Task 1 / AC1, rescoped).
+**Supersedes** the section this replaces (committed `bfb2445`), which assumed the Jeedom alarm
+plugin could deliver a per-zone restoral event with the correlating zone attached. It cannot
+(see below) — Decision 1 is **reversed**. BR (Burglary Restoral) has **no source event** in the
+alarm plugin at all and is out of scope; it is tracked as story **13-2** (parked, `backlog`).
+**No code written yet** — Tasks 2 to 9 of Story 13.1 are still open. Where this section and
+`daemon.py` disagree, the code is behind, not the doc.
+
+### The fact that drove the reversal — N alarms in, one zone-less reset out
+
+Read on `jeedom/plugin-alarm`, `core/class/alarm.class.php` (master):
+
+| Side | Alarm action | Fires | Zone supplied |
+|---|---|---|---|
+| Trigger | `outbreak` (`:605`), `outbreakImmediate` (`:583`), zone `actions`/`actionsImmediate` via `doZoneAction()` | once per triggering zone (guard `:601`, `splitZone = 1`) | **yes** — `#zone#` = `$zone['name']` |
+| Reset | `raz` (`:712`), `razImmediate` (`:707`), `release` (`:703`) | once for the whole equipment | **no** — `#mode#` only; `raz`/`razImmediate` at `:818`/`:822` pass no options at all |
+
+So a burglary with two open zones produces two `BA` frames — each carrying its zone — followed
+by **one** reset action with no zone information whatsoever. DC-09 offers no back-reference
+field either (grep for "restoral"/"cancel" in
+`docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md`: zero matches; the sequence number
+is a duplicate discriminator, not an event id, § 5.5.1.5). **Nothing transported by either the
+alarm plugin or DC-09 lets a `BC` frame say which zone(s) it closes.** The correlation has to be
+reconstructed from something we ourselves remembered.
+
+The alarm plugin *does* know the triggering zones internally (cache `trigger_zone`, written at
+`:602`, cleared at `:714-715` — i.e. *after* `raz` fires) but never transmits it. Reading that
+cache (rejected "Option B") would couple us to a third party's private state with no contract.
+So: we keep our own memory of dispatched alarms, per zone, and fan out one `BC` per open zone
+when the single global reset fires. This is **option A** (user decision, 2026-09-18).
+
+### Decision 1 (reversed) — correlation is ours, not the CSR's, and it lives in PHP
+
+The previous version of this section answered "does the daemon suppress a BC/BR it can't
+correlate?" That question no longer applies: there is no per-event zone to correlate against
+on the reset path, so there is nothing for the daemon to gate. The memory of "which zones are
+still open" is kept as **`sia_open_alarms`, an eqLogic cache entry on the PHP side**
+(`setCache`/`getCache`, Redis-backed) — see `php-core-design.md`, "Burglary Cancel (BC)", for
+the table's key, lifecycle, and fan-out logic. Rationale for PHP over an in-daemon dict:
+
+- **Survives a daemon restart**, including the *deliberate* self-stop on `NO_NETWORK`
+  introduced by story 7-2 (the Jeedom watchdog then restarts the daemon) — an in-memory dict
+  would lose every open zone at exactly the moment a crash is most likely to coincide with an
+  ongoing incident.
+- **No merge conflict**: `siaDC09Cmd.class.php` is not under concurrent edit; `daemon.py` is
+  the current hot-spot (stories 7-2 / 12-4 / 12-5 / 12-7).
+- **No SM2 surgery**: a `BC` frame is dispatched exactly like any other event; SM2 gains no new
+  state, no new transition.
+- The zone number is already resolved on the PHP side (`_resolveZoneNumber()`, story 8-2); the
+  daemon would have to re-transport it for no benefit.
+- The one cost is recording at **dispatch**, not at ACK — deliberately: the plugin's policy is
+  to never drop a frame, so a `BC` that never gets confirmed is still a `BC` that was
+  legitimately open, and the safe side of the error is to record early, not late.
+
+**SM2 itself is unchanged.** `BC` travels the identical path as `BA`/`FA`/`PA`: `EVENT`
+priority 0 in the queue, `_queue_consumer()` → `_send_with_retry()`, `SM2State.PENDING` at
+dequeue, one sequence increment per event, `CONFIRMED` on ACK, `FAILED` on NAK or exhausted
+retries. No new SM2 state, no new transition, no change to the SM2 diagram above, and **no
+daemon-side open-alarms table** — the table this document described in the superseded version
+never existed in `daemon.py` and will not: PHP already resolves the fan-out into N ordinary
+`sendToDaemon()` calls before the daemon sees anything.
+
+### Consequences for the rest of Component 1 (Story 13.1 Tasks 5-6)
+
+- `SiaEventCode` becomes `Literal['BA', 'FA', 'PA', 'BC']` — **no `BR`**: it has no source and
+  is deferred to story 13-2.
+- `_EVENT_SIA_CODES` gains `"burglaryCancel": "BC"` only (logical id decided in
+  `php-core-design.md`, "Burglary Cancel (BC)").
+- `error_handler.py`: `EventFailedCtx.sia_code` widens to the same `Literal`, and
+  `event_type_fr()` gains `burglaryCancel`/`BC` → `annulation`.
+- `_build_event_frame()` needs no change: it already formats `zone_number` as three padded
+  digits and omits the zone field when it is `None`, and each `BC` reaching the daemon is
+  already a plain, independent event with its own resolved `zone_number` — PHP has done the
+  fan-out before the IPC call.
+- `event_state` / `event_label` semantics for `BC`: see `widget-design.md`,
+  "Burglary Cancel (BC)".
+- BR: no daemon change at all in this story. Story 13-2 (parked) inherits the identical
+  extension pattern (one more `Literal` member, one more `_EVENT_SIA_CODES` entry, one more
+  `event_type_fr()` case) whenever it is unparked.

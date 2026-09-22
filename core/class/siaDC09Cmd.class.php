@@ -19,6 +19,15 @@ require_once __DIR__ . '/../../../../core/php/core.inc.php';
 
 class siaDC09Cmd extends cmd {
 
+    private const OPEN_ALARMS_MAX = 90;
+    private const OPEN_ALARMS_TTL = 86400;
+
+    private const OPEN_ALARMS_SIA_CODES = [
+        'burglarAlarm' => 'BA',
+        'fireAlarm'    => 'FA',
+        'panicAlarm'   => 'PA',
+    ];
+
     public function execute($_options = array()): void {
         $logicalId = $this->getLogicalId();
         switch ($logicalId) {
@@ -29,13 +38,63 @@ class siaDC09Cmd extends cmd {
                 // no identifier. The label stays in the payload for the logs, the notification
                 // context and the inspector; only zone_number reaches the SIA frame.
                 $zone = trim($_options['title'] ?? '');
+                $zoneNumber = $this->_resolveZoneNumber($zone);
                 siaDC09::sendToDaemon([
                     'cmd'         => $logicalId,
                     'zone'        => $zone !== '' ? $zone : null,
-                    'zone_number' => $this->_resolveZoneNumber($zone),
+                    'zone_number' => $zoneNumber,
                 ]);
+                $this->_recordOpenAlarm($logicalId, $zone !== '' ? $zone : null, $zoneNumber);
                 break;
         }
+    }
+
+    /**
+     * Persists this emission into sia_open_alarms so a later burglaryCancel can fan out one BC
+     * per zone still open (story 13-1, A-PHP). Written at emission time, not at ACK — the
+     * plugin's policy is to never drop a frame, and a spurious BC is harmless while a missing
+     * one is not.
+     */
+    private function _recordOpenAlarm(string $logicalId, ?string $zone, ?int $zoneNumber): void {
+        $eqLogic = $this->getEqLogic();
+        $siaCode = self::OPEN_ALARMS_SIA_CODES[$logicalId] ?? null;
+        if ($eqLogic === null || $siaCode === null) {
+            return;
+        }
+
+        $now = time();
+        $openAlarms = $eqLogic->getCache('sia_open_alarms', []);
+        if (is_string($openAlarms)) {
+            $openAlarms = json_decode($openAlarms, true);
+        }
+        if (!is_array($openAlarms)) {
+            $openAlarms = [];
+        }
+
+        foreach ($openAlarms as $key => $entry) {
+            if (!is_array($entry) || !isset($entry['ts']) || ($now - (int) $entry['ts']) > self::OPEN_ALARMS_TTL) {
+                unset($openAlarms[$key]);
+            }
+        }
+
+        $key = $siaCode . '|' . ($zoneNumber !== null ? $zoneNumber : 'account');
+        $openAlarms[$key] = [
+            'sia_code'    => $siaCode,
+            'zone'        => $zone,
+            'zone_number' => $zoneNumber,
+            'ts'          => $now,
+        ];
+
+        if (count($openAlarms) > self::OPEN_ALARMS_MAX) {
+            uasort($openAlarms, function (array $a, array $b): int {
+                return ($a['ts'] ?? 0) <=> ($b['ts'] ?? 0);
+            });
+            while (count($openAlarms) > self::OPEN_ALARMS_MAX) {
+                unset($openAlarms[array_key_first($openAlarms)]);
+            }
+        }
+
+        $eqLogic->setCache('sia_open_alarms', $openAlarms);
     }
 
     /**

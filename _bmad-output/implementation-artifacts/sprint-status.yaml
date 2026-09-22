@@ -29,7 +29,7 @@
 # - SM typically creates next story ONLY after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then Dev runs code-review (fresh context, ideally different LLM)
 
-last_updated: "2026-09-22" # Story 9-1 AC11 amendment code-reviewed → done; epic-9 closed
+last_updated: "2026-09-22" # Merge of story/13-1-br-bc-design into master: 9-1/epic-9 closed (this branch) + 13-1 in-progress/13-2 registered/epic-13 in-progress (merged branch)
 generated: "2026-05-04"
 project: "my-project"
 project_key: "NOKEY"
@@ -137,8 +137,9 @@ development_status:
   epic-12-retrospective: optional
 
   # Epic 13: Alarm Event Vocabulary Extension (v1.1)
-  epic-13: backlog
-  13-1-burglary-restore-cancel-events: backlog
+  epic-13: in-progress
+  13-1-burglary-restore-cancel-events: in-progress  # Task 1 (AC1) done (613b0fe/955cc1c). Task 3 (AC3, sia_open_alarms table) done. Starting Task 4 (fan-out) — Task 2 (postSave()) deferred, blocked by 10-3's live uncommitted edits to siaDC09.class.php per the story's sequencing table
+  13-2-burglary-restore-event: backlog  # parked 2026-09-18, no blocker but no SOURCE: no alarm-plugin action expresses "a detector returned to normal"; `reenableTrigger` is not a substitute. Three unparking conditions recorded in the story
   epic-13-retrospective: optional
 
 # Summary Statistics
@@ -170,14 +171,23 @@ development_status:
 # 9-1:review and epic-9:in-progress; actual pre-edit tally recounted from the status lines was
 # done:42/review:1/epics_done:8/epics_in_progress:4. Now 9-1 code-reviewed and closed → review → done;
 # epic-9 (9-1/9-2/9-3 all done) → closed: review 1→0, done 42→43, epics_in_progress 4→3, epics_done 8→9)
+# Updated: 2026-09-18, on branch story/13-1-br-bc-design (13-1 Task 1 / AC1 design done → 13-1 and epic-13
+# backlog → in-progress; epics_backlog 1→0, epics_in_progress 4→5, stories_backlog 4→3, stories_in_progress 4→5.
+# Then 13-1 rescoped to BC/option A, BR transferred to the new parked story 13-2: 13-1 in-progress → ready-for-dev,
+# 13-2 registered as backlog. total_stories 52→53, backlog 3→4, ready_for_dev 2→3, in-progress 5→4. epic-13 stays
+# in-progress — design work is active — so epic counters unchanged there)
+# Updated: 2026-09-22 (merge of story/13-1-br-bc-design into master: recounted from the merged status lines —
+# 9-1/epic-9 done (this branch) + epic-13:in-progress/13-1:in-progress/13-2:backlog (merged branch) combine to
+# epics_backlog 1→0, epics_in_progress 3→4, epics_done unchanged at 9; stories_in_progress 3→4 (13-1 added),
+# stories_backlog unchanged at 4 (13-2 added, 11-2/11-4/12-8 unchanged), total_stories 52→53)
 summary:
   total_epics: 13
-  total_stories: 52
-  epics_backlog: 1
-  epics_in_progress: 3
+  total_stories: 53
+  epics_backlog: 0
+  epics_in_progress: 4
   epics_done: 9
   stories_backlog: 4
   stories_ready_for_dev: 2
-  stories_in_progress: 3
+  stories_in_progress: 4
   stories_review: 0
   stories_done: 43
