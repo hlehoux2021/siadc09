@@ -50,8 +50,13 @@ class ProbeState:
     thumbnail: MediaProbeResult = field(default_factory=lambda: MediaProbeResult(url=""))
 
 
-def _http_json(url: str, data: dict | None = None, timeout: float = 5.0) -> tuple[int, dict | None]:
-    """POST (if data given) or GET url, return (status, decoded_json_or_none)."""
+def _http_json(url: str, data: dict | None = None, timeout: float = 5.0) -> tuple[int, object | None]:
+    """POST (if data given) or GET url, return (status, decoded_json_or_none).
+
+    The decoded body is whatever `json.loads` produces — Frigate's error
+    responses are not always JSON objects (a bare JSON string is valid too),
+    so callers must not assume `dict`.
+    """
     body = json.dumps(data).encode("utf-8") if data is not None else None
     req = urllib.request.Request(
         url,
@@ -89,7 +94,7 @@ def _http_status(url: str, timeout: float = 5.0) -> int:
 
 def create_event(
     base_url: str, camera: str, label: str, score: float, duration: int
-) -> tuple[str | None, dict | None]:
+) -> tuple[str | None, object | None]:
     """Fire Frigate's manual-event-create endpoint. Returns (event_id, raw_response)."""
     url = f"{base_url}/api/events/{camera}/{label}/create"
     status, resp = _http_json(
@@ -101,7 +106,7 @@ def create_event(
         },
     )
     print(f"[create] POST {url} -> status={status} body={resp}")
-    if status == 200 and resp and resp.get("success"):
+    if status == 200 and isinstance(resp, dict) and resp.get("success"):
         return resp.get("event_id"), resp
     return None, resp
 
@@ -123,7 +128,8 @@ def poll(
             break
 
         status, row = _http_json(f"{base_url}/api/events/{state.event_id}")
-        if status == 200 and row:
+        row_is_dict = isinstance(row, dict)
+        if status == 200 and row_is_dict:
             if state.event_row_first_seen_at is None:
                 state.event_row_first_seen_at = elapsed
             if row.get("has_snapshot") and state.has_snapshot_first_true_at is None:
@@ -138,8 +144,8 @@ def poll(
 
         print(
             f"t={elapsed:6.2f}s  event_row={'ok' if status == 200 else status}  "
-            f"has_snapshot={row.get('has_snapshot') if row else '?'}  "
-            f"has_clip={row.get('has_clip') if row else '?'}  "
+            f"has_snapshot={row.get('has_snapshot') if row_is_dict else '?'}  "
+            f"has_clip={row.get('has_clip') if row_is_dict else '?'}  "
             f"snapshot.jpg={state.snapshot.last_status}  "
             f"clip.mp4={state.clip.last_status}  "
             f"thumbnail.jpg={state.thumbnail.last_status}"
