@@ -124,8 +124,9 @@ camera missed the person), clip/video attachment, and the independent MQTT/REST 
         `jeedom-test-host-deploy`).
   - [ ] 4.2 Map a zone to a real Frigate camera via the updated wizard Step 3; confirm the warning path if a
         camera without `info_detect_person`/`info_url_snapshot` is selected.
-  - [ ] 4.3 Trigger an alarm while Frigate has an active person detection on the mapped camera; confirm the SIA
-        frame's `[V...]` field carries the snapshot URL, read via the protocol inspector (story 9-2).
+  - [x] 4.3 Trigger an alarm while Frigate has an active person detection on the mapped camera; confirm the SIA
+        frame's `[V...]` field carries the snapshot URL, read via the protocol inspector (story 9-2). **PASS
+        (2026-09-23, 4th live attempt)** — see 4.11.
   - [ ] 4.4 Trigger an alarm with no active detection; confirm the frame sends normally with no `media_url` and
         no delay.
   - [x] 4.5 **Bug found during 4.3** (Herve, 2026-09-23): first live alarm logged
@@ -155,10 +156,17 @@ camera missed the person), clip/video attachment, and the independent MQTT/REST 
         `/plugins/frigate/data/vigi_sud-est/<id>_snapshot.jpg`, a path relative to the Jeedom web server, useless
         to an external CSR. Root cause and fix: see Task 6 and the ADR-17 amendment (siaDC09 stops reading
         `info_url_snapshot` entirely, builds `media_url` from a configurable template + `info_id` instead).
-  - [ ] 4.10 Re-run once more after Task 6 ships: configure `frigate_media_url_template` on
+  - [x] 4.10 Re-run once more after Task 6 ships: configure `frigate_media_url_template` on
         `test-jeedom.lehoux.net`, trigger an alarm with an active detection, confirm the `[V...]` field now
         carries `https://.../api/events/{id}/snapshot.jpg` (with Herve's own placeholder form) instead of the
         old Jeedom-local path.
+  - [x] 4.11 **Fourth live attempt (2026-09-23) — PASS.** Received frame:
+        `[#20881|BA 002][Vhttps://<user>:<password>@frigate.lehoux.net/api/events/1790193165.543115-0e6wzj/snapshot.jpg]_19:53:51,09-23-2026`.
+        `[V...]` sits correctly between the data field and the timestamp; the template (`<user>`/`<password>`
+        placeholders, Herve's own naming) and the `info_id` event id are correctly combined into the full URL;
+        no query string in this template, so nothing to reorder — the harder path-before-query case (AC8's
+        second form) is not yet exercised by this specific run. Confirms AC3, AC7, and AC8's userinfo-placeholder
+        form end to end on the real host.
 
 - [x] Task 5: Encode `media_url` into the SIA frame's `[V...]` extended-data field (AC: 7)
   - **Gap found during Task 4.7, not part of Tasks 1-3's scope** (those were PHP-only). `media_url` reaches
@@ -541,3 +549,4 @@ code was touched.
 | 2026-09-23 | Task 5 implemented via `bmad-dev-story`, strict TDD (consulted `/sia-dc09-expert` against the spec text first): `EventItem` gained `media_url`, threaded through `_queue_consumer()` to `_build_event_frame()`, encoded by new `sia_protocol.py::_format_extended_data_field()` as a `[V...]` block per §5.5.1.8 — its own bracket, inserted between the data field and the timestamp, never merged into the zone-carrying `[Data]` block. 6 new Level 1 + 3 new Level 2 tests, all written and confirmed red before implementation. Full suites: 1122/8 (level1) and 334/6 (level2) — both exactly baseline+new, 0 regressions (confirmed via `git stash` diff). Task 4.8 (live re-validation) can now proceed. |
 | 2026-09-23 | Live validation attempt #3 (Herve): `[V...]` appeared (Task 5 confirmed working) but carried a Jeedom-local cached path (`info_url_snapshot`'s own design), unusable by an external CSR. Investigated Herve's `pailly-proxified` Caddy setup (`cameras.lehoux.net` vhost) as the generalized reference pattern — a static, pre-shared credential embedded in the URL, never a per-event dynamic token. Herve's explicit call: siaDC09 never sees or transmits a real secret; it stores only a URL template with literal placeholder tokens, and builds `media_url` from that template + the Frigate `event_id` (`info_id`), never `info_url_snapshot` again. Documented in the ADR-17 amendment. Added Task 6, implemented via `bmad-dev-story`, strict TDD: new `_buildFrigateMediaUrl()` (pure `parse_url()` logic, zero Jeedom dependency — let its real extracted body run directly via `php` in tests for genuine behavioral verification of both template forms and the path-before-query ordering guard); `_resolveFrigateSnapshotUrl()`/`getFrigateCameras` swapped to `info_id`; new wizard field, no JS needed. Full `tests/level1/`: 1135/8 — exact baseline, +13 new, 0 regressions. Task 4.10 (live re-validation with the new URL shape) still pending. |
 | 2026-09-23 | Herve tested Task 6's wizard changes live and reported 3 UI findings. Added Task 7, implemented via `bmad-dev-story`, TDD red-first: media URL template field un-masked (`type="text"`, never held a real secret); `bt_step4Finish` no longer triggers a spurious browser "unsaved changes" prompt on Terminer (Jeedom core's `modifyWithoutSave` dirty-flag now reset before `reload()`, traced to `jeedom/core/desktop/common/js/utils.js`/`plugin.template.js`); connection summary now displays the media URL template. 3 new Level 1 tests. Full `tests/level1/`: 1138/8 — exact baseline, +3 new, 0 regressions. |
+| 2026-09-23 | Live validation attempt #4 — **PASS.** Received frame carries `[Vhttps://<user>:<password>@frigate.lehoux.net/api/events/1790193165.543115-0e6wzj/snapshot.jpg]` between the data field and the timestamp, template + `info_id` correctly combined. Confirms AC3/AC7/AC8 (userinfo-placeholder form) end to end on the real host. 4.3 and 4.10 marked done. Still open: 4.2 (warning path for a camera missing the two Frigate commands) and 4.4 (no-detection case sends normally with no `media_url`, no delay) — and AC8's query-token form (`?accesstoken=<token>`) hasn't been exercised live yet, only unit-tested. |
