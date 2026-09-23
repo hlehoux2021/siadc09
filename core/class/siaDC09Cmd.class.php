@@ -126,11 +126,14 @@ class siaDC09Cmd extends cmd {
 
     /**
      * ADR-17 (majority case only): if the zone's mapped Frigate camera already has an active
-     * `info_detect_person` (person caught before the alarm fired), returns its `info_url_snapshot`
-     * value — live, via execCmd() (getValue() is frozen forever for these info cmds, per project
-     * memory jeedom-info-cmd-execcmd-vs-getvalue). Returns null for every other case (no camera
-     * mapped, plugin/commands absent, no active detection) — never throws. The fallback
-     * create-event case and clip attachment are explicitly out of scope (deferred in ADR-17).
+     * `info_detect_person` (person caught before the alarm fired), builds a media URL from the
+     * configured `frigate_media_url_template` and the camera's current Frigate event id
+     * (`info_id`) — live, via execCmd() (getValue() is frozen forever for these info cmds, per
+     * project memory jeedom-info-cmd-execcmd-vs-getvalue). Returns null for every other case (no
+     * camera mapped, plugin/commands absent, no active detection, no template configured) —
+     * never throws. Never reads `info_url_snapshot`: it is always a Jeedom-local cached-copy
+     * path, unusable by an external CSR (ADR-17 amendment, 2026-09-23). The fallback create-event
+     * case and clip attachment are explicitly out of scope (deferred in ADR-17).
      */
     private function _resolveFrigateSnapshotUrl(array $zoneEntry): ?string {
         try {
@@ -142,16 +145,68 @@ class siaDC09Cmd extends cmd {
             if (!is_object($detectCmd) || (int) $detectCmd->execCmd() !== 1) {
                 return null;
             }
-            $snapshotCmd = cmd::byEqLogicIdAndLogicalId((int) $eqLogicId, 'info_url_snapshot');
-            if (!is_object($snapshotCmd)) {
+            $idCmd = cmd::byEqLogicIdAndLogicalId((int) $eqLogicId, 'info_id');
+            if (!is_object($idCmd)) {
                 return null;
             }
-            $url = $snapshotCmd->execCmd();
-            return is_string($url) && $url !== '' ? $url : null;
+            $eventId = $idCmd->execCmd();
+            if (!is_string($eventId) || $eventId === '') {
+                return null;
+            }
+            $eqLogic = $this->getEqLogic();
+            $template = $eqLogic !== null ? $eqLogic->getConfiguration('frigate_media_url_template', '') : '';
+            if (!is_string($template) || $template === '') {
+                return null;
+            }
+            return self::_buildFrigateMediaUrl($template, $eventId);
         } catch (\Throwable $e) {
             log::add('siaDC09', 'warning', 'Résolution du snapshot Frigate échouée : ' . $e->getMessage());
             return null;
         }
+    }
+
+    /**
+     * Builds an absolute media URL from a configurable template containing literal placeholder
+     * credentials (e.g. `<user>`, `<pass>`, `<token>`) plus the Frigate event id — siaDC09 never
+     * stores or transmits a real secret; the CSR substitutes the placeholder itself, out-of-band
+     * (ADR-17 amendment, 2026-09-23). Inserts `api/events/{eventId}/snapshot.jpg` into the
+     * template's path component, before any existing query string, so a query-string credential
+     * form (`?accesstoken=<token>`) still ends up at the very end of the final URL rather than
+     * stranded before the inserted path by naive string concatenation.
+     *
+     * @param string $template e.g. "https://<user>:<pass>@host/" or "https://host/?accesstoken=<token>"
+     * @param string $eventId Frigate event id, read from info_id
+     * @return string|null null when the template has no scheme or host — never throws
+     */
+    private static function _buildFrigateMediaUrl(string $template, string $eventId): ?string {
+        $parts = parse_url($template);
+        if (!is_array($parts) || empty($parts['scheme']) || empty($parts['host'])) {
+            return null;
+        }
+
+        $path = rtrim($parts['path'] ?? '', '/') . '/api/events/' . rawurlencode($eventId) . '/snapshot.jpg';
+
+        $userinfo = '';
+        if (isset($parts['user']) && $parts['user'] !== '') {
+            $userinfo = $parts['user'];
+            if (isset($parts['pass']) && $parts['pass'] !== '') {
+                $userinfo .= ':' . $parts['pass'];
+            }
+            $userinfo .= '@';
+        }
+
+        $port = isset($parts['port']) ? ':' . $parts['port'] : '';
+
+        $url = $parts['scheme'] . '://' . $userinfo . $parts['host'] . $port . $path;
+
+        if (isset($parts['query']) && $parts['query'] !== '') {
+            $url .= '?' . $parts['query'];
+        }
+        if (isset($parts['fragment']) && $parts['fragment'] !== '') {
+            $url .= '#' . $parts['fragment'];
+        }
+
+        return $url;
     }
 
     private function _getZoneMapping(): array {

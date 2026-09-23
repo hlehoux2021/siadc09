@@ -111,9 +111,12 @@ try {
 
     if (init('action') == 'getFrigateCameras') {
         // ADR-17 simplification: a zone maps to one Frigate camera equipment — everything else
-        // (info_detect_person, info_url_snapshot) is derived by logicalId at alarm time, never
-        // stored separately. CAMERA_TAKE is plugin-agnostic (any camera plugin can tag it), so
+        // (info_detect_person, info_id) is derived by logicalId at alarm time, never stored
+        // separately. CAMERA_TAKE is plugin-agnostic (any camera plugin can tag it), so
         // candidates are filtered to equipments that also expose both Frigate-specific commands.
+        // info_id (Task 6 swap, away from the Jeedom-cached snapshot path): same
+        // majEventsCmds() sweep, and this filter must stay consistent with what
+        // _resolveFrigateSnapshotUrl() actually reads.
         $cameras = [];
         $seenEqLogicIds = [];
         foreach (cmd::byGenericType('CAMERA_TAKE') ?? [] as $takeCmd) {
@@ -127,8 +130,8 @@ try {
             }
             $seenEqLogicIds[$eqLogicId] = true;
             $detectCmd = cmd::byEqLogicIdAndLogicalId((int) $eqLogicId, 'info_detect_person');
-            $snapshotCmd = cmd::byEqLogicIdAndLogicalId((int) $eqLogicId, 'info_url_snapshot');
-            if (!is_object($detectCmd) || !is_object($snapshotCmd)) {
+            $idCmd = cmd::byEqLogicIdAndLogicalId((int) $eqLogicId, 'info_id');
+            if (!is_object($detectCmd) || !is_object($idCmd)) {
                 continue;
             }
             $cameras[] = [

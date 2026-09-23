@@ -333,15 +333,20 @@ def test_get_frigate_cameras_starts_from_camera_take_generic_type(ajax_source: s
 def test_get_frigate_cameras_filters_by_frigate_specific_commands(ajax_source: str) -> None:
     """
     Candidates are filtered to equipments that also expose info_detect_person
-    and info_url_snapshot by logicalId — the Frigate-specific signal that
-    CAMERA_TAKE alone doesn't guarantee.
+    and info_id by logicalId — the Frigate-specific signal that CAMERA_TAKE
+    alone doesn't guarantee. Swapped from info_url_snapshot in Task 6
+    (ADR-17 amendment, 2026-09-23: that command is a Jeedom-local cached path,
+    unusable by an external CSR — no longer read anywhere in siaDC09).
 
     Expected result:
     - byEqLogicIdAndLogicalId lookups for both Frigate-specific commands present
+    - info_url_snapshot is never referenced
     """
     # Assert: precise Frigate-camera filter beyond the generic tag
     assert "info_detect_person" in ajax_source
-    assert "info_url_snapshot" in ajax_source
+    assert "info_id" in ajax_source
+    # Assert: the unusable Jeedom-cached path is never read
+    assert "info_url_snapshot" not in ajax_source
 
 
 def test_get_frigate_cameras_returns_single_list(ajax_source: str) -> None:

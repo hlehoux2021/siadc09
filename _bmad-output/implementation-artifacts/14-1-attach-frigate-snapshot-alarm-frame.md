@@ -41,10 +41,13 @@ was written the same session to measure Frigate's own snapshot/clip URL guessabi
    block save — same "never crash on unmapped/misconfigured camera" principle as story 8-2's zone mapping.
 
 3. **Given** an alarm fires for a zone mapped to a Frigate camera, **When** `info_detect_person` reads `1`
-   (person already detected — the expected majority case), **Then** `info_url_snapshot`'s current value is read
-   via `execCmd()` (live cache read — never `getValue()`, which is frozen for these info cmds per project memory
-   `jeedom-info-cmd-execcmd-vs-getvalue`) with zero wait, and attached as `media_url` in the `sendToDaemon()`
-   payload.
+   (person already detected — the expected majority case), **Then** the Frigate event id is read from
+   `info_id`'s current value via `execCmd()` (live cache read — never `getValue()`, which is frozen for these
+   info cmds per project memory `jeedom-info-cmd-execcmd-vs-getvalue`) with zero wait, combined with the
+   configured media URL template (AC8) into an absolute URL, and attached as `media_url` in the
+   `sendToDaemon()` payload. **Amended 2026-09-23** — originally read `info_url_snapshot` directly; superseded
+   because that command always holds a Jeedom-local cached-copy path, unusable by an external CSR (see ADR-17
+   amendment and AC8). `info_url_snapshot` is no longer read by siaDC09 at all.
 
 4. **And** when `info_detect_person` reads `0` (fallback case) or the camera/plugin/commands are unavailable for
    any reason, the frame is sent with `media_url` omitted (key absent, not `null` — matches the current payload
@@ -60,6 +63,16 @@ was written the same session to measure Frigate's own snapshot/clip URL guessabi
 7. **And** the whole flow is validated through the real Jeedom UI on `test-jeedom.lehoux.net` against a real
    Frigate camera: trigger an alarm while Frigate has an active person detection, confirm the SIA frame's `[V...]`
    field carries a working snapshot URL in the protocol inspector.
+
+8. **Added 2026-09-23 (ADR-17 amendment).** `media_url` is built from a single configurable URL template
+   string (one global eqLogic config field, not per-zone) containing **literal placeholder tokens** for
+   whatever credential the operator's own reverse-proxy needs (e.g. `https://<user>:<pass>@host/` or
+   `https://host/?accesstoken=<token>`) — siaDC09 never stores or transmits a real secret; the CSR substitutes
+   the placeholder itself, out-of-band. Construction: parse the template, insert `api/events/{event_id}/snapshot.jpg`
+   into its **path** component — before any existing query string, so the query-token form still ends up with
+   the token at the very end of the URL rather than stranded before the inserted path — then reassemble. When
+   the template is empty/unset or fails to parse (missing scheme or host), `media_url` is omitted exactly like
+   any other resolution failure (AC4) — never a partial or malformed URL.
 
 **Explicitly out of scope (deferred, tracked in ADR-17):** the fallback case (create-event call for when the
 camera missed the person), clip/video attachment, and the independent MQTT/REST Frigate integration (Option B).
@@ -136,8 +149,16 @@ camera missed the person), clip/video attachment, and the independent MQTT/REST 
         by the CSR simulator carried no `[V...]` field at all — `[#20881|BA 002]`, plain. Root cause is a
         second, larger gap: the daemon never encodes `media_url` into the wire frame at all, in any story.
         See Task 5 below — this is not fixable by re-running 4.3, it requires new daemon work.
-  - [ ] 4.8 Re-run 4.3/4.4 for real once Task 5 ships, to confirm the `[V...]` field actually appears in the
+  - [x] 4.8 Re-run 4.3/4.4 for real once Task 5 shipped, to confirm the `[V...]` field actually appears in the
         protocol inspector (story 9-2) end to end.
+  - [x] 4.9 **Third live attempt (2026-09-23)**: `[V...]` appeared — Task 5 confirmed working — but carrying
+        `/plugins/frigate/data/vigi_sud-est/<id>_snapshot.jpg`, a path relative to the Jeedom web server, useless
+        to an external CSR. Root cause and fix: see Task 6 and the ADR-17 amendment (siaDC09 stops reading
+        `info_url_snapshot` entirely, builds `media_url` from a configurable template + `info_id` instead).
+  - [ ] 4.10 Re-run once more after Task 6 ships: configure `frigate_media_url_template` on
+        `test-jeedom.lehoux.net`, trigger an alarm with an active detection, confirm the `[V...]` field now
+        carries `https://.../api/events/{id}/snapshot.jpg` (with Herve's own placeholder form) instead of the
+        old Jeedom-local path.
 
 - [x] Task 5: Encode `media_url` into the SIA frame's `[V...]` extended-data field (AC: 7)
   - **Gap found during Task 4.7, not part of Tasks 1-3's scope** (those were PHP-only). `media_url` reaches
@@ -182,6 +203,59 @@ camera missed the person), clip/video attachment, and the independent MQTT/REST 
         +6 new tests, 0 regressions). Full `tests/level2/` suite: 334 passed / 6 failed (same 6-failure
         baseline, confirmed the same way — +3 new tests, 0 regressions). `pylint --disable=all --enable=E`
         clean on both modified daemon files.
+
+- [x] Task 6: Build `media_url` from a configurable template + Frigate `event_id`, stop reading
+      `info_url_snapshot` (AC: 3, 8)
+  - **Why (found during Task 4.7's second live attempt, 2026-09-23):** `info_url_snapshot` is always a
+    Jeedom-local cached-copy path (`/plugins/frigate/data/<camera>/<id>_snapshot.jpg`) by the Frigate plugin's
+    own design — confirmed dead-end for an external CSR, see ADR-17 amendment above. Herve: siaDC09 will not
+    rely on the Frigate plugin's snapshot exposure/caching at all; construct the URL directly against Frigate's
+    own API instead, and never store or transmit a real credential — the config field holds only literal
+    placeholder tokens (e.g. `<user>`, `<pass>`, `<token>`) that the CSR substitutes itself, out-of-band.
+    Investigated Herve's own `pailly-proxified` reverse-proxy setup (`etc/caddy/Caddyfile:450-523`,
+    `cameras.lehoux.net` vhost) as the generalized reference: a dedicated, no-SSO vhost with IP allowlist +
+    Basic Auth, GET/HEAD path allowlist already including `/api/events/*/snapshot.jpg`, proxied to Frigate's
+    authenticated port. Generalizes to: a static, pre-shared credential embedded in the URL — siaDC09 only
+    needs to know the template shape, never the real value.
+  - [x] 6.1 New eqLogic config field `frigate_media_url_template` added to `desktop/php/siaDC09.php` Step 3,
+        above the zone table — `<input type="password" class="eqLogicAttr" data-l1key="configuration"
+        data-l2key="frigate_media_url_template">`, same convention as `encryption_key`. Help text states
+        explicitly that only literal placeholder tokens go here, never a real credential. No JS wiring needed:
+        `.eqLogicAttr` inputs save/load generically via Jeedom's `getValues('.eqLogicAttr')` (confirmed —
+        `encryption_key` itself has zero custom JS); deliberately excluded from
+        `siaDC09_populateConfigSummary()`, matching `encryption_key`'s own precedent of never displaying a
+        secret-shaped field in the summary.
+  - [x] 6.2 `siaDC09Cmd::_buildFrigateMediaUrl(string $template, string $eventId): ?string` implemented
+        exactly as designed — `parse_url($template)`, `null` on missing scheme/host, path built with
+        `rtrim(..., '/')` + `api/events/` + `rawurlencode($eventId)` + `/snapshot.jpg`, reassembled as
+        scheme + userinfo + host + port + path + query + fragment (query/fragment copied verbatim, appended
+        last). Made `private static` — pure function of its two args, no Jeedom dependency at all, which let
+        Task 6.5's tests execute its real extracted source directly via `php` for genuine behavioral
+        verification instead of source-text-shape regex alone.
+  - [x] 6.3 `_resolveFrigateSnapshotUrl()` updated: swapped the `info_url_snapshot` read for `info_id`
+        (same `cmd::byEqLogicIdAndLogicalId()` pattern, same per-camera equipment), reads
+        `frigate_media_url_template` from `$this->getEqLogic()->getConfiguration(...)`, returns `null` early
+        when either is empty/missing, otherwise delegates to `_buildFrigateMediaUrl()`. The
+        `info_detect_person === 1` gate untouched.
+  - [x] 6.4 `getFrigateCameras` (`core/ajax/siaDC09.ajax.php`) swapped its filter from
+        `info_detect_person`/`info_url_snapshot` to `info_detect_person`/`info_id` — consistent with what the
+        resolver now actually reads.
+  - [x] 6.5 Level 1 tests added (`tests/level1/test_frigate_snapshot_resolution.py`, 15 new tests across
+        `TestBuildFrigateMediaUrl` and updates to `TestResolveFrigateSnapshotUrlReadsCorrectCommands`/
+        `TestGetFrigateCamerasAction`). Went beyond source-text regex for `_buildFrigateMediaUrl()`: because it
+        has zero Jeedom dependency, its real extracted method body is executed directly via `php` (a small
+        harness function, no `core.inc.php` bootstrap needed) — both AC8 template forms verified against exact
+        expected output strings, including the path-before-query ordering guard, a malformed/empty-template
+        `null` guard, and event-id URL-escaping. `_resolveFrigateSnapshotUrl()`/`getFrigateCameras` tests
+        updated to assert `info_id` plus a negative assertion forbidding `info_url_snapshot` in either call
+        site (also fixed one incidental regression in `tests/level1/test_wizard_ajax_contracts.py`, which
+        substring-checked for `info_url_snapshot`). Written and confirmed red before implementation.
+  - [x] 6.6 `php -l` clean on `core/class/siaDC09Cmd.class.php`, `core/ajax/siaDC09.ajax.php`,
+        `desktop/php/siaDC09.php`. `siaDC09.js` unchanged (6.1 confirmed no JS wiring needed) — `node --check`
+        not applicable. Full `tests/level1/` suite: 1135 passed / 8 failed — exact pre-existing baseline
+        (confirmed matches the known 8), +13 new tests, 0 regressions.
+  - [x] 6.7 Task 4 Dev Notes/Change Log updated (see below) — 4.8's live re-validation now checks for
+        `https://.../api/events/{id}/snapshot.jpg` (operator's own placeholder form) in the `[V...]` field.
 
 ## Dev Notes
 
@@ -301,7 +375,10 @@ reflection-based "should work" is not acceptable for this AC.
 - Prior art: story 8.2 (`8-2-wizard-steps-3-4-zone-mapping.md`) for the zone-mapping wizard pattern and the
   "never crash on unmapped/misconfigured camera" principle
 - Memory: `jeedom-info-cmd-execcmd-vs-getvalue`, `jeedom-ui-validation-over-reflection`, `jeedom-test-host-deploy`,
-  `level1-test-baseline-failures`
+  `level1-test-baseline-failures`, `jeedom-verify-core-api-signatures`, `prefer-tests-over-live-trial-and-error`,
+  `frigate-manual-event-api-no-mqtt`
+- Task 6's reverse-proxy reference pattern: `/Users/herve.lehoux/dev-hlx/pailly-proxified/etc/caddy/Caddyfile`
+  (the `cameras.lehoux.net` vhost, lines ~450-523) — a separate repo, not part of this codebase
 
 ## Dev Agent Record
 
@@ -374,18 +451,35 @@ code was touched.
   `pylint --disable=all --enable=E` clean on `daemon.py` and `sia_protocol.py`. Task 4's remaining live
   re-validation (4.8) can now proceed — this is the first attempt where the `[V...]` field has any chance of
   actually appearing in the protocol inspector.
+- **Live validation attempt #3 (2026-09-23) found a third gap — see Task 4.9.** `[V...]` appeared correctly
+  (Task 5 confirmed working) but carried `/plugins/frigate/data/vigi_sud-est/<id>_snapshot.jpg` — a Jeedom-local
+  path, useless to an external CSR. Investigated Herve's own `pailly-proxified` reverse-proxy setup as the
+  generalized reference pattern (see ADR-17 amendment); Herve's explicit call: stop reading `info_url_snapshot`
+  entirely, build `media_url` from a configurable template (literal placeholder credentials only, never a real
+  secret) + the Frigate `event_id`.
+- **Task 6 complete (2026-09-23)**: new `siaDC09Cmd::_buildFrigateMediaUrl()` (private static, pure
+  `parse_url()`-based string logic, zero Jeedom dependency) inserts `api/events/{event_id}/snapshot.jpg` into
+  the template's path, before any existing query string, then reassembles the full URL — verified against both
+  of Herve's example forms (userinfo and query-token). `_resolveFrigateSnapshotUrl()` swapped its
+  `info_url_snapshot` read for `info_id` + the new `frigate_media_url_template` eqLogic config; `getFrigateCameras`
+  swapped its filter the same way. New wizard field in Step 3, same `<input type="password">` convention as
+  `encryption_key` — no JS changes needed. TDD red-first: because `_buildFrigateMediaUrl()` has zero Jeedom
+  dependency, its real extracted method body is executed directly via `php` in the tests (no `core.inc.php`
+  bootstrap) for genuine behavioral verification of the tricky path-vs-query reassembly, not just source-text
+  regex. Full `tests/level1/`: 1135 passed / 8 failed — exact baseline, +13 new tests, 0 regressions (one
+  incidental pre-existing regression in `test_wizard_ajax_contracts.py`, caught and fixed in the same pass).
 
 ### File List
 
 | File | Change |
 |------|--------|
-| `core/class/siaDC09Cmd.class.php` | Added `_resolveFrigateSnapshotUrl()`; wired conditional `media_url` into `execute()`'s alarm-trigger payload. Fixed (2026-09-23, live-validation bug): swapped the non-existent scoped `cmd::byLogicalId()` call for `cmd::byEqLogicIdAndLogicalId()`. |
-| `core/ajax/siaDC09.ajax.php` | Added `getFrigateCameras` action; deleted `getCameraCommands` (dead code, no remaining callers). Fixed (2026-09-23, same bug): swapped `cmd::byLogicalId()` for `cmd::byEqLogicIdAndLogicalId()`. |
-| `desktop/php/siaDC09.php` | Step 3 zone table: merged two camera/media columns into one "Caméra Frigate" column; added `#siaDC09-step3-nocamera` warning banner. |
+| `core/class/siaDC09Cmd.class.php` | Added `_resolveFrigateSnapshotUrl()`; wired conditional `media_url` into `execute()`'s alarm-trigger payload. Fixed (2026-09-23, live-validation bug): swapped the non-existent scoped `cmd::byLogicalId()` call for `cmd::byEqLogicIdAndLogicalId()`. Task 6 (2026-09-23): swapped the `info_url_snapshot` read for `info_id` + new `frigate_media_url_template` config; added `_buildFrigateMediaUrl()`. |
+| `core/ajax/siaDC09.ajax.php` | Added `getFrigateCameras` action; deleted `getCameraCommands` (dead code, no remaining callers). Fixed (2026-09-23, same bug): swapped `cmd::byLogicalId()` for `cmd::byEqLogicIdAndLogicalId()`. Task 6 (2026-09-23): swapped its `info_url_snapshot` filter check for `info_id`. |
+| `desktop/php/siaDC09.php` | Step 3 zone table: merged two camera/media columns into one "Caméra Frigate" column; added `#siaDC09-step3-nocamera` warning banner. Task 6 (2026-09-23): added the `frigate_media_url_template` field above the zone table. |
 | `desktop/js/siaDC09.js` | `saveEqLogic()`, `siaDC09_loadZoneData()`, `siaDC09_loadZoneTable()`, `siaDC09_buildZoneRow()`, `siaDC09_populateConfigSummary()` updated for the single-camera schema (`frigate_camera_eqlogic_id`/`frigate_camera_label`) and the new `getFrigateCameras` AJAX action. |
-| `tests/level1/test_frigate_snapshot_resolution.py` | New — structural tests for `_resolveFrigateSnapshotUrl()`, `getFrigateCameras`, and the conditional `media_url` wiring in `execute()`. Updated (2026-09-23) to assert `cmd::byEqLogicIdAndLogicalId()` instead of the non-existent scoped `byLogicalId()`, plus a new negative assertion forbidding `byLogicalId(` in both call sites. |
+| `tests/level1/test_frigate_snapshot_resolution.py` | New — structural tests for `_resolveFrigateSnapshotUrl()`, `getFrigateCameras`, and the conditional `media_url` wiring in `execute()`. Updated (2026-09-23) to assert `cmd::byEqLogicIdAndLogicalId()` instead of the non-existent scoped `byLogicalId()`, plus a new negative assertion forbidding `byLogicalId(` in both call sites. Task 6 (2026-09-23): 15 new tests — real-execution coverage of `_buildFrigateMediaUrl()` via a `php` subprocess harness, plus `info_id`/`frigate_media_url_template` assertions replacing `info_url_snapshot`. |
 | `tests/level1/test_wizard_js_logic.py` | Updated 2 tests that asserted on the deleted `camera_action_cmd_id`/`media_url_cmd_id`/labels JS fields to assert on `frigate_camera_eqlogic_id`/`frigate_camera_label` instead. |
-| `tests/level1/test_wizard_ajax_contracts.py` | Replaced the obsolete 6-test "getCameraCommands Action" section with a 5-test "getFrigateCameras Action" section. Docstring corrected (2026-09-23) to name `byEqLogicIdAndLogicalId`. |
+| `tests/level1/test_wizard_ajax_contracts.py` | Replaced the obsolete 6-test "getCameraCommands Action" section with a 5-test "getFrigateCameras Action" section. Docstring corrected (2026-09-23) to name `byEqLogicIdAndLogicalId`. Task 6 (2026-09-23): fixed the `info_url_snapshot`-substring assertion (incidental regression) to assert `info_id` plus a negative assertion. |
 | `tests/level1/test_wizard_config_key_consistency.py` | `_AJAX_ACTIONS`: `getCameraCommands` → `getFrigateCameras`. |
 | `resources/siadc09d/daemon.py` | Task 5 (2026-09-23): added `media_url` field to `EventItem`; `_queue_consumer()`'s `EventItem(...)` construction now passes `media_url=event_payload.get("media_url")`; `_build_event_frame()` adds `media_url` to `extended_data` when present. |
 | `resources/siadc09d/sia_protocol.py` | Task 5 (2026-09-23): added `_format_extended_data_field()` (SIA DC-09 §5.5.1.8 Verification "V" block); wired into `encode_message()`'s `message_core_str` between `data_field` and `timestamp_str`. |
@@ -402,3 +496,4 @@ code was touched.
 | 2026-09-23 | Live validation attempt #1 (Herve, real alarm on a manually-created Frigate event) found `cmd::byLogicalId()` misuse — the signature assumed in Dev Notes doesn't exist in Jeedom core, causing a fatal-avoided-by-catch "execCmd() on array" warning and silent `media_url` loss, plus an equivalent silent over-inclusion bug in `getFrigateCameras`. Fixed both call sites to `cmd::byEqLogicIdAndLogicalId()`; Level 1 tests updated; suite back to the 8-failure baseline. Task 4 re-validation (4.2-4.4) still pending. |
 | 2026-09-23 | Live validation attempt #2 (Herve, using `scripts/frigate_force_detection.php` to force `info_detect_person`/`info_url_snapshot` — Frigate's manual event API confirmed, via its own source, to never trigger Frigate's MQTT events/reviews topics, so it can't drive Jeedom's real pipeline): PHP resolver worked, but the SIA frame received by the CSR held no `[V...]` field. Traced to a second gap, entirely in the Python daemon: `EventItem`/`_build_event_frame()`/`_format_data_field()` never carried or encoded `media_url` at all — this was never implemented, in any story, not a regression. Added Task 5 (daemon-side `[V...]` encoding, AC7) with Level 1 + Level 2 test tasks up front, per Herve's explicit direction to stop relying on live trial-and-error for this and cover it in automated tests before the next live attempt. Status stays `in-progress`; Task 4's remaining live re-validation (4.8) now depends on Task 5 shipping first. |
 | 2026-09-23 | Task 5 implemented via `bmad-dev-story`, strict TDD (consulted `/sia-dc09-expert` against the spec text first): `EventItem` gained `media_url`, threaded through `_queue_consumer()` to `_build_event_frame()`, encoded by new `sia_protocol.py::_format_extended_data_field()` as a `[V...]` block per §5.5.1.8 — its own bracket, inserted between the data field and the timestamp, never merged into the zone-carrying `[Data]` block. 6 new Level 1 + 3 new Level 2 tests, all written and confirmed red before implementation. Full suites: 1122/8 (level1) and 334/6 (level2) — both exactly baseline+new, 0 regressions (confirmed via `git stash` diff). Task 4.8 (live re-validation) can now proceed. |
+| 2026-09-23 | Live validation attempt #3 (Herve): `[V...]` appeared (Task 5 confirmed working) but carried a Jeedom-local cached path (`info_url_snapshot`'s own design), unusable by an external CSR. Investigated Herve's `pailly-proxified` Caddy setup (`cameras.lehoux.net` vhost) as the generalized reference pattern — a static, pre-shared credential embedded in the URL, never a per-event dynamic token. Herve's explicit call: siaDC09 never sees or transmits a real secret; it stores only a URL template with literal placeholder tokens, and builds `media_url` from that template + the Frigate `event_id` (`info_id`), never `info_url_snapshot` again. Documented in the ADR-17 amendment. Added Task 6, implemented via `bmad-dev-story`, strict TDD: new `_buildFrigateMediaUrl()` (pure `parse_url()` logic, zero Jeedom dependency — let its real extracted body run directly via `php` in tests for genuine behavioral verification of both template forms and the path-before-query ordering guard); `_resolveFrigateSnapshotUrl()`/`getFrigateCameras` swapped to `info_id`; new wizard field, no JS needed. Full `tests/level1/`: 1135/8 — exact baseline, +13 new, 0 regressions. Task 4.10 (live re-validation with the new URL shape) still pending. |

@@ -294,6 +294,13 @@ $scenarios = scenario::all();
 									<div id="siaDC09-step3-nocamera" class="alert alert-warning" style="display:none;">
 										<i class="fas fa-exclamation-triangle"></i> {{Aucune caméra Frigate détectée — installez et configurez le plugin Frigate NVR pour rattacher un aperçu aux alarmes.}}
 									</div>
+									<div class="form-group">
+										<label class="col-sm-4 control-label">{{URL media Frigate}}</label>
+										<div class="col-sm-6">
+											<input type="password" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="frigate_media_url_template" placeholder="https://<user>:<pass>@host/ ou https://host/?accesstoken=<token>">
+											<p class="help-block">{{Modèle d'URL avec des placeholders littéraux pour vos identifiants (ex: <user>, <pass>, <token>) — n'entrez jamais un identifiant réel ici, le centre de surveillance fait lui-même le remplacement à la réception de la trame.}}</p>
+										</div>
+									</div>
 									<div class="table-responsive">
 										<table id="siaDC09-zone-table" class="table table-bordered table-condensed">
 											<thead>

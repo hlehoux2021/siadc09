@@ -306,10 +306,51 @@ The plugin delivers 12 functional capabilities across four domains:
 | Option A, both cases (majority + fallback via the plugin's create-event action) | Some coverage in the fallback case too | Inherits the plugin's 5-10s+ latency and clip bug for no proven benefit, since the alarm still can't wait that long — rejected this round, see 12-x/future story for revisit |
 | Option B — independent Frigate integration (MQTT via `mqtt2` + direct REST) | Full control over timeout/polling; removes the plugin's specific bugs for the calls we'd own | Doesn't confirm it fixes the underlying Frigate file-write race; new persistent MQTT subscription; new third-party NVR API/schema dependency; daemon placement would violate the zero-Jeedom-dependencies invariant |
 
+**Amendment (2026-09-23) — snapshot URL construction bypasses the Frigate plugin's own exposure:**
+Live validation on `test-jeedom.lehoux.net` (story 14-1, Task 4) showed the received SIA frame's `[V...]`
+field carrying `/plugins/frigate/data/vigi_sud-est/<id>_snapshot.jpg` — a path relative to the Jeedom web
+server, useless to an external CSR with no way to resolve it. Root cause: `info_url_snapshot` (the command
+`_resolveFrigateSnapshotUrl()` reads) is always a Jeedom-local cached-copy path by the Frigate plugin's own
+design (`frigate.class.php:1236`/`:1260`, `getSnapshot()`) — it downloads and re-serves the snapshot itself
+rather than exposing Frigate's own URL. **Herve's explicit call: siaDC09 will not rely on the Frigate
+plugin's own snapshot exposure or caching — Frigate already serves this well on its own.** `media_url` is
+instead constructed directly against Frigate's own API, configurably, e.g.
+`https://frigate.lehoux.net/api/events/{event_id}/snapshot.jpg?access_token=xyz` — a Frigate public base URL
+and access token, both plugin-configurable (not per-zone: one Frigate server), combined with the event_id.
+The event_id itself is still read from the Jeedom Frigate plugin's camera equipment, via its `info_id`
+command (populated by the same real-time MQTT pipeline as `info_detect_person`, per `majEventsCmds()` —
+confirmed it's written to the same per-camera equipment, no new equipment lookup needed). This resolves the
+"guessable/constructible from event_id" deferred item below in favor of yes, construct it directly — the
+Frigate plugin's `info_url_snapshot` command is no longer read by siaDC09 at all once this lands.
+
+**Amendment (2026-09-23, continued) — siaDC09 never sees the real credential; the CSR does the
+substitution.** Investigated Herve's own reverse-proxy setup (`pailly-proxified` repo,
+`etc/caddy/Caddyfile:450-523`) as the generalized reference pattern: a dedicated vhost
+(`cameras.lehoux.net`, currently named after the monitoring provider — flagged there as "à renommer"),
+deliberately carrying **no** SSO (`forward_auth`) since the monitoring center has no Authelia account,
+guarded instead by two stacked, independently-revocable checks (IP allowlist + HTTP Basic Auth), with a
+GET/HEAD-only path allowlist that already includes `/api/events/*/snapshot.jpg`, proxied to Frigate's
+authenticated port (8971, never 5000 — anonymous-admin bypass, see that repo's VULN-16). Generalized: this
+is a **static, pre-shared credential embedded in the URL** (Basic Auth userinfo, or a query-string token —
+either is a valid instance of the same pattern), not a per-event dynamic token — the monitoring center
+already possesses it out-of-band.
+
+**Final design:** siaDC09 stores exactly one new config field — a **URL template string containing literal
+placeholder tokens** for whatever credential the operator's reverse-proxy needs (e.g.
+`https://<user>:<pass>@cameras.lehoux.net/` or `https://cameras.lehoux.net/?accesstoken=<token>`) — verified
+these placeholders round-trip losslessly through PHP's `parse_url()` (it treats `<user>`, `<pass>`,
+`<token>` as opaque literal component values, performs no resolution). siaDC09 **never contains or sees the
+real secret** — the CSR/monitoring center receives the templated URL as-is in the SIA frame and performs the
+placeholder substitution itself, using credentials it already holds out-of-band. Construction: `parse_url()`
+the template, insert `api/events/{event_id}/snapshot.jpg` into the **path** component (before any existing
+query string — critical for the query-token form, where naive string concatenation would place the new path
+segment after `?accesstoken=<token>` instead of before it), then reassemble scheme + userinfo + host + port +
+new path + original query/fragment. The template field is stored encrypted (it can carry real credentials in
+other operators' setups even though it holds only placeholders in Herve's). Tracked as new 14-1 tasks.
+
 **Deferred (tracked, not decided):**
 - Fallback-case snapshot acquisition (if the majority-case measurement below shows fallback is common enough to be worth engineering for).
-- Whether Frigate's snapshot/clip URLs are directly guessable/constructible from an `event_id` (`/api/events/{id}/snapshot.jpg`, `/api/events/{id}/clip.mp4` — confirmed as Frigate's own real endpoint shapes from its FastAPI source) and, if so, whether polling those directly (bypassing the plugin's DB-row/MQTT-driven `has_snapshot` gate entirely) changes the timing picture for a future fallback-case design. A standalone investigation script (`scripts/frigate_latency_probe.py`) was written to measure this empirically against a real Frigate server — not yet run.
-- Whether the observed clip-download silent-failure bug should be reported upstream to the Frigate plugin maintainer.
+- Whether the observed clip-download silent-failure bug should be reported upstream to the Frigate plugin maintainer (moot for siaDC09 now that it no longer depends on the plugin's snapshot/clip exposure at all for this path).
 
 ---
 
