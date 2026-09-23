@@ -363,6 +363,19 @@ existence is strong evidence the plugin's author already anticipated individual 
 reliably clearing on their own — a **known, partially-mitigated limitation, not a designed-and-solved
 behavior**: the mitigation only fires if/when `info_detect_all` itself transitions to 0, which is not
 guaranteed to happen promptly (or at all, if some other tracked object class keeps the aggregate non-zero).
+**Confirmed by frigate-mqtt logs (2026-09-23, second finding, not just a hypothesis):** Frigate's
+`camera_activity` MQTT topic is its own periodic ground-truth summary per camera — observed in the logs
+reporting `"objects":[]` (zero currently-tracked objects) for `vigi_sud-est` on a multi-minute cycle. This
+topic has **no `case` in `handleMqttMessage()`'s switch** (`frigate.class.php:3206-3239` — only `events`,
+`reviews`, `stats`, `available`, `tracked_object_update` are handled); it falls to `default:`, which looks up
+an equipment `eqFrigateCamera_camera_activity` (never exists) and silently drops the message
+(`continue 2`). So the one topic that could have corrected `info_detect_person` on a short, reliable cycle is
+never read at all — confirming this is a real structural gap, not merely an occasional dropped message. In
+the same log window, no `frigate/vigi_sud-est/person` message appeared either. `info_detect_person` was
+observed to eventually self-correct at a much later, unpredictable time (~30+ min after the tracked event
+actually ended) — consistent with only the `handleAllObject()` safety net (reactive, not periodic) ever
+firing to clear it.
+
 Not fixable within Option A's boundaries (would need Option B's independent MQTT integration, already
 rejected). Practical mitigation used for Task 4.4: force `info_detect_person` directly via
 `scripts/frigate_force_detection.php --detect=0` rather than rely on the plugin's own state clearing live.
