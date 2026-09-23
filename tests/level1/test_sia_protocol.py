@@ -753,6 +753,102 @@ def test_data_field_none_extended_data_no_zone(builder):
     assert result == "[#000001|NULL]"
 
 
+# ===== TESTS: Extended Data Field — Verification "V" block (story 14-1 Task 5) =====
+# Per SIA DC-09 § 5.5.1.8: [x…data…] is a SEPARATE bracket block from [Data] (§ 5.5.1.7,
+# where "zone" lives per the Annex B legacy convention tested above) — never merged into it.
+
+def test_format_extended_data_field_with_media_url(builder):
+    """
+    Verification "V" extended-data block for a media/snapshot URL.
+    Per spec § 5.5.1.8, line 651: `[Vhttp://verify.com/34AC4DE3446]`.
+
+    Expected result:
+    - media_url in extended_data produces "[V{media_url}]"
+    """
+    result = builder._format_extended_data_field(
+        {"media_url": "http://192.168.100.18:5000/api/events/abc123/snapshot.jpg"}
+    )
+    # Assert: V-block wraps the URL exactly, no other characters added
+    assert result == "[Vhttp://192.168.100.18:5000/api/events/abc123/snapshot.jpg]"
+
+
+def test_format_extended_data_field_without_media_url(builder):
+    """
+    Test that a dict with other keys (e.g. zone) but no media_url produces no V-block.
+
+    Expected result:
+    - "" (no [V...] block) when media_url key is absent
+    """
+    result = builder._format_extended_data_field({"zone": "002"})
+    # Assert: no V-block when media_url is absent
+    assert result == ""
+
+
+def test_format_extended_data_field_empty_media_url(builder):
+    """
+    Test that an empty-string media_url produces no V-block, matching the falsy-omission
+    convention already used for zone (test_data_field_no_zone_in_extended_data).
+
+    Expected result:
+    - "" when media_url is an empty string
+    """
+    result = builder._format_extended_data_field({"media_url": ""})
+    # Assert: empty media_url omits the V-block
+    assert result == ""
+
+
+def test_format_extended_data_field_none(builder):
+    """
+    Test that None extended_data produces no V-block.
+
+    Expected result:
+    - "" when extended_data is None
+    """
+    # Assert: None extended_data yields empty extended-data field
+    assert builder._format_extended_data_field(None) == ""
+
+
+def test_encode_message_places_v_block_between_data_field_and_timestamp(builder):
+    """
+    Message field order per § 5.5.1 template (`[Data][x…data…]<timestamp>`): the [V...]
+    block is its OWN bracket, appended after [Data] (which may already carry a zone) and
+    before the timestamp — never folded into the [Data] brackets.
+
+    Expected result:
+    - message core contains "[#20881|BA 002][Vhttp://host/snapshot.jpg]_12:00:00,09-23-2026"
+      as one contiguous substring (data field, then V-block, then timestamp, no gaps)
+    """
+    frame = builder.encode_message(
+        account_number="20881",
+        event_code="BA",
+        extended_data={"zone": "002", "media_url": "http://host/snapshot.jpg"},
+        timestamp=datetime(2026, 9, 23, 12, 0, 0, tzinfo=timezone.utc),
+    )
+    message_core = parse_frame(frame)["message_core"].decode("ascii")
+    # Assert: data field, V-block and timestamp are contiguous and in spec order
+    assert "[#20881|BA 002][Vhttp://host/snapshot.jpg]_12:00:00,09-23-2026" in message_core
+
+
+def test_encode_message_no_v_block_when_media_url_absent(builder):
+    """
+    Regression guard: encode_message() without a media_url key must produce byte-identical
+    output to before Task 5 — no empty "[V]" block, no behavior change for existing frames
+    (supervision NULL, zone-only alarms).
+
+    Expected result:
+    - message core contains no "[V" substring at all
+    """
+    frame = builder.encode_message(
+        account_number="20881",
+        event_code="BA",
+        extended_data={"zone": "002"},
+        timestamp=datetime(2026, 9, 23, 12, 0, 0, tzinfo=timezone.utc),
+    )
+    message_core = parse_frame(frame)["message_core"].decode("ascii")
+    # Assert: no Verification block present
+    assert "[V" not in message_core
+
+
 # ===== TESTS: Timestamp Formatting =====
 
 def test_timestamp_length(builder):

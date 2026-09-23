@@ -293,3 +293,78 @@ async def test_second_event_increments_builder_sequence():
     # Assert: builder sequence increments between events
     assert '0001' in frame1_str, f"First frame should have seq '0001', got: {frame1_str}"
     assert '0002' in frame2_str, f"Second frame should have seq '0002', got: {frame2_str}"
+
+
+# ===== media_url in frame (story 14-1 Task 5) =====
+
+
+@pytest.mark.asyncio
+async def test_frame_contains_v_block_when_media_url_set():
+    """
+    EventItem.media_url reaches the actual SIA frame as a Verification "V" extended-data
+    block (SIA DC-09 § 5.5.1.8), via the real _build_event_frame() path — not mocked.
+
+    Expected result:
+    - Frame body contains '[Vhttp://192.168.100.18:5000/api/events/abc123/snapshot.jpg]'
+    """
+    daemon, captured = _make_daemon_with_frame_capture()
+    event = EventItem(
+        sia_code='BA',
+        zone='Salon',
+        timestamp='12:00:00,04-22-2026',
+        media_url='http://192.168.100.18:5000/api/events/abc123/snapshot.jpg',
+    )
+    await daemon._send_with_retry(event, max_retries=0)
+
+    frame_str = captured[0].decode('windows-1252', errors='replace')
+    # Assert: V-block with the exact URL present in the transmitted frame
+    assert '[Vhttp://192.168.100.18:5000/api/events/abc123/snapshot.jpg]' in frame_str, (
+        f"Frame must contain the [V...] media URL block, got: {frame_str}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_frame_has_no_v_block_when_media_url_none():
+    """
+    EventItem.media_url defaults to None (fallback case, AC4) — the frame must carry no
+    [V...] block at all, and must be byte-identical to a frame built with no media_url
+    argument passed (no behavior change for every pre-14-1 frame).
+
+    Expected result:
+    - Frame body contains no '[V' substring
+    """
+    daemon, captured = _make_daemon_with_frame_capture()
+    event = EventItem(sia_code='BA', zone='Salon', timestamp='12:00:00,04-22-2026', media_url=None)
+    await daemon._send_with_retry(event, max_retries=0)
+
+    frame_str = captured[0].decode('windows-1252', errors='replace')
+    # Assert: no Verification block present
+    assert '[V' not in frame_str, f"Frame must have no [V...] block when media_url is None, got: {frame_str}"
+
+
+@pytest.mark.asyncio
+async def test_v_block_placed_between_data_field_and_timestamp():
+    """
+    Message field order per SIA DC-09 § 5.5.1 template
+    (`[Data][x…data…]<timestamp>`): the [V...] extended-data block must sit immediately
+    after the [Data] field's closing ']' and immediately before the timestamp's leading '_'.
+
+    Expected result:
+    - The substring '][Vhttp://host/snap.jpg]_' appears in the frame (data-field close,
+      V-block, timestamp start, contiguous — no other bytes between them)
+    """
+    daemon, captured = _make_daemon_with_frame_capture()
+    event = EventItem(
+        sia_code='BA',
+        zone='Salon',
+        zone_number=2,
+        timestamp='12:00:00,04-22-2026',
+        media_url='http://host/snap.jpg',
+    )
+    await daemon._send_with_retry(event, max_retries=0)
+
+    frame_str = captured[0].decode('windows-1252', errors='replace')
+    # Assert: V-block is contiguous between the data field and the timestamp
+    assert '][Vhttp://host/snap.jpg]_' in frame_str, (
+        f"[V...] must sit between the data field and the timestamp, got: {frame_str}"
+    )

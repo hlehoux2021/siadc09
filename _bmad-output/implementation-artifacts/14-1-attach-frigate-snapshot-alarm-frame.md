@@ -131,6 +131,57 @@ camera missed the person), clip/video attachment, and the independent MQTT/REST 
         `null`). Level 1 tests updated to assert the correct API and to forbid the unscoped call
         (`tests/level1/test_frigate_snapshot_resolution.py`, `tests/level1/test_wizard_ajax_contracts.py`
         docstring). Re-validation of 4.2-4.4 against the real host still pending.
+  - [x] 4.7 **Second live attempt (2026-09-23)**: PHP-side resolver worked correctly this time
+        (`media_url=<set>` logged by the daemon, correct URL in `sendToDaemon()`), but the SIA frame received
+        by the CSR simulator carried no `[V...]` field at all — `[#20881|BA 002]`, plain. Root cause is a
+        second, larger gap: the daemon never encodes `media_url` into the wire frame at all, in any story.
+        See Task 5 below — this is not fixable by re-running 4.3, it requires new daemon work.
+  - [ ] 4.8 Re-run 4.3/4.4 for real once Task 5 ships, to confirm the `[V...]` field actually appears in the
+        protocol inspector (story 9-2) end to end.
+
+- [x] Task 5: Encode `media_url` into the SIA frame's `[V...]` extended-data field (AC: 7)
+  - **Gap found during Task 4.7, not part of Tasks 1-3's scope** (those were PHP-only). `media_url` reaches
+    `sendToDaemon()` (Task 2) and is correctly logged by `on_message()`/`_enqueue_event()`
+    (`resources/siadc09d/daemon.py:1786-1824`, `EventQueuePayload` already has a `media_url` key,
+    `daemon.py:258`) — but the pipeline dead-ends there. `EventItem` (`daemon.py:161-176`), the dataclass
+    `_build_event_frame()` actually consumes, has **no `media_url` field** (its own docstring says "zone_number:
+    Only field that reaches the SIA frame", `daemon.py:175`), and `_queue_consumer()`'s `EventItem(...)`
+    construction (`daemon.py:1922-1927`) never reads `event_payload.get("media_url")`. Even if it did,
+    `_format_data_field()` (`sia_protocol.py:391-414`) has no code path for it.
+  - **Spec correction vs. the zone precedent**: `[V...]` is NOT embedded inside the same brackets as
+    `[#account|code zone]` the way `zone` is. Per the protocol spec
+    (`docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md:609-671`), `zone` lives in §5.5.1.7 [Data]
+    (legacy DC-07 Annex B convention — account+eventcode+zone in one bracket), while `V` is one of the
+    §5.5.1.8 "[x…data…] Optional Extended Data" identifiers (line 651: `[Vhttp://verify.com/34AC4DE3446]`) —
+    its own separate `[V...]` bracket block. Message field order per §5.5.1 subsections is Data (5.5.1.7) →
+    Extended Data (5.5.1.8) → Timestamp (5.5.1.9) → CR — so the new block must be inserted in
+    `encode_message()`'s `message_core_str` (`sia_protocol.py:240-242`) between `data_field` and
+    `timestamp_str`, not folded into `_format_data_field()`.
+  - [x] 5.1 Added `media_url: str | None = None` to `EventItem` (`daemon.py:161-176`).
+  - [x] 5.2 `_queue_consumer()`'s `EventItem(...)` construction (`daemon.py:1922-1927`) now passes
+        `media_url=event_payload.get("media_url")`.
+  - [x] 5.3 `_build_event_frame()` (`daemon.py:1614+`): added `event_item.media_url` to the existing
+        `extended_data` dict under its own `"media_url"` key (kept `_format_data_field()`'s zone-only contract
+        untouched — it silently ignores unknown keys).
+  - [x] 5.4 `sia_protocol.py`: added `_format_extended_data_field()` producing `[V{media_url}]` or `""`;
+        wired into `encode_message()`'s `message_core_str` between `data_field` and `timestamp_str`. `media_url`
+        absent/`None` → `""`, byte-identical to pre-Task-5 frames (confirmed by regression test).
+  - [x] 5.5 Level 1 tests added (`tests/level1/test_sia_protocol.py`, 6 new tests): `_format_extended_data_field()`
+        renders `[Vhttp://...]`; absent for missing key, empty string, and `None`; `encode_message()` places the
+        `[V...]` block contiguously between the data field and the timestamp; regression test confirms no `[V`
+        substring at all when `media_url` is absent. Written red-first, confirmed failing before implementation.
+  - [x] 5.6 Level 2 tests added (`tests/level2/test_sm2_frame_building.py`, 3 new tests): built real
+        `EventItem(media_url=...)` through the actual `_send_with_retry()` → `_build_event_frame()` path (no
+        mocked frame builder) and asserted the captured frame bytes contain `[V<url>]`; a `media_url=None`
+        case asserts its absence; an ordering test asserts the block sits contiguously between the data field
+        and the timestamp. Written red-first (`TypeError: unexpected keyword argument 'media_url'`), confirmed
+        failing before implementation — this is exactly the scenario the two live host attempts could only
+        catch by trial and error.
+  - [x] 5.7 `php -l`/`node --check` not applicable (Python-only change). Full `tests/level1/` suite:
+        1122 passed / 8 failed (same 8-failure baseline as before Task 5, confirmed via `git stash` diff —
+        +6 new tests, 0 regressions). Full `tests/level2/` suite: 334 passed / 6 failed (same 6-failure
+        baseline, confirmed the same way — +3 new tests, 0 regressions). `pylint --disable=all --enable=E`
+        clean on both modified daemon files.
 
 ## Dev Notes
 
@@ -273,6 +324,22 @@ Dev Notes draft had originally argued to keep it "for a future non-Frigate camer
 the kind of speculative code the project avoids. If a future story needs generic camera support again, it can
 be re-added then with a real caller.
 
+**Task 5** (added 2026-09-23, after two live validation attempts on Tasks 1-3/4 surfaced a second gap): strict
+TDD, consulted `/sia-dc09-expert` against the spec text before touching code rather than trusting the
+zone-in-`[Data]` precedent by analogy. Confirmed via the spec's own message template
+(`docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md:538`,
+`<"id"><seq><Rrcvr><Lpref><#acct>[<pad>|...data...][x…data…]<timestamp>`) that `[V...]` is its own bracket
+block (§5.5.1.8), never merged into `[Data]` (§5.5.1.7) the way the existing `zone` handling does — a
+pre-existing deferred test block in `test_sia_protocol.py` (`test_extended_data_mac_address_structure` et al.,
+"documents expected structure for future v1.1 implementation") already encoded this same separate-bracket
+convention for M/N/A identifiers, confirming the design independently. `_format_extended_data_field()` reads
+the same `extended_data` dict `_format_data_field()` receives (just a different key, `"media_url"`) rather than
+adding a new parameter to `encode_message()` — kept the existing dict-based extension point instead of growing
+the function signature. Level 1 tests written first and confirmed RED (`AttributeError: no attribute
+'_format_extended_data_field'`), then Level 2 tests written and confirmed RED
+(`TypeError: EventItem.__init__() got an unexpected keyword argument 'media_url'`), before any implementation
+code was touched.
+
 ### Completion Notes
 
 - Tasks 1-3 complete: zone mapping simplified to a single Frigate-camera pick, `media_url` resolution wired
@@ -296,6 +363,17 @@ be re-added then with a real caller.
   `jeedom/core/core/class/cmd.class.php` (`byLogicalId` at line 214, `byEqLogicIdAndLogicalId` at line 385) and
   the same pattern already used by `eqLogic::getCmd()`. Level 1 tests updated accordingly; full suite back to
   the 8-failure baseline (0 regressions). Re-push done; Task 4 re-validation still pending.
+- **Task 5 complete (2026-09-23)**: the daemon never encoded `media_url` into the actual SIA wire frame, in
+  any story — confirmed a second, larger gap on live attempt #2 (Task 4.7). `EventItem` gained a `media_url`
+  field, `_queue_consumer()` now threads it from the queue payload, `_build_event_frame()` adds it to
+  `extended_data`, and `sia_protocol.py` gained `_format_extended_data_field()` producing the `[V...]` block
+  per SIA DC-09 §5.5.1.8, inserted between the data field and the timestamp. TDD red-first throughout (6 new
+  Level 1 tests, 3 new Level 2 tests exercising the real `_build_event_frame()` path, not mocked). Full
+  `tests/level1/`: 1122 passed / 8 failed (baseline, +6 new, 0 regressions — confirmed via `git stash` diff).
+  Full `tests/level2/`: 334 passed / 6 failed (baseline, +3 new, 0 regressions — same method).
+  `pylint --disable=all --enable=E` clean on `daemon.py` and `sia_protocol.py`. Task 4's remaining live
+  re-validation (4.8) can now proceed — this is the first attempt where the `[V...]` field has any chance of
+  actually appearing in the protocol inspector.
 
 ### File List
 
@@ -309,6 +387,11 @@ be re-added then with a real caller.
 | `tests/level1/test_wizard_js_logic.py` | Updated 2 tests that asserted on the deleted `camera_action_cmd_id`/`media_url_cmd_id`/labels JS fields to assert on `frigate_camera_eqlogic_id`/`frigate_camera_label` instead. |
 | `tests/level1/test_wizard_ajax_contracts.py` | Replaced the obsolete 6-test "getCameraCommands Action" section with a 5-test "getFrigateCameras Action" section. Docstring corrected (2026-09-23) to name `byEqLogicIdAndLogicalId`. |
 | `tests/level1/test_wizard_config_key_consistency.py` | `_AJAX_ACTIONS`: `getCameraCommands` → `getFrigateCameras`. |
+| `resources/siadc09d/daemon.py` | Task 5 (2026-09-23): added `media_url` field to `EventItem`; `_queue_consumer()`'s `EventItem(...)` construction now passes `media_url=event_payload.get("media_url")`; `_build_event_frame()` adds `media_url` to `extended_data` when present. |
+| `resources/siadc09d/sia_protocol.py` | Task 5 (2026-09-23): added `_format_extended_data_field()` (SIA DC-09 §5.5.1.8 Verification "V" block); wired into `encode_message()`'s `message_core_str` between `data_field` and `timestamp_str`. |
+| `tests/level1/test_sia_protocol.py` | Task 5 (2026-09-23): 6 new tests for `_format_extended_data_field()` and `encode_message()`'s field ordering, written red-first. |
+| `tests/level2/test_sm2_frame_building.py` | Task 5 (2026-09-23): 3 new tests exercising the real `_build_event_frame()` path with `EventItem(media_url=...)`, written red-first. |
+| `scripts/frigate_force_detection.php` | New (2026-09-23, hors story/hors plugin livré — même statut que `frigate_latency_probe.py`): force `info_detect_person`/`info_url_snapshot` sur un eqLogic donné, pour valider 14-1 sans accès physique à la caméra (l'API manuelle Frigate ne publie jamais sur MQTT events/reviews). |
 
 ## Change Log
 
@@ -317,3 +400,5 @@ be re-added then with a real caller.
 | 2026-09-22 | Story created from ADR-17 (Option A, majority-case-only Frigate snapshot attachment), following an adversarial review and a Winston/Amelia/John party-mode architecture discussion. |
 | 2026-09-22 | Tasks 1-3 implemented: zone mapping simplified to a single Frigate-camera pick, `media_url` resolution wired into the alarm-trigger path, Level 1 tests green (0 regressions). Task 4 (live host validation) pending push + Herve's verification. Status `ready-for-dev → in-progress`. |
 | 2026-09-23 | Live validation attempt #1 (Herve, real alarm on a manually-created Frigate event) found `cmd::byLogicalId()` misuse — the signature assumed in Dev Notes doesn't exist in Jeedom core, causing a fatal-avoided-by-catch "execCmd() on array" warning and silent `media_url` loss, plus an equivalent silent over-inclusion bug in `getFrigateCameras`. Fixed both call sites to `cmd::byEqLogicIdAndLogicalId()`; Level 1 tests updated; suite back to the 8-failure baseline. Task 4 re-validation (4.2-4.4) still pending. |
+| 2026-09-23 | Live validation attempt #2 (Herve, using `scripts/frigate_force_detection.php` to force `info_detect_person`/`info_url_snapshot` — Frigate's manual event API confirmed, via its own source, to never trigger Frigate's MQTT events/reviews topics, so it can't drive Jeedom's real pipeline): PHP resolver worked, but the SIA frame received by the CSR held no `[V...]` field. Traced to a second gap, entirely in the Python daemon: `EventItem`/`_build_event_frame()`/`_format_data_field()` never carried or encoded `media_url` at all — this was never implemented, in any story, not a regression. Added Task 5 (daemon-side `[V...]` encoding, AC7) with Level 1 + Level 2 test tasks up front, per Herve's explicit direction to stop relying on live trial-and-error for this and cover it in automated tests before the next live attempt. Status stays `in-progress`; Task 4's remaining live re-validation (4.8) now depends on Task 5 shipping first. |
+| 2026-09-23 | Task 5 implemented via `bmad-dev-story`, strict TDD (consulted `/sia-dc09-expert` against the spec text first): `EventItem` gained `media_url`, threaded through `_queue_consumer()` to `_build_event_frame()`, encoded by new `sia_protocol.py::_format_extended_data_field()` as a `[V...]` block per §5.5.1.8 — its own bracket, inserted between the data field and the timestamp, never merged into the zone-carrying `[Data]` block. 6 new Level 1 + 3 new Level 2 tests, all written and confirmed red before implementation. Full suites: 1122/8 (level1) and 334/6 (level2) — both exactly baseline+new, 0 regressions (confirmed via `git stash` diff). Task 4.8 (live re-validation) can now proceed. |

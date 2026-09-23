@@ -167,12 +167,15 @@ class EventItem:
         timestamp: Event timestamp from make_timestamp()
         zone_number: Zone order number resolved by PHP against the zone table
                      (None when the label matched no entry — the frame then carries no zone)
+        media_url: Optional camera/media URL for the SIA [V...] extended field, or None
+                   (story 14-1) — reaches the frame via _build_event_frame()'s extended_data
         callback: Optional callback function called when event completes (signature: callback(success: bool))
     """
     sia_code: SiaEventCode
     zone: str | None  # Zone name or None — logs, notifications, inspector
     timestamp: str  # SIA protocol timestamp HH:MM:SS,MM-DD-YYYY
-    zone_number: int | None = None  # Only field that reaches the SIA frame
+    zone_number: int | None = None  # Reaches the SIA frame as the Annex B zone digits
+    media_url: str | None = None  # Reaches the SIA frame as the [V...] extended-data block
     callback: Any | None = None  # Callback function(success: bool) when send completes
 
 
@@ -1616,10 +1619,11 @@ class SIADaemon(BaseDaemon):
         - Current sequence number (incremented once per event by _send_with_retry,
           NOT here — SIA DC-09 § 5.5.1.5)
         - Zone order number in extended data, zero-padded to 3 digits (never the label)
+        - media_url in extended data as a Verification [V...] block, when present (story 14-1)
         - UTC timestamp (from event_item.timestamp or current UTC if unparseable)
 
         Args:
-            event_item: EventItem with sia_code, zone, zone_number, timestamp
+            event_item: EventItem with sia_code, zone, zone_number, media_url, timestamp
 
         Returns:
             Complete SIA frame as bytes: LF + CRC + Length + Message + CR
@@ -1636,6 +1640,8 @@ class SIADaemon(BaseDaemon):
             extended_data = {}
             if event_item.zone_number is not None:
                 extended_data['zone'] = f"{event_item.zone_number:03d}"
+            if event_item.media_url:
+                extended_data['media_url'] = event_item.media_url
 
             # Parse event timestamp for the SIA frame (M1).
             # event_item.timestamp is a string "HH:MM:SS,MM-DD-YYYY"; pass None on parse failure
@@ -1924,6 +1930,7 @@ class SIADaemon(BaseDaemon):
                             zone=event_payload.get("zone"),
                             timestamp=timestamp_str,
                             zone_number=event_payload.get("zone_number"),
+                            media_url=event_payload.get("media_url"),
                         )
                         await self._send_with_retry(
                             event_item,

@@ -225,6 +225,7 @@ class SIAMessageBuilder:
         # Build message components per spec § 5.5.1
         account_id_str = self._format_account_id(account_number, account_prefix, receiver_number)
         data_field = self._format_data_field(account_number, event_code, extended_data)
+        extended_data_field = self._format_extended_data_field(extended_data)
         timestamp_str = self._format_timestamp(timestamp)
 
         # Select ID token per § 5.5.1.4
@@ -237,7 +238,8 @@ class SIAMessageBuilder:
         seq = self._sequence_tracker.next_seq(account_number)
 
         # Build message core (everything included in CRC calculation)
-        message_core_str = id_token + seq + account_id_str + data_field
+        # Field order per § 5.5.1 template: [Data] then [x…data…] then <timestamp>
+        message_core_str = id_token + seq + account_id_str + data_field + extended_data_field
         if timestamp_str is not None:
             message_core_str += timestamp_str
 
@@ -414,6 +416,34 @@ class SIAMessageBuilder:
         if zone:
             return f"[#{account_number}|{event_code} {zone}]"
         return f"[#{account_number}|{event_code}]"
+
+    @staticmethod
+    def _format_extended_data_field(extended_data: dict[str, str] | None = None) -> str:
+        """
+        Format optional extended-data field per SIA DC-09 § 5.5.1.8.
+
+        Its own bracket block, separate from [Data] (§ 5.5.1.7, where "zone" lives per the
+        legacy Annex B convention handled by _format_data_field) — never merged into it.
+        Currently supports only the Verification "V" identifier for a media/snapshot URL
+        (story 14-1). extended_data is the same dict passed to _format_data_field(); this
+        method reads "media_url" and ignores every other key.
+
+        Args:
+            extended_data: Optional dict; supports key "media_url" (Verification "V" block)
+
+        Returns:
+            "[V{media_url}]" when media_url is present and non-empty, else "" (no block —
+            byte-identical to pre-14-1 frames when media_url is absent).
+
+        Reference: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.8, line 651
+        """
+        if not extended_data:
+            return ""
+
+        media_url = extended_data.get("media_url", "")
+        if media_url:
+            return f"[V{media_url}]"
+        return ""
 
     @staticmethod
     def _format_timestamp(ts: datetime | None = None) -> str | None:
