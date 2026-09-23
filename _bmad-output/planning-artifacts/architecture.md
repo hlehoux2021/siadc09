@@ -348,9 +348,32 @@ segment after `?accesstoken=<token>` instead of before it), then reassemble sche
 new path + original query/fragment. The template field is stored encrypted (it can carry real credentials in
 other operators' setups even though it holds only placeholders in Herve's). Tracked as new 14-1 tasks.
 
+**Risk observed live (2026-09-23) — `info_detect_person` can stay stuck at `1` after the person has left.**
+During Task 4.4 validation, Frigate's own UI showed the tracked event had ended 14 minutes earlier (10s
+duration), yet the Jeedom camera equipment's `info_detect_person` command still read `1`, unchanged, with a
+~10-minute-old collect date — confirmed not a total MQTT outage (other `frigate/vigi_sud-est/*` traffic was
+flowing). This is the inverse of the risk ADR-17 originally worried about (no snapshot when one is needed):
+here, a stale cached `1` could attach an old, no-longer-relevant snapshot to a *new* alarm, since siaDC09
+only ever reads the Jeedom-cached value via `execCmd()`, never Frigate's live truth. Code investigation
+(`frigate.class.php`): `handleObject()` (line ~3352) itself has no logic that would deliberately withhold a
+0-transition — it unconditionally writes whatever value the incoming MQTT message carries. But
+`handleAllObject()` (line ~3365) contains an explicit safety net: when the aggregate `info_detect_all` drops
+to 0, it force-clears every straggling `info_detect_*` command still reading `1`. That safety net's mere
+existence is strong evidence the plugin's author already anticipated individual per-object detect flags not
+reliably clearing on their own — a **known, partially-mitigated limitation, not a designed-and-solved
+behavior**: the mitigation only fires if/when `info_detect_all` itself transitions to 0, which is not
+guaranteed to happen promptly (or at all, if some other tracked object class keeps the aggregate non-zero).
+Not fixable within Option A's boundaries (would need Option B's independent MQTT integration, already
+rejected). Practical mitigation used for Task 4.4: force `info_detect_person` directly via
+`scripts/frigate_force_detection.php --detect=0` rather than rely on the plugin's own state clearing live.
+
 **Deferred (tracked, not decided):**
 - Fallback-case snapshot acquisition (if the majority-case measurement below shows fallback is common enough to be worth engineering for).
 - Whether the observed clip-download silent-failure bug should be reported upstream to the Frigate plugin maintainer (moot for siaDC09 now that it no longer depends on the plugin's snapshot/clip exposure at all for this path).
+- Whether the `info_detect_person` staleness risk above is common enough in practice to warrant a mitigation
+  within Option A (e.g., also checking `info_detect_all`'s own staleness, or a max-age check on the info cmd's
+  collect date before trusting it) — not yet measured; reported upstream to the Frigate plugin maintainer is
+  also worth considering, given `handleAllObject()`'s own safety net suggests they're already aware.
 
 ---
 
