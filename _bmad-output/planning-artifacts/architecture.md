@@ -390,6 +390,117 @@ rejected). Practical mitigation used for Task 4.4: force `info_detect_person` di
 
 ---
 
+## ADR-17, Amendment 3 (2026-09-24) — Option A superseded by Option D: direct Frigate REST prefetch, triggered by the alarm plugin's own immediate/standard action split
+
+**A second confirmed problem, independent of staleness, made Option A untenable as implemented.** `majEventsCmds()`
+(the same function populating `info_id`) has **no label filter at all** — it overwrites `info_id`/`info_label`
+for *any* tracked object class on the camera. Herve's real Frigate config (`pailly-proxified/etc/frigate/config.yml`)
+tracks five: `person, car, dog, cat, bird`. So a car or a pet crossing the frame *after* a real person detection but
+*before* the alarm fires silently hijacks `media_url` — the SIA frame would present a photo of the neighbour's cat as
+evidence of a burglary. Confirmed against the code (no filtering in the MQTT `reviews` handler or in
+`majEventsCmds()` itself), not simulated. Combined with the staleness risk above, Option A's core premise — "trust
+whatever `info_detect_person`/`info_id` currently say" — no longer holds in a normal home setting with pets or a
+nearby road.
+
+**Party-mode re-review (Winston, Amelia, John — the original ADR-17 trio) converged, across two rounds, on a decision
+that turned on a factual correction from Herve, not on engineering taste.** Round 1 diverged: Winston proposed a
+cheap in-place fix (gate on `info_label == 'person'` instead of `info_detect_person`, still reading only Jeedom
+cmds); Amelia and John pushed for querying the Frigate plugin's own `frigate_events` DB table directly. Both were
+reasoning from the same premise as the original ADR-17: *the alarm fires the instant the sensor trips, so nothing
+beyond a zero-latency local read is affordable.*
+
+**That premise was wrong.** Herve corrected it: the Jeedom alarm plugin (`security`/`alarm`) splits every zone's
+actions into two buckets fired at different times — **immediate actions** (fire the instant the sensor trips,
+ignore the trigger delay) and **standard actions** (fire only after the zone's trigger delay expires — decimal
+minutes supported, e.g. `0.5` = 30s; a real entry-delay setup typically runs 30-60s to let a legitimate user
+disarm). siaDC09's `burglarAlarm` — the command that actually sends the SIA frame — is logically wired as a
+**standard action**. It was never on the alarm's true critical path in the sub-second sense the original ADR
+assumed; a 30-60s+ buffer already exists before it fires, for reasons that have nothing to do with siaDC09.
+
+**Round 2, re-run with this correction, converged cleanly:** the immediate-action bucket can trigger an async
+Frigate REST call — with the whole trigger-delay window to complete — whose result the standard action reads
+**non-blockingly** (cache hit or nothing, never an await on the network call itself). This is not Option B
+resurrected (no persistent MQTT subscription, no daemon-side Jeedom dependency) and not Option A (no more reading
+the Frigate Jeedom plugin's cmds at all for this decision) — call it **Option D**.
+
+**Verified before adopting, not assumed:**
+- Frigate's `GET /api/events` REST endpoint (`frigate/api/event.py`, a documented, versioned, external API — not an
+  undocumented internal table) accepts `camera`, `label`, `after`, `in_progress`, `has_snapshot`, `sort`, `limit` —
+  sufficient to ask "is there a person event active/very recent on this camera around this instant" directly,
+  filtered by label, with no post-hoc filtering needed.
+- Snapshot readiness is fast and independent of the event's `end`: `scripts/frigate_latency_probe.py` measured the
+  guessable `snapshot.jpg` URL returning HTTP 200 at **t=0.53s** after event creation, consistently, across every
+  run. No wait-for-`end` logic is needed for the snapshot.
+- Clip readiness does **not** wait for `end` either, contrary to what this ADR originally assumed from the Jeedom
+  Frigate plugin's own behavior: `frigate/api/media.py`'s `event_clip()` serves `start_time` through
+  `datetime.now()` when `end_time is None` — a "clip so far," dynamically built from continuous-recording segments
+  already on disk. Measured latency was variable (0.53s to 11.49s across repeated runs) but explained by Frigate's
+  own ~10s continuous-recording segment flush cycle, not by the event's requested duration (a 20s-duration run
+  returned faster than a 10s-duration run) — bounded by roughly one segment cycle, not by how long the tracked
+  object stays in frame. This means clip support, when added (tracked as a near-term follow-up, not in this
+  amendment's scope), slots into the same cache/prefetch design with no rework — only the eventual attachment rate
+  differs (bounded by the segment cycle for the clip vs. instant for the snapshot), not the architecture.
+
+**Explicit corrections adopted from this round, all from Herve, none negotiable:**
+1. **No third fallback tier.** A discarded intermediate design considered falling back to a local `frigate_events`
+   DB read if the REST call fails. Rejected: if Frigate's API is unreachable, Frigate itself is most likely down or
+   unreachable — in which case the same outage already prevented any event from being recorded anywhere, so a local
+   DB fallback has nothing better to offer. The design is two-outcome, not three-tier: prefetch confirmed → `media_url`
+   attached; anything else (no event found, timeout, no prefetch happened at all) → `media_url` omitted. This also
+   retires Winston's `info_label` fallback and any other cmd-based fallback — none of `info_detect_person`,
+   `info_id`, `info_label`, `info_url_snapshot` are read by siaDC09 for this feature any more, closing Problems 1
+   and 2 by removing the data source they both lived in, not by patching around it.
+2. **The immediate-action trigger is the alarm plugin's own sensor (the zone's real trigger — e.g. redundant PIR
+   detectors), never `info_detect_person`.** Frigate's own person-tracking is explicitly considered less reliable
+   than dedicated, redundant intrusion sensors for the purpose of *deciding whether to start the prefetch* — it is
+   used only, after the fact, to *confirm and label* what Frigate itself already recorded for the camera mapped to
+   that zone.
+3. **Scope stays BA only.** Panic and fire alarms are triggered through different zones/instances in the alarm
+   plugin with independently-configured (often zero) trigger delays — the "no slack time" edge case John raised in
+   round 2 is real, but resolved by scoping it out rather than special-casing it: PA/FA media attachment, if wanted
+   later, is a separate story that must design for the no-delay case on its own terms.
+4. **Naming**: the new siaDC09 action command is `prefetchEvent`, not `snapshotPrefetch` — it prefetches Frigate
+   event data in general (snapshot now, clip-shaped for later), not a snapshot specifically.
+
+**Revised decision — Option D:**
+- New siaDC09 action command `prefetchEvent`, auto-created per eqLogic like `burglarAlarm`, wired by the installer
+  into the mapped zone's **immediate actions** bucket in the alarm plugin (documentation/wizard-guidance task, not
+  automatic — the alarm plugin owns zone-action wiring, siaDC09 cannot register into it programmatically).
+  `execute()` on this logicalId sends a fire-and-forget message to the daemon over the existing control channel and
+  returns immediately — no waiting, matching the daemon-boundary invariant (no new persistent subscription, no
+  Jeedom dependency added to the daemon beyond the existing IPC contract).
+- Daemon gains a new module (promoting the already-validated logic in `scripts/frigate_latency_probe.py` to
+  production code, not duplicating it) that, on receiving the prefetch instruction, calls Frigate's REST
+  `/api/events` directly — camera + `label=person` + `after=<trigger time>` + `in_progress`/`has_snapshot` filters —
+  with a bounded timeout, and caches the result (event id, snapshot URL) in memory, keyed by eqLogic id, with a
+  short TTL matching the zone's trigger-delay budget.
+- `burglarAlarm`'s existing `execute()` path (unchanged in spirit from Task 6: still reads the configured
+  `frigate_media_url_template` and still builds the URL via `_buildFrigateMediaUrl()`) now sources the event id from
+  this cache instead of from `info_id`. Cache miss, expired, or no confirmed person event → `media_url` omitted,
+  same AC4 fallback contract as before — never a blocking wait, never a wrong photo.
+- Zero-wait invariant preserved by construction, not by hope: the network call happens entirely inside the
+  immediate-action's fire-and-forget window; the standard action's read is a bounded, non-blocking cache lookup,
+  the same latency class as the `execCmd()` read it replaces.
+
+**Superseded:** everything in the original ADR-17 decision and Amendments 1-2 that had siaDC09 reading
+`info_detect_person`, `info_id`, or `info_label` from the Jeedom Frigate plugin's own commands for the majority-case
+`media_url` decision. The zone-to-camera wizard mapping (Task 1, `frigate_camera_eqlogic_id`) is **not** superseded —
+it's still how siaDC09 knows which Frigate camera (by name) corresponds to a zone; only the *at-alarm-time* data
+source for detection state and event id changes, from Jeedom cmds to a direct Frigate REST prefetch.
+
+**Deferred (tracked, not decided):**
+- Clip attachment (`clip_url` alongside `snapshot_url` in the same cache entry) — investigated and confirmed
+  architecturally compatible with no rework (see above), but implementation deferred to a near-term follow-up
+  story, kept out of this amendment's scope deliberately.
+- PA/FA (panic/fire) media attachment for zones with zero or very short trigger delay — explicitly out of scope,
+  tracked for a future story that must design for the no-slack-time case on its own terms.
+- Reporting the two confirmed Frigate-plugin bugs upstream (missing `camera_activity` MQTT case; missing label
+  filter in `majEventsCmds()`) — good hygiene, no longer siaDC09's urgency since Option D stops depending on either
+  code path, but other consumers of `info_detect_person`/`info_detect_all` in Herve's own Jeedom instance (scenarios,
+  automations) likely still are.
+
+---
+
 ### ADR-16 — Widget Rendering Strategy
 
 **Decision:** `toHtml()` renders Bootstrap 3 panel with `supervision_state` color badge and staleness warning. Same template for desktop and mobile. JS-side staleness detection: `collectDate` older than 3× `supervision_interval` → grey badge + "Données non disponibles". No custom PHP stale check (unreachable in zombie scenario — `preToHtml()` serves cached HTML). No custom JS beyond the one-shot stale check.
