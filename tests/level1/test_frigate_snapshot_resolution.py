@@ -115,18 +115,34 @@ class TestResolveFrigateSnapshotUrlReadsCorrectCommands:
     def test_looks_up_info_detect_person_by_logical_id(self, resolve_snapshot_body: str) -> None:
         """
         Expected result:
-        - cmd::byLogicalId('info_detect_person', ...) is called
+        - cmd::byEqLogicIdAndLogicalId(..., 'info_detect_person') is called — scoped to the
+          mapped equipment (cmd::byLogicalId has no eqLogicId parameter in Jeedom core and
+          returns an array, not a single cmd; it must never be used here)
         """
-        # Assert: detection command resolved by logicalId, not stored separately
-        assert re.search(r"byLogicalId\(\s*['\"]info_detect_person['\"]", resolve_snapshot_body)
+        # Assert: detection command resolved by logicalId, scoped to one equipment
+        assert re.search(r"byEqLogicIdAndLogicalId\([^;]*['\"]info_detect_person['\"]", resolve_snapshot_body)
 
     def test_looks_up_info_url_snapshot_by_logical_id(self, resolve_snapshot_body: str) -> None:
         """
         Expected result:
-        - cmd::byLogicalId('info_url_snapshot', ...) is called
+        - cmd::byEqLogicIdAndLogicalId(..., 'info_url_snapshot') is called — scoped to the
+          mapped equipment
         """
-        # Assert: snapshot command resolved by logicalId, not stored separately
-        assert re.search(r"byLogicalId\(\s*['\"]info_url_snapshot['\"]", resolve_snapshot_body)
+        # Assert: snapshot command resolved by logicalId, scoped to one equipment
+        assert re.search(r"byEqLogicIdAndLogicalId\([^;]*['\"]info_url_snapshot['\"]", resolve_snapshot_body)
+
+    def test_never_uses_unscoped_by_logical_id(self, resolve_snapshot_body: str) -> None:
+        """
+        cmd::byLogicalId($_logical_id, $_type) has no eqLogicId parameter in Jeedom core
+        (core/class/cmd.class.php) and returns an array of every matching cmd across all
+        equipments — a live bug found via Task 4 host validation (2026-09-23): it raised
+        "Call to a member function execCmd() on array".
+
+        Expected result:
+        - the unscoped, single-equipment-unsafe byLogicalId() call is never used here
+        """
+        # Assert: only the eqLogic-scoped lookup is used
+        assert "byLogicalId(" not in resolve_snapshot_body
 
     def test_never_reads_info_url_clip(self, resolve_snapshot_body: str) -> None:
         """
@@ -202,9 +218,11 @@ class TestGetFrigateCamerasAction:
         - candidates are filtered to those whose equipment also has both
           info_detect_person and info_url_snapshot (the Frigate-specific signal)
         """
-        # Assert: precise filter beyond the generic CAMERA_TAKE tag
-        assert re.search(r"byLogicalId\(\s*['\"]info_detect_person['\"]", get_frigate_cameras_body)
-        assert re.search(r"byLogicalId\(\s*['\"]info_url_snapshot['\"]", get_frigate_cameras_body)
+        # Assert: precise filter beyond the generic CAMERA_TAKE tag, scoped per-equipment
+        assert re.search(r"byEqLogicIdAndLogicalId\([^;]*['\"]info_detect_person['\"]", get_frigate_cameras_body)
+        assert re.search(r"byEqLogicIdAndLogicalId\([^;]*['\"]info_url_snapshot['\"]", get_frigate_cameras_body)
+        # Assert: the unscoped, array-returning byLogicalId() is never used here either
+        assert "byLogicalId(" not in get_frigate_cameras_body
 
     def test_never_returns_camera_url_split_shape(self, get_frigate_cameras_body: str) -> None:
         """

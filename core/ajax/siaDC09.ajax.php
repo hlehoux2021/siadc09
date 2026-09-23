@@ -126,9 +126,9 @@ try {
                 continue;
             }
             $seenEqLogicIds[$eqLogicId] = true;
-            $detectCmd = cmd::byLogicalId('info_detect_person', $eqLogicId, false);
-            $snapshotCmd = cmd::byLogicalId('info_url_snapshot', $eqLogicId, false);
-            if ($detectCmd === null || $snapshotCmd === null) {
+            $detectCmd = cmd::byEqLogicIdAndLogicalId((int) $eqLogicId, 'info_detect_person');
+            $snapshotCmd = cmd::byEqLogicIdAndLogicalId((int) $eqLogicId, 'info_url_snapshot');
+            if (!is_object($detectCmd) || !is_object($snapshotCmd)) {
                 continue;
             }
             $cameras[] = [

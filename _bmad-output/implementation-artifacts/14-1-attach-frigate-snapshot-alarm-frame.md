@@ -107,7 +107,7 @@ camera missed the person), clip/video attachment, and the independent MQTT/REST 
         `getCameraCommands` handler. 0 regressions.
 
 - [ ] Task 4: Live validation on the Jeedom test host (AC: 2, 7)
-  - [ ] 4.1 Deploy (git push then pull on the host — code arrives by git pull, per memory
+  - [x] 4.1 Deploy (git push then pull on the host — code arrives by git pull, per memory
         `jeedom-test-host-deploy`).
   - [ ] 4.2 Map a zone to a real Frigate camera via the updated wizard Step 3; confirm the warning path if a
         camera without `info_detect_person`/`info_url_snapshot` is selected.
@@ -115,6 +115,22 @@ camera missed the person), clip/video attachment, and the independent MQTT/REST 
         frame's `[V...]` field carries the snapshot URL, read via the protocol inspector (story 9-2).
   - [ ] 4.4 Trigger an alarm with no active detection; confirm the frame sends normally with no `media_url` and
         no delay.
+  - [x] 4.5 **Bug found during 4.3** (Herve, 2026-09-23): first live alarm logged
+        `Résolution du snapshot Frigate échouée : Call to a member function execCmd() on array` and sent with
+        `media_url=None` even though the Frigate event had been created manually beforehand. Root cause: the
+        Dev Notes' assumed signature `cmd::byLogicalId(string $logicalId, int|string $eqLogicId, bool $exception
+        = false)` does not exist in Jeedom core. The real signature
+        (`jeedom/core/core/class/cmd.class.php:214`) is `cmd::byLogicalId($_logical_id, $_type = null)` — no
+        eqLogic scoping at all, and it returns an **array** of every matching cmd across every equipment (the
+        second positional arg was silently being read as the `type` SQL filter, not an eqLogic scope). Fixed by
+        switching both call sites to `cmd::byEqLogicIdAndLogicalId($eqLogicId, $logicalId)`
+        (`cmd.class.php:385`), which returns a single object (or `false`) scoped to one equipment — the pattern
+        already used internally by `eqLogic::getCmd()`. Fixed in `_resolveFrigateSnapshotUrl()`
+        (`core/class/siaDC09Cmd.class.php`) and in `getFrigateCameras` (`core/ajax/siaDC09.ajax.php`), which had
+        the identical bug (silently matched too broadly instead of throwing, since an empty array is not
+        `null`). Level 1 tests updated to assert the correct API and to forbid the unscoped call
+        (`tests/level1/test_frigate_snapshot_resolution.py`, `tests/level1/test_wizard_ajax_contracts.py`
+        docstring). Re-validation of 4.2-4.4 against the real host still pending.
 
 ## Dev Notes
 
@@ -195,10 +211,16 @@ part of this repo):
 
 ### Jeedom API reference for command lookup by logicalId
 
-`cmd::byLogicalId(string $logicalId, int|string $eqLogicId, bool $exception = false)` — no existing precedent in
-this repo for camera-command lookup (the only `byLogicalId` hit in the whole codebase is an unrelated demo-class
-self-lookup in `core/class/aiodemo.class.php:97`). Use `$exception = false` (default) and null-check the result —
-never let a missing command throw on the alarm path (AC5).
+**Corrected 2026-09-23 — the signature originally drafted here does not exist.** `cmd::byLogicalId($_logical_id,
+$_type = null)` (Jeedom core `cmd.class.php:214`) has no eqLogic-scoping parameter at all and returns an **array**
+of every matching cmd across every equipment — the assumed three-arg `(string $logicalId, int|string $eqLogicId,
+bool $exception = false)` form was never real, and both original call sites silently misbehaved instead of
+throwing (see Task 4.5). The correct API for "this command, on this one equipment" is
+`cmd::byEqLogicIdAndLogicalId($_eqLogic_id, $_logicalId, $_multiple = false, $_type = null, $_eqLogic = null)`
+(`cmd.class.php:385`) — with `$_multiple = false` (default) it returns a single cmd object, or `false` when not
+found. This is the same lookup `eqLogic::getCmd($type, $logicalId)` uses internally. Null-check with
+`!is_object($result)` (not `=== null` — a not-found result is `false`) — never let a missing command throw on
+the alarm path (AC5).
 
 ### Read pattern
 
@@ -263,22 +285,29 @@ be re-added then with a real caller.
 - **Task 4 (live validation on `test-jeedom.lehoux.net`) is NOT done** — per memory
   `jeedom-ui-validation-over-reflection`, acceptance requires validating on the real dashboard with a real
   Frigate camera, and per `jeedom-test-host-deploy` the code must be pushed first so the host can `git pull`.
-  Awaiting push + Herve's verification of: zone mapping shows the new single-camera dropdown with a real
-  Frigate camera; an alarm fired while Frigate has an active person detection carries a working snapshot URL
-  in the SIA frame's `[V...]` field (protocol inspector); an alarm fired with no active detection sends
-  normally with no `media_url` and no delay.
+  Awaiting Herve's verification of: zone mapping shows the new single-camera dropdown with a real Frigate
+  camera; an alarm fired while Frigate has an active person detection carries a working snapshot URL in the
+  SIA frame's `[V...]` field (protocol inspector); an alarm fired with no active detection sends normally with
+  no `media_url` and no delay.
+- **Live validation attempt #1 (2026-09-23) found a real bug — see Task 4.5.** `cmd::byLogicalId()` does not
+  take an eqLogic-scoping argument in Jeedom core and returns an array, not a single cmd; both call sites
+  (`_resolveFrigateSnapshotUrl()` and `getFrigateCameras`) were fixed to use
+  `cmd::byEqLogicIdAndLogicalId($eqLogicId, $logicalId)` instead, confirmed against
+  `jeedom/core/core/class/cmd.class.php` (`byLogicalId` at line 214, `byEqLogicIdAndLogicalId` at line 385) and
+  the same pattern already used by `eqLogic::getCmd()`. Level 1 tests updated accordingly; full suite back to
+  the 8-failure baseline (0 regressions). Re-push done; Task 4 re-validation still pending.
 
 ### File List
 
 | File | Change |
 |------|--------|
-| `core/class/siaDC09Cmd.class.php` | Added `_resolveFrigateSnapshotUrl()`; wired conditional `media_url` into `execute()`'s alarm-trigger payload. |
-| `core/ajax/siaDC09.ajax.php` | Added `getFrigateCameras` action; deleted `getCameraCommands` (dead code, no remaining callers). |
+| `core/class/siaDC09Cmd.class.php` | Added `_resolveFrigateSnapshotUrl()`; wired conditional `media_url` into `execute()`'s alarm-trigger payload. Fixed (2026-09-23, live-validation bug): swapped the non-existent scoped `cmd::byLogicalId()` call for `cmd::byEqLogicIdAndLogicalId()`. |
+| `core/ajax/siaDC09.ajax.php` | Added `getFrigateCameras` action; deleted `getCameraCommands` (dead code, no remaining callers). Fixed (2026-09-23, same bug): swapped `cmd::byLogicalId()` for `cmd::byEqLogicIdAndLogicalId()`. |
 | `desktop/php/siaDC09.php` | Step 3 zone table: merged two camera/media columns into one "Caméra Frigate" column; added `#siaDC09-step3-nocamera` warning banner. |
 | `desktop/js/siaDC09.js` | `saveEqLogic()`, `siaDC09_loadZoneData()`, `siaDC09_loadZoneTable()`, `siaDC09_buildZoneRow()`, `siaDC09_populateConfigSummary()` updated for the single-camera schema (`frigate_camera_eqlogic_id`/`frigate_camera_label`) and the new `getFrigateCameras` AJAX action. |
-| `tests/level1/test_frigate_snapshot_resolution.py` | New — structural tests for `_resolveFrigateSnapshotUrl()`, `getFrigateCameras`, and the conditional `media_url` wiring in `execute()`. |
+| `tests/level1/test_frigate_snapshot_resolution.py` | New — structural tests for `_resolveFrigateSnapshotUrl()`, `getFrigateCameras`, and the conditional `media_url` wiring in `execute()`. Updated (2026-09-23) to assert `cmd::byEqLogicIdAndLogicalId()` instead of the non-existent scoped `byLogicalId()`, plus a new negative assertion forbidding `byLogicalId(` in both call sites. |
 | `tests/level1/test_wizard_js_logic.py` | Updated 2 tests that asserted on the deleted `camera_action_cmd_id`/`media_url_cmd_id`/labels JS fields to assert on `frigate_camera_eqlogic_id`/`frigate_camera_label` instead. |
-| `tests/level1/test_wizard_ajax_contracts.py` | Replaced the obsolete 6-test "getCameraCommands Action" section with a 5-test "getFrigateCameras Action" section. |
+| `tests/level1/test_wizard_ajax_contracts.py` | Replaced the obsolete 6-test "getCameraCommands Action" section with a 5-test "getFrigateCameras Action" section. Docstring corrected (2026-09-23) to name `byEqLogicIdAndLogicalId`. |
 | `tests/level1/test_wizard_config_key_consistency.py` | `_AJAX_ACTIONS`: `getCameraCommands` → `getFrigateCameras`. |
 
 ## Change Log
@@ -287,3 +316,4 @@ be re-added then with a real caller.
 |------|--------|
 | 2026-09-22 | Story created from ADR-17 (Option A, majority-case-only Frigate snapshot attachment), following an adversarial review and a Winston/Amelia/John party-mode architecture discussion. |
 | 2026-09-22 | Tasks 1-3 implemented: zone mapping simplified to a single Frigate-camera pick, `media_url` resolution wired into the alarm-trigger path, Level 1 tests green (0 regressions). Task 4 (live host validation) pending push + Herve's verification. Status `ready-for-dev → in-progress`. |
+| 2026-09-23 | Live validation attempt #1 (Herve, real alarm on a manually-created Frigate event) found `cmd::byLogicalId()` misuse — the signature assumed in Dev Notes doesn't exist in Jeedom core, causing a fatal-avoided-by-catch "execCmd() on array" warning and silent `media_url` loss, plus an equivalent silent over-inclusion bug in `getFrigateCameras`. Fixed both call sites to `cmd::byEqLogicIdAndLogicalId()`; Level 1 tests updated; suite back to the 8-failure baseline. Task 4 re-validation (4.2-4.4) still pending. |

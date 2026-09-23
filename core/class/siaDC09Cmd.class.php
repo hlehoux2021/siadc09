@@ -138,12 +138,12 @@ class siaDC09Cmd extends cmd {
             if (empty($eqLogicId)) {
                 return null;
             }
-            $detectCmd = cmd::byLogicalId('info_detect_person', (int) $eqLogicId, false);
-            if ($detectCmd === null || (int) $detectCmd->execCmd() !== 1) {
+            $detectCmd = cmd::byEqLogicIdAndLogicalId((int) $eqLogicId, 'info_detect_person');
+            if (!is_object($detectCmd) || (int) $detectCmd->execCmd() !== 1) {
                 return null;
             }
-            $snapshotCmd = cmd::byLogicalId('info_url_snapshot', (int) $eqLogicId, false);
-            if ($snapshotCmd === null) {
+            $snapshotCmd = cmd::byEqLogicIdAndLogicalId((int) $eqLogicId, 'info_url_snapshot');
+            if (!is_object($snapshotCmd)) {
                 return null;
             }
             $url = $snapshotCmd->execCmd();

@@ -337,7 +337,7 @@ def test_get_frigate_cameras_filters_by_frigate_specific_commands(ajax_source: s
     CAMERA_TAKE alone doesn't guarantee.
 
     Expected result:
-    - byLogicalId lookups for both Frigate-specific commands present
+    - byEqLogicIdAndLogicalId lookups for both Frigate-specific commands present
     """
     # Assert: precise Frigate-camera filter beyond the generic tag
     assert "info_detect_person" in ajax_source
