@@ -360,6 +360,29 @@ def test_step4_shows_error_when_no_cmd(js_source: str) -> None:
     assert re.search(r"siaDC09-step4-error.*?\.show\(\)", js_source, re.DOTALL)
 
 
+def test_step4_finish_resets_modify_without_save_before_reload(js_source: str) -> None:
+    """
+    Task 7.2 (live-test finding, 2026-09-23): bt_step4Finish saves via its own direct
+    jeedom.eqLogic.save() call, then window.location.reload(). Jeedom core's global
+    "unsaved changes" flags (window.modifyWithoutSave / jeeFrontEnd.modifyWithoutSave,
+    set true by core/js/plugin.template.js on any .eqLogicAttr change) are never reset
+    by that direct save call — so the reload triggers a spurious browser "leave page,
+    unsaved changes?" confirmation (jeedom/core/desktop/common/js/utils.js:767-773).
+    Fix: reset both flags in the save success callback, before reload(), matching the
+    same reset pattern Jeedom core itself uses after a save (utils.js:103-104/221-222).
+
+    Expected result:
+    - both window.modifyWithoutSave and jeeFrontEnd.modifyWithoutSave are set to false
+    - both resets happen before the reload() call, inside bt_step4Finish
+    """
+    # Assert: both dirty-flag globals are reset, before reload(), inside bt_step4Finish
+    assert re.search(
+        r"bt_step4Finish.*?modifyWithoutSave\s*=\s*false.*?"
+        r"modifyWithoutSave\s*=\s*false.*?location\.reload\(\)",
+        js_source, re.DOTALL
+    ), "bt_step4Finish must reset both modifyWithoutSave flags before reload()"
+
+
 # ── printEqLogic: Wizard vs Config Mode ───────────────────────────────────────
 
 
@@ -437,6 +460,26 @@ def test_config_summary_displays_connection_info(js_source: str) -> None:
     pattern = r'siaDC09-summary-connection.*?csr_ip.*?csr_port'
     # Assert: connection info rendered
     assert re.search(pattern, js_source, re.DOTALL)
+
+
+def test_config_summary_displays_media_url_template(js_source: str) -> None:
+    """
+    Task 7.3 (live-test finding, 2026-09-23): the connection summary omitted
+    frigate_media_url_template — a direct consequence of Task 6.1's decision to exclude
+    it, "matching encryption_key's precedent of never displaying a secret-shaped field",
+    which finding 1 (Task 7.1) shows was the wrong precedent: this field is never a real
+    secret. It belongs in the summary like every other connection setting.
+
+    Expected result:
+    - frigate_media_url_template is read within the connection summary population
+    - a fallback string is shown when it's empty/unset (consistent with the zones and
+      notification summary blocks' own empty-state handling)
+    """
+    pattern = r"siaDC09-summary-connection.*?frigate_media_url_template"
+    # Assert: media URL template rendered in the connection summary
+    assert re.search(pattern, js_source, re.DOTALL), (
+        "Connection summary must display frigate_media_url_template"
+    )
 
 
 def test_config_summary_handles_empty_zones(js_source: str) -> None:

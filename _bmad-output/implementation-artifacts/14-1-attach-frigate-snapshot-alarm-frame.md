@@ -257,6 +257,38 @@ camera missed the person), clip/video attachment, and the independent MQTT/REST 
   - [x] 6.7 Task 4 Dev Notes/Change Log updated (see below) — 4.8's live re-validation now checks for
         `https://.../api/events/{id}/snapshot.jpg` (operator's own placeholder form) in the `[V...]` field.
 
+- [x] Task 7: Wizard UI fixes from Task 6's live testing (AC: 8)
+  - **Three findings from Herve testing Task 6's wizard changes on `test-jeedom.lehoux.net` (2026-09-23):**
+    1. The `frigate_media_url_template` field is masked (`type="password"`) — wrong, since (per Task 6's own
+       design) it never holds a real secret, only literal placeholder tokens. Masking it is misleading UX,
+       inherited by copying `encryption_key`'s convention without re-checking it applied here.
+    2. Clicking "Terminer" at step 4 shows a browser-native "leave page, unsaved changes?" confirmation before
+       the connection summary appears — unwanted. Traced to Jeedom core
+       (`jeedom/core/desktop/common/js/utils.js:767-773`): the global `beforeunload` listener fires whenever
+       `window.modifyWithoutSave`/`jeeFrontEnd.modifyWithoutSave` is `true` (set by
+       `core/js/plugin.template.js` on any `.eqLogicAttr` field change). `bt_step4Finish`'s handler
+       (`desktop/js/siaDC09.js:614-638`) saves via its own direct `jeedom.eqLogic.save()` call, then
+       `window.location.reload()` — the save succeeds, but nothing resets the two dirty-flag globals first, so
+       core still thinks the page has unsaved changes at reload time.
+    3. The connection summary (`siaDC09_populateConfigSummary()`, `desktop/js/siaDC09.js:642+`) doesn't mention
+       the media URL template entered in step 3 — a direct consequence of Task 6.1's own decision to exclude it
+       from the summary "matching `encryption_key`'s precedent of never displaying a secret-shaped field" —
+       which finding 1 shows was the wrong precedent to follow here, since this field isn't a secret.
+  - [x] 7.1 `desktop/php/siaDC09.php`: `frigate_media_url_template` input changed from `type="password"` to
+        `type="text"`.
+  - [x] 7.2 `desktop/js/siaDC09.js`, `bt_step4Finish`'s `success` callback now sets
+        `window.modifyWithoutSave = false` and `jeeFrontEnd.modifyWithoutSave = false` immediately before
+        `window.location.reload()`.
+  - [x] 7.3 `siaDC09_populateConfigSummary()`: added "URL media Frigate" to `#siaDC09-summary-connection`,
+        alongside Opérateur/Centrale/Supervision/Chiffrement, with an italic muted "non configurée" fallback
+        when empty — matching the zones/notification blocks' own empty-state style.
+  - [x] 7.4 Level 1 tests added: `tests/level1/test_wizard_php_structure.py`
+        (`test_step3_media_url_template_field_is_plain_text`), `tests/level1/test_wizard_js_logic.py`
+        (`test_step4_finish_resets_modify_without_save_before_reload`,
+        `test_config_summary_displays_media_url_template`) — all 3 written and confirmed red before
+        implementation. `php -l`/`node --check` clean on both files. Full `tests/level1/` suite: 1138 passed /
+        8 failed — exact pre-existing baseline, +3 new tests, 0 regressions.
+
 ## Dev Notes
 
 ### Existing code to extend — read before implementing
@@ -468,6 +500,16 @@ code was touched.
   bootstrap) for genuine behavioral verification of the tricky path-vs-query reassembly, not just source-text
   regex. Full `tests/level1/`: 1135 passed / 8 failed — exact baseline, +13 new tests, 0 regressions (one
   incidental pre-existing regression in `test_wizard_ajax_contracts.py`, caught and fixed in the same pass).
+- **Task 7 complete (2026-09-23)** — three UI findings from Herve testing Task 6's wizard changes live: (1)
+  `frigate_media_url_template` was `type="password"`, wrong since it never holds a real secret — changed to
+  `type="text"`; (2) clicking "Terminer" triggered a spurious browser "unsaved changes" confirmation before
+  the summary appeared — traced to Jeedom core's global `modifyWithoutSave` dirty-flag (set by
+  `core/js/plugin.template.js` on any `.eqLogicAttr` change, never reset by `bt_step4Finish`'s own direct
+  `jeedom.eqLogic.save()` call) — fixed by resetting both `window.modifyWithoutSave` and
+  `jeeFrontEnd.modifyWithoutSave` before `reload()`, mirroring Jeedom core's own post-save reset pattern
+  (`utils.js:103-104`/`221-222`); (3) the connection summary omitted the media URL template — added, with an
+  empty-state fallback. 3 new Level 1 tests, written and confirmed red before implementation. Full
+  `tests/level1/`: 1138 passed / 8 failed — exact baseline, +3 new tests, 0 regressions.
 
 ### File List
 
@@ -475,10 +517,10 @@ code was touched.
 |------|--------|
 | `core/class/siaDC09Cmd.class.php` | Added `_resolveFrigateSnapshotUrl()`; wired conditional `media_url` into `execute()`'s alarm-trigger payload. Fixed (2026-09-23, live-validation bug): swapped the non-existent scoped `cmd::byLogicalId()` call for `cmd::byEqLogicIdAndLogicalId()`. Task 6 (2026-09-23): swapped the `info_url_snapshot` read for `info_id` + new `frigate_media_url_template` config; added `_buildFrigateMediaUrl()`. |
 | `core/ajax/siaDC09.ajax.php` | Added `getFrigateCameras` action; deleted `getCameraCommands` (dead code, no remaining callers). Fixed (2026-09-23, same bug): swapped `cmd::byLogicalId()` for `cmd::byEqLogicIdAndLogicalId()`. Task 6 (2026-09-23): swapped its `info_url_snapshot` filter check for `info_id`. |
-| `desktop/php/siaDC09.php` | Step 3 zone table: merged two camera/media columns into one "Caméra Frigate" column; added `#siaDC09-step3-nocamera` warning banner. Task 6 (2026-09-23): added the `frigate_media_url_template` field above the zone table. |
-| `desktop/js/siaDC09.js` | `saveEqLogic()`, `siaDC09_loadZoneData()`, `siaDC09_loadZoneTable()`, `siaDC09_buildZoneRow()`, `siaDC09_populateConfigSummary()` updated for the single-camera schema (`frigate_camera_eqlogic_id`/`frigate_camera_label`) and the new `getFrigateCameras` AJAX action. |
+| `desktop/php/siaDC09.php` | Step 3 zone table: merged two camera/media columns into one "Caméra Frigate" column; added `#siaDC09-step3-nocamera` warning banner. Task 6 (2026-09-23): added the `frigate_media_url_template` field above the zone table. Task 7 (2026-09-23): that field changed from `type="password"` to `type="text"` (never holds a real secret). |
+| `desktop/js/siaDC09.js` | `saveEqLogic()`, `siaDC09_loadZoneData()`, `siaDC09_loadZoneTable()`, `siaDC09_buildZoneRow()`, `siaDC09_populateConfigSummary()` updated for the single-camera schema (`frigate_camera_eqlogic_id`/`frigate_camera_label`) and the new `getFrigateCameras` AJAX action. Task 7 (2026-09-23): `bt_step4Finish`'s success callback resets `window.modifyWithoutSave`/`jeeFrontEnd.modifyWithoutSave` before `reload()`; `siaDC09_populateConfigSummary()` now displays `frigate_media_url_template`. |
 | `tests/level1/test_frigate_snapshot_resolution.py` | New — structural tests for `_resolveFrigateSnapshotUrl()`, `getFrigateCameras`, and the conditional `media_url` wiring in `execute()`. Updated (2026-09-23) to assert `cmd::byEqLogicIdAndLogicalId()` instead of the non-existent scoped `byLogicalId()`, plus a new negative assertion forbidding `byLogicalId(` in both call sites. Task 6 (2026-09-23): 15 new tests — real-execution coverage of `_buildFrigateMediaUrl()` via a `php` subprocess harness, plus `info_id`/`frigate_media_url_template` assertions replacing `info_url_snapshot`. |
-| `tests/level1/test_wizard_js_logic.py` | Updated 2 tests that asserted on the deleted `camera_action_cmd_id`/`media_url_cmd_id`/labels JS fields to assert on `frigate_camera_eqlogic_id`/`frigate_camera_label` instead. |
+| `tests/level1/test_wizard_js_logic.py` | Updated 2 tests that asserted on the deleted `camera_action_cmd_id`/`media_url_cmd_id`/labels JS fields to assert on `frigate_camera_eqlogic_id`/`frigate_camera_label` instead. Task 7 (2026-09-23): 2 new tests for the `modifyWithoutSave` reset and the connection summary's media URL display. |
 | `tests/level1/test_wizard_ajax_contracts.py` | Replaced the obsolete 6-test "getCameraCommands Action" section with a 5-test "getFrigateCameras Action" section. Docstring corrected (2026-09-23) to name `byEqLogicIdAndLogicalId`. Task 6 (2026-09-23): fixed the `info_url_snapshot`-substring assertion (incidental regression) to assert `info_id` plus a negative assertion. |
 | `tests/level1/test_wizard_config_key_consistency.py` | `_AJAX_ACTIONS`: `getCameraCommands` → `getFrigateCameras`. |
 | `resources/siadc09d/daemon.py` | Task 5 (2026-09-23): added `media_url` field to `EventItem`; `_queue_consumer()`'s `EventItem(...)` construction now passes `media_url=event_payload.get("media_url")`; `_build_event_frame()` adds `media_url` to `extended_data` when present. |
@@ -486,6 +528,7 @@ code was touched.
 | `tests/level1/test_sia_protocol.py` | Task 5 (2026-09-23): 6 new tests for `_format_extended_data_field()` and `encode_message()`'s field ordering, written red-first. |
 | `tests/level2/test_sm2_frame_building.py` | Task 5 (2026-09-23): 3 new tests exercising the real `_build_event_frame()` path with `EventItem(media_url=...)`, written red-first. |
 | `scripts/frigate_force_detection.php` | New (2026-09-23, hors story/hors plugin livré — même statut que `frigate_latency_probe.py`): force `info_detect_person`/`info_url_snapshot` sur un eqLogic donné, pour valider 14-1 sans accès physique à la caméra (l'API manuelle Frigate ne publie jamais sur MQTT events/reviews). |
+| `tests/level1/test_wizard_php_structure.py` | Task 7 (2026-09-23): new test asserting `frigate_media_url_template` is `type="text"`, never `type="password"`. |
 
 ## Change Log
 
@@ -497,3 +540,4 @@ code was touched.
 | 2026-09-23 | Live validation attempt #2 (Herve, using `scripts/frigate_force_detection.php` to force `info_detect_person`/`info_url_snapshot` — Frigate's manual event API confirmed, via its own source, to never trigger Frigate's MQTT events/reviews topics, so it can't drive Jeedom's real pipeline): PHP resolver worked, but the SIA frame received by the CSR held no `[V...]` field. Traced to a second gap, entirely in the Python daemon: `EventItem`/`_build_event_frame()`/`_format_data_field()` never carried or encoded `media_url` at all — this was never implemented, in any story, not a regression. Added Task 5 (daemon-side `[V...]` encoding, AC7) with Level 1 + Level 2 test tasks up front, per Herve's explicit direction to stop relying on live trial-and-error for this and cover it in automated tests before the next live attempt. Status stays `in-progress`; Task 4's remaining live re-validation (4.8) now depends on Task 5 shipping first. |
 | 2026-09-23 | Task 5 implemented via `bmad-dev-story`, strict TDD (consulted `/sia-dc09-expert` against the spec text first): `EventItem` gained `media_url`, threaded through `_queue_consumer()` to `_build_event_frame()`, encoded by new `sia_protocol.py::_format_extended_data_field()` as a `[V...]` block per §5.5.1.8 — its own bracket, inserted between the data field and the timestamp, never merged into the zone-carrying `[Data]` block. 6 new Level 1 + 3 new Level 2 tests, all written and confirmed red before implementation. Full suites: 1122/8 (level1) and 334/6 (level2) — both exactly baseline+new, 0 regressions (confirmed via `git stash` diff). Task 4.8 (live re-validation) can now proceed. |
 | 2026-09-23 | Live validation attempt #3 (Herve): `[V...]` appeared (Task 5 confirmed working) but carried a Jeedom-local cached path (`info_url_snapshot`'s own design), unusable by an external CSR. Investigated Herve's `pailly-proxified` Caddy setup (`cameras.lehoux.net` vhost) as the generalized reference pattern — a static, pre-shared credential embedded in the URL, never a per-event dynamic token. Herve's explicit call: siaDC09 never sees or transmits a real secret; it stores only a URL template with literal placeholder tokens, and builds `media_url` from that template + the Frigate `event_id` (`info_id`), never `info_url_snapshot` again. Documented in the ADR-17 amendment. Added Task 6, implemented via `bmad-dev-story`, strict TDD: new `_buildFrigateMediaUrl()` (pure `parse_url()` logic, zero Jeedom dependency — let its real extracted body run directly via `php` in tests for genuine behavioral verification of both template forms and the path-before-query ordering guard); `_resolveFrigateSnapshotUrl()`/`getFrigateCameras` swapped to `info_id`; new wizard field, no JS needed. Full `tests/level1/`: 1135/8 — exact baseline, +13 new, 0 regressions. Task 4.10 (live re-validation with the new URL shape) still pending. |
+| 2026-09-23 | Herve tested Task 6's wizard changes live and reported 3 UI findings. Added Task 7, implemented via `bmad-dev-story`, TDD red-first: media URL template field un-masked (`type="text"`, never held a real secret); `bt_step4Finish` no longer triggers a spurious browser "unsaved changes" prompt on Terminer (Jeedom core's `modifyWithoutSave` dirty-flag now reset before `reload()`, traced to `jeedom/core/desktop/common/js/utils.js`/`plugin.template.js`); connection summary now displays the media URL template. 3 new Level 1 tests. Full `tests/level1/`: 1138/8 — exact baseline, +3 new, 0 regressions. |

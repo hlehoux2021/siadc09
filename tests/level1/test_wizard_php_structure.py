@@ -316,6 +316,25 @@ def test_step3_nozone_warning_exists(php_page: str) -> None:
     assert 'id="siaDC09-step3-nozone"' in php_page
 
 
+def test_step3_media_url_template_field_is_plain_text(php_page: str) -> None:
+    """
+    Task 7.1 (live-test finding, 2026-09-23): frigate_media_url_template never holds a
+    real secret (Task 6 design — only literal placeholder tokens like <user>/<pass>/
+    <token>), so masking it with type="password" is wrong UX, inherited by mistake from
+    copying encryption_key's convention. It must be a plain visible text field.
+
+    Expected result:
+    - the field's input is type="text", never type="password"
+    """
+    match = re.search(
+        r'<input[^>]*data-l2key="frigate_media_url_template"[^>]*>', php_page
+    )
+    assert match, "frigate_media_url_template input not found"
+    # Assert: plain text, not masked
+    assert 'type="text"' in match.group(0)
+    assert 'type="password"' not in match.group(0)
+
+
 # ── Step 4: Notification command picker ─────────────────────────────────────
 
 

@@ -631,6 +631,13 @@ $('#bt_step4Finish').on('click', function() {
       $('#div_alert').showAlert({ message: error.message, level: 'danger' })
     },
     success: function() {
+      // Reset Jeedom core's dirty-form flags before reloading — our own direct
+      // jeedom.eqLogic.save() call above doesn't clear them, so without this the
+      // reload triggers a spurious browser "leave page, unsaved changes?" prompt
+      // (jeedom/core/desktop/common/js/utils.js:767-773), even though the save just
+      // succeeded. Same reset Jeedom core itself performs after its own save button.
+      window.modifyWithoutSave = false
+      jeeFrontEnd.modifyWithoutSave = false
       // Reload the page — printEqLogic will detect sia_wizard_step=4 and show config mode
       window.location.reload()
     }
@@ -664,6 +671,13 @@ function siaDC09_populateConfigSummary(eqLogic) {
     $('<strong>').text('Chiffrement : ')
   ).append(
     $('<span>').text(cfg.encryption_enabled ? 'activé' : 'désactivé')
+  ).appendTo($conn)
+  $('<div>').append(
+    $('<strong>').text('URL media Frigate : ')
+  ).append(
+    cfg.frigate_media_url_template
+      ? $('<span>').text(cfg.frigate_media_url_template)
+      : $('<em class="text-muted">').text('non configurée')
   ).appendTo($conn)
 
   // Zones summary (labels denormalized in sia_zone_mappings at save time)
