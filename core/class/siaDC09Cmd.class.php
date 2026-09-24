@@ -235,33 +235,51 @@ class siaDC09Cmd extends cmd {
         try {
             $eqLogicId = $zoneEntry['frigate_camera_eqlogic_id'] ?? null;
             if (empty($eqLogicId)) {
+                log::add('siaDC09', 'debug',
+                    '_resolveFrigateSnapshotUrl: frigate_camera_eqlogic_id absent de zoneEntry');
                 return null;
             }
             $eqLogic = $this->getEqLogic();
             if ($eqLogic === null) {
+                log::add('siaDC09', 'debug', '_resolveFrigateSnapshotUrl: getEqLogic() a retourné null');
                 return null;
             }
             $raw = $eqLogic->getCache('sia_prefetch_cache', []);
+            log::add('siaDC09', 'debug', '_resolveFrigateSnapshotUrl: getCache(sia_prefetch_cache) brut='
+                . json_encode($raw));
             $cache = is_string($raw) ? json_decode($raw, true) : $raw;
             if (!is_array($cache)) {
+                log::add('siaDC09', 'debug', '_resolveFrigateSnapshotUrl: cache décodé non-array');
                 return null;
             }
             $entry = $cache[(int) $eqLogicId] ?? null;
+            log::add('siaDC09', 'debug', "_resolveFrigateSnapshotUrl: eqLogicId=$eqLogicId entry="
+                . json_encode($entry));
             if (!is_array($entry) || empty($entry['found'])) {
+                log::add('siaDC09', 'debug',
+                    "_resolveFrigateSnapshotUrl: pas d'entrée trouvée ou found=false pour eqLogicId=$eqLogicId");
                 return null;
             }
-            if (time() - (int) ($entry['ts'] ?? 0) > self::PREFETCH_CACHE_TTL) {
+            $age = time() - (int) ($entry['ts'] ?? 0);
+            if ($age > self::PREFETCH_CACHE_TTL) {
+                log::add('siaDC09', 'debug',
+                    "_resolveFrigateSnapshotUrl: entrée expirée (age={$age}s > " . self::PREFETCH_CACHE_TTL . 's)');
                 return null;
             }
             $eventId = $entry['event_id'] ?? null;
             if (!is_string($eventId) || $eventId === '') {
+                log::add('siaDC09', 'debug', '_resolveFrigateSnapshotUrl: event_id absent ou vide dans l\'entrée');
                 return null;
             }
             $template = $eqLogic->getConfiguration('frigate_media_url_template', '');
             if (!is_string($template) || $template === '') {
+                log::add('siaDC09', 'debug',
+                    '_resolveFrigateSnapshotUrl: frigate_media_url_template non configuré');
                 return null;
             }
-            return self::_buildFrigateMediaUrl($template, $eventId);
+            $mediaUrl = self::_buildFrigateMediaUrl($template, $eventId);
+            log::add('siaDC09', 'debug', '_resolveFrigateSnapshotUrl: résolu media_url=' . json_encode($mediaUrl));
+            return $mediaUrl;
         } catch (\Throwable $e) {
             log::add('siaDC09', 'warning', 'Résolution du snapshot Frigate échouée : ' . $e->getMessage());
             return null;
