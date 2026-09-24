@@ -69,11 +69,16 @@ async def test_returns_found_false_when_no_event_appears_before_deadline() -> No
 async def test_query_sends_expected_params() -> None:
     """
     The REST query must filter by camera, label=person, an after= lower bound, and
-    request only in-progress/has-snapshot events, sorted to get the most recent one.
+    request only has-snapshot events, sorted to get the most recent one. Must NOT filter
+    on in_progress: confirmed via live-host validation (2026-09-24) that Frigate sets a
+    concrete end_time immediately, even for a manually-created event, and a real short
+    person detection closes out just as fast — in_progress=1 would exclude almost every
+    real detection by the time this query runs.
 
     Expected result:
-    - the requested URL contains camera, label=person, after, in_progress, has_snapshot,
-      sort=desc, limit=1
+    - the requested URL contains camera, label=person, after, has_snapshot, sort=desc,
+      limit=1
+    - the requested URL never contains in_progress
     """
     captured_urls: list[str] = []
 
@@ -93,10 +98,11 @@ async def test_query_sends_expected_params() -> None:
     assert "camera=vigi_sud-est" in url
     assert "label=person" in url
     assert "after=" in url
-    assert "in_progress=1" in url
     assert "has_snapshot=1" in url
     assert "sort=desc" in url
     assert "limit=1" in url
+    # Assert: in_progress is never sent — would exclude an already-closed real detection
+    assert "in_progress" not in url
 
 
 @pytest.mark.asyncio

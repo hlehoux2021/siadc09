@@ -27,8 +27,11 @@ from typing import Final
 _logger = logging.getLogger(__name__)
 
 # Grace window before "now" for the `after=` filter — catches a Frigate event that started
-# slightly before the alarm zone's real sensor tripped.
-PREFETCH_AFTER_BUFFER_S: Final[float] = 15.0
+# before the alarm zone's real sensor tripped (a person is typically seen by the camera
+# before reaching/triggering a door/PIR sensor). Widened from 15.0 to 60.0 after live-host
+# validation (2026-09-24) showed a tight race at 15s even in a fast manual test — a real
+# scenario, where the person walks from camera view to the sensor, needs more margin.
+PREFETCH_AFTER_BUFFER_S: Final[float] = 60.0
 # Total polling budget — bounded well under a typical 30-60s alarm-zone trigger delay.
 PREFETCH_MAX_WAIT_S: Final[float] = 25.0
 # Delay between polls while waiting for Frigate to record/confirm the event.
@@ -75,6 +78,12 @@ def _get_json(url: str, timeout: float) -> object | None:
 def _query_latest_person_event(base_url: str, camera: str, after_ts: int, timeout: float) -> str | None:
     """Single `GET /api/events` query; returns the most recent matching event id, or None.
 
+    Deliberately does NOT filter on `in_progress` — confirmed via live-host validation
+    (2026-09-24) that Frigate sets a concrete `end_time` immediately, even for a manually
+    created event, and a real short person detection closes out just as fast. Requiring
+    `in_progress=1` would exclude almost every real detection by the time this query runs,
+    which is exactly the majority case ADR-17 exists to catch.
+
     Args:
         base_url: e.g. "http://192.168.100.18:5000"
         camera: Frigate-native camera name (siaDC09Cmd::_resolvePrefetchTarget()'s
@@ -89,7 +98,6 @@ def _query_latest_person_event(base_url: str, camera: str, after_ts: int, timeou
         "camera": camera,
         "label": _PERSON_LABEL,
         "after": after_ts,
-        "in_progress": 1,
         "has_snapshot": 1,
         "sort": "desc",
         "limit": 1,
