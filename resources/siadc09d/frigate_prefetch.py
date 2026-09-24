@@ -27,11 +27,15 @@ from typing import Final
 _logger = logging.getLogger(__name__)
 
 # Grace window before "now" for the `after=` filter — catches a Frigate event that started
-# before the alarm zone's real sensor tripped (a person is typically seen by the camera
-# before reaching/triggering a door/PIR sensor). Widened from 15.0 to 60.0 after live-host
-# validation (2026-09-24) showed a tight race at 15s even in a fast manual test — a real
-# scenario, where the person walks from camera view to the sensor, needs more margin.
-PREFETCH_AFTER_BUFFER_S: Final[float] = 60.0
+# before the alarm zone's real sensor tripped. Per the intended deployment principle (one
+# camera per protected zone, narrow field of view on that zone's own entry — not a wide shot
+# of the whole garden), Herve's own measured maximum detection duration is ~10s, so 30s is a
+# comfortable ceiling — not just "safety margin": attaching an old, unrelated frame to the
+# monitoring center is itself undesirable (ADR-17's "no photo is fine, wrong photo never is"),
+# so this stays tight rather than generous. Widened once already (15.0 -> 60.0) after a live
+# validation race, then narrowed back down (60.0 -> 30.0) once Herve clarified the deployment
+# assumption (2026-09-24).
+PREFETCH_AFTER_BUFFER_S: Final[float] = 30.0
 # Total polling budget — bounded well under a typical 30-60s alarm-zone trigger delay.
 PREFETCH_MAX_WAIT_S: Final[float] = 25.0
 # Delay between polls while waiting for Frigate to record/confirm the event.
