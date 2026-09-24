@@ -2033,13 +2033,21 @@ class SIADaemon(BaseDaemon):
                     f"frigate_host={frigate_host!r})"
                 )
                 return
+            try:
+                cam_id = int(camera_eqlogic_id)
+            except (TypeError, ValueError):
+                self._logger.warning(
+                    f"on_message: unusable camera_eqlogic_id {camera_eqlogic_id!r} — "
+                    "prefetchEvent ignored"
+                )
+                return
             self._logger.debug(
                 f"on_message: prefetchEvent spawning tracked task for camera_eqlogic_id="
-                f"{camera_eqlogic_id}, camera_name={camera_name!r}, frigate_host={frigate_host!r}"
+                f"{cam_id}, camera_name={camera_name!r}, frigate_host={frigate_host!r}"
             )
             self._track_task(
-                self._run_prefetch(int(camera_eqlogic_id), camera_name, frigate_host),
-                name=f"frigate-prefetch-{camera_eqlogic_id}",
+                self._run_prefetch(cam_id, camera_name, frigate_host),
+                name=f"frigate-prefetch-{cam_id}",
             )
             return
 

@@ -594,28 +594,32 @@ class siaDC09 extends eqLogic {
      * hit from an earlier, unrelated trigger on the same camera (AC5).
      */
     private static function _handlePrefetchResult($eqLogic, array $data): void {
-        log::add(__CLASS__, 'debug', '_handlePrefetchResult: reçu ' . json_encode($data));
-        $cameraEqLogicId = $data['camera_eqlogic_id'] ?? null;
-        if ($cameraEqLogicId === null) {
-            log::add(__CLASS__, 'warning', '_handlePrefetchResult: camera_eqlogic_id absent — message ignoré');
-            return;
+        try {
+            log::add(__CLASS__, 'debug', '_handlePrefetchResult: reçu ' . json_encode($data));
+            $cameraEqLogicId = $data['camera_eqlogic_id'] ?? null;
+            if ($cameraEqLogicId === null) {
+                log::add(__CLASS__, 'warning', '_handlePrefetchResult: camera_eqlogic_id absent — message ignoré');
+                return;
+            }
+
+            $raw = $eqLogic->getCache('sia_prefetch_cache', []);
+            $cache = is_string($raw) ? json_decode($raw, true) : $raw;
+            if (!is_array($cache)) {
+                $cache = [];
+            }
+
+            $cache[(int) $cameraEqLogicId] = [
+                'found'    => !empty($data['found']),
+                'event_id' => $data['event_id'] ?? null,
+                'ts'       => time(),
+            ];
+            log::add(__CLASS__, 'debug', '_handlePrefetchResult: sia_prefetch_cache mis à jour pour eqLogicId='
+                . $cameraEqLogicId . ' -> ' . json_encode($cache[(int) $cameraEqLogicId]));
+
+            $eqLogic->setCache('sia_prefetch_cache', $cache);
+        } catch (\Throwable $e) {
+            log::add(__CLASS__, 'warning', 'Traitement du résultat de prefetch Frigate échoué : ' . $e->getMessage());
         }
-
-        $raw = $eqLogic->getCache('sia_prefetch_cache', []);
-        $cache = is_string($raw) ? json_decode($raw, true) : $raw;
-        if (!is_array($cache)) {
-            $cache = [];
-        }
-
-        $cache[(int) $cameraEqLogicId] = [
-            'found'    => !empty($data['found']),
-            'event_id' => $data['event_id'] ?? null,
-            'ts'       => time(),
-        ];
-        log::add(__CLASS__, 'debug', '_handlePrefetchResult: sia_prefetch_cache mis à jour pour eqLogicId='
-            . $cameraEqLogicId . ' -> ' . json_encode($cache[(int) $cameraEqLogicId]));
-
-        $eqLogic->setCache('sia_prefetch_cache', $cache);
     }
 
     public function toHtml($_version = 'dashboard') {
