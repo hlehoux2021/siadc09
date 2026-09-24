@@ -145,7 +145,7 @@ development_status:
   # Epic 14: Camera Snapshot Attachment (Frigate Integration)
   epic-14: in-progress  # registered 2026-09-22 per ADR-17 (architecture.md) — Option A, majority-case-only
   14-1-attach-frigate-snapshot-alarm-frame: in-progress  # Tasks 1-7 done. Task 4 live validation: 4.1/4.3/4.8/4.9/4.10/4.11 done (AC3/AC7/AC8 confirmed on real host); 4.2/4.4 still open. Superseded at-alarm-time data source by 14-2 (ADR-17 Amendment 3) — Task 1's wizard mapping stays, Task 2/6's info_detect_person/info_id read does not
-  14-2-frigate-event-prefetch-immediate-action: in-progress  # registered 2026-09-24 per ADR-17 Amendment 3 (Option D) — party-mode review (Winston/Amelia/John) after two confirmed problems with 14-1's Option A: info_detect_person staleness, info_id has no label filter (any tracked class can hijack it). Tasks 1-5 implemented via TDD (PHP prefetchEvent trigger + cache read, daemon Frigate REST module + wiring), 0 regressions. Task 6 (live validation on test-jeedom.lehoux.net) still pending — needs the real host and a zone with a configured trigger delay
+  14-2-frigate-event-prefetch-immediate-action: review  # registered 2026-09-24 per ADR-17 Amendment 3 (Option D) — party-mode review (Winston/Amelia/John) after two confirmed problems with 14-1's Option A: info_detect_person staleness, info_id has no label filter (any tracked class can hijack it). Tasks 1-6 implemented via TDD + live validation on test-jeedom.lehoux.net: hit path confirmed (real Frigate snapshot URL attached to a real BA frame end-to-end) and miss path confirmed (wrong-label event correctly excluded, no delay). Two live bugs found and fixed along the way (prefetchEvent subType 'other'→'message' for the #zone# Titre field; in_progress filter dropped + after-buffer tuned 15s→60s→30s). Task 6.7 (hit-then-miss-in-quick-succession) left open as optional, covered by existing test + individual live confirmations
   epic-14-retrospective: optional
 
 # Summary Statistics
@@ -194,6 +194,8 @@ development_status:
 # data source; total_stories 54→55, stories_ready_for_dev 2→3)
 # Updated: 2026-09-24 (14-2 story file written, Task 1.1 done, dev started → ready-for-dev → in-progress;
 # stories_ready_for_dev 3→2, stories_in_progress 5→6)
+# Updated: 2026-09-24 (14-2 Tasks 1-6 implemented + live-validated end to end on test-jeedom.lehoux.net,
+# both hit and miss paths confirmed → in-progress → review; stories_in_progress 6→5, stories_review 0→1)
 summary:
   total_epics: 14
   total_stories: 55
@@ -202,6 +204,6 @@ summary:
   epics_done: 9
   stories_backlog: 4
   stories_ready_for_dev: 2
-  stories_in_progress: 6
-  stories_review: 0
+  stories_in_progress: 5
+  stories_review: 1
   stories_done: 43

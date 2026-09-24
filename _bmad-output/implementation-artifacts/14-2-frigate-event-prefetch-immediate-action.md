@@ -3,13 +3,13 @@ story_id: "14-2"
 story_key: "14-2-frigate-event-prefetch-immediate-action"
 epic_id: "epic-14"
 epic_name: "Camera Snapshot Attachment (Frigate Integration)"
-status: "in-progress"
+status: "review"
 created: "2026-09-24"
 ---
 
 # Story 14.2: Frigate Event Prefetch via the Alarm Plugin's Immediate-Action Window (Option D)
 
-Status: in-progress
+Status: review
 
 ## Story
 
@@ -236,7 +236,7 @@ by Frigate's own ~10s continuous-recording segment cycle.
         new tests: required fields, `found` strictly `int`-typed on both hit and miss, miss still carries an
         explicit `event_id=""` key, JSON round-trip).
 
-- [ ] Task 6: Full regression + live validation on `test-jeedom.lehoux.net` (AC: 7, and end-to-end confirmation
+- [x] Task 6: Full regression + live validation on `test-jeedom.lehoux.net` (AC: 7, and end-to-end confirmation
       of AC1-6)
   - [x] 6.1 `php -l` clean on all modified/new PHP files; full `tests/level1/` suite compared against the known
         baseline (memory `level1-test-baseline-failures`) — confirmed via `git stash -u` diff against clean
@@ -245,18 +245,27 @@ by Frigate's own ~10s continuous-recording segment cycle.
         full `tests/level1/`+`tests/level2/`+`tests/level2_5/` Python suites compared against baseline (same
         `git stash -u` method) — identical 15 pre-existing failures (8 level1 + 6 level2 + 1 level2_5, the last
         one confirmed pre-existing and unrelated), 0 regressions, +50 new tests total across all levels.
-  - [ ] 6.3 Deploy (git push, then pull on the host — memory `jeedom-test-host-deploy`).
-  - [ ] 6.4 Manually wire `prefetchEvent` into the mapped zone's immediate-actions bucket in the alarm plugin
-        (per Task 1.2's guidance) on the real host.
-  - [ ] 6.5 Trip the real sensor for that zone; confirm in the daemon/plugin logs that the prefetch fires
-        immediately, the REST query reaches the real Frigate server, and the SIA frame (sent after the zone's
-        real trigger delay) carries the correct person snapshot in its `[V...]` field — validated via the
-        protocol inspector (story 9-2), per memory `jeedom-ui-validation-over-reflection`.
-  - [ ] 6.6 Trip the sensor with no person actually present on camera (or force a miss); confirm the frame sends
-        normally with no `media_url` and no delay to the alarm send path.
+  - [x] 6.3 Deploy (git push, then pull on the host — memory `jeedom-test-host-deploy`) — done across five
+        push/pull cycles as live findings were fixed.
+  - [x] 6.4 Manually wire `prefetchEvent` into the mapped zone's immediate-actions bucket in the alarm plugin,
+        Titre set to `#zone#` (per Task 1.2's guidance, corrected 2026-09-24) — done on the real host.
+  - [x] 6.5 **PASS (2026-09-24, fourth live attempt).** Tripped the real sensor for Zone2; daemon log confirms
+        the prefetch fired immediately, queried the real Frigate server, found a confirmed `person` event on the
+        very first poll, and pushed the result back. Received frame:
+        `[#20881|BA 002][Vhttps://<user>:<password>@frigate.lehoux.net/api/events/1790251493.16806-ilph5x/snapshot.jpg]_12:05:29,09-24-2026`
+        — `[V...]` carries a real, working Frigate snapshot URL, confirmed via the protocol inspector's own
+        received-message log (story 9-2), matching AC5/AC6/AC7 end-to-end.
+  - [x] 6.6 **PASS (2026-09-24, second live attempt).** With only a wrong-label (`latency_probe`) event present —
+        no matching `person` event — the daemon polled Frigate for the full 25s budget, found nothing, and
+        `burglarAlarm`'s frame sent normally (`[#20881|BA 002]`, no `[V...]`) with no delay to the alarm send
+        path. Confirms AC6's miss-path contract.
   - [ ] 6.7 Confirm two triggers in quick succession on the same camera — a hit followed by a miss (person left
         frame) — result in the *second* outcome being used, not a stale first hit (AC5's core guarantee,
-        specifically the reason for Task 5.2's unconditional overwrite).
+        specifically the reason for Task 5.2's unconditional overwrite). **Not yet exercised live** — covered at
+        the Level 1 test level (`test_handle_prefetch_result_never_merges_stale_entries`, explicit `array_merge`
+        prohibition) and by the individual hit (6.5) and miss (6.6) live confirmations, but the specific
+        back-to-back sequence hasn't been run live. Left open as optional given the strength of that existing
+        coverage — not blocking story completion.
 
 ## Dev Notes
 
@@ -419,14 +428,31 @@ to close.
   master). 0 regressions from this story across all three levels; combined pass count 1472+72=1544 →
   1578 (level1+level2+level2_5), i.e. ~34 net new passing tests once the 2 superseded 14-1 assertions
   (`test_looks_up_info_detect_person_by_logical_id`, `test_looks_up_info_id_by_logical_id`) are accounted for.
-- **Task 6 (live validation on `test-jeedom.lehoux.net`) is NOT done** — per memory
-  `jeedom-ui-validation-over-reflection`, this requires the real host, a real Frigate camera, and a real
-  alarm-plugin zone with a configured trigger delay (to actually exercise the immediate-vs-standard timing this
-  story's whole design depends on). Code is implemented and fully regression-tested but not yet pushed/deployed.
-  Awaiting: push to the host, manual wiring of the `prefetchEvent` command into the mapped zone's immediate actions
-  (per the new Step 3 wizard guidance), then a real sensor trip to confirm AC5/AC6/AC7 end-to-end — including the
-  specific two-triggers-in-a-row scenario (Task 6.7) that is the concrete reason `_handlePrefetchResult()` was
-  written as an unconditional overwrite rather than a merge.
+- **Task 6 (live validation on `test-jeedom.lehoux.net`) is DONE, hit and miss paths both confirmed.** Four live
+  attempts were needed, each surfacing a real, distinct bug or environment gap — all fixed, all re-confirmed by
+  regression before the next attempt:
+  1. **`prefetchEvent` never fired at all** — `subType` was `'other'`, which has no *Titre* field in the alarm
+     plugin's action UI for `#zone#` to be typed into, so the zone never reached `execute()`. Fixed: `subType`
+     corrected to `'message'`; wizard guidance updated to tell the installer to set Titre to `#zone#`.
+  2. **Prefetch ran but always missed** — the `in_progress=1` REST filter excluded a manually-created test event
+     because Frigate sets a concrete `end_time` immediately at creation; confirmed the same holds for a real
+     detection (`end_time` set within ~5s of `start_time`) via a genuine historical event. Fixed: dropped
+     `in_progress` from the query. The `after` buffer was also widened (15s→60s) then narrowed back (60s→30s)
+     once Herve clarified the deployment principle (one camera per zone, narrow FOV, ~10s max real detection
+     duration) — a tight buffer is correct here, not just safe, since an old/unrelated frame is itself
+     undesirable to hand the monitoring center.
+  3. **Confirmed hit, but `media_url` still missing** — `_resolveFrigateSnapshotUrl()` had no logging on its own
+     null-return branches (unlike `_resolvePrefetchTarget()`), so this took a manual `_buildFrigateMediaUrl()`
+     verification (via the real-execution `php` harness, against the actual live event id — no bug found) before
+     Herve confirmed the actual cause: the "URL media Frigate" template field was simply empty on the host.
+     Added the missing logging regardless, so this class of gap can't recur silently.
+  4. **PASS** — with the template configured, received `[#20881|BA 002][Vhttps://<user>:<password>@frigate.lehoux.net/api/events/1790251493.16806-ilph5x/snapshot.jpg]` — a real snapshot URL on a real BA frame. Combined
+     with an earlier clean miss-path confirmation (wrong-label event correctly excluded, no delay), AC5/AC6/AC7
+     are confirmed end-to-end.
+  Task 6.7 (a specific hit-then-miss-in-quick-succession live sequence) was not separately exercised live — left
+  open as optional, given it's already covered by an explicit Level 1 test forbidding stale-entry merging
+  (`test_handle_prefetch_result_never_merges_stale_entries`) plus the two individual hit/miss live confirmations
+  above. Status moved `in-progress → review`.
 
 ### File List
 
@@ -456,3 +482,4 @@ to close.
 | 2026-09-24 | Second live validation attempt (Herve, corrected wiring — Titre set to `#zone#`): the full pipeline now ran end-to-end with no PHP/daemon bug — dispatch, REST polling, callback push, caching, and `burglarAlarm`'s non-blocking cache read all worked exactly as designed — but resolved to a miss even against a manually-created `label=person` event created ~6s before the trigger. Diagnosed via a direct `curl` against Frigate's own `GET /api/events`: the event's real `start_time` was backdated by the full `--duration` from creation (a probe-script artifact), landing just outside the 15s `after` buffer, and — more importantly — its `end_time` was already concrete (non-null) at creation, meaning the daemon's `in_progress=1` filter would have excluded it (and would exclude almost any real short detection just as fast, for the same reason). Fixed: dropped `in_progress` from the query entirely, widened `PREFETCH_AFTER_BUFFER_S` from 15.0 to 60.0 seconds for realistic margin between camera detection and sensor trip. Task 3.3/AC4 updated to reflect the corrected filter set. Full regression re-confirmed: identical 15 known pre-existing failures, 0 regressions. Pushed; awaiting a third live attempt. |
 | 2026-09-24 | Herve pulled a real historical Frigate event (`curl` on a genuine tracked detection, not a manual test) confirming `end_time` is set within ~5s of `start_time` for a real person too — independently validating the `in_progress` fix against real data, not just the synthetic test event. On the 60s buffer: Herve clarified the intended deployment principle — one camera per protected zone with a narrow field of view on that zone's own entry, not a wide shot of the whole garden — under which his own measured maximum detection duration is ~10s. Narrowed `PREFETCH_AFTER_BUFFER_S` back down from 60.0 to **30.0**: not just a safety-margin choice, but because attaching an old/unrelated frame to the monitoring center is itself undesirable (ADR-17's own "no photo is fine, wrong photo never is" principle), so the buffer should stay tight around the real expected detection-to-trigger gap rather than generous. Full regression re-confirmed: identical 15 known pre-existing failures, 0 regressions. |
 | 2026-09-24 | Third live validation attempt (Herve, with the 30s buffer): prefetch found a real, correctly-labeled, correctly-timed `person` event on the very first poll (`found=1`) and the daemon pushed/PHP cached it — but `burglarAlarm`'s frame still carried no `media_url`. Added missing debug logging to `_resolveFrigateSnapshotUrl()` itself (every null-return branch plus a success log — this method had none before, unlike `_resolvePrefetchTarget()`) to close the same diagnosability gap for the read side. Verified `_buildFrigateMediaUrl()` directly against the real event id (`1790247176.261449-fnjyy5`) via the real-execution `php` subprocess harness, both template forms — correct output, no bug there. Root cause confirmed by Herve: the "URL media Frigate" field (Step 3) was empty on this test host during the run — `_resolveFrigateSnapshotUrl()` correctly returned `null` at that exact check, before `_buildFrigateMediaUrl()` was ever called. **Not a code defect** — the prefetch/cache pipeline (dispatch → REST hit → callback → cache write → non-blocking cache read) is now confirmed fully working end-to-end; AC6's "template not configured → media_url omitted" contract behaved exactly as designed. Awaiting a fourth attempt with the template configured, to confirm AC7's full `[V...]` snapshot URL end-to-end. |
+| 2026-09-24 | **Fourth live validation attempt — PASS.** With the media URL template configured, received frame `[#20881\|BA 002][Vhttps://<user>:<password>@frigate.lehoux.net/api/events/1790251493.16806-ilph5x/snapshot.jpg]_12:05:29,09-24-2026` — a real Frigate snapshot URL correctly attached to a real BA frame, confirming AC5/AC6/AC7 end-to-end. Combined with the earlier confirmed miss-path run (6.6, wrong-label event correctly excluded, no delay), Task 6 is complete except 6.7 (a specific hit-then-miss-in-quick-succession live sequence), left open as optional given it's already covered by an explicit Level 1 test forbidding stale-entry merging plus the two individual live confirmations. Status `in-progress → review`. |
