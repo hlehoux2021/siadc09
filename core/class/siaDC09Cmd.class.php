@@ -22,6 +22,10 @@ class siaDC09Cmd extends cmd {
     private const OPEN_ALARMS_MAX = 90;
     private const OPEN_ALARMS_TTL = 86400;
 
+    // ADR-17 Amendment 3 (Option D): generous relative to a typical 30-60s alarm-plugin
+    // trigger delay — a confirmed prefetch hit older than this is treated as expired.
+    private const PREFETCH_CACHE_TTL = 120;
+
     private const OPEN_ALARMS_SIA_CODES = [
         'burglarAlarm' => 'BA',
         'fireAlarm'    => 'FA',
@@ -31,6 +35,25 @@ class siaDC09Cmd extends cmd {
     public function execute($_options = array()): void {
         $logicalId = $this->getLogicalId();
         switch ($logicalId) {
+            case 'prefetchEvent':
+                // ADR-17 Amendment 3 (Option D): wired by the installer into the mapped zone's
+                // IMMEDIATE actions — fires the instant the real sensor trips, well before
+                // burglarAlarm's own standard-action send. Fire-and-forget: no response is
+                // awaited (impossible on the existing control socket — jeedomdaemon's Listener
+                // closes the connection before invoking on_message()).
+                $zone = trim($_options['title'] ?? '');
+                $zoneEntry = $this->_findZoneEntry($zone, $this->_getZoneMapping()) ?? [];
+                $target = $this->_resolvePrefetchTarget($zoneEntry);
+                if ($target !== null) {
+                    siaDC09::sendToDaemon([
+                        'cmd'               => 'prefetchEvent',
+                        'camera_eqlogic_id' => $target['camera_eqlogic_id'],
+                        'camera_name'       => $target['camera_name'],
+                        'frigate_host'      => $target['frigate_host'],
+                    ]);
+                }
+                break;
+
             case 'burglarAlarm':
             case 'fireAlarm':
             case 'panicAlarm':
@@ -125,15 +148,56 @@ class siaDC09Cmd extends cmd {
     }
 
     /**
-     * ADR-17 (majority case only): if the zone's mapped Frigate camera already has an active
-     * `info_detect_person` (person caught before the alarm fired), builds a media URL from the
-     * configured `frigate_media_url_template` and the camera's current Frigate event id
-     * (`info_id`) — live, via execCmd() (getValue() is frozen forever for these info cmds, per
-     * project memory jeedom-info-cmd-execcmd-vs-getvalue). Returns null for every other case (no
-     * camera mapped, plugin/commands absent, no active detection, no template configured) —
-     * never throws. Never reads `info_url_snapshot`: it is always a Jeedom-local cached-copy
-     * path, unusable by an external CSR (ADR-17 amendment, 2026-09-23). The fallback create-event
-     * case and clip attachment are explicitly out of scope (deferred in ADR-17).
+     * ADR-17 Amendment 3 (Option D): resolves what the daemon needs to run a Frigate REST
+     * prefetch for this zone's mapped camera — the camera's own Frigate-native name
+     * (`getConfiguration('name')`, set by the Frigate plugin itself at camera-creation time,
+     * never a siaDC09 config field — confirmed by reading the Frigate plugin's own source) and
+     * the Frigate server's `host:port` (the Frigate plugin's own **global** config,
+     * `config::byKey('URL'|'port', 'frigate')` — a read-only cross-plugin read, deliberately not
+     * a call to `\frigate::getUrlFrigate()`, to avoid a hard class dependency on a plugin that
+     * may be absent or disabled). Returns null on any missing piece; never throws.
+     */
+    private function _resolvePrefetchTarget(array $zoneEntry): ?array {
+        try {
+            $eqLogicId = $zoneEntry['frigate_camera_eqlogic_id'] ?? null;
+            if (empty($eqLogicId)) {
+                return null;
+            }
+            $cameraEqLogic = eqLogic::byId((int) $eqLogicId);
+            if (!is_object($cameraEqLogic)) {
+                return null;
+            }
+            $cameraName = $cameraEqLogic->getConfiguration('name', '');
+            if (!is_string($cameraName) || $cameraName === '') {
+                return null;
+            }
+            $frigateUrl = config::byKey('URL', 'frigate', '');
+            $frigatePort = config::byKey('port', 'frigate', '');
+            if (!is_string($frigateUrl) || $frigateUrl === '' || (string) $frigatePort === '') {
+                return null;
+            }
+            return [
+                'camera_eqlogic_id' => (int) $eqLogicId,
+                'camera_name'       => $cameraName,
+                'frigate_host'      => $frigateUrl . ':' . $frigatePort,
+            ];
+        } catch (\Throwable $e) {
+            log::add('siaDC09', 'warning', 'Résolution de la cible Frigate prefetch échouée : ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * ADR-17 Amendment 3 (Option D): reads the daemon's Frigate REST prefetch outcome from the
+     * Jeedom-side cache (`sia_prefetch_cache`, written by `siaDC09::_handlePrefetchResult()` in
+     * response to the immediate-action `prefetchEvent` trigger) — a synchronous, local,
+     * non-blocking read, same latency class as the `execCmd()` reads it replaces. Returns null
+     * unless the cache holds a confirmed, non-expired hit for this zone's mapped camera: no
+     * entry (prefetchEvent never fired, or hasn't reported back yet), an explicit miss, or an
+     * entry older than `PREFETCH_CACHE_TTL` all resolve to null — the same two-outcome contract
+     * as before (AC6: no third fallback tier). Never reads `info_detect_person`, `info_id`,
+     * `info_label`, or `info_url_snapshot` again for this decision (superseded by Amendment 3).
+     * Never throws.
      */
     private function _resolveFrigateSnapshotUrl(array $zoneEntry): ?string {
         try {
@@ -141,20 +205,27 @@ class siaDC09Cmd extends cmd {
             if (empty($eqLogicId)) {
                 return null;
             }
-            $detectCmd = cmd::byEqLogicIdAndLogicalId((int) $eqLogicId, 'info_detect_person');
-            if (!is_object($detectCmd) || (int) $detectCmd->execCmd() !== 1) {
+            $eqLogic = $this->getEqLogic();
+            if ($eqLogic === null) {
                 return null;
             }
-            $idCmd = cmd::byEqLogicIdAndLogicalId((int) $eqLogicId, 'info_id');
-            if (!is_object($idCmd)) {
+            $raw = $eqLogic->getCache('sia_prefetch_cache', []);
+            $cache = is_string($raw) ? json_decode($raw, true) : $raw;
+            if (!is_array($cache)) {
                 return null;
             }
-            $eventId = $idCmd->execCmd();
+            $entry = $cache[(int) $eqLogicId] ?? null;
+            if (!is_array($entry) || empty($entry['found'])) {
+                return null;
+            }
+            if (time() - (int) ($entry['ts'] ?? 0) > self::PREFETCH_CACHE_TTL) {
+                return null;
+            }
+            $eventId = $entry['event_id'] ?? null;
             if (!is_string($eventId) || $eventId === '') {
                 return null;
             }
-            $eqLogic = $this->getEqLogic();
-            $template = $eqLogic !== null ? $eqLogic->getConfiguration('frigate_media_url_template', '') : '';
+            $template = $eqLogic->getConfiguration('frigate_media_url_template', '');
             if (!is_string($template) || $template === '') {
                 return null;
             }

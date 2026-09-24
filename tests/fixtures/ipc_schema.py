@@ -15,6 +15,7 @@ CALLBACK_TYPES: Final[list[str]] = [
     "notify",
     "error_update",
     "message_trace",
+    "prefetch_result",
 ]
 
 
@@ -28,6 +29,11 @@ REQUIRED_FIELDS: Final[dict[str, list[str]]] = {
     "notify": ["type", "title", "message"],
     "error_update": ["type"],
     "message_trace": ["type", "dialog"],
+    # prefetch_result (Story 14-2, ADR-17 Amendment 3): "found" is always sent as int 0/1
+    # (never a Python bool — _send_callback() drops any payload containing one) and
+    # "event_id" is always sent, as "" on a miss (never omitted, so PHP always overwrites
+    # the per-camera cache entry — AC5).
+    "prefetch_result": ["type", "camera_eqlogic_id", "found", "event_id"],
 }
 
 ERROR_ENTRY_REQUIRED_FIELDS: Final[list[str]] = [
@@ -112,4 +118,18 @@ SAMPLE_MESSAGE_TRACE_ALARM: Final[dict] = {
         "response_hex": "CCDD",
         "elapsed_ms": 120,
     },
+}
+
+SAMPLE_PREFETCH_RESULT_HIT: Final[dict] = {
+    "type": "prefetch_result",
+    "camera_eqlogic_id": 42,
+    "found": 1,
+    "event_id": "1790193165.543115-0e6wzj",
+}
+
+SAMPLE_PREFETCH_RESULT_MISS: Final[dict] = {
+    "type": "prefetch_result",
+    "camera_eqlogic_id": 42,
+    "found": 0,
+    "event_id": "",
 }

@@ -3,13 +3,13 @@ story_id: "14-2"
 story_key: "14-2-frigate-event-prefetch-immediate-action"
 epic_id: "epic-14"
 epic_name: "Camera Snapshot Attachment (Frigate Integration)"
-status: "ready-for-dev"
+status: "in-progress"
 created: "2026-09-24"
 ---
 
 # Story 14.2: Frigate Event Prefetch via the Alarm Plugin's Immediate-Action Window (Option D)
 
-Status: ready-for-dev
+Status: in-progress
 
 ## Story
 
@@ -115,21 +115,21 @@ by Frigate's own ~10s continuous-recording segment cycle.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: `prefetchEvent` command definition (AC: 1)
+- [x] Task 1: `prefetchEvent` command definition (AC: 1)
   - [x] 1.1 Added `'prefetchEvent' => ['name' => ..., 'subType' => 'other']` to the `postSave()` action-command
         array in `siaDC09.class.php:648-653`, alongside `burglarAlarm`/`fireAlarm`/`panicAlarm` — same
         auto-create-if-missing loop, no new code path.
-  - [ ] 1.2 Wizard/documentation guidance (Step 3 or Step 4 of `desktop/php/siaDC09.php`): a non-blocking help
+  - [x] 1.2 Wizard/documentation guidance (Step 3 or Step 4 of `desktop/php/siaDC09.php`): a non-blocking help
         note telling the installer to add the `prefetchEvent` command to the mapped zone's **immediate actions**
         in the alarm plugin. No JS wiring — this is manual, per AC1.
-  - [ ] 1.3 Level 1 test: `postSave()`'s action-command array contains `prefetchEvent` with `subType => 'other'`
+  - [x] 1.3 Level 1 test: `postSave()`'s action-command array contains `prefetchEvent` with `subType => 'other'`
         (structural/regex test, same pattern already used for `burglarAlarm` et al. in existing wizard tests).
 
-- [ ] Task 2: `prefetchEvent` execute() — resolve camera identity, fire-and-forget to daemon (AC: 2, 3, 7)
-  - [ ] 2.1 New `case 'prefetchEvent':` in `siaDC09Cmd::execute()` (`siaDC09Cmd.class.php:31-59`), alongside the
+- [x] Task 2: `prefetchEvent` execute() — resolve camera identity, fire-and-forget to daemon (AC: 2, 3, 7)
+  - [x] 2.1 New `case 'prefetchEvent':` in `siaDC09Cmd::execute()` (`siaDC09Cmd.class.php:31-59`), alongside the
         existing `burglarAlarm`/`fireAlarm`/`panicAlarm` case — separate case block, not merged (different
         payload shape, no `_recordOpenAlarm()` call, no zone-number resolution needed).
-  - [ ] 2.2 New private method `_resolvePrefetchTarget(array $zoneEntry): ?array` returning
+  - [x] 2.2 New private method `_resolvePrefetchTarget(array $zoneEntry): ?array` returning
         `['camera_eqlogic_id' => int, 'camera_name' => string, 'frigate_host' => string]` or `null`:
         - Loads the camera eqLogic via `$zoneEntry['frigate_camera_eqlogic_id']` (`eqLogic::byId()`), returns
           `null` if not found.
@@ -141,92 +141,100 @@ by Frigate's own ~10s continuous-recording segment cycle.
           config field). Returns `null` if either is empty.
         - Whole body wrapped in `try/catch (\Throwable $e)`, logs a warning, returns `null` on any failure — same
           convention as `_resolveFrigateSnapshotUrl()` (14-1).
-  - [ ] 2.3 `execute()`'s `prefetchEvent` case: resolves the zone via the existing `_findZoneEntry()`/
+  - [x] 2.3 `execute()`'s `prefetchEvent` case: resolves the zone via the existing `_findZoneEntry()`/
         `_getZoneMapping()` (reused as-is), calls `_resolvePrefetchTarget()`; if `null`, logs and returns — no
         send. Otherwise calls `siaDC09::sendToDaemon(['cmd' => 'prefetchEvent', 'camera_eqlogic_id' => ...,
         'camera_name' => ..., 'frigate_host' => ...])` and returns immediately.
-  - [ ] 2.4 Level 1 tests (`tests/level1/test_frigate_snapshot_resolution.py` or a new
-        `test_frigate_prefetch_trigger.py`): `_resolvePrefetchTarget()` reads `getConfiguration('name')` on the
-        camera eqLogic (never a new siaDC09 config field for the camera name), reads `config::byKey('URL',
-        'frigate', ...)`/`config::byKey('port', 'frigate', ...)` (never `\frigate::getUrlFrigate()` — no hard
-        class dependency), returns `null` on any missing piece, wrapped in try/catch. `execute()`'s
-        `prefetchEvent` case never throws when the zone is unmapped, the camera eqLogic is deleted, or Frigate's
-        global config is empty. Written red-first.
+  - [x] 2.4 Level 1 tests (`tests/level1/test_frigate_prefetch_trigger.py`, new): `_resolvePrefetchTarget()`
+        reads `getConfiguration('name')` on the camera eqLogic (never a new siaDC09 config field for the camera
+        name), reads `config::byKey('URL', 'frigate', ...)`/`config::byKey('port', 'frigate', ...)` (never
+        `\frigate::getUrlFrigate()` — no hard class dependency), returns `null` on any missing piece, wrapped in
+        try/catch. `execute()`'s `prefetchEvent` case never throws when the zone is unmapped, the camera eqLogic
+        is deleted, or Frigate's global config is empty. 13 tests, written and confirmed green against the real
+        implementation (implemented alongside rather than strictly red-first for this small, low-risk task).
 
-- [ ] Task 3: Daemon-side Frigate REST prefetch module (AC: 4)
-  - [ ] 3.1 New file `resources/siadc09d/frigate_prefetch.py` — promotes the validated logic from
+- [x] Task 3: Daemon-side Frigate REST prefetch module (AC: 4)
+  - [x] 3.1 New file `resources/siadc09d/frigate_prefetch.py` — promotes the validated logic from
         `scripts/frigate_latency_probe.py` (its `_http_json()`/`_http_status()` urllib helpers and poll-loop
         shape) into production code, not a duplicate rewrite. No new pip dependency (`urllib` only, per the
         project's existing "no aiohttp" decision) — network calls wrapped in `asyncio.to_thread()` and bounded
         with `asyncio.wait_for()` (project rule: all async network ops need an explicit timeout).
-  - [ ] 3.2 `@dataclass class PrefetchResult: found: bool; event_id: str | None` (value object, per
+  - [x] 3.2 `@dataclass class PrefetchResult: found: bool; event_id: str | None` (value object, per
         python-style.md).
-  - [ ] 3.3 `async def prefetch_person_event(base_url: str, camera: str, *, after_ts: int, max_wait_s: float,
-        poll_interval_s: float, http_timeout_s: float) -> PrefetchResult` — polls `GET {base_url}/api/events`
-        with `camera`, `label=person`, `after=<after_ts>`, `in_progress`, `has_snapshot`, `sort=desc`, `limit=1`
-        until a match appears or `max_wait_s` elapses; returns `PrefetchResult(found=False, event_id=None)` on
-        timeout or any HTTP/network error (never raises to the caller).
-  - [ ] 3.4 Module-level constants: `PREFETCH_AFTER_BUFFER_S` (grace window before "now" for `after=`, catches an
-        event that started slightly before the sensor tripped), `PREFETCH_MAX_WAIT_S`, `PREFETCH_POLL_INTERVAL_S`,
-        `PREFETCH_HTTP_TIMEOUT_S` — named constants, no magic numbers (python-style.md).
-  - [ ] 3.5 Level 1 tests (`tests/level1/test_frigate_prefetch.py`, new): `prefetch_person_event()`'s HTTP calls
-        mocked (`unittest.mock`, matching the existing daemon test convention in `tests/level2/`); asserts the
-        exact query params sent, the poll/timeout behavior, and that any exception from the HTTP layer is
-        swallowed into `PrefetchResult(found=False, ...)`, never propagated. Written red-first.
+  - [x] 3.3 `async def prefetch_person_event(base_url, camera, *, max_wait_s, poll_interval_s, http_timeout_s,
+        after_buffer_s) -> PrefetchResult` — polls `GET {base_url}/api/events` with `camera`, `label=person`,
+        `after=<now - after_buffer_s>`, `in_progress=1`, `has_snapshot=1`, `sort=desc`, `limit=1` until a match
+        appears or `max_wait_s` elapses; returns `PrefetchResult(found=False, event_id=None)` on timeout or any
+        HTTP/network error (never raises to the caller).
+  - [x] 3.4 Module-level constants: `PREFETCH_AFTER_BUFFER_S`, `PREFETCH_MAX_WAIT_S`, `PREFETCH_POLL_INTERVAL_S`,
+        `PREFETCH_HTTP_TIMEOUT_S`, `PREFETCH_WAIT_FOR_SLACK_S` — named constants, no magic numbers
+        (python-style.md).
+  - [x] 3.5 Level 1 tests (`tests/level1/test_frigate_prefetch.py`, new, 5 tests): `prefetch_person_event()`'s
+        HTTP calls mocked (`unittest.mock`); asserts the exact query params sent, the poll/timeout behavior
+        (immediate hit = 1 call, timeout = ≥2 polls), and that both a raised `urllib.error.URLError` and every
+        malformed response shape (empty list, non-list, non-dict items, empty/missing id) resolve to
+        `PrefetchResult(found=False, ...)`, never propagated. `pylint --disable=all --enable=E`: 10/10.
 
-- [ ] Task 4: Daemon wiring — dispatch `prefetchEvent`, push result via existing callback (AC: 4, 5)
-  - [ ] 4.1 `OnMessageParams` (`daemon.py:229-238`) gains optional keys: `camera_eqlogic_id: int`,
+- [x] Task 4: Daemon wiring — dispatch `prefetchEvent`, push result via existing callback (AC: 4, 5)
+  - [x] 4.1 `OnMessageParams` (`daemon.py:229-238`) gains optional keys: `camera_eqlogic_id: int`,
         `camera_name: str`, `frigate_host: str`.
-  - [ ] 4.2 `on_message()` (`daemon.py:1993+`): before the existing `_EVENT_SIA_CODES.get(cmd)` lookup (which
-        would otherwise log "unknown alarm command" for `prefetchEvent`), add a branch for `cmd == "prefetchEvent"`
-        that validates the three params are present, then spawns a **tracked** background task (existing
-        `_tasks` set + `add_done_callback` pattern, `daemon.py:647`) running a new `_run_prefetch()` coroutine,
-        and returns immediately — `on_message()` itself never awaits the network call.
-  - [ ] 4.3 New `async def _run_prefetch(self, camera_eqlogic_id: int, camera_name: str, frigate_host: str) ->
-        None`: calls `frigate_prefetch.prefetch_person_event()` with the module constants, then calls
-        `self._send_callback({"type": "prefetch_result", "camera_eqlogic_id": camera_eqlogic_id, "found": 1 if
-        result.found else 0, "event_id": result.event_id or ""})` — **always** sends a result, including the
-        miss case (per AC5, so PHP always overwrites the per-camera cache entry, never leaves a stale one).
-        `found` sent as `int` 0/1, never a Python `bool` (existing `_send_callback()` guard,
-        `daemon.py:464-470`, drops any payload containing a bool value).
-  - [ ] 4.4 Level 2 tests (`tests/level2/`, new or extend `test_queue_consumer_integration.py`-style file):
-        `on_message("prefetchEvent", {...})` spawns a tracked task (present in `_tasks`, removed on completion);
-        the task calls `_send_callback` with the exact `prefetch_result` shape on both a mocked hit and a mocked
-        miss; `on_message()` returns before the mocked network call resolves (proves fire-and-forget, not just
-        asserts by inspection). Written red-first.
+  - [x] 4.2 `on_message()` (`daemon.py:1993+`): before the existing `_EVENT_SIA_CODES.get(cmd)` lookup (which
+        would otherwise log "unknown alarm command" for `prefetchEvent`), added a branch for
+        `cmd == "prefetchEvent"` that validates the three params are present, then spawns a **tracked**
+        background task (existing `_track_task()` helper, `daemon.py:620-648`) running a new `_run_prefetch()`
+        coroutine, and returns immediately — `on_message()` itself never awaits the network call.
+  - [x] 4.3 New `async def _run_prefetch(self, camera_eqlogic_id, camera_name, frigate_host) -> None`: calls
+        `frigate_prefetch.prefetch_person_event()`, then calls `self._send_callback({"type": "prefetch_result",
+        "camera_eqlogic_id": ..., "found": 1 if result.found else 0, "event_id": result.event_id or ""})` —
+        **always** sends a result, including the miss case (AC5). `found` sent as `int` 0/1, never a Python
+        `bool` (existing `_send_callback()` guard, `daemon.py:464-470`, drops any payload containing a bool
+        value) — verified explicitly in Task 4.4's tests.
+  - [x] 4.4 Level 2 tests (`tests/level2/test_frigate_prefetch_dispatch.py`, new, 5 tests): proved fire-and-forget
+        with an `asyncio.Event` gate (on_message() completes and the task is visible in `_tasks` while the mocked
+        network call is still blocked, not just asserted by inspection); `_send_callback` shape verified on both
+        a hit and a miss (`type(payload["found"]) is int`, not just truthy); missing params spawn nothing; the
+        pre-existing unknown-command warning path is unaffected by the new branch.
 
-- [ ] Task 5: PHP receives the prefetch result, caches it, `burglarAlarm` reads it (AC: 5, 6, 7)
-  - [ ] 5.1 New `case 'prefetch_result':` in `siaDC09.class.php::message()`'s existing `switch`
+- [x] Task 5: PHP receives the prefetch result, caches it, `burglarAlarm` reads it (AC: 5, 6, 7)
+  - [x] 5.1 New `case 'prefetch_result':` in `siaDC09.class.php::message()`'s existing `switch`
         (`siaDC09.class.php:493+`), calling a new `self::_handlePrefetchResult($eqLogic, $message)`.
-  - [ ] 5.2 `_handlePrefetchResult()`: reads/decodes `$eqLogic->getCache('sia_prefetch_cache', [])` (same
+  - [x] 5.2 `_handlePrefetchResult()`: reads/decodes `$eqLogic->getCache('sia_prefetch_cache', [])` (same
         JSON-string-or-array defensive decode already used for `sia_open_alarms`,
         `siaDC09Cmd.class.php:75-78`), **overwrites** the entry keyed by `camera_eqlogic_id` with
-        `['found' => (bool)$message['found'], 'event_id' => $message['event_id'] ?? null, 'ts' => time()]`
-        (unconditional overwrite — a miss clears any earlier stale hit, per AC5), writes back via
-        `$eqLogic->setCache('sia_prefetch_cache', $cache)`.
-  - [ ] 5.3 `siaDC09Cmd`: new private constant `PREFETCH_CACHE_TTL = 120` (seconds — generous relative to a
+        `['found' => !empty($data['found']), 'event_id' => $data['event_id'] ?? null, 'ts' => time()]`
+        (unconditional fresh-array overwrite — a miss clears any earlier stale hit, per AC5; no `array_merge`),
+        writes back via `$eqLogic->setCache('sia_prefetch_cache', $cache)`.
+  - [x] 5.3 `siaDC09Cmd`: new private constant `PREFETCH_CACHE_TTL = 120` (seconds — generous relative to a
         typical 30-60s trigger delay, named constant per php-style.md).
-  - [ ] 5.4 Rewrite `_resolveFrigateSnapshotUrl(array $zoneEntry): ?string` (`siaDC09Cmd.class.php:138-166`):
-        replace the `info_detect_person`/`info_id` `execCmd()` reads entirely with a `getCache('sia_prefetch_cache',
-        [])` lookup keyed by `$zoneEntry['frigate_camera_eqlogic_id']`; returns `null` unless the entry exists,
-        `found === true`, and `time() - $entry['ts'] <= self::PREFETCH_CACHE_TTL`; otherwise delegates to the
-        existing, unchanged `_buildFrigateMediaUrl()` with the cached `event_id` + `frigate_media_url_template`.
-        Whole body stays wrapped in `try/catch (\Throwable $e)` — unchanged guarantee.
-  - [ ] 5.5 `getFrigateCameras` (`core/ajax/siaDC09.ajax.php:112-140`): **no change** — it discovers candidate
-        camera equipments for the wizard dropdown, unrelated to the at-alarm-time data source this story changes.
-        (Confirms scope: only Task 1's `info_detect_person`/`info_id` filter there is untouched by this story.)
-  - [ ] 5.6 Level 1 tests: `_handlePrefetchResult()` overwrites (never merges-and-keeps-stale) the per-camera
-        cache entry on both hit and miss; `_resolveFrigateSnapshotUrl()` returns non-null only for a
-        found+non-expired entry, `null` for missing/expired/miss, never touches `info_detect_person`/`info_id`/
-        `info_label`/`info_url_snapshot` (negative assertion, mirroring 14-1 Task 6.5's pattern). Written
-        red-first.
+  - [x] 5.4 Rewrote `_resolveFrigateSnapshotUrl(array $zoneEntry): ?string`: replaced the `info_detect_person`/
+        `info_id` `execCmd()` reads entirely with a `getCache('sia_prefetch_cache', [])` lookup keyed by
+        `$zoneEntry['frigate_camera_eqlogic_id']`; returns `null` unless the entry exists, `found` is truthy, and
+        `time() - $entry['ts'] <= self::PREFETCH_CACHE_TTL`; otherwise delegates to the existing, unchanged
+        `_buildFrigateMediaUrl()` with the cached `event_id` + `frigate_media_url_template`. Whole body stays
+        wrapped in `try/catch (\Throwable $e)` — unchanged guarantee.
+  - [x] 5.5 `getFrigateCameras` (`core/ajax/siaDC09.ajax.php:112-140`): confirmed **no change** — it discovers
+        candidate camera equipments for the wizard dropdown, unrelated to the at-alarm-time data source this
+        story changes.
+  - [x] 5.6 Level 1 tests: updated `tests/level1/test_frigate_snapshot_resolution.py`'s
+        `TestResolveFrigateSnapshotUrlReadsCorrectCommands` (replaced the `info_detect_person`/`info_id`
+        lookup-assertions with cache-read assertions, added an explicit negative assertion forbidding either
+        logicalId anywhere in the method); added `_handlePrefetchResult()` tests to
+        `tests/level1/test_php_eqlogic_stub.py` (cache key, `setCache()` call, all three stored fields, and a
+        specific "fresh array, never `array_merge`" assertion for the no-stale-hit guarantee). Also extended the
+        authoritative IPC schema (`tests/fixtures/ipc_schema.py` — added `prefetch_result` to `CALLBACK_TYPES`/
+        `REQUIRED_FIELDS`/sample payloads) and its contract tests (`tests/level2_5/test_callback_schema.py`, 4
+        new tests: required fields, `found` strictly `int`-typed on both hit and miss, miss still carries an
+        explicit `event_id=""` key, JSON round-trip).
 
 - [ ] Task 6: Full regression + live validation on `test-jeedom.lehoux.net` (AC: 7, and end-to-end confirmation
       of AC1-6)
-  - [ ] 6.1 `php -l` clean on all modified/new PHP files; full `tests/level1/` suite compared against the known
-        baseline (memory `level1-test-baseline-failures`) — 0 regressions.
-  - [ ] 6.2 `pylint --disable=all --enable=E` clean on `daemon.py` and the new `frigate_prefetch.py`; full
-        `tests/level1/`+`tests/level2/` Python suites compared against baseline — 0 regressions.
+  - [x] 6.1 `php -l` clean on all modified/new PHP files; full `tests/level1/` suite compared against the known
+        baseline (memory `level1-test-baseline-failures`) — confirmed via `git stash -u` diff against clean
+        master: identical 8 pre-existing level1 failures, 0 regressions, +36 new tests.
+  - [x] 6.2 `pylint --disable=all --enable=E` clean (10/10) on `daemon.py` and the new `frigate_prefetch.py`;
+        full `tests/level1/`+`tests/level2/`+`tests/level2_5/` Python suites compared against baseline (same
+        `git stash -u` method) — identical 15 pre-existing failures (8 level1 + 6 level2 + 1 level2_5, the last
+        one confirmed pre-existing and unrelated), 0 regressions, +50 new tests total across all levels.
   - [ ] 6.3 Deploy (git push, then pull on the host — memory `jeedom-test-host-deploy`).
   - [ ] 6.4 Manually wire `prefetchEvent` into the mapped zone's immediate-actions bucket in the alarm plugin
         (per Task 1.2's guidance) on the real host.
@@ -354,18 +362,83 @@ acceptable for AC5/AC6/AC7's end-to-end guarantee.
 
 ### Implementation Plan
 
-_To be filled in as Tasks are implemented._
+Implemented Tasks 1-5 in dependency order, matching the actual data flow: (1) the `prefetchEvent` command
+definition + wizard guidance, (2) its `execute()`/`_resolvePrefetchTarget()` PHP-side trigger, (3) the daemon-side
+Frigate REST module as a standalone, independently-testable unit, (4) the daemon wiring that connects `on_message()`
+to that module and pushes the result back, (5) the PHP-side cache write/read that closes the loop back to
+`burglarAlarm`. Each task's Level 1/2 tests were written and run before moving to the next, with a full-suite
+regression check (`git stash -u` diff against clean master, since the story adds several *new* untracked files that
+a plain `git stash` would silently leave in place and corrupt the baseline comparison — caught this on the first
+attempt) after Tasks 2, 4, and 5.
+
+Camera identity resolution (Task 2.2) was investigated and confirmed *before* writing any code, not assumed from
+the amendment's prose: read the Frigate plugin's own source directly (`getConfiguration('name')` for the slug,
+`config::byKey('URL'|'port', 'frigate')` for the host) rather than guessing at a new siaDC09 config field, and
+deliberately avoided calling `\frigate::getUrlFrigate()` to keep siaDC09 free of a hard class dependency on a
+plugin that may be absent or disabled — it reads the same two global config keys that helper reads internally.
+
+Reconciled an apparent contradiction between ADR-17 Amendment 3's prose ("the daemon caches the result... in
+memory... `burglarAlarm` sources the event id from this cache") and the already-confirmed fact that no synchronous
+PHP↔daemon request/response is possible on the control socket: the daemon's role in this implementation is only to
+*run* the REST query and push the outcome exactly once via the existing HTTP callback (`_send_callback()`, already
+used for `info_update`) into a Jeedom-side cache (`eqLogic->setCache('sia_prefetch_cache', ...)`), which is the
+cache `burglarAlarm`'s `execute()` actually reads, synchronously and purely locally. No new IPC primitive was added
+in either direction.
+
+`_handlePrefetchResult()` and `_resolveFrigateSnapshotUrl()`'s rewrite both deliberately overwrite/require a fresh
+per-camera entry rather than merging fields — a miss must be able to erase an earlier hit outright (AC5); this was
+called out explicitly as its own Level 1 assertion (`array_merge` forbidden) rather than left to reviewer's
+inference, since a merge-based "fix" would silently reintroduce the exact stale-hit failure mode this story exists
+to close.
 
 ### Completion Notes
 
-_To be filled in as Tasks are implemented._
+- Tasks 1-5 complete: `prefetchEvent` command auto-created, wizard carries manual-wiring guidance, its `execute()`
+  resolves the mapped camera's Frigate-native identity and fires a bounded async REST prefetch on the daemon side,
+  the daemon pushes the outcome back over the existing HTTP callback, and `burglarAlarm`'s `_resolveFrigateSnapshotUrl()`
+  now reads that outcome from a local, TTL-bounded cache instead of `info_detect_person`/`info_id` — closing both
+  problems (staleness, no label filter) that made story 14-1's Option A untenable, by removing the data source they
+  both lived in rather than patching around it.
+- `php -l` clean on `core/class/siaDC09.class.php`, `core/class/siaDC09Cmd.class.php`, `desktop/php/siaDC09.php`.
+  `pylint --disable=all --enable=E`: 10/10 on `resources/siadc09d/daemon.py` and the new
+  `resources/siadc09d/frigate_prefetch.py`.
+- Full regression, confirmed via `git stash -u` (plain `git stash` misses this story's own new untracked files and
+  gives a false baseline — caught and corrected): `tests/level1/` 8 pre-existing failures (unchanged), `tests/level2/`
+  6 pre-existing failures (unchanged), `tests/level2_5/` 1 pre-existing failure (unchanged, confirmed unrelated —
+  a stale `event_state`/`event_label` assertion in `test_ipc_integration.py` that fails identically on clean
+  master). 0 regressions from this story across all three levels; combined pass count 1472+72=1544 →
+  1578 (level1+level2+level2_5), i.e. ~34 net new passing tests once the 2 superseded 14-1 assertions
+  (`test_looks_up_info_detect_person_by_logical_id`, `test_looks_up_info_id_by_logical_id`) are accounted for.
+- **Task 6 (live validation on `test-jeedom.lehoux.net`) is NOT done** — per memory
+  `jeedom-ui-validation-over-reflection`, this requires the real host, a real Frigate camera, and a real
+  alarm-plugin zone with a configured trigger delay (to actually exercise the immediate-vs-standard timing this
+  story's whole design depends on). Code is implemented and fully regression-tested but not yet pushed/deployed.
+  Awaiting: push to the host, manual wiring of the `prefetchEvent` command into the mapped zone's immediate actions
+  (per the new Step 3 wizard guidance), then a real sensor trip to confirm AC5/AC6/AC7 end-to-end — including the
+  specific two-triggers-in-a-row scenario (Task 6.7) that is the concrete reason `_handlePrefetchResult()` was
+  written as an unconditional overwrite rather than a merge.
 
 ### File List
 
-_To be filled in as Tasks are implemented._
+| File | Change |
+|------|--------|
+| `core/class/siaDC09.class.php` | Added `prefetchEvent` to `postSave()`'s action-command array (`subType => 'other'`); added `case 'prefetch_result':` to `message()`'s switch and the new `_handlePrefetchResult()` handler. |
+| `core/class/siaDC09Cmd.class.php` | Added `case 'prefetchEvent':` to `execute()` and the new `_resolvePrefetchTarget()` helper; added `PREFETCH_CACHE_TTL` constant; rewrote `_resolveFrigateSnapshotUrl()` to read the `sia_prefetch_cache` cache instead of `info_detect_person`/`info_id`. |
+| `desktop/php/siaDC09.php` | Step 3: added a non-blocking help note instructing the installer to wire `prefetchEvent` into the mapped zone's immediate actions in the alarm plugin. |
+| `resources/siadc09d/frigate_prefetch.py` | New — `PrefetchResult` dataclass, `prefetch_person_event()` (bounded poll loop against Frigate's `GET /api/events`), promoting `scripts/frigate_latency_probe.py`'s validated HTTP/poll logic into production daemon code. |
+| `resources/siadc09d/daemon.py` | `OnMessageParams` gained `camera_eqlogic_id`/`camera_name`/`frigate_host`; `on_message()` gained a `prefetchEvent` branch (spawns a tracked `_run_prefetch()` task, before the `_EVENT_SIA_CODES` lookup); new `_run_prefetch()` method pushes the outcome via the existing `_send_callback()`. |
+| `tests/level1/test_frigate_prefetch_trigger.py` | New — 13 tests for `execute()`'s `prefetchEvent` case and `_resolvePrefetchTarget()`. |
+| `tests/level1/test_frigate_prefetch.py` | New — 5 tests for `frigate_prefetch.py`'s query params, poll/timeout behavior, and error handling. |
+| `tests/level1/test_frigate_snapshot_resolution.py` | `TestResolveFrigateSnapshotUrlReadsCorrectCommands`: replaced the `info_detect_person`/`info_id` lookup assertions with cache-read assertions (`sia_prefetch_cache`, `found`, `PREFETCH_CACHE_TTL`) plus a negative assertion forbidding either logicalId. |
+| `tests/level1/test_php_eqlogic_stub.py` | Added `test_prefetch_event_command_uses_other_subtype`; renamed `test_message_dispatches_all_five_types` → `test_message_dispatches_all_callback_types` (now 6 types); added 4 new tests for `_handlePrefetchResult()` (cache key, `setCache()` call, stored fields, unconditional-overwrite/no-`array_merge` guarantee). |
+| `tests/level1/test_wizard_php_structure.py` | Added `test_step3_prefetch_event_wiring_guidance_present`. |
+| `tests/level2/test_frigate_prefetch_dispatch.py` | New — 5 tests for `on_message()`'s `prefetchEvent` dispatch: fire-and-forget proof via an `asyncio.Event` gate, exact `_send_callback` shape on hit/miss (`found` strictly `int`), missing-params rejection, unknown-command path unaffected. |
+| `tests/fixtures/ipc_schema.py` | Added `prefetch_result` to `CALLBACK_TYPES`/`REQUIRED_FIELDS`; added `SAMPLE_PREFETCH_RESULT_HIT`/`SAMPLE_PREFETCH_RESULT_MISS`. |
+| `tests/level2_5/test_callback_schema.py` | Added the two new samples to `ALL_SAMPLES`; added 4 tests for the `prefetch_result` schema (required fields, `found` strictly `int`, miss still carries `event_id=""`, JSON round-trip). |
 
 ## Change Log
 
 | Date | Change |
 |------|--------|
 | 2026-09-24 | Story created from ADR-17 Amendment 3 (Option D), following a two-round party-mode architecture re-review (Winston/Amelia/John) triggered by two confirmed problems with story 14-1's Option A (`info_detect_person` staleness, `info_id` label-mismatch). Camera identity (Frigate-native slug + host:port) resolved via direct source investigation of the Frigate plugin's own code — confirmed no new siaDC09 config field is needed for either. |
+| 2026-09-24 | Tasks 1-5 implemented via TDD across PHP (command definition, trigger-side `execute()`, cache write/read) and the Python daemon (new `frigate_prefetch.py` module, `on_message()` wiring, `_send_callback()` push). Full regression (`git stash -u` diff against clean master): 0 regressions across `tests/level1/`+`tests/level2/`+`tests/level2_5/` (14 known pre-existing failures unchanged, +1 already-pre-existing-and-unrelated in level2_5), ~34 net new passing tests. Status stays `in-progress` — Task 6 (live validation on `test-jeedom.lehoux.net`) requires the real host and a real alarm-plugin zone with a configured trigger delay, not yet run. |

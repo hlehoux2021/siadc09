@@ -335,6 +335,29 @@ def test_step3_media_url_template_field_is_plain_text(php_page: str) -> None:
     assert 'type="password"' not in match.group(0)
 
 
+def test_step3_prefetch_event_wiring_guidance_present(php_page: str) -> None:
+    """
+    Story 14-2 (ADR-17 Amendment 3 / Option D): siaDC09 cannot register the
+    prefetchEvent command into the alarm plugin's zone action buckets
+    programmatically — the alarm plugin owns that wiring. Step 3 must carry a
+    non-blocking help note telling the installer to add it manually to each
+    mapped zone's immediate actions.
+
+    Expected result:
+    - Step 3 markup mentions the "Prefetch événement Frigate" command name
+    - the note explicitly says "immédiates", not "temporisées"
+    """
+    step3_start = php_page.index('id="siaDC09-step3"')
+    step3_end = php_page.index('id="siaDC09-step4"')
+    step3_markup = php_page[step3_start:step3_end]
+    # Assert: the command's display name is referenced so the installer can find it
+    assert "Prefetch événement Frigate" in step3_markup, (
+        "prefetchEvent wiring guidance not found in Step 3"
+    )
+    # Assert: guidance names the immediate-actions bucket, not the standard one
+    assert "immédiates" in step3_markup
+
+
 # ── Step 4: Notification command picker ─────────────────────────────────────
 
 

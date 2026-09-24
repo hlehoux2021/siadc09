@@ -204,6 +204,30 @@ def test_action_commands_use_message_subtype(postsave_body: str) -> None:
         )
 
 
+def test_prefetch_event_command_uses_other_subtype(postsave_body: str) -> None:
+    """
+    Story 14-2 (ADR-17 Amendment 3 / Option D): prefetchEvent is a new action
+    command, auto-created alongside burglarAlarm/fireAlarm/panicAlarm, wired
+    manually by the installer into the alarm plugin's immediate-actions
+    bucket — it never carries the 'message' subType those three use, since
+    it has no #zone# title contract of its own beyond zone resolution.
+
+    Expected result:
+    - 'prefetchEvent' is present in the $actionCmds array literal
+    - 'other' appears as a subType value in the same array literal
+    """
+    # Scope to the $actionCmds array literal only (declared before the foreach loop)
+    array_literal = postsave_body[: postsave_body.index("foreach ($actionCmds")]
+    # Assert: prefetchEvent logicalId is declared in postSave()'s action array
+    assert "'prefetchEvent'" in array_literal, (
+        "logicalId 'prefetchEvent' not found in postSave() — command definition missing"
+    )
+    # Assert: 'other' subtype is declared (prefetchEvent's own contract, not 'message')
+    assert "'other'" in array_literal, (
+        "subType 'other' not found in postSave()'s action command block"
+    )
+
+
 def test_numeric_info_commands_use_numeric_subtype(postsave_body: str) -> None:
     """
     supervision_state and event_state use 'numeric' subType so Jeedom
@@ -556,6 +580,11 @@ def handle_info_update_body(php_source: str) -> str:
 
 
 @pytest.fixture(scope="module")
+def handle_prefetch_result_body(php_source: str) -> str:
+    return _extract_method_body(php_source, "_handlePrefetchResult")
+
+
+@pytest.fixture(scope="module")
 def callback_php_source() -> str:
     return CALLBACK_PHP_FILE.read_text(encoding="utf-8")
 
@@ -620,13 +649,15 @@ def test_message_method_exists(php_source: str) -> None:
     )
 
 
-def test_message_dispatches_all_five_types(message_body: str) -> None:
+def test_message_dispatches_all_callback_types(message_body: str) -> None:
     """
-    message() must handle all 5 IPC callback types as switch cases. Missing
-    a case means that callback type is silently dropped.
+    message() must handle every IPC callback type as a switch case (6 as of
+    story 14-2's prefetch_result addition). Missing a case means that callback
+    type is silently dropped.
 
     Expected result:
-    - All 5 callback type strings appear as case labels in message() body
+    - Every callback type string in CALLBACK_TYPES appears as a case label in
+      message() body
     """
     for cb_type in CALLBACK_TYPES:
         # Assert: each callback type appears as a case label
@@ -693,6 +724,75 @@ def test_handle_info_update_maps_all_four_info_commands(
         assert f"'{logical_id}'" in handle_info_update_body, (
             f"_handleInfoUpdate() missing mapping for '{logical_id}'"
         )
+
+
+# ── Story 14-2 — _handlePrefetchResult() ────────────────────────────────────
+
+
+def test_message_dispatches_prefetch_result_to_handler(message_body: str) -> None:
+    """
+    Expected result:
+    - the 'prefetch_result' case delegates to _handlePrefetchResult(), matching
+      the existing case '_handleInfoUpdate()' delegation pattern
+    """
+    # Assert: dedicated handler is called, no inline logic in the switch
+    assert "_handlePrefetchResult(" in message_body
+
+
+def test_handle_prefetch_result_keys_cache_by_camera_eqlogic_id(
+    handle_prefetch_result_body: str,
+) -> None:
+    """
+    Expected result:
+    - camera_eqlogic_id is read from the incoming message and used as the cache key
+    """
+    # Assert: camera identity is the cache key
+    assert "camera_eqlogic_id" in handle_prefetch_result_body
+
+
+def test_handle_prefetch_result_writes_via_set_cache(
+    handle_prefetch_result_body: str,
+) -> None:
+    """
+    Expected result:
+    - the outcome is persisted via $eqLogic->setCache('sia_prefetch_cache', ...)
+    """
+    # Assert: uses the standard Jeedom ad hoc cache, same mechanism as sia_open_alarms
+    assert "setCache('sia_prefetch_cache'" in handle_prefetch_result_body
+
+
+def test_handle_prefetch_result_stores_found_event_id_and_timestamp(
+    handle_prefetch_result_body: str,
+) -> None:
+    """
+    Expected result:
+    - the cache entry stores 'found', 'event_id', and a timestamp ('ts')
+    """
+    # Assert: all three fields siaDC09Cmd::_resolveFrigateSnapshotUrl() reads are written
+    assert "'found'" in handle_prefetch_result_body
+    assert "'event_id'" in handle_prefetch_result_body
+    assert "'ts'" in handle_prefetch_result_body
+
+
+def test_handle_prefetch_result_never_merges_stale_entries(
+    handle_prefetch_result_body: str,
+) -> None:
+    """
+    AC5: every prefetch outcome — including a miss — must unconditionally overwrite
+    the per-camera cache entry, never merge with or preserve a previous entry's
+    'found'/'event_id' values (that would let a stale hit survive a later miss on the
+    same camera).
+
+    Expected result:
+    - the assignment writes a fresh array literal at $cache[<key>], not a partial
+      merge into an existing entry
+    """
+    # Assert: a plain assignment (fresh entry), not array_merge or a conditional keep
+    assert re.search(r"\$cache\[[^\]]+\]\s*=\s*\[", handle_prefetch_result_body), (
+        "_handlePrefetchResult() must overwrite the cache entry with a fresh array, "
+        "never merge with a previous entry"
+    )
+    assert "array_merge" not in handle_prefetch_result_body
 
 
 # ── Story 6.3 — error_update uses plugin-level config ───────────────────────

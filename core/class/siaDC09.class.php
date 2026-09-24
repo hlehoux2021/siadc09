@@ -495,6 +495,10 @@ class siaDC09 extends eqLogic {
                 self::_handleInfoUpdate($eqLogic, $message);
                 break;
 
+            case 'prefetch_result':
+                self::_handlePrefetchResult($eqLogic, $message);
+                break;
+
             case 'message_center':
                 // No null guard — daemon is sole caller, always sends well-formed payloads
                 message::add(
@@ -579,6 +583,35 @@ class siaDC09 extends eqLogic {
                 $eqLogic->checkAndUpdateCmd($logicalId, $data[$key]);
             }
         }
+    }
+
+    /**
+     * ADR-17 Amendment 3 (Option D): stores the daemon's Frigate REST prefetch outcome —
+     * hit or miss — into a per-camera cache entry, keyed by camera_eqlogic_id, that
+     * burglarAlarm's execute() reads synchronously and locally (siaDC09Cmd::
+     * _resolveFrigateSnapshotUrl()). Unconditionally overwrites the existing entry for
+     * that camera — including on a miss — so a later burglarAlarm never reuses a stale
+     * hit from an earlier, unrelated trigger on the same camera (AC5).
+     */
+    private static function _handlePrefetchResult($eqLogic, array $data): void {
+        $cameraEqLogicId = $data['camera_eqlogic_id'] ?? null;
+        if ($cameraEqLogicId === null) {
+            return;
+        }
+
+        $raw = $eqLogic->getCache('sia_prefetch_cache', []);
+        $cache = is_string($raw) ? json_decode($raw, true) : $raw;
+        if (!is_array($cache)) {
+            $cache = [];
+        }
+
+        $cache[(int) $cameraEqLogicId] = [
+            'found'    => !empty($data['found']),
+            'event_id' => $data['event_id'] ?? null,
+            'ts'       => time(),
+        ];
+
+        $eqLogic->setCache('sia_prefetch_cache', $cache);
     }
 
     public function toHtml($_version = 'dashboard') {

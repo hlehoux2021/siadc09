@@ -146,10 +146,11 @@ class TestResolveFrigateSnapshotUrlExists:
 
 
 class TestResolveFrigateSnapshotUrlReadsCorrectCommands:
-    """The resolver reads info_detect_person and info_id by logicalId, via execCmd(), then
-    builds media_url from the configured template — never reads info_url_snapshot (Task 6,
-    ADR-17 amendment 2026-09-23: that command is always a Jeedom-local cached-copy path,
-    unusable by an external CSR)."""
+    """Story 14-2 (ADR-17 Amendment 3 / Option D): the resolver reads the daemon's Frigate
+    REST prefetch outcome from a Jeedom-side cache (sia_prefetch_cache), keyed by
+    camera_eqlogic_id — never info_detect_person/info_id/info_label/info_url_snapshot again,
+    since those were the exact data source that made Option A untenable (staleness, no label
+    filter). Builds media_url from the configured template exactly as before (Task 6, unchanged)."""
 
     def test_reads_frigate_camera_eqlogic_id(self, resolve_snapshot_body: str) -> None:
         """
@@ -159,28 +160,44 @@ class TestResolveFrigateSnapshotUrlReadsCorrectCommands:
         # Assert: new simplified schema field is read
         assert "frigate_camera_eqlogic_id" in resolve_snapshot_body
 
-    def test_looks_up_info_detect_person_by_logical_id(self, resolve_snapshot_body: str) -> None:
+    def test_reads_prefetch_cache_keyed_by_eqlogic_id(self, resolve_snapshot_body: str) -> None:
         """
         Expected result:
-        - cmd::byEqLogicIdAndLogicalId(..., 'info_detect_person') is called — scoped to the
-          mapped equipment (cmd::byLogicalId has no eqLogicId parameter in Jeedom core and
-          returns an array, not a single cmd; it must never be used here)
+        - the eqLogic's sia_prefetch_cache is read via getCache()
+        - the cache entry is indexed by the camera's eqLogic id
         """
-        # Assert: detection command resolved by logicalId, scoped to one equipment
-        assert re.search(r"byEqLogicIdAndLogicalId\([^;]*['\"]info_detect_person['\"]", resolve_snapshot_body)
+        # Assert: reads the Jeedom-side cache written by siaDC09::_handlePrefetchResult()
+        assert "getCache('sia_prefetch_cache'" in resolve_snapshot_body
+        # Assert: entry lookup is keyed by the camera eqLogic id, not by zone name or anything else
+        assert re.search(r"\$cache\[\s*\(int\)\s*\$eqLogicId\s*\]", resolve_snapshot_body)
 
-    def test_looks_up_info_id_by_logical_id(self, resolve_snapshot_body: str) -> None:
+    def test_checks_found_flag_and_ttl(self, resolve_snapshot_body: str) -> None:
         """
-        Task 6: the Frigate event id (needed to build media_url) is read from info_id — the
-        same per-camera equipment, populated by the same majEventsCmds() sweep as
-        info_detect_person (confirmed in ADR-17 amendment).
+        AC6: only a confirmed, non-expired hit resolves to a URL — a miss, a missing entry,
+        or an expired entry must all resolve to null (no third fallback tier).
 
         Expected result:
-        - cmd::byEqLogicIdAndLogicalId(..., 'info_id') is called — scoped to the mapped
-          equipment
+        - the entry's 'found' key gates the result
+        - the entry's age is compared against PREFETCH_CACHE_TTL
         """
-        # Assert: event id resolved by logicalId, scoped to one equipment
-        assert re.search(r"byEqLogicIdAndLogicalId\([^;]*['\"]info_id['\"]", resolve_snapshot_body)
+        # Assert: found flag is checked before trusting the entry
+        assert "'found'" in resolve_snapshot_body
+        # Assert: TTL expiry is enforced
+        assert "PREFETCH_CACHE_TTL" in resolve_snapshot_body
+
+    def test_never_reads_info_detect_person_or_info_id(self, resolve_snapshot_body: str) -> None:
+        """
+        ADR-17 Amendment 3: info_detect_person (staleness) and info_id (no label filter,
+        can be hijacked by any tracked object class) are the two confirmed problems that made
+        Option A untenable — the resolver must never read either again.
+
+        Expected result:
+        - info_detect_person is never referenced in the resolver
+        - info_id is never referenced in the resolver
+        """
+        # Assert: the superseded, problem-carrying data source is gone entirely
+        assert "info_detect_person" not in resolve_snapshot_body
+        assert "info_id" not in resolve_snapshot_body
 
     def test_never_reads_info_url_snapshot(self, resolve_snapshot_body: str) -> None:
         """
@@ -232,20 +249,6 @@ class TestResolveFrigateSnapshotUrlReadsCorrectCommands:
         """
         # Assert: clip is out of scope per ADR-17
         assert "info_url_clip" not in resolve_snapshot_body
-
-    def test_uses_exec_cmd_never_get_value(self, resolve_snapshot_body: str) -> None:
-        """
-        Per project memory jeedom-info-cmd-execcmd-vs-getvalue: getValue() is frozen forever
-        for non-historized info cmds; execCmd() is the live accessor.
-
-        Expected result:
-        - execCmd() is used to read the live values
-        - getValue() is never used in this method
-        """
-        # Assert: live read via execCmd()
-        assert "execCmd()" in resolve_snapshot_body
-        # Assert: getValue() never used here — would silently freeze the feature
-        assert "getValue()" not in resolve_snapshot_body
 
 
 class TestBuildFrigateMediaUrl:

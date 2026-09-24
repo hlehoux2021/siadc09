@@ -317,6 +317,9 @@ $scenarios = scenario::all();
 									<p class="text-muted">
 										<i class="fas fa-info-circle"></i> {{Le N° est le numéro de zone transmis à la centrale : communiquez-lui cette correspondance N° / zone.}}
 									</p>
+									<p class="text-muted">
+										<i class="fas fa-info-circle"></i> {{Pour chaque zone reliée à une caméra Frigate ci-dessus : dans le plugin Alarme, ajoutez la commande "Prefetch événement Frigate" de cet équipement aux actions immédiates de la zone correspondante — pas aux actions temporisées. C'est ce qui permet à siaDC09 d'interroger Frigate dès le déclenchement, avant l'envoi de la trame BA.}}
+									</p>
 									<div class="form-group" style="margin-top:15px;">
 										<div class="col-sm-12" style="text-align:right;">
 											<a class="btn btn-success" id="bt_step3Next"><i class="fas fa-arrow-right"></i> {{Suivant}}</a>

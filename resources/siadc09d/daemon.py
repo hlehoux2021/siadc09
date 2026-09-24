@@ -59,6 +59,7 @@ from .messages import (
     SM1_TCP_RECONNECTING_FR,
     SM1_NO_NETWORK_FR,
 )
+from .frigate_prefetch import prefetch_person_event
 from .ring_buffer import RingBuffer, make_message_entry
 from .sia_protocol import (
     ENCRYPTED_MARKER,
@@ -232,10 +233,16 @@ class OnMessageParams(TypedDict, total=False):
     All keys are optional — zone, zone_number and media_url may be absent for simple
     alarm commands. zone is the label (#zone# tag), zone_number the order number PHP
     resolved against sia_zone_mappings.
+
+    camera_eqlogic_id/camera_name/frigate_host (Story 14-2, ADR-17 Amendment 3): present
+    only for the "prefetchEvent" command, sent by siaDC09Cmd::_resolvePrefetchTarget().
     """
     zone: str
     zone_number: int | None
     media_url: str
+    camera_eqlogic_id: int
+    camera_name: str
+    frigate_host: str
 
 
 class InfoCommandsPayload(TypedDict, total=False):
@@ -1999,16 +2006,38 @@ class SIADaemon(BaseDaemon):
         the actual send happens asynchronously in _queue_consumer() → _send_with_retry().
 
         Args:
-            cmd: Command name from PHP — "burglarAlarm", "fireAlarm", or "panicAlarm"
+            cmd: Command name from PHP — "burglarAlarm", "fireAlarm", "panicAlarm", or
+                "prefetchEvent" (Story 14-2, ADR-17 Amendment 3)
             params: PHP payload dict with optional keys:
                 - "zone": str — zone name from #zone# tag (None if absent)
                 - "zone_number": int — zone order number PHP resolved against the zone
                   table (None when the label matched no entry: frame sent without zone)
                 - "media_url": str — camera/media URL (None if absent)
+                - "camera_eqlogic_id"/"camera_name"/"frigate_host" — prefetchEvent only
 
         Reference: daemon-design.md Component 1 — Task 1.6 on_message()
         Reference: daemon-design.md — "Forbidden char policy" for media_url
         """
+        if cmd == "prefetchEvent":
+            # ADR-17 Amendment 3 (Option D): fire-and-forget dispatch to a tracked
+            # background task — on_message() itself never awaits the Frigate REST
+            # call, matching the fire-and-forget contract PHP's execute() relies on.
+            camera_eqlogic_id = params.get("camera_eqlogic_id")
+            camera_name = params.get("camera_name")
+            frigate_host = params.get("frigate_host")
+            if camera_eqlogic_id is None or not camera_name or not frigate_host:
+                self._logger.warning(
+                    "on_message: prefetchEvent missing required params — ignored "
+                    f"(camera_eqlogic_id={camera_eqlogic_id!r}, camera_name={camera_name!r}, "
+                    f"frigate_host={frigate_host!r})"
+                )
+                return
+            self._track_task(
+                self._run_prefetch(int(camera_eqlogic_id), camera_name, frigate_host),
+                name=f"frigate-prefetch-{camera_eqlogic_id}",
+            )
+            return
+
         sia_code: SiaEventCode | None = _EVENT_SIA_CODES.get(cmd)
         if sia_code is None:
             self._logger.warning(f"on_message: unknown alarm command '{cmd}' — ignored")
@@ -2035,6 +2064,34 @@ class SIADaemon(BaseDaemon):
             f"zone_number={zone_number}, media_url={'<set>' if media_url else None}"
         )
         await self._enqueue_event(sia_code, zone, media_url, zone_number=zone_number)
+
+    # ===== STORY 14-2 (ADR-17 Amendment 3): FRIGATE EVENT PREFETCH =====
+
+    async def _run_prefetch(self, camera_eqlogic_id: int, camera_name: str, frigate_host: str) -> None:
+        """Query Frigate for a confirmed person event, push the outcome back to PHP.
+
+        Runs as a tracked background task spawned by on_message()'s "prefetchEvent"
+        branch — entirely inside the alarm zone's immediate-action window. Always sends
+        a result, including a miss, so PHP's per-camera cache never keeps a stale hit
+        from an earlier, unrelated trigger on the same camera (AC5).
+
+        Args:
+            camera_eqlogic_id: siaDC09-side cache key (the camera's Jeedom eqLogic id)
+            camera_name: Frigate-native camera name (getConfiguration('name') on the
+                camera eqLogic)
+            frigate_host: Frigate server host:port, e.g. "192.168.100.18:5000"
+
+        Reference: ADR-17, Amendment 3 — _bmad-output/planning-artifacts/architecture.md
+        Reference: 14-2 Task 4.3
+        """
+        base_url = f"http://{frigate_host}"
+        result = await prefetch_person_event(base_url, camera_name)
+        await self._send_callback({
+            "type": "prefetch_result",
+            "camera_eqlogic_id": camera_eqlogic_id,
+            "found": 1 if result.found else 0,
+            "event_id": result.event_id or "",
+        })
 
     # ===== TASK 5 (Story 5-3): on_start — DAEMON STARTUP =====
 

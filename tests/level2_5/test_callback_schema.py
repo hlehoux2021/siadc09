@@ -30,6 +30,8 @@ from fixtures.ipc_schema import (
     SAMPLE_MESSAGE_TRACE,
     SAMPLE_MESSAGE_TRACE_ALARM,
     SAMPLE_NOTIFY,
+    SAMPLE_PREFETCH_RESULT_HIT,
+    SAMPLE_PREFETCH_RESULT_MISS,
 )
 
 ALL_SAMPLES: list[dict] = [
@@ -42,6 +44,8 @@ ALL_SAMPLES: list[dict] = [
     SAMPLE_ERROR_UPDATE_RESOLVE,
     SAMPLE_MESSAGE_TRACE,
     SAMPLE_MESSAGE_TRACE_ALARM,
+    SAMPLE_PREFETCH_RESULT_HIT,
+    SAMPLE_PREFETCH_RESULT_MISS,
 ]
 
 
@@ -480,3 +484,65 @@ def test_info_update_zero_values_not_dropped() -> None:
     assert payload["supervision_state"] is not None, (
         "Zero must not be None — PHP isset(0) is true, empty(0) would fail"
     )
+
+
+# ── prefetch_result schema (Story 14-2, ADR-17 Amendment 3) ────────────────────
+
+
+def test_prefetch_result_required_fields() -> None:
+    """
+    prefetch_result requires type, camera_eqlogic_id, found, and event_id — PHP's
+    _handlePrefetchResult() must be able to key its per-camera cache entry and
+    unconditionally overwrite it (AC5) on every message, hit or miss.
+
+    Expected result:
+    - All 4 required fields present in both the hit and miss samples
+    """
+    for payload in (SAMPLE_PREFETCH_RESULT_HIT, SAMPLE_PREFETCH_RESULT_MISS):
+        for field in REQUIRED_FIELDS["prefetch_result"]:
+            # Assert: all required fields present
+            assert field in payload, f"Missing required field '{field}' in {payload}"
+
+
+def test_prefetch_result_found_is_always_int_never_bool() -> None:
+    """
+    _send_callback() (daemon.py) drops any payload containing a Python bool value —
+    "found" must always be sent as int 0/1, on both a hit and a miss.
+
+    Expected result:
+    - found is exactly int, never bool, in both samples
+    """
+    for payload in (SAMPLE_PREFETCH_RESULT_HIT, SAMPLE_PREFETCH_RESULT_MISS):
+        # Assert: strict int check — `isinstance(True, int)` is True in Python, so this
+        # must reject bool explicitly, not just check isinstance(..., int)
+        assert type(payload["found"]) is int, f"found must be int, not bool: {payload}"
+    assert SAMPLE_PREFETCH_RESULT_HIT["found"] == 1
+    assert SAMPLE_PREFETCH_RESULT_MISS["found"] == 0
+
+
+def test_prefetch_result_miss_still_carries_event_id_key() -> None:
+    """
+    AC5: a miss must still be an explicit, present message (event_id="") — never an
+    omitted key — so PHP always overwrites the per-camera cache entry and never keeps
+    a stale hit from an earlier, unrelated trigger on the same camera.
+
+    Expected result:
+    - SAMPLE_PREFETCH_RESULT_MISS has event_id present as an empty string, not omitted
+    """
+    # Assert: event_id key is present (not omitted) even on a miss
+    assert "event_id" in SAMPLE_PREFETCH_RESULT_MISS
+    # Assert: empty string, the daemon's explicit "no event" sentinel
+    assert SAMPLE_PREFETCH_RESULT_MISS["event_id"] == ""
+
+
+def test_prefetch_result_survives_json_roundtrip() -> None:
+    """
+    Expected result:
+    - both samples survive JSON round-trip without data loss or type corruption
+    """
+    for payload in (SAMPLE_PREFETCH_RESULT_HIT, SAMPLE_PREFETCH_RESULT_MISS):
+        roundtripped = json.loads(json.dumps(payload))
+        # Assert: exact equality after round-trip
+        assert roundtripped == payload
+        # Assert: found survives as int, not coerced to bool/string
+        assert type(roundtripped["found"]) is int
