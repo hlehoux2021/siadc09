@@ -29,7 +29,7 @@
 # - SM typically creates next story ONLY after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then Dev runs code-review (fresh context, ideally different LLM)
 
-last_updated: "2026-09-22" # Story 14-1 Tasks 1-3 implemented → ready-for-dev → in-progress; Task 4 (live host validation) pending
+last_updated: "2026-09-24" # Story 14-2 Tasks 1-6 implemented + live-validated end to end → in-progress → review
 generated: "2026-05-04"
 project: "my-project"
 project_key: "NOKEY"
