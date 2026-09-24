@@ -117,15 +117,19 @@ class TestPrefetchEventCase:
     def test_send_is_conditional_on_target_not_null(self, prefetch_case_body: str) -> None:
         """
         A camera with no Frigate config/host resolvable must never reach sendToDaemon() —
-        AC2's "logs a warning and returns — no send" contract.
+        AC2's "logs a warning and returns — no send" contract. Implemented as an early
+        `break` on a null target (with a diagnostic warning log), so sendToDaemon() is only
+        ever reached in the fall-through path once $target is known non-null.
 
         Expected result:
-        - sendToDaemon() call site is guarded by a null check on the resolved target
+        - a null-target check exists, followed by a `break` before sendToDaemon() is called
+        - sendToDaemon() appears textually after that guard
         """
-        # Assert: sendToDaemon is gated by a non-null check (never unconditional)
-        assert re.search(r"if\s*\(\s*\$target\s*!==\s*null\s*\)", prefetch_case_body), (
-            "sendToDaemon() call must be guarded by a null check on the resolved target"
-        )
+        # Assert: a null-target guard exists and short-circuits via break
+        guard = re.search(r"if\s*\(\s*\$target\s*===\s*null\s*\)\s*\{[^}]*break;", prefetch_case_body)
+        assert guard, "sendToDaemon() call must be guarded by an early-return null check on the resolved target"
+        # Assert: sendToDaemon is only reached after the guard, never before it
+        assert prefetch_case_body.index("siaDC09::sendToDaemon(") > guard.end()
 
     def test_sends_cmd_and_camera_fields_to_daemon(self, prefetch_case_body: str) -> None:
         """

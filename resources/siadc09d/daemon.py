@@ -2022,6 +2022,7 @@ class SIADaemon(BaseDaemon):
             # ADR-17 Amendment 3 (Option D): fire-and-forget dispatch to a tracked
             # background task — on_message() itself never awaits the Frigate REST
             # call, matching the fire-and-forget contract PHP's execute() relies on.
+            self._logger.debug(f"on_message: prefetchEvent received, raw params={params!r}")
             camera_eqlogic_id = params.get("camera_eqlogic_id")
             camera_name = params.get("camera_name")
             frigate_host = params.get("frigate_host")
@@ -2032,6 +2033,10 @@ class SIADaemon(BaseDaemon):
                     f"frigate_host={frigate_host!r})"
                 )
                 return
+            self._logger.debug(
+                f"on_message: prefetchEvent spawning tracked task for camera_eqlogic_id="
+                f"{camera_eqlogic_id}, camera_name={camera_name!r}, frigate_host={frigate_host!r}"
+            )
             self._track_task(
                 self._run_prefetch(int(camera_eqlogic_id), camera_name, frigate_host),
                 name=f"frigate-prefetch-{camera_eqlogic_id}",
@@ -2085,7 +2090,12 @@ class SIADaemon(BaseDaemon):
         Reference: 14-2 Task 4.3
         """
         base_url = f"http://{frigate_host}"
+        self._logger.debug(
+            f"_run_prefetch: querying {base_url} camera={camera_name!r} "
+            f"(camera_eqlogic_id={camera_eqlogic_id})"
+        )
         result = await prefetch_person_event(base_url, camera_name)
+        self._logger.debug(f"_run_prefetch: result={result!r}")
         await self._send_callback({
             "type": "prefetch_result",
             "camera_eqlogic_id": camera_eqlogic_id,

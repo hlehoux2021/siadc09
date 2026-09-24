@@ -16,12 +16,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Final
+
+_logger = logging.getLogger(__name__)
 
 # Grace window before "now" for the `after=` filter — catches a Frigate event that started
 # slightly before the alarm zone's real sensor tripped.
@@ -91,7 +94,9 @@ def _query_latest_person_event(base_url: str, camera: str, after_ts: int, timeou
         "sort": "desc",
         "limit": 1,
     })
-    body = _get_json(f"{base_url}/api/events?{params}", timeout)
+    url = f"{base_url}/api/events?{params}"
+    body = _get_json(url, timeout)
+    _logger.debug(f"_query_latest_person_event: GET {url} -> {body!r}")
     if not isinstance(body, list) or not body:
         return None
     first = body[0]
@@ -129,6 +134,10 @@ async def prefetch_person_event(
     """
     after_ts = int(time.time() - after_buffer_s)
     deadline = time.monotonic() + max_wait_s
+    _logger.debug(
+        f"prefetch_person_event: starting base_url={base_url!r} camera={camera!r} "
+        f"after_ts={after_ts} max_wait_s={max_wait_s} poll_interval_s={poll_interval_s}"
+    )
     while True:
         try:
             event_id = await asyncio.wait_for(
@@ -136,9 +145,12 @@ async def prefetch_person_event(
                 timeout=http_timeout_s + PREFETCH_WAIT_FOR_SLACK_S,
             )
         except (asyncio.TimeoutError, TimeoutError):
+            _logger.debug("prefetch_person_event: poll attempt timed out")
             event_id = None
         if event_id:
+            _logger.debug(f"prefetch_person_event: confirmed event_id={event_id!r}")
             return PrefetchResult(found=True, event_id=event_id)
         if time.monotonic() >= deadline:
+            _logger.debug("prefetch_person_event: max_wait_s exhausted, no matching event — miss")
             return PrefetchResult(found=False, event_id=None)
         await asyncio.sleep(poll_interval_s)

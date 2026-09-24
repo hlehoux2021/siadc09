@@ -346,6 +346,10 @@ def test_step3_prefetch_event_wiring_guidance_present(php_page: str) -> None:
     Expected result:
     - Step 3 markup mentions the "Prefetch événement Frigate" command name
     - the note explicitly says "immédiates", not "temporisées"
+    - the note tells the installer to set the Titre field to #zone# — confirmed as a real
+      requirement on the live host (2026-09-24): prefetchEvent's subType is 'message', and
+      the alarm plugin only substitutes #zone# into a 'message'-subtype command's Titre
+      field, never automatically
     """
     step3_start = php_page.index('id="siaDC09-step3"')
     step3_end = php_page.index('id="siaDC09-step4"')
@@ -356,6 +360,10 @@ def test_step3_prefetch_event_wiring_guidance_present(php_page: str) -> None:
     )
     # Assert: guidance names the immediate-actions bucket, not the standard one
     assert "immédiates" in step3_markup
+    # Assert: guidance tells the installer to set Titre to #zone# — without this, the zone
+    # never reaches execute() and the prefetch can never resolve a camera
+    assert "#zone#" in step3_markup
+    assert "Titre" in step3_markup
 
 
 # ── Step 4: Notification command picker ─────────────────────────────────────

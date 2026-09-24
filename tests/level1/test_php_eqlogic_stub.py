@@ -204,17 +204,23 @@ def test_action_commands_use_message_subtype(postsave_body: str) -> None:
         )
 
 
-def test_prefetch_event_command_uses_other_subtype(postsave_body: str) -> None:
+def test_prefetch_event_command_uses_message_subtype(postsave_body: str) -> None:
     """
     Story 14-2 (ADR-17 Amendment 3 / Option D): prefetchEvent is a new action
     command, auto-created alongside burglarAlarm/fireAlarm/panicAlarm, wired
     manually by the installer into the alarm plugin's immediate-actions
-    bucket — it never carries the 'message' subType those three use, since
-    it has no #zone# title contract of its own beyond zone resolution.
+    bucket. It MUST use subType 'message', not 'other': the alarm plugin only
+    exposes a *Titre* field (where #zone# gets substituted into
+    $_options['title']) for 'message'-subtype action commands
+    (docs/design/php-core-design.md:1264) — 'other' has no options field at
+    all, so the zone would never reach execute(). Confirmed as a real bug on
+    the live host (2026-09-24): prefetchEvent fired but $_options['title']
+    was always empty, so no camera could ever be resolved.
 
     Expected result:
     - 'prefetchEvent' is present in the $actionCmds array literal
-    - 'other' appears as a subType value in the same array literal
+    - it is declared with subType 'message', immediately followed by 'message'
+      as its own subType value (not merely present elsewhere in the array)
     """
     # Scope to the $actionCmds array literal only (declared before the foreach loop)
     array_literal = postsave_body[: postsave_body.index("foreach ($actionCmds")]
@@ -222,9 +228,14 @@ def test_prefetch_event_command_uses_other_subtype(postsave_body: str) -> None:
     assert "'prefetchEvent'" in array_literal, (
         "logicalId 'prefetchEvent' not found in postSave() — command definition missing"
     )
-    # Assert: 'other' subtype is declared (prefetchEvent's own contract, not 'message')
-    assert "'other'" in array_literal, (
-        "subType 'other' not found in postSave()'s action command block"
+    # Assert: prefetchEvent's own entry declares subType 'message' (not 'other') —
+    # scoped to the single-line entry so this doesn't just match burglarAlarm's own
+    # 'message' subType elsewhere in the same array literal.
+    prefetch_entry = re.search(r"'prefetchEvent'\s*=>\s*\[[^\]]*\]", array_literal)
+    assert prefetch_entry, "prefetchEvent entry not found as a single-line array literal"
+    assert "'subType' => 'message'" in prefetch_entry.group(0), (
+        "prefetchEvent must use subType 'message' — 'other' has no *Titre* field in the "
+        "alarm plugin's action UI, so #zone# could never reach execute()"
     )
 
 

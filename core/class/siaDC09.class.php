@@ -594,8 +594,10 @@ class siaDC09 extends eqLogic {
      * hit from an earlier, unrelated trigger on the same camera (AC5).
      */
     private static function _handlePrefetchResult($eqLogic, array $data): void {
+        log::add(__CLASS__, 'debug', '_handlePrefetchResult: reçu ' . json_encode($data));
         $cameraEqLogicId = $data['camera_eqlogic_id'] ?? null;
         if ($cameraEqLogicId === null) {
+            log::add(__CLASS__, 'warning', '_handlePrefetchResult: camera_eqlogic_id absent — message ignoré');
             return;
         }
 
@@ -610,6 +612,8 @@ class siaDC09 extends eqLogic {
             'event_id' => $data['event_id'] ?? null,
             'ts'       => time(),
         ];
+        log::add(__CLASS__, 'debug', '_handlePrefetchResult: sia_prefetch_cache mis à jour pour eqLogicId='
+            . $cameraEqLogicId . ' -> ' . json_encode($cache[(int) $cameraEqLogicId]));
 
         $eqLogic->setCache('sia_prefetch_cache', $cache);
     }
@@ -684,7 +688,11 @@ class siaDC09 extends eqLogic {
             // ADR-17 Amendment 3 (Option D): wired manually by the installer into the alarm
             // plugin's zone IMMEDIATE-actions bucket (not standard/after-delay) — fires as soon
             // as the sensor triggers, well before the BA's own trigger-delay actions fire.
-            'prefetchEvent' => ['name' => __('Prefetch événement Frigate', __FILE__), 'subType' => 'other'],
+            // subType MUST be 'message', not 'other': the alarm plugin only exposes a *Titre*
+            // field (where #zone# gets substituted into $_options['title']) for 'message'-subtype
+            // action commands (docs/design/php-core-design.md:1264) — 'other' has no options
+            // field at all, so the zone would never reach execute().
+            'prefetchEvent' => ['name' => __('Prefetch événement Frigate', __FILE__), 'subType' => 'message'],
         ];
         foreach ($actionCmds as $logicalId => $spec) {
             $cmd = $this->getCmd('action', $logicalId);

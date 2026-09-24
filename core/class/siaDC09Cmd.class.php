@@ -41,17 +41,35 @@ class siaDC09Cmd extends cmd {
                 // burglarAlarm's own standard-action send. Fire-and-forget: no response is
                 // awaited (impossible on the existing control socket — jeedomdaemon's Listener
                 // closes the connection before invoking on_message()).
+                log::add('siaDC09', 'debug', 'prefetchEvent: execute() invoked, raw title='
+                    . json_encode($_options['title'] ?? null));
                 $zone = trim($_options['title'] ?? '');
-                $zoneEntry = $this->_findZoneEntry($zone, $this->_getZoneMapping()) ?? [];
-                $target = $this->_resolvePrefetchTarget($zoneEntry);
-                if ($target !== null) {
-                    siaDC09::sendToDaemon([
-                        'cmd'               => 'prefetchEvent',
-                        'camera_eqlogic_id' => $target['camera_eqlogic_id'],
-                        'camera_name'       => $target['camera_name'],
-                        'frigate_host'      => $target['frigate_host'],
-                    ]);
+                if ($zone === '') {
+                    log::add('siaDC09', 'warning', 'prefetchEvent déclenché sans zone — '
+                        . 'le champ Titre de cette action doit contenir #zone# (voir le guide de '
+                        . 'l\'assistant, étape 3)');
+                    break;
                 }
+                $zoneMapping = $this->_getZoneMapping();
+                log::add('siaDC09', 'debug', 'prefetchEvent: zone=' . json_encode($zone)
+                    . ' zoneMapping=' . json_encode($zoneMapping));
+                $zoneEntry = $this->_findZoneEntry($zone, $zoneMapping) ?? [];
+                log::add('siaDC09', 'debug', 'prefetchEvent: resolved zoneEntry='
+                    . json_encode($zoneEntry));
+                $target = $this->_resolvePrefetchTarget($zoneEntry);
+                if ($target === null) {
+                    log::add('siaDC09', 'warning', 'prefetchEvent : impossible de résoudre la '
+                        . 'caméra Frigate pour la zone "' . $zone . '" — zone non mappée à une '
+                        . 'caméra, caméra supprimée, ou configuration Frigate (URL/port) absente');
+                    break;
+                }
+                log::add('siaDC09', 'debug', 'prefetchEvent: resolved target=' . json_encode($target));
+                siaDC09::sendToDaemon([
+                    'cmd'               => 'prefetchEvent',
+                    'camera_eqlogic_id' => $target['camera_eqlogic_id'],
+                    'camera_name'       => $target['camera_name'],
+                    'frigate_host'      => $target['frigate_host'],
+                ]);
                 break;
 
             case 'burglarAlarm':
@@ -161,19 +179,33 @@ class siaDC09Cmd extends cmd {
         try {
             $eqLogicId = $zoneEntry['frigate_camera_eqlogic_id'] ?? null;
             if (empty($eqLogicId)) {
+                log::add('siaDC09', 'debug',
+                    '_resolvePrefetchTarget: frigate_camera_eqlogic_id absent de zoneEntry');
                 return null;
             }
             $cameraEqLogic = eqLogic::byId((int) $eqLogicId);
             if (!is_object($cameraEqLogic)) {
+                log::add('siaDC09', 'debug',
+                    "_resolvePrefetchTarget: eqLogic::byId($eqLogicId) introuvable");
                 return null;
             }
             $cameraName = $cameraEqLogic->getConfiguration('name', '');
+            log::add('siaDC09', 'debug',
+                "_resolvePrefetchTarget: eqLogicId=$eqLogicId cameraName=" . json_encode($cameraName));
             if (!is_string($cameraName) || $cameraName === '') {
+                log::add('siaDC09', 'debug',
+                    "_resolvePrefetchTarget: getConfiguration('name') vide pour l'eqLogic $eqLogicId "
+                    . '— l\'équipement caméra a-t-il bien été créé par le plugin Frigate ?');
                 return null;
             }
             $frigateUrl = config::byKey('URL', 'frigate', '');
             $frigatePort = config::byKey('port', 'frigate', '');
+            log::add('siaDC09', 'debug',
+                "_resolvePrefetchTarget: config::byKey('URL','frigate')=" . json_encode($frigateUrl)
+                . " config::byKey('port','frigate')=" . json_encode($frigatePort));
             if (!is_string($frigateUrl) || $frigateUrl === '' || (string) $frigatePort === '') {
+                log::add('siaDC09', 'debug',
+                    '_resolvePrefetchTarget: configuration globale du plugin Frigate (URL/port) absente');
                 return null;
             }
             return [

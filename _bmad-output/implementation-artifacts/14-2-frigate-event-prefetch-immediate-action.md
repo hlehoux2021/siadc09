@@ -116,13 +116,17 @@ by Frigate's own ~10s continuous-recording segment cycle.
 ## Tasks / Subtasks
 
 - [x] Task 1: `prefetchEvent` command definition (AC: 1)
-  - [x] 1.1 Added `'prefetchEvent' => ['name' => ..., 'subType' => 'other']` to the `postSave()` action-command
-        array in `siaDC09.class.php:648-653`, alongside `burglarAlarm`/`fireAlarm`/`panicAlarm` — same
-        auto-create-if-missing loop, no new code path.
+  - [x] 1.1 Added `'prefetchEvent' => ['name' => ..., 'subType' => 'message']` to the `postSave()`
+        action-command array in `siaDC09.class.php`, alongside `burglarAlarm`/`fireAlarm`/`panicAlarm` — same
+        auto-create-if-missing loop, no new code path. **Corrected 2026-09-24** (live host validation, see
+        Task 2's bug note below): originally `subType => 'other'`, which has no *Titre* field in the alarm
+        plugin's action-configuration UI — `#zone#` could never reach `execute()`. Must be `'message'`, exactly
+        like the three alarm commands, per `docs/design/php-core-design.md:1264`.
   - [x] 1.2 Wizard/documentation guidance (Step 3 or Step 4 of `desktop/php/siaDC09.php`): a non-blocking help
         note telling the installer to add the `prefetchEvent` command to the mapped zone's **immediate actions**
-        in the alarm plugin. No JS wiring — this is manual, per AC1.
-  - [x] 1.3 Level 1 test: `postSave()`'s action-command array contains `prefetchEvent` with `subType => 'other'`
+        in the alarm plugin, **and to set its Titre field to `#zone#`** (added 2026-09-24 alongside the subType
+        fix — without this the zone never reaches `execute()`). No JS wiring — this is manual, per AC1.
+  - [x] 1.3 Level 1 test: `postSave()`'s action-command array contains `prefetchEvent` with `subType => 'message'`
         (structural/regex test, same pattern already used for `burglarAlarm` et al. in existing wizard tests).
 
 - [x] Task 2: `prefetchEvent` execute() — resolve camera identity, fire-and-forget to daemon (AC: 2, 3, 7)
@@ -422,11 +426,11 @@ to close.
 
 | File | Change |
 |------|--------|
-| `core/class/siaDC09.class.php` | Added `prefetchEvent` to `postSave()`'s action-command array (`subType => 'other'`); added `case 'prefetch_result':` to `message()`'s switch and the new `_handlePrefetchResult()` handler. |
-| `core/class/siaDC09Cmd.class.php` | Added `case 'prefetchEvent':` to `execute()` and the new `_resolvePrefetchTarget()` helper; added `PREFETCH_CACHE_TTL` constant; rewrote `_resolveFrigateSnapshotUrl()` to read the `sia_prefetch_cache` cache instead of `info_detect_person`/`info_id`. |
+| `core/class/siaDC09.class.php` | Added `prefetchEvent` to `postSave()`'s action-command array (`subType => 'message'`, corrected 2026-09-24 from `'other'`); added `case 'prefetch_result':` to `message()`'s switch and the new `_handlePrefetchResult()` handler (now with debug logging of the received payload and the resulting cache entry). |
+| `core/class/siaDC09Cmd.class.php` | Added `case 'prefetchEvent':` to `execute()` and the new `_resolvePrefetchTarget()` helper; added `PREFETCH_CACHE_TTL` constant; rewrote `_resolveFrigateSnapshotUrl()` to read the `sia_prefetch_cache` cache instead of `info_detect_person`/`info_id`. 2026-09-24: added debug logging throughout the `prefetchEvent` case and `_resolvePrefetchTarget()` (raw title, zone mapping, resolved zone entry, resolved target, and a specific reason at every null-return branch) plus explicit warnings for an empty zone or an unresolvable target — the live host validation attempt had produced no diagnosable trace at all. |
 | `desktop/php/siaDC09.php` | Step 3: added a non-blocking help note instructing the installer to wire `prefetchEvent` into the mapped zone's immediate actions in the alarm plugin. |
-| `resources/siadc09d/frigate_prefetch.py` | New — `PrefetchResult` dataclass, `prefetch_person_event()` (bounded poll loop against Frigate's `GET /api/events`), promoting `scripts/frigate_latency_probe.py`'s validated HTTP/poll logic into production daemon code. |
-| `resources/siadc09d/daemon.py` | `OnMessageParams` gained `camera_eqlogic_id`/`camera_name`/`frigate_host`; `on_message()` gained a `prefetchEvent` branch (spawns a tracked `_run_prefetch()` task, before the `_EVENT_SIA_CODES` lookup); new `_run_prefetch()` method pushes the outcome via the existing `_send_callback()`. |
+| `resources/siadc09d/frigate_prefetch.py` | New — `PrefetchResult` dataclass, `prefetch_person_event()` (bounded poll loop against Frigate's `GET /api/events`), promoting `scripts/frigate_latency_probe.py`'s validated HTTP/poll logic into production daemon code. 2026-09-24: added a module logger and debug logging of each query URL/response, the poll start/timeout/miss, and the confirmed event id. |
+| `resources/siadc09d/daemon.py` | `OnMessageParams` gained `camera_eqlogic_id`/`camera_name`/`frigate_host`; `on_message()` gained a `prefetchEvent` branch (spawns a tracked `_run_prefetch()` task, before the `_EVENT_SIA_CODES` lookup); new `_run_prefetch()` method pushes the outcome via the existing `_send_callback()`. 2026-09-24: added debug logging of the raw dispatch params, the spawned task's target, the Frigate query being started, and the resolved `PrefetchResult`. |
 | `tests/level1/test_frigate_prefetch_trigger.py` | New — 13 tests for `execute()`'s `prefetchEvent` case and `_resolvePrefetchTarget()`. |
 | `tests/level1/test_frigate_prefetch.py` | New — 5 tests for `frigate_prefetch.py`'s query params, poll/timeout behavior, and error handling. |
 | `tests/level1/test_frigate_snapshot_resolution.py` | `TestResolveFrigateSnapshotUrlReadsCorrectCommands`: replaced the `info_detect_person`/`info_id` lookup assertions with cache-read assertions (`sia_prefetch_cache`, `found`, `PREFETCH_CACHE_TTL`) plus a negative assertion forbidding either logicalId. |
@@ -442,3 +446,4 @@ to close.
 |------|--------|
 | 2026-09-24 | Story created from ADR-17 Amendment 3 (Option D), following a two-round party-mode architecture re-review (Winston/Amelia/John) triggered by two confirmed problems with story 14-1's Option A (`info_detect_person` staleness, `info_id` label-mismatch). Camera identity (Frigate-native slug + host:port) resolved via direct source investigation of the Frigate plugin's own code — confirmed no new siaDC09 config field is needed for either. |
 | 2026-09-24 | Tasks 1-5 implemented via TDD across PHP (command definition, trigger-side `execute()`, cache write/read) and the Python daemon (new `frigate_prefetch.py` module, `on_message()` wiring, `_send_callback()` push). Full regression (`git stash -u` diff against clean master): 0 regressions across `tests/level1/`+`tests/level2/`+`tests/level2_5/` (14 known pre-existing failures unchanged, +1 already-pre-existing-and-unrelated in level2_5), ~34 net new passing tests. Status stays `in-progress` — Task 6 (live validation on `test-jeedom.lehoux.net`) requires the real host and a real alarm-plugin zone with a configured trigger delay, not yet run. |
+| 2026-09-24 | First live validation attempt (Herve): wired `prefetchEvent` into a zone's immediate actions between two "avant/après prefetch" marker messages, both of which logged — proving the command *was* invoked — but no `sendToDaemon` line for it ever appeared, and `burglarAlarm`'s frame carried no `media_url`. Root cause found by re-reading `docs/design/php-core-design.md:1264`: `prefetchEvent`'s `subType` was `'other'`, which has no *Titre* field in the alarm plugin's action-configuration UI — `#zone#` had nowhere to be typed, so `$_options['title']` was always empty and `_resolvePrefetchTarget()` silently returned null on every invocation, with **no log line at all**, since only exception paths were logged. Fixed both problems: (1) `subType` corrected to `'message'` (Task 1.1/1.3, tests updated), wizard guidance updated to also instruct the installer to set Titre to `#zone#` (Task 1.2); (2) added debug-level logging at every decision point across both PHP (`execute()`'s `prefetchEvent` case, `_resolvePrefetchTarget()`, `_handlePrefetchResult()`) and the daemon (`on_message()`'s dispatch, `_run_prefetch()`, `frigate_prefetch.py`'s query/poll loop), plus explicit warnings for an empty zone or an unresolvable target — so any future misconfiguration is diagnosable from the logs alone, without needing to re-read this story's source. Full regression re-confirmed: identical 15 known pre-existing failures, 0 regressions. Pushed; awaiting a second live attempt with the corrected wiring. |
