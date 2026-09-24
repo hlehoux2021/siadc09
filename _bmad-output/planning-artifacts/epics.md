@@ -2264,3 +2264,56 @@ So that the monitoring center has a visual without me building or waiting on any
 **And** the whole flow is validated through the real Jeedom UI on `test-jeedom.lehoux.net` against a real Frigate camera: trigger an alarm while Frigate has an active person detection, confirm the SIA frame's `[V...]` field carries a working snapshot URL in the protocol inspector
 
 **Explicitly out of scope (deferred, tracked in ADR-17):** the fallback case (create-event call for when the camera missed the person), clip/video attachment, and the independent MQTT/REST Frigate integration (Option B) — revisit only if production telemetry shows the fallback case is common enough to justify the added complexity.
+
+### Story 14.2: Frigate Event Prefetch via the Alarm Plugin's Immediate-Action Window (Option D)
+
+Supersedes 14.1's at-alarm-time data source per ADR-17 Amendment 3 (`architecture.md`). Live validation of 14.1
+surfaced two confirmed problems with reading the Frigate plugin's own commands directly: `info_detect_person` can
+stay stuck at `1` for 14-30+ minutes after the person left (a missing MQTT case in the Frigate plugin itself), and
+`info_id` has no label filter at all — any tracked object class (person, car, dog, cat, bird in the real
+deployment) can silently overwrite it, so a pet or a passing car can end up presented as evidence of a burglary.
+A party-mode architecture review (Winston/Amelia/John) converged, after a correction from Herve about the alarm
+plugin's own timing model, on Option D: the Jeedom alarm plugin fires each zone's actions in two buckets —
+immediate (instant, ignores the trigger delay) and standard (fires only after the trigger delay, typically 30-60s,
+the entry-delay window that lets a legitimate user disarm). `burglarAlarm` is a standard action; a new immediate
+action can therefore kick off an async Frigate REST lookup with the whole trigger-delay window to complete, well
+before the frame is built.
+
+As a monitored Jeedom user with a Frigate camera covering an alarm zone,
+I want the SIA alarm frame's snapshot to always be of the actual detected person, never a stale or wrong-species one,
+So that the monitoring center can trust the photo it's looking at, not just receive one.
+
+**Acceptance criteria:**
+
+**Given** a zone mapped to a Frigate camera (14.1's existing wizard mapping, unchanged),
+**When** the zone's own sensor trips (the alarm plugin's immediate action, never Frigate's own detection state),
+**Then** a new `prefetchEvent` action command fires immediately and asks the daemon, asynchronously, whether
+Frigate currently has a `person`-labeled event active or very recent for that camera — via Frigate's own
+documented `GET /api/events` REST endpoint, never the Jeedom Frigate plugin's cmds or its internal DB table
+
+**And** the daemon's REST call runs entirely inside this immediate-action window, with a bounded timeout; on a
+confirmed match it pushes the result (event id, snapshot availability) back to PHP via the existing HTTP callback
+channel, cached on the SIA eqLogic keyed by camera — no new synchronous IPC primitive, no blocking read anywhere
+
+**Given** the zone's trigger delay later expires and `burglarAlarm` (the standard action) fires,
+**When** it builds the SIA frame,
+**Then** it reads the cached prefetch result **locally, synchronously, non-blockingly** (same latency class as the
+`execCmd()` read it replaces) and attaches `media_url` only on a confirmed, unexpired, correctly-labeled hit
+
+**And** on any miss — no prefetch ran, timed out, expired, or found no `person` event — `media_url` is omitted,
+exactly like 14.1's existing AC4 fallback: never a wrong photo, never a delay, "no photo" is an acceptable outcome
+and "wrong photo" never is
+
+**And** `info_detect_person`, `info_id`, `info_label`, and `info_url_snapshot` are no longer read anywhere in this
+path — closing both confirmed problems by removing the data source they lived in, not by patching around them
+
+**And** scope stays `burglarAlarm` only — panic/fire alarms are triggered through different zones/instances with
+independently-configured (often zero) trigger delays and are explicitly deferred to a future story
+
+**And** the whole flow is validated on `test-jeedom.lehoux.net` against a real Frigate camera and a real alarm
+zone with a configured entry delay: trigger the sensor, confirm the prefetch fires immediately, confirm the SIA
+frame sent after the delay carries the correct `[V...]` snapshot URL
+
+**Explicitly out of scope (deferred, tracked in ADR-17 Amendment 3):** clip attachment (architecturally compatible,
+confirmed no rework needed, but not implemented here); PA/FA media attachment for zero-delay zones; reporting the
+two confirmed Frigate-plugin bugs upstream.

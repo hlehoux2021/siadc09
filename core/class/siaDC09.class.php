@@ -645,9 +645,13 @@ class siaDC09 extends eqLogic {
 
     public function postSave(): void {
         $actionCmds = [
-            'burglarAlarm' => ['name' => __('Alarme intrusion', __FILE__), 'subType' => 'message'],
-            'fireAlarm'    => ['name' => __('Alarme incendie', __FILE__), 'subType' => 'message'],
-            'panicAlarm'   => ['name' => __('Alarme panique', __FILE__),  'subType' => 'message'],
+            'burglarAlarm'  => ['name' => __('Alarme intrusion', __FILE__), 'subType' => 'message'],
+            'fireAlarm'     => ['name' => __('Alarme incendie', __FILE__), 'subType' => 'message'],
+            'panicAlarm'    => ['name' => __('Alarme panique', __FILE__),  'subType' => 'message'],
+            // ADR-17 Amendment 3 (Option D): wired manually by the installer into the alarm
+            // plugin's zone IMMEDIATE-actions bucket (not standard/after-delay) — fires as soon
+            // as the sensor triggers, well before the BA's own trigger-delay actions fire.
+            'prefetchEvent' => ['name' => __('Prefetch événement Frigate', __FILE__), 'subType' => 'other'],
         ];
         foreach ($actionCmds as $logicalId => $spec) {
             $cmd = $this->getCmd('action', $logicalId);
