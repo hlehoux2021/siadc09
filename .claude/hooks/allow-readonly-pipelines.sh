@@ -1,9 +1,10 @@
 #!/bin/bash
-# PreToolUse hook for Bash — auto-approve read-only pipelines and `&&` chains.
+# PreToolUse hook for Bash — auto-approve read-only pipelines, `&&` chains, and `;` chains.
 #
 # Claude Code does not apply prefix rules (Bash(python3:*), Bash(tail:*), …) to a command
-# that contains a pipe, a chain or a redirection, so `python3 -m pytest … 2>&1 | tail -15`
-# and `git add … && git commit -F …` both prompt even though every part is allow-listed.
+# that contains a pipe, a chain or a redirection, so `python3 -m pytest … 2>&1 | tail -15`,
+# `git add … && git commit -F …`, and `find … ; find … | head -5` all prompt even though
+# every part is allow-listed.
 # This hook re-applies the project allow-list to each part and approves only when every one
 # matches — it grants no authority that .claude/settings.json does not already grant for the
 # single-command form. Heredocs and stdin redirections are never approved: their body is not
@@ -56,13 +57,13 @@ unwrap_xargs() {
 	printf '%s' "$*"
 }
 
-# Splits $1 on top-level `|` and `&&` (and, when $2=1, also `;`) into the TOP_SEGS array,
-# skipping delimiters that appear inside '...' or "..." quotes — a literal `|` in a grep
-# pattern like "^a\|^b" must not be mistaken for a pipe. Returns 1 (unsafe / unparsable) on:
-# an unterminated quote, `$(...)`/backtick command substitution anywhere except inside single
-# quotes, `>`/`<` redirection, a lone `&` background job, `||`, or (when $2!=1) a top-level `;`.
+# Splits $1 on top-level `|`, `&&`, and `;` into the TOP_SEGS array, skipping delimiters
+# that appear inside '...' or "..." quotes — a literal `|` in a grep pattern like "^a\|^b"
+# must not be mistaken for a pipe. Returns 1 (unsafe / unparsable) on: an unterminated quote,
+# `$(...)`/backtick command substitution anywhere except inside single quotes, `>`/`<`
+# redirection, a lone `&` background job, or `||`.
 split_top_level() {
-	local s="$1" allow_semicolon="${2:-0}" i=0 n c nextc insq=0 indq=0 cur=''
+	local s="$1" i=0 n c nextc insq=0 indq=0 cur=''
 	TOP_SEGS=()
 	n=${#s}
 	while [ "$i" -lt "$n" ]; do
@@ -112,7 +113,6 @@ split_top_level() {
 			TOP_SEGS+=("$cur")
 			cur=''
 		elif [ "$c" = ';' ]; then
-			[ "$allow_semicolon" = 1 ] || return 1
 			TOP_SEGS+=("$cur")
 			cur=''
 		elif [ "$c" = '&' ]; then
@@ -164,7 +164,7 @@ try_allow_for_loop() {
 		esac
 	done
 
-	split_top_level "$body" 1 || return 1
+	split_top_level "$body" || return 1
 	for seg in "${TOP_SEGS[@]}"; do
 		seg="${seg#"${seg%%[![:space:]]*}"}"
 		seg="${seg%"${seg##*[![:space:]]}"}"
@@ -181,7 +181,7 @@ try_allow_for_loop && exit 0
 # Drop the harmless redirections first: `2>&1` must go before the `&` test below.
 norm=$(strip_redirects "$cmd")
 
-split_top_level "$norm" 0 || exit 0
+split_top_level "$norm" || exit 0
 
 # Plain commands are already handled by the permission rules — chains are our job.
 [ "${#TOP_SEGS[@]}" -gt 1 ] || exit 0
