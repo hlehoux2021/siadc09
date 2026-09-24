@@ -82,6 +82,24 @@ class TestPrefetchEventCase:
         # Assert: the new case label is present
         assert "case 'prefetchEvent'" in execute_body
 
+    def test_guards_against_unsubstituted_zone_tag(self, prefetch_case_body: str) -> None:
+        """
+        Code review finding (2026-09-24): the alarm plugin might fail to substitute #zone#
+        into the Titre field (wrong action type, templating change) — the literal string
+        "#zone#" would otherwise fall through to the generic "zone not mapped" warning,
+        masking the real cause.
+
+        Expected result:
+        - the case explicitly checks for the literal '#zone#' string and logs a distinct
+          diagnostic before falling through to zone-mapping resolution
+        """
+        # Assert: explicit guard against the unsubstituted tag, not just an empty string
+        assert "'#zone#'" in prefetch_case_body
+        # Assert: the guard breaks before reaching zone-mapping resolution
+        guard_pos = prefetch_case_body.index("'#zone#'")
+        resolve_pos = prefetch_case_body.index("_findZoneEntry(")
+        assert guard_pos < resolve_pos
+
     def test_case_is_separate_from_alarm_cases(self, prefetch_case_body: str) -> None:
         """
         The prefetchEvent case must not fall through into or share code with the

@@ -3,13 +3,13 @@ story_id: "14-2"
 story_key: "14-2-frigate-event-prefetch-immediate-action"
 epic_id: "epic-14"
 epic_name: "Camera Snapshot Attachment (Frigate Integration)"
-status: "review"
+status: "done"
 created: "2026-09-24"
 ---
 
 # Story 14.2: Frigate Event Prefetch via the Alarm Plugin's Immediate-Action Window (Option D)
 
-Status: review
+Status: done
 
 ## Story
 
@@ -124,7 +124,8 @@ by Frigate's own ~10s continuous-recording segment cycle.
         auto-create-if-missing loop, no new code path. **Corrected 2026-09-24** (live host validation, see
         Task 2's bug note below): originally `subType => 'other'`, which has no *Titre* field in the alarm
         plugin's action-configuration UI — `#zone#` could never reach `execute()`. Must be `'message'`, exactly
-        like the three alarm commands, per `docs/design/php-core-design.md:1264`.
+        like the three alarm commands, per the general tag-substitution mechanism documented in
+        `docs/design/php-core-design.md:424-441`, confirmed empirically via live testing 2026-09-24.
   - [x] 1.2 Wizard/documentation guidance (Step 3 or Step 4 of `desktop/php/siaDC09.php`): a non-blocking help
         note telling the installer to add the `prefetchEvent` command to the mapped zone's **immediate actions**
         in the alarm plugin, **and to set its Titre field to `#zone#`** (added 2026-09-24 alongside the subType
@@ -266,6 +267,23 @@ by Frigate's own ~10s continuous-recording segment cycle.
         prohibition) and by the individual hit (6.5) and miss (6.6) live confirmations, but the specific
         back-to-back sequence hasn't been run live. Left open as optional given the strength of that existing
         coverage — not blocking story completion.
+
+### Review Findings
+
+Code review run 2026-09-24 (three parallel layers: Blind Hunter, Edge Case Hunter with project read access, Acceptance Auditor against this file's own ACs). 2 decisions needed, 5 patches, 3 deferred, 2 dismissed.
+
+- [x] [Review][Defer] No dedup/cancellation for concurrent same-camera `prefetchEvent` triggers — a second trigger (bouncing sensor, or two zones mapped to the same camera) spawns a new `_run_prefetch()` task with no cancellation of an in-flight one for the same `camera_eqlogic_id`; PHP's `_handlePrefetchResult()` overwrites unconditionally, so whichever callback lands *last* wins regardless of which trigger it actually answers. **Deferred (Herve, 2026-09-24): accepted as-is** — the window needed to trigger it is narrow (two same-camera prefetches within ~31s), and the alarm plugin's own trigger-delay/sustain settings already discourage sensor bounce.
+- [x] [Review][Defer] Tight margin between the prefetch's worst-case completion time (~31s: `PREFETCH_MAX_WAIT_S` 25s + `PREFETCH_HTTP_TIMEOUT_S` 5s + `PREFETCH_WAIT_FOR_SLACK_S` 1s) and the alarm plugin's own configurable trigger delay — a short installer-configured delay (e.g. 20-30s) could make `burglarAlarm` fire before the daemon reports back, indistinguishable in the logs from a genuine Frigate miss. **Deferred (Herve, 2026-09-24): accepted as-is.**
+- [x] [Review][Patch] Misleading diagnostic when `#zone#` isn't substituted — `execute()`'s `prefetchEvent` case only special-cases an *empty* title; if the alarm plugin ever fails to substitute the tag, `$zone` becomes the literal string `"#zone#"`, which silently falls through to the generic "zone not mapped" warning, masking the real cause. [core/class/siaDC09Cmd.class.php]
+- [x] [Review][Patch] Stale docblock on `_buildFrigateMediaUrl()` still says `$eventId ... read from info_id` — the only caller now sources it from `sia_prefetch_cache`. [core/class/siaDC09Cmd.class.php]
+- [x] [Review][Patch] This story's own File List row cites `test_prefetch_event_command_uses_other_subtype`; the diff actually adds `test_prefetch_event_command_uses_message_subtype`. [14-2-frigate-event-prefetch-immediate-action.md]
+- [x] [Review][Patch] `sprint-status.yaml`'s `epic-14` comment still says "Option A, majority-case-only" after Option D superseded it. [_bmad-output/implementation-artifacts/sprint-status.yaml]
+- [x] [Review][Patch] Dev Notes citation `docs/design/php-core-design.md:1264` doesn't literally support the "'other' has no Titre field" claim — that line documents `burglaryCancel`/`raz`, not `subType='other'`'s absence of a Titre field. Correct the citation to the general tag mechanism (lines ~424-441) plus "confirmed empirically via live testing, 2026-09-24". [core/class/siaDC09Cmd.class.php docblock + this story's Dev Notes]
+- [x] [Review][Defer] Lost-update race in Jeedom's `getCache()`/`setCache()` (single unguarded read-modify-write blob per eqLogic, verified in Jeedom core `cache.class.php`) — deferred, pre-existing: the exact same pattern already exists for `sia_open_alarms` in the same file; not introduced by this story, not fixable without a project-wide Jeedom cache-access redesign.
+- [x] [Review][Defer] No format validation on the cross-plugin `config::byKey('URL'|'port', 'frigate')` read (e.g. a theoretical "double-scheme URL" if Frigate ever stores a full URL instead of a bare host) — deferred, pre-existing/accepted tradeoff: live-confirmed the actual stored value is a bare host with no scheme; validating against an unspecified third-party plugin's config format was a deliberate scope decision (Dev Notes) to avoid a hard class dependency on that plugin.
+- [x] [Review][Defer] `sia_prefetch_cache` has no TTL-based pruning/max-size sweep, unlike `sia_open_alarms` in the same file — deferred, low-impact: bounded in practice by the number of Frigate cameras ever mapped, a future hygiene item.
+- Dismissed: AC7's "never block or throw" is proven only structurally (source-text assertions) on the PHP side, not by real execution — matches this entire codebase's established, deliberate Level 1 testing convention for any Jeedom-dependent PHP method (same pattern used throughout `test_php_eqlogic_stub.py` and story 14-1's own AC5); not a deviation introduced by this story.
+- Dismissed: cache keyed by camera eqLogic id rather than by zone (so a zone sharing a camera with another zone's `prefetchEvent` could benefit from that zone's hit) — matches AC5's explicit, spec'd design (camera-keyed cache is intentional); the snapshot is still visual evidence from the same physical camera regardless of which zone's sensor tripped.
 
 ## Dev Notes
 
@@ -466,7 +484,7 @@ to close.
 | `tests/level1/test_frigate_prefetch_trigger.py` | New — 13 tests for `execute()`'s `prefetchEvent` case and `_resolvePrefetchTarget()`. |
 | `tests/level1/test_frigate_prefetch.py` | New — 5 tests for `frigate_prefetch.py`'s query params, poll/timeout behavior, and error handling. |
 | `tests/level1/test_frigate_snapshot_resolution.py` | `TestResolveFrigateSnapshotUrlReadsCorrectCommands`: replaced the `info_detect_person`/`info_id` lookup assertions with cache-read assertions (`sia_prefetch_cache`, `found`, `PREFETCH_CACHE_TTL`) plus a negative assertion forbidding either logicalId. |
-| `tests/level1/test_php_eqlogic_stub.py` | Added `test_prefetch_event_command_uses_other_subtype`; renamed `test_message_dispatches_all_five_types` → `test_message_dispatches_all_callback_types` (now 6 types); added 4 new tests for `_handlePrefetchResult()` (cache key, `setCache()` call, stored fields, unconditional-overwrite/no-`array_merge` guarantee). |
+| `tests/level1/test_php_eqlogic_stub.py` | Added `test_prefetch_event_command_uses_message_subtype`; renamed `test_message_dispatches_all_five_types` → `test_message_dispatches_all_callback_types` (now 6 types); added 4 new tests for `_handlePrefetchResult()` (cache key, `setCache()` call, stored fields, unconditional-overwrite/no-`array_merge` guarantee). |
 | `tests/level1/test_wizard_php_structure.py` | Added `test_step3_prefetch_event_wiring_guidance_present`. |
 | `tests/level2/test_frigate_prefetch_dispatch.py` | New — 5 tests for `on_message()`'s `prefetchEvent` dispatch: fire-and-forget proof via an `asyncio.Event` gate, exact `_send_callback` shape on hit/miss (`found` strictly `int`), missing-params rejection, unknown-command path unaffected. |
 | `tests/fixtures/ipc_schema.py` | Added `prefetch_result` to `CALLBACK_TYPES`/`REQUIRED_FIELDS`; added `SAMPLE_PREFETCH_RESULT_HIT`/`SAMPLE_PREFETCH_RESULT_MISS`. |
@@ -483,3 +501,4 @@ to close.
 | 2026-09-24 | Herve pulled a real historical Frigate event (`curl` on a genuine tracked detection, not a manual test) confirming `end_time` is set within ~5s of `start_time` for a real person too — independently validating the `in_progress` fix against real data, not just the synthetic test event. On the 60s buffer: Herve clarified the intended deployment principle — one camera per protected zone with a narrow field of view on that zone's own entry, not a wide shot of the whole garden — under which his own measured maximum detection duration is ~10s. Narrowed `PREFETCH_AFTER_BUFFER_S` back down from 60.0 to **30.0**: not just a safety-margin choice, but because attaching an old/unrelated frame to the monitoring center is itself undesirable (ADR-17's own "no photo is fine, wrong photo never is" principle), so the buffer should stay tight around the real expected detection-to-trigger gap rather than generous. Full regression re-confirmed: identical 15 known pre-existing failures, 0 regressions. |
 | 2026-09-24 | Third live validation attempt (Herve, with the 30s buffer): prefetch found a real, correctly-labeled, correctly-timed `person` event on the very first poll (`found=1`) and the daemon pushed/PHP cached it — but `burglarAlarm`'s frame still carried no `media_url`. Added missing debug logging to `_resolveFrigateSnapshotUrl()` itself (every null-return branch plus a success log — this method had none before, unlike `_resolvePrefetchTarget()`) to close the same diagnosability gap for the read side. Verified `_buildFrigateMediaUrl()` directly against the real event id (`1790247176.261449-fnjyy5`) via the real-execution `php` subprocess harness, both template forms — correct output, no bug there. Root cause confirmed by Herve: the "URL media Frigate" field (Step 3) was empty on this test host during the run — `_resolveFrigateSnapshotUrl()` correctly returned `null` at that exact check, before `_buildFrigateMediaUrl()` was ever called. **Not a code defect** — the prefetch/cache pipeline (dispatch → REST hit → callback → cache write → non-blocking cache read) is now confirmed fully working end-to-end; AC6's "template not configured → media_url omitted" contract behaved exactly as designed. Awaiting a fourth attempt with the template configured, to confirm AC7's full `[V...]` snapshot URL end-to-end. |
 | 2026-09-24 | **Fourth live validation attempt — PASS.** With the media URL template configured, received frame `[#20881\|BA 002][Vhttps://<user>:<password>@frigate.lehoux.net/api/events/1790251493.16806-ilph5x/snapshot.jpg]_12:05:29,09-24-2026` — a real Frigate snapshot URL correctly attached to a real BA frame, confirming AC5/AC6/AC7 end-to-end. Combined with the earlier confirmed miss-path run (6.6, wrong-label event correctly excluded, no delay), Task 6 is complete except 6.7 (a specific hit-then-miss-in-quick-succession live sequence), left open as optional given it's already covered by an explicit Level 1 test forbidding stale-entry merging plus the two individual live confirmations. Status `in-progress → review`. |
+| 2026-09-24 | Code review (`/bmad-code-review`, three parallel layers — Blind Hunter, Edge Case Hunter, Acceptance Auditor): 2 decisions, 5 patches, 3 deferred, 2 dismissed. Both decisions deferred by Herve as-is (same-camera prefetch task race; tight margin between prefetch worst-case latency and a short installer-configured trigger delay) — recorded as D-52/D-53 in `deferred-work.md`. All 5 patches applied: an explicit diagnostic for an unsubstituted `#zone#` tag (with a new Level 1 test), a stale `_buildFrigateMediaUrl()` docblock, a corrected Dev Notes/code-comment citation (the original `php-core-design.md:1264` reference didn't literally support the claim — pointed at the general tag mechanism instead), and two doc-only corrections (this story's own File List test name, `sprint-status.yaml`'s stale `epic-14` comment). Full regression re-confirmed: identical 15 known pre-existing failures, 0 regressions (+1 new test). |

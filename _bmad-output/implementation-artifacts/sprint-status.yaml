@@ -29,7 +29,7 @@
 # - SM typically creates next story ONLY after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then Dev runs code-review (fresh context, ideally different LLM)
 
-last_updated: "2026-09-24" # Story 10-3 Task 6 live validation PASS (confirmed by Herve) → in-progress → review
+last_updated: "2026-09-24" # Story 14-2 code-reviewed (5 patches applied, 3 deferred, 2 decisions deferred) → review → done
 generated: "2026-05-04"
 project: "my-project"
 project_key: "NOKEY"
@@ -143,9 +143,9 @@ development_status:
   epic-13-retrospective: optional
 
   # Epic 14: Camera Snapshot Attachment (Frigate Integration)
-  epic-14: in-progress  # registered 2026-09-22 per ADR-17 (architecture.md) — Option A, majority-case-only
+  epic-14: in-progress  # registered 2026-09-22 per ADR-17 (architecture.md) — Option A, majority-case-only. Superseded 2026-09-24 by 14-2's Option D (ADR-17 Amendment 3) for the at-alarm-time data source
   14-1-attach-frigate-snapshot-alarm-frame: in-progress  # Tasks 1-7 done. Task 4 live validation: 4.1/4.3/4.8/4.9/4.10/4.11 done (AC3/AC7/AC8 confirmed on real host); 4.2/4.4 still open. Superseded at-alarm-time data source by 14-2 (ADR-17 Amendment 3) — Task 1's wizard mapping stays, Task 2/6's info_detect_person/info_id read does not
-  14-2-frigate-event-prefetch-immediate-action: review  # registered 2026-09-24 per ADR-17 Amendment 3 (Option D) — party-mode review (Winston/Amelia/John) after two confirmed problems with 14-1's Option A: info_detect_person staleness, info_id has no label filter (any tracked class can hijack it). Tasks 1-6 implemented via TDD + live validation on test-jeedom.lehoux.net: hit path confirmed (real Frigate snapshot URL attached to a real BA frame end-to-end) and miss path confirmed (wrong-label event correctly excluded, no delay). Two live bugs found and fixed along the way (prefetchEvent subType 'other'→'message' for the #zone# Titre field; in_progress filter dropped + after-buffer tuned 15s→60s→30s). Task 6.7 (hit-then-miss-in-quick-succession) left open as optional, covered by existing test + individual live confirmations
+  14-2-frigate-event-prefetch-immediate-action: done  # registered 2026-09-24 per ADR-17 Amendment 3 (Option D) — party-mode review (Winston/Amelia/John) after two confirmed problems with 14-1's Option A: info_detect_person staleness, info_id has no label filter (any tracked class can hijack it). Tasks 1-6 implemented via TDD + live validation on test-jeedom.lehoux.net: hit path confirmed (real Frigate snapshot URL attached to a real BA frame end-to-end) and miss path confirmed (wrong-label event correctly excluded, no delay). Two live bugs found and fixed along the way (prefetchEvent subType 'other'→'message' for the #zone# Titre field; in_progress filter dropped + after-buffer tuned 15s→60s→30s). Code-reviewed 2026-09-24: 5 patches applied, 3 deferred (D-49/D-50/D-51), 2 decisions deferred as-is (D-52/D-53), 2 dismissed. Task 6.7 (hit-then-miss-in-quick-succession) left open as optional, covered by existing test + individual live confirmations. review → done
   epic-14-retrospective: optional
 
 # Summary Statistics
@@ -200,6 +200,9 @@ development_status:
 # in-progress → review; this also unblocks 13-1 Task 2, previously deferred on 10-3's siaDC09.class.php
 # edits landing. stories_in_progress 5→4, stories_review 1→2. epic-10 stays in-progress until 10-3 is
 # code-reviewed and closed)
+# Updated: 2026-09-24 (14-2 code-reviewed — 5 patches applied, 3 deferred, 2 decisions deferred as-is,
+# 2 dismissed → review → done; stories_review 2→1, stories_done 43→44. epic-14 stays in-progress — 14-1
+# is still open)
 summary:
   total_epics: 14
   total_stories: 55
@@ -209,5 +212,5 @@ summary:
   stories_backlog: 4
   stories_ready_for_dev: 2
   stories_in_progress: 4
-  stories_review: 2
-  stories_done: 43
+  stories_review: 1
+  stories_done: 44

@@ -50,6 +50,12 @@ class siaDC09Cmd extends cmd {
                         . 'l\'assistant, étape 3)');
                     break;
                 }
+                if ($zone === '#zone#') {
+                    log::add('siaDC09', 'warning', 'prefetchEvent : le champ Titre contient encore le texte '
+                        . 'littéral "#zone#" — le plugin Alarme n\'a pas substitué la balise (vérifiez que '
+                        . 'l\'action est bien de type "message" et déclenchée par le plugin Alarme)');
+                    break;
+                }
                 $zoneMapping = $this->_getZoneMapping();
                 log::add('siaDC09', 'debug', 'prefetchEvent: zone=' . json_encode($zone)
                     . ' zoneMapping=' . json_encode($zoneMapping));
@@ -296,7 +302,8 @@ class siaDC09Cmd extends cmd {
      * stranded before the inserted path by naive string concatenation.
      *
      * @param string $template e.g. "https://<user>:<pass>@host/" or "https://host/?accesstoken=<token>"
-     * @param string $eventId Frigate event id, read from info_id
+     * @param string $eventId Frigate event id, read from the sia_prefetch_cache entry (see
+     *                        _resolveFrigateSnapshotUrl())
      * @return string|null null when the template has no scheme or host — never throws
      */
     private static function _buildFrigateMediaUrl(string $template, string $eventId): ?string {
