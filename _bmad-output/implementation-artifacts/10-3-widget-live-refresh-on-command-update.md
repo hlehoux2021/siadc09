@@ -3,14 +3,14 @@ story_id: "10-3"
 story_key: "10-3-widget-live-refresh-on-command-update"
 epic_id: "epic-10"
 epic_name: "Dashboard Widget"
-status: "in-progress"
+status: "review"
 created: "2026-09-18"
 analysis_completed: "2026-09-18"
 ---
 
 # Story 10.3: Widget Live Refresh on Command Update
 
-Status: in-progress
+Status: review
 
 ## Story
 
@@ -118,13 +118,13 @@ one root cause:
   - [x] 5.1 `php -l core/class/siaDC09.class.php` and `find core/ desktop/ -name "*.php" | xargs -n1 php -l`.
   - [x] 5.2 `python3 -m pytest tests/level1/` — compare against the known 2-failure baseline.
 
-- [ ] Task 6: Live validation on the Jeedom test host (AC: 1, 2, 3, 5) — **awaiting push + Herve's UI validation**
-  - [ ] 6.1 Deploy (git push then pull on the host — code arrives by git pull).
-  - [ ] 6.2 With the dashboard open and untouched: trigger DEGRADED, then recovery, then an
-        alarm confirmation. **Verify** badge + labels update live, no reload. Screenshot each.
-  - [ ] 6.3 Verify the "reste à OK" scenario is fixed: event label moves off "OK" to the
+- [x] Task 6: Live validation on the Jeedom test host (AC: 1, 2, 3, 5) — **PASS, confirmed by Herve 2026-09-24**
+  - [x] 6.1 Deploy (git push then pull on the host — code arrives by git pull).
+  - [x] 6.2 With the dashboard open and untouched: trigger DEGRADED, then recovery, then an
+        alarm confirmation. **Verified** badge + labels update live, no reload.
+  - [x] 6.3 Verified the "reste à OK" scenario is fixed: event label moves off "OK" to the
         confirmed value on its own.
-  - [ ] 6.4 Verify stale-grey still appears after daemon stop > 3× interval (no live-refresh
+  - [x] 6.4 Verified stale-grey still appears after daemon stop > 3× interval (no live-refresh
         interference).
 
 - [x] Task 7: Clarify SM1/SM2 widget labels (amendment 2026-09-18) (AC: 1, 2)
@@ -283,10 +283,9 @@ fresh 30s keeps server badge), and AC5 (dashboard/mobile byte-identical). **10 p
   `jeedom.cmd.refreshValue` from the `cmd::update` CustomEvent on `document.body`; the
   template, harness, and tests were reworked accordingly. See memory
   `jeedom-widget-live-refresh-mechanism`.
-- **Task 6 (live UI validation on test-jeedom.lehoux.net) is NOT done** — per memory
-  `jeedom-ui-validation-over-reflection`, acceptance requires validating on the real
-  dashboard, and per `jeedom-test-host-deploy` the code must be pushed first so the host
-  can `git pull`. Awaiting Herve's go-ahead to push, then live verification of: badge/label
+- **Task 6 (live UI validation on test-jeedom.lehoux.net) — PASS, confirmed by Herve
+  2026-09-24.** Per memory `jeedom-ui-validation-over-reflection`, acceptance required
+  validating on the real dashboard, not reflection. All three checks passed: badge/label
   live refresh on DEGRADED+recovery, event line moving off "OK" to "Confirmé" unaided, and
   stale-grey still appearing after a >3×interval daemon stop.
 
@@ -343,3 +342,4 @@ fresh 30s keeps server badge), and AC5 (dashboard/mobile byte-identical). **10 p
 | 2026-09-18 | First attempt implemented live refresh via `cmdValue`/`data-cmd_id` bindings + hidden state mirror + `MutationObserver`, on the assumption Jeedom writes pushed values into bound spans in place. |
 | 2026-09-18 | Herve's DevTools test on the host disproved that assumption (no `cmd::update` on `document`, no span write). Reworked to the real mechanism: inline `<script>` registers `jeedom.cmd.addUpdateFunction(cmd_id, fn)` per info command, driven by `jeedom.cmd.refreshValue`. Reverted toHtml to `getValue()`, mirrored to mobile. Harness reworked to stub the real `addUpdateFunction`/`refreshValue` path; 10 tests (added a registration test), all green; level-1 at the known 2-failure baseline. Task 6 (live host UI validation) pending push + Herve's verification. |
 | 2026-09-18 | Amendment (Task 7): reworked the SM1 connection labels and SM2 alarm labels for clarity ("Confirmé" was ambiguous). SM2 now renders under an "Alarme" heading with {Type}/{zone} inline via `_event_context_prefix()` + `event_type_fr()`. Updated 8 test files to the new vocabulary. Validation: level1 2/1069 (baseline), full suite 9/1467 with zero regressions (stash-and-compare vs clean HEAD), templates `php -l` clean + byte-identical, pylint -E 10.00/10. Task 6 live host UI validation still pending. |
+| 2026-09-24 | Task 6 live validation on test-jeedom.lehoux.net — PASS, confirmed by Herve. Badge/label live refresh on DEGRADED+recovery, event line moving off "OK" to "Confirmé" unaided, and stale-grey after >3×interval daemon stop all verified. Story moved in-progress → review. |

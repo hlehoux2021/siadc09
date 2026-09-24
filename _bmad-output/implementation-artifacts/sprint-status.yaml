@@ -29,7 +29,7 @@
 # - SM typically creates next story ONLY after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then Dev runs code-review (fresh context, ideally different LLM)
 
-last_updated: "2026-09-24" # Story 14-2 Tasks 1-6 implemented + live-validated end to end → in-progress → review
+last_updated: "2026-09-24" # Story 10-3 Task 6 live validation PASS (confirmed by Herve) → in-progress → review
 generated: "2026-05-04"
 project: "my-project"
 project_key: "NOKEY"
@@ -113,7 +113,7 @@ development_status:
   epic-10: in-progress  # reopened 2026-09-18 for the 10-3 live-refresh story (widget never auto-refreshes; field observation on 12-6)
   10-1-widget-rendering-bootstrap-panel: done
   10-2-widget-staleness-detection-testing: done
-  10-3-widget-live-refresh-on-command-update: in-progress  # 2026-09-18: fix tile not auto-refreshing + "reste à OK" after SM2 CONFIRMED
+  10-3-widget-live-refresh-on-command-update: review  # 2026-09-18: fix tile not auto-refreshing + "reste à OK" after SM2 CONFIRMED. Task 6 live validation on test-jeedom.lehoux.net PASS (confirmed by Herve 2026-09-24): badge/label live refresh, event line off "OK" unaided, stale-grey after >3×interval stop. All tasks done, moved in-progress → review
   epic-10-retrospective: optional
 
   # Epic 11: End-to-End Testing & Market Preparation
@@ -138,7 +138,7 @@ development_status:
 
   # Epic 13: Alarm Event Vocabulary Extension (v1.1)
   epic-13: in-progress
-  13-1-burglary-restore-cancel-events: in-progress  # Task 1 (AC1) done (613b0fe/955cc1c). Task 3 (AC3, sia_open_alarms table) done. Starting Task 4 (fan-out) — Task 2 (postSave()) deferred, blocked by 10-3's live uncommitted edits to siaDC09.class.php per the story's sequencing table
+  13-1-burglary-restore-cancel-events: in-progress  # Task 1 (AC1) done (613b0fe/955cc1c). Task 3 (AC3, sia_open_alarms table) done. Starting Task 4 (fan-out) — Task 2 (postSave()) was deferred pending 10-3; 10-3 landed and moved to review 2026-09-24 (siaDC09.class.php edits committed at d3819c0), so Task 2 is unblocked
   13-2-burglary-restore-event: backlog  # parked 2026-09-18, no blocker but no SOURCE: no alarm-plugin action expresses "a detector returned to normal"; `reenableTrigger` is not a substitute. Three unparking conditions recorded in the story
   epic-13-retrospective: optional
 
@@ -196,6 +196,10 @@ development_status:
 # stories_ready_for_dev 3→2, stories_in_progress 5→6)
 # Updated: 2026-09-24 (14-2 Tasks 1-6 implemented + live-validated end to end on test-jeedom.lehoux.net,
 # both hit and miss paths confirmed → in-progress → review; stories_in_progress 6→5, stories_review 0→1)
+# Updated: 2026-09-24 (10-3 Task 6 live validation on test-jeedom.lehoux.net PASS, confirmed by Herve →
+# in-progress → review; this also unblocks 13-1 Task 2, previously deferred on 10-3's siaDC09.class.php
+# edits landing. stories_in_progress 5→4, stories_review 1→2. epic-10 stays in-progress until 10-3 is
+# code-reviewed and closed)
 summary:
   total_epics: 14
   total_stories: 55
@@ -204,6 +208,6 @@ summary:
   epics_done: 9
   stories_backlog: 4
   stories_ready_for_dev: 2
-  stories_in_progress: 5
-  stories_review: 1
+  stories_in_progress: 4
+  stories_review: 2
   stories_done: 43
