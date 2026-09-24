@@ -137,6 +137,18 @@ split_top_level() {
 	return 0
 }
 
+# Drops the harmless redirections `split_top_level` would otherwise choke on: `2>&1` and
+# `>/dev/null` variants contain a bare `>` that its redirection check rejects, even though
+# they carry no risk (stderr merge, discarding output).
+strip_redirects() {
+	local s="$1"
+	s=${s//2>&1/}
+	s=${s//&>\/dev\/null/}
+	s=${s//2>\/dev\/null/}
+	s=${s//>\/dev\/null/}
+	printf '%s' "$s"
+}
+
 # `for VAR in LIST; do BODY; done` — batch read-only inspection across a fixed file
 # list (e.g. `for f in a.md b.md; do grep ... "$f" | head -5; done`). Approve only when
 # every LIST item is a literal token (no globs/substitution) and every statement in
@@ -144,7 +156,7 @@ split_top_level() {
 try_allow_for_loop() {
 	[[ $cmd =~ ^for\ [A-Za-z_][A-Za-z0-9_]*\ in\ ([^\;]+)\;[[:space:]]*do[[:space:]](.*)\;[[:space:]]*done$ ]] || return 1
 	list=${BASH_REMATCH[1]}
-	body=${BASH_REMATCH[2]}
+	body=$(strip_redirects "${BASH_REMATCH[2]}")
 
 	for item in $list; do
 		case "$item" in
@@ -167,11 +179,7 @@ try_allow_for_loop() {
 try_allow_for_loop && exit 0
 
 # Drop the harmless redirections first: `2>&1` must go before the `&` test below.
-norm=$cmd
-norm=${norm//2>&1/}
-norm=${norm//&>\/dev\/null/}
-norm=${norm//2>\/dev\/null/}
-norm=${norm//>\/dev\/null/}
+norm=$(strip_redirects "$cmd")
 
 split_top_level "$norm" 0 || exit 0
 
