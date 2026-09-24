@@ -3,14 +3,14 @@ story_id: "12-5"
 story_key: "12-5-alarm-delivery-end-to-end"
 epic_id: "epic-12"
 epic_name: "Jeedom VM Integration Testing"
-status: "in-progress"
+status: "review"
 created: "2026-05-29"
 analysis_completed: "2026-05-29"
 ---
 
 # Story 12.5: Alarm Delivery End-to-End
 
-Status: in-progress
+Status: review
 
 > **Réouverte 2026-09-18.** Le statut `done` était faux : la passe UDP (AC1–AC7, Tasks 0–7) est
 > validée, mais la passe TCP (AC8–AC11, Tasks 8–13, ajoutée le 2026-06-01) n'a jamais été exécutée —
@@ -142,70 +142,52 @@ For each "Verify" step:
   - [x] 7.3 Immediately after restart: verify `event_state` still = 1 (`"Confirmé"`) — not reset to 0: PASS
   - [x] 7.4 Verify `supervision_state` goes through 1 (INITIALIZING) then recovers to 2 (HEALTHY) — normal restart behavior: PASS
 
-- [ ] Task 8: TCP transport setup for alarm tests (AC: 8, 9)
-  - [ ] **8.0 — chemin de référence (autoritatif) : pointer sur le récepteur réel.** C'est cette
-        configuration qui fait foi pour AC8/AC9 ; le bloc 8.1 (simulateur local) reste disponible en
-        repli ou pour mettre au point le test hors récepteur.
-        ```bash
-        sudo -u www-data php -r "
-        require '/var/www/html/core/php/core.inc.php';
-        \$eq = siaDC09::byType('siaDC09')[0];
-        \$eq->setConfiguration('transport', 'tcp');
-        \$eq->setConfiguration('csr_ip', '192.168.100.15');
-        \$eq->setConfiguration('csr_port', 10002);
-        \$eq->setConfiguration('account_number', '001234');
-        \$eq->setConfiguration('crc_format', 'hex');
-        \$eq->setConfiguration('encryption_enabled', 0);
-        \$eq->save();
-        require '/var/www/html/core/php/core.inc.php'; siaDC09::deamon_stop(); siaDC09::deamon_start();
-        "
-        ```
-        Jeu de paramètres connu bon (prouvé le 2026-09-17 depuis l'hôte Jeedom : ACK d'une trame de
-        supervision en ~3 ms). Si ces valeurs échouent, le problème est le plugin ou le réseau, pas la config.
-  - [ ] 8.1 *(variante simulateur — conservée)* Reconfigure to TCP and start TCP simulator:
-        ```bash
-        sudo -u www-data php -r "
-        require '/var/www/html/core/php/core.inc.php';
-        \$eq = siaDC09::byType('siaDC09')[0];
-        \$eq->setConfiguration('transport', 'tcp');
-        \$eq->setConfiguration('csr_port', 5000);
-        \$eq->save();
-        "
-        pkill -f "tests.simulator"
-        cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --tcp-port 5000 --host 0.0.0.0 --account 000001 &
-        sudo -u www-data php -r "require '/var/www/html/core/php/core.inc.php'; siaDC09::deamon_stop(); siaDC09::deamon_start();"
-        ```
-  - [ ] 8.2 Verify HEALTHY over TCP: `supervision_state=2`. Confirm `--transport tcp` and the port
-        actually used (`10002` sur le récepteur réel, `5000` sur le simulateur) in daemon cmdline: `ps aux | grep siadc09`.
-  - [ ] 8.3 Clear ring buffer and error state:
-        ```bash
-        sudo -u www-data php -r "require '/var/www/html/core/php/core.inc.php'; config::save('sia_last_messages','[]','siaDC09'); config::save('sia_last_errors','[]','siaDC09');"
-        ```
+- [x] Task 8: TCP transport setup for alarm tests (AC: 8, 9)
+  - [x] 8.0 **DONE (2026-09-24).** Daemon reconfigured and confirmed running with `--host
+        192.168.100.15 --port 10002 --transport tcp --account 001234 --crc-format hex` (verified via
+        `ps aux | grep siadc09`). This is the current live config on `test-jeedom.lehoux.net`.
+  - [ ] 8.1 *(variante simulateur)* Not used — the real-receiver path (8.0) is authoritative and was
+        used throughout.
+  - [x] 8.2 **DONE (2026-09-24).** Daemon cmdline confirmed `--transport tcp` + `192.168.100.15:10002`.
+        `supervision_state=2` not re-confirmed at this exact instant (a supervision disconnect/reconnect
+        cycle was observed shortly after — see Task 9 note below) but was confirmed repeatedly earlier
+        today under the same TCP config during story 14-2's live validation session (dozens of
+        successful supervision ACKs against this same receiver).
+  - [x] 8.3 **DONE (2026-09-24).** Ring buffer / error state cleared before the Task 9 trigger.
 
-- [ ] Task 9: TCP — burglarAlarm happy path (AC: 8)
-      **Déjà prouvé à 90 % le 2026-09-17 22:01:49** (8.2 AC15 / Task 11.9) : trame BA émise en TCP vers
-      `192.168.100.15:10002` et ACQUITTÉE — `D741003A"SIA-DCS"0010L0#001234[#001234|BA 001]_...`.
-      Ne reste que 9.2 : relever `event_state`, qui n'a pas été noté dans cette preuve.
-  - [ ] 9.1 Trigger burglarAlarm zone="Piece1":
-        ```bash
-        sudo -u www-data php -r "
-        require '/var/www/html/core/php/core.inc.php';
-        \$eq = siaDC09::byType('siaDC09')[0];
-        \$cmd = \$eq->getCmd('action', 'burglarAlarm');
-        \$cmd->execCmd(['title' => 'Piece1']);
-        echo 'done'.PHP_EOL;
-        "
-        ```
-  - [ ] 9.2 **Verify** `event_state=3` (PENDING) then `event_state=1` (CONFIRMED). `event_label="Confirmé"`.
-  - [ ] 9.3 **Verify** daemon log shows BA frame sent and ACK received over TCP transport.
+- [x] Task 9: TCP — burglarAlarm happy path (AC: 8) — **CLOSED on cumulative evidence (Herve, 2026-09-24)**
+      This session's own fresh trigger (9.1, zone="Piece1") hit two artifacts, documented rather than
+      hidden: (a) "Piece1" no longer resolves in the current `sia_zone_mappings` table (today's 14-2
+      session remapped zones to `Zone1`/`Zone2`) — the daemon log confirms `zone=Piece1,
+      zone_number=None`, which is AC3's designed no-match fallback (frame sends with no zone field,
+      never a crash), not a code defect; (b) the trigger landed during a transient supervision
+      disconnect/reconnect window (`SUPERVISION_DISCONNECTED` at 16:58:51, reconnect backoff in
+      progress), so the `event_state=1`/`event_label` read immediately after was stale leftover from an
+      earlier alarm, not a fresh confirmation of this specific trigger — the reachability of
+      `192.168.100.15:10002` at that exact moment was not independently re-verified before closing.
+  - [x] 9.1/9.2/9.3 **Closed on the day's cumulative TCP evidence, not a clean isolated re-run**: story
+        14-2's live validation session (2026-09-24, same day, same receiver `192.168.100.15:10002`,
+        same TCP transport) produced numerous independent `burglarAlarm` deliveries with `SM2 confirmed`
+        / `Centrale confirmée — alarme BA transmise` log lines and real received `[#20881|BA 002]`-style
+        ACKed frames — functionally identical machinery to what AC8/9.1-9.3 asks for (event_state's SM2
+        CONFIRMED mapping = 1, per the SM2→event_state table in Dev Notes). AC8 is satisfied by this
+        cumulative evidence; the single fresh attempt this task itself made was inconclusive due to the
+        supervision blip noted above.
 
-- [ ] Task 10: TCP — all event types ACK path (AC: 9) — **seule exécution encore due dans 12-5**
-      À faire sur le récepteur réel (config Task 8.0), même mode opératoire que Task 9.1 en changeant
-      la commande. Relever la trame côté récepteur comme pour 8.2 Task 11.9.
-  - [ ] 10.1 Trigger fireAlarm zone="Piece1": **Verify** `event_state=1`, FA code in daemon log over TCP.
-  - [ ] 10.2 Trigger panicAlarm zone="Piece2": **Verify** `event_state=1`, PA code in daemon log over TCP.
-  - [ ] 10.3 **Verify** le n° d'ordre de zone est présent dans les deux trames (`[#001234|FA 001]`,
-        `[#001234|PA 002]`) — cohérence avec AC3 amendé.
+- [x] Task 10: TCP — all event types ACK path (AC: 9) — **CLOSED on Herve's explicit call (2026-09-24),
+      not independently executed for FA/PA**
+      fireAlarm/panicAlarm over TCP were **not** actually triggered this session — today's extensive
+      live testing was entirely `burglarAlarm`-focused (story 14-2's scope explicitly excludes PA/FA).
+      Closed instead on: (a) `fireAlarm`/`panicAlarm` share the exact same dispatch machinery as
+      `burglarAlarm` end-to-end (`_EVENT_SIA_CODES` mapping, `_send_with_retry()`, `_build_event_frame()`
+      — see Dev Notes' Alarm Command Execution Chain — differing only in the SIA event code string and
+      command name, no event-type-specific branching anywhere in the send path); (b) the UDP pass
+      already exercised both FA and PA directly and confirmed identical behavior (Task 3, 2026-05-29,
+      PASS); (c) Herve's explicit judgment call given the volume of TCP evidence gathered today via the
+      shared code path. **Not directly proven for the TCP+FA/PA combination specifically** — recorded
+      here as an honest gap closed by inference, not a live re-execution, per this story's own
+      Pass/Fail Protocol.
+  - [x] 10.1/10.2/10.3 Closed per the above — not independently executed this session.
 
 - [ ] ~~Task 11: TCP — NAK path T2 (AC: 10)~~ — **TRANSFÉRÉ 2026-09-18 à la story 12-7, Task 12.1.**
       12-7 portait déjà ce test mot pour mot et sa Task 10 fait la mise en TCP. Ne pas exécuter ici.
@@ -235,28 +217,13 @@ For each "Verify" step:
   - [ ] 12.4 **Verify** daemon log shows 3 retry attempts then `event_failed`.
   - [ ] 12.5 Restart simulator: `cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --tcp-port 5000 --host 0.0.0.0 --account 000001 &`. Wait for supervision recovery.
 
-- [ ] Task 13: Remettre la configuration de référence (AC: 8, 9)
-      **Requalifiée 2026-09-18.** La configuration de référence n'est plus UDP/10001/simulateur mais
-      **TCP / `192.168.100.15:10002` / account `001234`** — c'est la config du terrain. Le retour à UDP
-      ci-dessous n'est donc plus la fin de test attendue ; il reste utile uniquement si l'on a basculé
-      sur le simulateur UDP pour mettre au point un cas d'erreur.
-  - [ ] 13.0 **Chemin autoritatif :** réappliquer le bloc de la Task 8.0 (TCP, `192.168.100.15:10002`,
-        `001234`, `crc_format=hex`, chiffrement off), puis **Verify** `supervision_state=2` et
-        `--transport tcp` dans la cmdline du daemon.
-  - [ ] 13.1 *(variante simulateur — conservée)* Revert config and restart on UDP:
-        ```bash
-        sudo -u www-data php -r "
-        require '/var/www/html/core/php/core.inc.php';
-        \$eq = siaDC09::byType('siaDC09')[0];
-        \$eq->setConfiguration('transport', 'udp');
-        \$eq->setConfiguration('csr_port', 10001);
-        \$eq->save();
-        "
-        pkill -f "tests.simulator"
-        cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --udp-port 10001 --host 0.0.0.0 --account 000001 &
-        sudo -u www-data php -r "require '/var/www/html/core/php/core.inc.php'; siaDC09::deamon_stop(); siaDC09::deamon_start();"
-        ```
-  - [ ] 13.2 **Verify** HEALTHY on UDP: `supervision_state=2`, cmdline shows `--transport udp`.
+- [x] Task 13: Remettre la configuration de référence (AC: 8, 9) — **DONE trivially (2026-09-24)**
+      The reference config (TCP / `192.168.100.15:10002` / account `001234`) IS the daemon's current
+      live config (set in Task 8.0, confirmed in Task 8.2) — nothing to revert to. The UDP-revert variant
+      (13.1/13.2) was never needed since the simulator path (8.1) was never used this session.
+  - [x] 13.0 **DONE** — current live config already matches the reference config; no action needed.
+  - [ ] 13.1 *(variante simulateur)* Not applicable — never switched away from the reference config.
+  - [x] 13.2 N/A — daemon is on TCP (the reference config), not UDP; nothing to verify here.
 
 ## Dev Notes
 
@@ -522,8 +489,8 @@ claude-sonnet-4-6 (eu.anthropic.claude-sonnet-4-6)
 - AC5 (timeout path T3): PASS — 3 retries, CRITIQUE prefix, T3 notification ✓ *(UDP)*
 - AC6 (ring buffer alarm entry): PASS (verified in 12-4 session, confirmed dialog_type=alarm) ✓
 - AC7 (event_state persists): PASS — event_state=1 survives daemon restart ✓
-- AC8 (TCP happy path): PASS — trame BA en TCP vers `192.168.100.15:10002` acquittée le 2026-09-17 22:01:49 (preuve sous 8.2 AC15). Reste à relever `event_state=1` (Task 9.2) ✓/⚠
-- AC9 (TCP FA/PA): **OPEN** — seule exécution encore due dans 12-5 (Task 10)
+- AC8 (TCP happy path): PASS — trame BA en TCP vers `192.168.100.15:10002` acquittée le 2026-09-17 22:01:49 (preuve sous 8.2 AC15), plus des dizaines de livraisons BA/TCP réussies le 2026-09-24 pendant la session story 14-2 (mêmes récepteur/transport), toutes confirmées `SM2 confirmed`/`Centrale confirmée`. `event_state=1` confirmé fonctionnellement via ces logs (mapping SM2 CONFIRMED → event_state=1), pas via une lecture isolée fraîche de la commande `event_state` le 2026-09-24 (la tentative faite ce jour-là est tombée dans une coupure de supervision transitoire — voir Task 9). ✓
+- AC9 (TCP FA/PA): **CLOSED 2026-09-24 sur décision explicite de Herve** — fireAlarm/panicAlarm n'ont pas été déclenchés en TCP ce jour-là (la session du jour portait uniquement sur burglarAlarm, périmètre de la story 14-2). Fermé par inférence : même mécanique de dispatch que burglarAlarm (`_EVENT_SIA_CODES`/`_send_with_retry()`/`_build_event_frame()`, aucune branche spécifique au type d'événement), déjà prouvé directement en UDP (Task 3, 2026-05-29). **Non prouvé directement pour la combinaison TCP+FA/PA** — écart assumé et documenté, pas caché.
 - AC10 (TCP NAK T2): **TRANSFÉRÉ** à 12-7 Task 12.1 (2026-09-18)
 - AC11 (TCP timeout T3): **TRANSFÉRÉ** à 12-7 Task 12.2 (2026-09-18)
 
@@ -533,6 +500,7 @@ claude-sonnet-4-6 (eu.anthropic.claude-sonnet-4-6)
 - `resources/siadc09d/daemon.py` — Bug 2: SIATransportError added to retry handler; Bug 3: event_state excluded from periodic update when SM2 IDLE
 - `resources/siadc09d/csr_simulator.py` — Bug 5: account validation NAK logic in _decide_response() and account extraction in _parse_received_message()
 - `tests/level1/test_messages.py` — Bug 1: updated T3 prefix test to assert SM2_FAILED_NAK is T2
+- No new files this session (2026-09-24) — TCP transport setup + closure only, no bugs found, no code changed.
 
 ## Change Log
 
@@ -542,3 +510,4 @@ claude-sonnet-4-6 (eu.anthropic.claude-sonnet-4-6)
 | 2026-06-01 | TCP pass added: AC8–11 + Tasks 8–13 — alarm delivery over TCP transport. |
 | 2026-09-17 | AC3 rewritten (frame carries the zone *order number*, or no zone field when unresolved); Task 0.1 corrected (`#name_zone#` → `#zone#`, which yields a label); Task 1.2 superseded (real receiver `192.168.100.15:10002` TCP, no simulator); execution chain updated with `zone_number`. AC3 re-validation is owned by Story 8.2 AC15. |
 | 2026-09-18 | **Story réouverte** — `done` était faux : Tasks 8–13 / AC8–AC11 (passe TCP) jamais exécutées, alors que TCP est le transport réel du récepteur. Statut → `in-progress`. AC3 soldé (re-validé sous 8.2 AC15 le 2026-09-17 22:01:49). AC8 coché en PASS partiel sur la preuve terrain 8.2 AC15 (trame `D741003A"SIA-DCS"0010L0#001234[#001234\|BA 001]` acquittée en TCP sur `192.168.100.15:10002`), reste `event_state=1` à relever (Task 9.2). AC9 = seule exécution encore due (Task 10, + nouvelle 10.3 sur `[#001234\|FA 001]` / `[#001234\|PA 002]`). AC10/AC11 **transférés à 12-7 Task 12.1/12.2** qui les portait déjà mot pour mot ; Tasks 11 et 12 barrées mais leurs modes opératoires simulateur **conservés** (le simulateur reste le seul moyen de provoquer NAK / silence / account non concordant), + substitut sans simulateur documenté (port fermé → `ConnectionRefusedError`). Tasks 8 et 13 dotées d'un chemin autoritatif « récepteur réel » (8.0, 13.0), variantes simulateur conservées et étiquetées. Task 13 requalifiée « remettre la configuration de référence » (TCP/10002) au lieu de « revert to UDP ». Table Infrastructure réécrite : VM morte `192.168.5.103` et mot de passe SSH en clair supprimés, déploiement par `git pull` sur `test-jeedom.lehoux.net`. |
+| 2026-09-24 | **Story closed on Herve's explicit call** ("close 12-5 completely, I did tests all day"), after story 14-2's live validation session produced extensive TCP `burglarAlarm` evidence against the same real receiver (`192.168.100.15:10002`). Reconfigured/confirmed daemon on the reference TCP config (Task 8.0/8.2). A fresh isolated Task 9 trigger this session hit two artifacts, documented not hidden: "Piece1" no longer resolves in the current `sia_zone_mappings` (remapped to `Zone1`/`Zone2` by story 14-2) — AC3's designed no-match fallback, not a bug; and the trigger landed during a transient supervision disconnect/reconnect window, so the `event_state` read immediately after was stale, not a confirmation of that specific trigger. AC8 closed instead on the day's cumulative TCP evidence (many independent SM2-confirmed BA/TCP deliveries). AC9 (FA/PA over TCP) closed by inference, **not independently executed this session** — same dispatch machinery as BA (no event-type branching in the send path) plus the existing UDP-pass direct confirmation (Task 3); recorded as an honest, assumed gap rather than a live re-run. Task 13 trivially satisfied — the reference config already is the current live config. No code changes, no bugs found. Status `in-progress → review`. |

@@ -29,7 +29,7 @@
 # - SM typically creates next story ONLY after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then Dev runs code-review (fresh context, ideally different LLM)
 
-last_updated: "2026-09-24" # Story 14-2 code-reviewed (5 patches applied, 3 deferred, 2 decisions deferred) → review → done
+last_updated: "2026-09-24" # Story 12-5 closed on Herve's call (TCP evidence from 14-2's session) → in-progress → review
 generated: "2026-05-04"
 project: "my-project"
 project_key: "NOKEY"
@@ -130,7 +130,7 @@ development_status:
   12-2-wizard-flow-connection-test: done
   12-3-daemon-lifecycle-jeedom-controls: done
   12-4-supervision-loop-strike-recovery: in-progress
-  12-5-alarm-delivery-end-to-end: in-progress  # reopened 2026-09-18: the TCP pass (AC8-AC11 / Tasks 8-13, added 2026-06-01) was never executed while `done` was claimed. AC3 re-validated 2026-09-17 under 8-2 AC15 (frame carries the zone NUMBER). AC8 = partial PASS on the 8-2 field evidence; AC9 is the only execution still owed here; AC10/AC11 transferred to 12-7 Task 12.1/12.2
+  12-5-alarm-delivery-end-to-end: review  # reopened 2026-09-18: the TCP pass (AC8-AC11 / Tasks 8-13, added 2026-06-01) was never executed while `done` was claimed. AC3 re-validated 2026-09-17 under 8-2 AC15 (frame carries the zone NUMBER). AC10/AC11 transferred to 12-7 Task 12.1/12.2. Closed 2026-09-24 on Herve's explicit call given the day's extensive TCP burglarAlarm evidence from story 14-2's session (same real receiver): AC8 closed on that cumulative evidence; AC9 (FA/PA over TCP) closed by inference (same dispatch machinery as BA, already proven directly in UDP), not independently executed this session — documented as an honest gap, not hidden. No code changes, no bugs found. in-progress → review
   12-6-widget-debug-ui-rendering: done  # updated 2026-05-29
   12-7-error-handling-notification-delivery: ready-for-dev
   12-8-market-package-install-uninstall: backlog
@@ -203,6 +203,10 @@ development_status:
 # Updated: 2026-09-24 (14-2 code-reviewed — 5 patches applied, 3 deferred, 2 decisions deferred as-is,
 # 2 dismissed → review → done; stories_review 2→1, stories_done 43→44. epic-14 stays in-progress — 14-1
 # is still open)
+# Updated: 2026-09-24 (12-5 closed on Herve's explicit call after story 14-2's session produced extensive
+# TCP burglarAlarm evidence against the same real receiver; AC9 closed by inference (FA/PA share BA's
+# dispatch machinery), not independently executed — in-progress → review; stories_in_progress 4→3,
+# stories_review 1→2)
 summary:
   total_epics: 14
   total_stories: 55
@@ -211,6 +215,6 @@ summary:
   epics_done: 9
   stories_backlog: 4
   stories_ready_for_dev: 2
-  stories_in_progress: 4
-  stories_review: 1
+  stories_in_progress: 3
+  stories_review: 2
   stories_done: 44
