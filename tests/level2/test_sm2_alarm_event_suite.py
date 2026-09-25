@@ -212,17 +212,33 @@ class TestSM2StateHelpers:
         # Confirmed alarm names the event and the central's acceptance
         assert mock_daemon._event_label_from_sm2() == "Intrusion (zone 3) : Confirmée par la centrale"
 
-    def test_event_label_from_sm2_failed(self, mock_daemon):
-        """Test that FAILED names the alarm and reports central refusal.
+    def test_event_label_from_sm2_failed_nak(self, mock_daemon):
+        """Test that FAILED with reason='nak' names the alarm and reports central refusal.
 
         - Type/zone prefix identifies the alarm in progress
-        - State clause is "Refusé par la centrale"
+        - An explicit CSR NAK gets the "Refusé par la centrale" (rejected) wording
         """
         mock_daemon._sm2_state = SM2State.FAILED
         mock_daemon._event_sia_code = "FA"
         mock_daemon._event_zone = "2"
-        # FA → "incendie" → "Incendie"; failed alarm reports refusal
+        mock_daemon._event_failure_reason = "nak"
+        # FA → "incendie" → "Incendie"; explicit NAK reports refusal
         assert mock_daemon._event_label_from_sm2() == "Incendie (zone 2) : Refusé par la centrale"
+
+    def test_event_label_from_sm2_failed_no_response(self, mock_daemon):
+        """Test that FAILED with reason='no_response' (or unset) reports no reply, not refusal.
+
+        - Type/zone prefix identifies the alarm in progress
+        - Timeout/transport/protocol failures get the "Sans réponse de la centrale" wording,
+          distinct from an explicit CSR rejection (real code review finding: conflating the
+          two misrepresents "no reply at all" as if the panel had actively refused the event)
+        """
+        mock_daemon._sm2_state = SM2State.FAILED
+        mock_daemon._event_sia_code = "FA"
+        mock_daemon._event_zone = "2"
+        mock_daemon._event_failure_reason = "no_response"
+        # FA → "incendie" → "Incendie"; no reply reports absence of response, not refusal
+        assert mock_daemon._event_label_from_sm2() == "Incendie (zone 2) : Sans réponse de la centrale"
 
 
 # ===== Task 3: Alarm Retry Logic Tests =====

@@ -360,12 +360,13 @@ class TestInfoCommandPayloads:
 
     @pytest.mark.asyncio
     async def test_update_info_on_max_retries_failed(self, daemon):
-        """Test: _update_info_commands called with event_state=2 + refused label on FAILED.
+        """Test: _update_info_commands called with event_state=2 + no-response label on FAILED.
 
         Expected result:
         - _update_info_commands called after final timeout failure
         - Payload has event_state=2 (FAILED) and
-          event_label="Panique (zone Bureau) : Refusé par la centrale"
+          event_label="Panique (zone Bureau) : Sans réponse de la centrale" — a timeout is
+          "no reply at all", not an explicit CSR rejection, so it must not say "Refusé"
         """
         event = EventItem(sia_code="PA", zone="Bureau", timestamp="12:30:45,04-13-2026")
         daemon._send_raw = AsyncMock(return_value=SIATransportResult(status="timeout", raw_nak=None))
@@ -382,8 +383,8 @@ class TestInfoCommandPayloads:
         assert payload.get('event_state') == 2, (
             f"Expected event_state=2 (FAILED), got {payload.get('event_state')}"
         )
-        assert payload.get('event_label') == "Panique (zone Bureau) : Refusé par la centrale", (
-            f"Expected refused label, got {payload.get('event_label')}"
+        assert payload.get('event_label') == "Panique (zone Bureau) : Sans réponse de la centrale", (
+            f"Expected no-response label, got {payload.get('event_label')}"
         )
 
 

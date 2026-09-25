@@ -134,8 +134,19 @@ The `supervision_label` string distinguishes states within the same badge color 
 
 ## Task 6.3 — `toHtml()` PHP implementation
 
-Added to `siaDC09.class.php`. Uses `$cmd->getValue()` (last stored value from DB)
-rather than `execCmd()` to avoid re-querying the device.
+Added to `siaDC09.class.php`. Uses `$cmd->execCmd()`, NOT `getValue()`.
+
+> **Correction (2026-09-25, story 10-3 code review):** this section previously claimed
+> `getValue()` was correct and `execCmd()` should be avoided — that was verified WRONG
+> against Jeedom core source (`cmd.class.php`): `cmd::event()`, which the daemon's
+> `checkAndUpdateCmd()` calls on every push, only writes to the cmd *cache*
+> (`setCache()`); it never touches the `value` column `getValue()` reads. For a
+> non-historized INFO command, `getValue()` is frozen at cmd-creation time forever.
+> `execCmd()` (for `type == 'info'`) reads exactly the cache `event()` writes — it is
+> the correct live accessor, with no disabled-equipment-throw risk for `type == 'info'`
+> (that guard only applies to `type == 'action'`). This caused a real live bug (frozen
+> badge on a freshly created equipment) once already — see memory
+> `jeedom-info-cmd-execcmd-vs-getvalue`. Do not revert this a third time.
 
 ```php
 public function toHtml($_version = 'dashboard') {
@@ -149,9 +160,9 @@ public function toHtml($_version = 'dashboard') {
     $supervisionLabelCmd = $this->getCmd('info', 'supervision_label');
     $lastEventStatusCmd  = $this->getCmd('info', 'event_label');
 
-    $stateValue = ($supervisionStateCmd) ? intval($supervisionStateCmd->getValue()) : null;
-    $labelValue = ($supervisionLabelCmd) ? $supervisionLabelCmd->getValue()          : '';
-    $eventValue = ($lastEventStatusCmd)  ? $lastEventStatusCmd->getValue()           : '';
+    $stateValue = ($supervisionStateCmd) ? intval($supervisionStateCmd->execCmd()) : null;
+    $labelValue = ($supervisionLabelCmd) ? $supervisionLabelCmd->execCmd()          : '';
+    $eventValue = ($lastEventStatusCmd)  ? $lastEventStatusCmd->execCmd()           : '';
 
     // Note: stale detection is NOT performed here (see Task 6.4).
     // PHP-side stale detection via collectDate is unreachable when preToHtml()
@@ -196,10 +207,12 @@ public function toHtml($_version = 'dashboard') {
 }
 ```
 
-**`$cmd->getValue()` vs `execCmd()`:** For INFO commands, `getValue()` returns the last
-value stored in the DB by `checkAndUpdateCmd()`. `execCmd()` goes through the full
-execution path. `getValue()` is the correct choice for display — it reads exactly what
-`checkAndUpdateCmd()` wrote, without side effects.
+**`$cmd->getValue()` vs `execCmd()`:** for a non-historized INFO command, `getValue()` is
+frozen at cmd-creation time forever — `cmd::event()` (called by `checkAndUpdateCmd()` on
+every daemon push) only writes the cache, never the `value` column `getValue()` reads.
+`execCmd()` (for `type == 'info'`) reads exactly that cache, with no side effects and no
+disabled-equipment-throw risk (that guard is `type == 'action'`-only) — it is the correct
+choice for display. See memory `jeedom-info-cmd-execcmd-vs-getvalue`.
 
 ---
 
@@ -366,7 +379,7 @@ All 7 commands must have `isVisible = 0` (already noted in Task 2.4; confirmed h
 | HTML structure | Bootstrap 3 `panel` + `panel-body` | Jeedom convention; consistent with other plugin tiles |
 | Badge color | Bootstrap 3 `text-success/warning/danger/muted` | Framework-native, no extra CSS file needed |
 | State source | `supervision_state` + `supervision_label` INFO commands | All SM1 states (including STOPPED) are encoded in these commands — no separate daemon PID check needed |
-| Value read method | `$cmd->getValue()` | Last DB-stored value; correct for display; no re-query side effects |
+| Value read method | `$cmd->execCmd()` | Reads the cache `checkAndUpdateCmd()` writes on every push; `getValue()` is frozen forever for non-historized INFO commands (see correction in Task 6.3) |
 | Stale detection | JS-side, one-shot after tile render via `jeedom.cmd.getStatsByEqLogicId` | PHP stale check in `toHtml()` is unreachable when `preToHtml()` serves cached HTML (zombie scenario) |
 | Stale threshold | `3 × supervision_interval` | Consistent with cron5 watchdog threshold |
 | Live update | Standard Jeedom `cmd::update` → `toHtml()` re-call | No polling; instant update on SM1/SM2 transition |

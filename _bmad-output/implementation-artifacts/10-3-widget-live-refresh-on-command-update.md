@@ -3,14 +3,14 @@ story_id: "10-3"
 story_key: "10-3-widget-live-refresh-on-command-update"
 epic_id: "epic-10"
 epic_name: "Dashboard Widget"
-status: "review"
+status: "done"
 created: "2026-09-18"
 analysis_completed: "2026-09-18"
 ---
 
 # Story 10.3: Widget Live Refresh on Command Update
 
-Status: review
+Status: done
 
 ## Story
 
@@ -138,7 +138,9 @@ one root cause:
         line (both templates) with the type/zone inline in the state line:
         IDLE → "Inactif"; PENDING → "{Type} (zone {zone}) : En cours";
         CONFIRMED → "{Type} (zone {zone}) : Confirmée par la centrale";
-        FAILED → "{Type} (zone {zone}) : Refusé par la centrale".
+        FAILED → "{Type} (zone {zone}) : Refusé par la centrale" (explicit CSR NAK) or
+        "{Type} (zone {zone}) : Sans réponse de la centrale" (timeout/transport/protocol
+        error/no-network) — split 2026-09-25, see Review Findings.
   - [x] 7.3 Derive {Type} from `event_type_fr()` (BA→intrusion, FA→incendie, PA→panique,
         capitalised first letter; fallback "Alarme") and {zone} from `self._event_zone`
         (zone clause omitted when no zone). Implemented `_event_context_prefix()` and
@@ -216,7 +218,7 @@ per info command (ids emitted by `toHtml()` as `#supervision_state_id#`,
 The earlier `cmdValue`/hidden-mirror/`MutationObserver` approach was removed — it was built
 on the non-existent in-place-write assumption and could never have fired in production.
 
-### Value-source decision (Task 3, AC4): `execCmd()` → `getValue()`
+### Value-source decision (Task 3, AC4): `execCmd()` (net outcome, after a reverted attempt to switch to `getValue()`)
 
 Reverted `siaDC09.class.php` to `getValue()` for all three INFO reads. **Rationale,
 reconciling 10-2 review F1 against `widget-design.md:199-202`:** 10-2 F1 switched to
@@ -246,6 +248,13 @@ here rather than silently flipped.
 > `getDiagnosticData()` (story 9-x's Diagnostic tab), which is how this was caught —
 > field-confirmed permanently frozen badges on a freshly created equipment with an actively
 > running daemon. Task 3/AC4 needs re-validation on the live host; not yet done.
+>
+> **2026-09-25 code-review pass:** confirmed this correction is still the current, final
+> state (commit `d3819c0`; `toHtml()` on HEAD reads `execCmd()` for all three INFO
+> commands, no leftover `getValue()`). This story's own File List and title above
+> originally kept describing the superseded `getValue()` direction as final — corrected
+> below to match. See memory `jeedom-info-cmd-execcmd-vs-getvalue`. AC4's live
+> re-validation on the host is still open (Task 6 only covers AC1/2/3/5).
 
 Added placeholders `#supervision_state_id#`, `#supervision_label_id#`, `#event_label_id#`
 (from `$cmd->getId()`) so the inline script can register a live-update callback per command.
@@ -319,25 +328,85 @@ fresh 30s keeps server badge), and AC5 (dashboard/mobile byte-identical). **10 p
 |------|--------|
 | `core/template/dashboard/siaDC09.html` | Inline `<script>` registers a `jeedom.cmd.addUpdateFunction(cmd_id, fn)` callback per info command (label → `.siaDC09-label` text, event → `.siaDC09-event` text, state → badge colour via `badgeClassForState` + stale-title clear); labels render as plain `<span>`s; kept the 10-2 one-shot stale check. |
 | `core/template/mobile/siaDC09.html` | Byte-for-byte copy of the dashboard template. |
-| `core/class/siaDC09.class.php` | `toHtml()`: `execCmd()` → `getValue()` (reverts 10-2 F1); added `#supervision_state_id#`, `#supervision_label_id#`, `#event_label_id#` placeholders (from `$cmd->getId()`) for callback registration. |
+| `core/class/siaDC09.class.php` | `toHtml()`: net outcome is `execCmd()` for all three INFO reads (an in-story attempt to switch to `getValue()` was proven wrong against Jeedom core and reverted by `d3819c0`, keeping 10-2 F1's original choice — see Correction note below). Added `#supervision_state_id#`, `#supervision_label_id#`, `#event_label_id#` placeholders (from `$cmd->getId()`) for callback registration. |
 | `tests/fixtures/widget_dom_harness.js` | New jsdom harness rendering the real template; stubs `jeedom.cmd` with `addUpdateFunction`/`refreshValue` (core/js/cmd.class.js semantics), drives pushes through `refreshValue`, and reports registered cmd_ids. |
 | `tests/level1/test_widget_live_refresh.py` | New — 10 DOM tests for callback registration + AC1/AC2/AC3/AC5. Amendment: event push placeholder/value updated to the new SM2 vocabulary ("Inactif" → "Intrusion (zone 3) : Confirmée par la centrale"). |
 | `resources/siadc09d/messages.py` | Amendment: `SM1_*_FR` labels (lines 37-42) rewritten to plain-French connection wording ("Connexion OK", "Connexion dégradée ({}/3)", "Connexion perdue", …). |
-| `resources/siadc09d/daemon.py` | Amendment: imported `event_type_fr`; added `_event_context_prefix()` building "{Type} (zone {zone})"; rewrote `_event_label_from_sm2()` for IDLE/PENDING/CONFIRMED/FAILED; `_send_with_retry()` records `_event_sia_code`/`_event_zone`; updated `_supervision_label()` docstring/comments. |
+| `resources/siadc09d/daemon.py` | Amendment: imported `event_type_fr`; added `_event_context_prefix()` building "{Type} (zone {zone})"; rewrote `_event_label_from_sm2()` for IDLE/PENDING/CONFIRMED/FAILED; `_send_with_retry()` records `_event_sia_code`/`_event_zone`; updated `_supervision_label()` docstring/comments. Code review (2026-09-25): added `_event_failure_reason` (`'nak'` \| `'no_response'` \| `None`) so FAILED splits into "Refusé par la centrale" (explicit CSR NAK) vs "Sans réponse de la centrale" (timeout/transport/protocol error/no-network) — set at every `SM2State.FAILED` transition. |
 | `core/template/dashboard/siaDC09.html` | Amendment: added an "Alarme" heading `<div>` above the event line. |
 | `core/template/mobile/siaDC09.html` | Amendment: identical "Alarme" heading (byte-for-byte with dashboard). |
 | `tests/level2/test_sm2_alarm_event_suite.py` | Amendment: SM2 label helper tests + CONFIRMED persistence test updated to the new vocabulary. |
 | `tests/level2/test_supervision_loop_integration.py` | Amendment: SM1 literals bulk-updated; DEGRADED-strike-2 CONFIRMED test updated. |
 | `tests/level2/test_sm1_extended_suite.py` | Amendment: tc15/tc16/tc22 docstrings + asserts updated to the new SM1 labels. |
-| `tests/level2/test_sm2_extended_coverage.py` | Amendment: CONFIRMED (BA/Salon) and max-retries FAILED (PA/Bureau) asserts + docstrings updated to the new SM2 labels. |
+| `tests/level2/test_sm2_extended_coverage.py` | Amendment: CONFIRMED (BA/Salon) and max-retries FAILED (PA/Bureau) asserts + docstrings updated to the new SM2 labels. Code review (2026-09-25): max-retries FAILED assert corrected to "Sans réponse de la centrale" (timeout, not a NAK). |
 | `tests/level2/test_tcp_reconnect_integration.py` | Amendment: docstrings updated to the new SM1 wording (asserts use constants). |
 | `tests/level2_5/test_callback_schema.py` | Amendment: sample partial-payload labels updated ("Connexion OK", "Intrusion (zone 3) : Confirmée par la centrale"). |
 | `tests/level2_5/test_ipc_integration.py` | Amendment: passthrough `supervision_label` updated to "Connexion OK". |
+| `tests/level2/test_sm2_alarm_event_suite.py` | Code review (2026-09-25): split `test_event_label_from_sm2_failed` into `..._nak` (explicit CSR rejection) and `..._no_response` (timeout/transport/no reply) cases. |
+| `core/template/dashboard/siaDC09.html` | Code review (2026-09-25): guard each `jeedom.cmd.addUpdateFunction()` call against an empty cmd-id (partial/legacy eqLogic missing a command). |
+| `core/template/mobile/siaDC09.html` | Code review (2026-09-25): identical guard, kept byte-for-byte with dashboard. |
+| `docs/design/widget-design.md` | Code review (2026-09-25): corrected the disproven `getValue()`-is-correct claim (Task 6.3 section + comparison table) back to `execCmd()`, matching the story's own Correction note and memory `jeedom-info-cmd-execcmd-vs-getvalue`. |
+
+## Review Findings
+
+Code review (2026-09-25), three parallel adversarial layers (Blind Hunter, Edge Case
+Hunter, Acceptance Auditor) against the diff scoped to this story's own three commits
+(`b7e0ff2`, `04d2fe1`, `3490eee` — excluding an unrelated 7-2 commit interleaved on the
+same branch).
+
+- [x] [Review][Decision] AC4's Dev Agent Record/File List still narrated the superseded
+      `getValue()` direction as final, contradicting the story's own 2026-09-21
+      Correction note and current HEAD code (`execCmd()`, via `d3819c0`). **Resolved:**
+      updated the section title, File List row, and added a 2026-09-25 addendum to the
+      Correction block pointing at this fix.
+- [x] [Review][Decision] Task 6's live-validation PASS (commit `40bb38b`) has no
+      corroborating artifact (log/screenshot) beyond the story-file/sprint-status prose
+      edit — matches the pattern memory `jeedom-ui-validation-over-reflection` warns
+      about. **Resolved:** accepted as-is (trusted, per Herve).
+- [x] [Review][Decision] The FAILED `event_label` wording ("Refusé par la centrale")
+      conflated an explicit CSR NAK with a plain no-response timeout/transport/protocol
+      failure — operationally different facts. **Resolved:** split via a new
+      `self._event_failure_reason` (`'nak'` | `'no_response'`), set at every
+      `SM2State.FAILED` transition in `_send_with_retry()`/`on_message()`; NAK still
+      reads "Refusé par la centrale", everything else reads "Sans réponse de la
+      centrale". Updated/added tests in `test_sm2_alarm_event_suite.py` and
+      `test_sm2_extended_coverage.py`.
+- [x] [Review][Patch] Both templates registered `jeedom.cmd.addUpdateFunction()` with no
+      guard against an empty cmd-id (eqLogic missing a command). **Applied:** guarded
+      each registration behind `if (id) { ... }` in both dashboard and mobile templates
+      (kept byte-identical).
+- [x] [Review][Patch] `docs/design/widget-design.md` (Task 6.3 section + comparison
+      table) still asserted the disproven "`getValue()` is correct" claim that caused
+      the AC4 regression once already. **Applied:** corrected both spots to `execCmd()`
+      with the same rationale as the story's Correction note, referencing memory
+      `jeedom-info-cmd-execcmd-vs-getvalue`.
+- [ ] [Review][Defer] Narrow race: the one-shot stale-check's in-flight `byId` ajax
+      response can, if a live push lands while the request is outstanding, overwrite a
+      just-refreshed badge with stale styling from its pre-push snapshot. Low likelihood
+      (sub-second ajax round trip). Tracked as `deferred-work.md` D-55.
+- [ ] [Review][Defer] `_options.display_value` could theoretically be `undefined` for a
+      plain-text INFO command with no Jeedom display template, which the hand-rolled JS
+      test harness can't catch (it always supplies a full payload). Likely already
+      disproven by Task 6's live run. Tracked as `deferred-work.md` D-56.
+- Dismissed as false positives / already addressed (not tracked further): zone `"0"`
+  falsy-check (`_event_zone` is `str | None` sourced from zone-name text, never `"0"`;
+  even a non-empty `"0"` is truthy in Python); `event_type_fr()` empty-string fallback
+  (unreachable — `_event_sia_code: SiaEventCode = Literal['BA','FA','PA']`);
+  PENDING/`_event_sia_code` ordering leak into IDLE (unconditional overwrite per new
+  alarm + IDLE branch never calls the prefix builder); cmd-id string/numeric mismatch in
+  `addUpdateFunction` (JS object keys always coerce to string); template duplication
+  with no shared source (known 10-2 precedent, enforced by AC5's identity test);
+  NO_NETWORK label dropping "— arrêt" (deliberate Task 7 wording simplification, not a
+  regression); extra test failures in touched files (`test_update_info_commands_full_payload_healthy`,
+  `test_update_info_commands_emits_info_update`) traced to a later, unrelated story
+  (12-5/12-6's IDLE-exclusion change), reproduced as pre-existing via stash-and-compare.
 
 ## Change Log
 
 | Date | Change |
 |------|--------|
+| 2026-09-25 | Code review: AC4 documentation corrected to match current `execCmd()` state (D1); FAILED `event_label` split into NAK ("Refusé") vs no-response ("Sans réponse") (D3, decision); Task 6 live-validation PASS accepted as-is (D2, trusted); patches applied — empty-cmd-id guard in both templates, `widget-design.md` corrected. `python3 -m pytest tests/level1/ tests/level2/ tests/level2_5/` — no new failures beyond the pre-existing baseline (verified via stash-and-compare). `php -l` clean; templates remain byte-identical. |
+| 2026-09-25 | Code review decisions resolved, all patches applied, 2 items deferred (D-55, D-56). Story moved review → done. |
 | 2026-09-18 | Story created from Herve's 2026-09-18 field observations on 12-6 (widget never auto-refreshes; "reste à OK" after SM2 CONFIRMED). |
 | 2026-09-18 | First attempt implemented live refresh via `cmdValue`/`data-cmd_id` bindings + hidden state mirror + `MutationObserver`, on the assumption Jeedom writes pushed values into bound spans in place. |
 | 2026-09-18 | Herve's DevTools test on the host disproved that assumption (no `cmd::update` on `document`, no span write). Reworked to the real mechanism: inline `<script>` registers `jeedom.cmd.addUpdateFunction(cmd_id, fn)` per info command, driven by `jeedom.cmd.refreshValue`. Reverted toHtml to `getValue()`, mirrored to mobile. Harness reworked to stub the real `addUpdateFunction`/`refreshValue` path; 10 tests (added a registration test), all green; level-1 at the known 2-failure baseline. Task 6 (live host UI validation) pending push + Herve's verification. |

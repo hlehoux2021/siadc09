@@ -375,6 +375,10 @@ class SIADaemon(BaseDaemon):
         self._event_sia_code: SiaEventCode | None = None  # Latest event code (BA|FA|PA)
         self._event_zone: str | None = None  # Latest zone from command #zone# tag
         self._event_attempt_count: int = 0  # Track send attempts for current event
+        # Why FAILED was reached, for _event_label_from_sm2()'s wording split:
+        # 'nak' = the CSR explicitly rejected the event; 'no_response' = no answer at
+        # all (timeout/transport/protocol error/loop exhaustion) despite retries.
+        self._event_failure_reason: Literal["nak", "no_response"] | None = None
 
         # Configuration — populated from preset and CLI config
         # Fix #5: account must come from preset (was empty string, causing frame build failures)
@@ -712,11 +716,16 @@ class SIADaemon(BaseDaemon):
             - IDLE → "Inactif" (no alarm received)
             - PENDING → "{Type} (zone {zone}) : En cours"
             - CONFIRMED → "{Type} (zone {zone}) : Confirmée par la centrale"
-            - FAILED → "{Type} (zone {zone}) : Refusé par la centrale"
+            - FAILED, reason='nak' → "{Type} (zone {zone}) : Refusé par la centrale"
+            - FAILED, reason='no_response' (or unset) → "{Type} (zone {zone}) : Sans
+              réponse de la centrale"
 
         The type/zone prefix (built by _event_context_prefix) names the alarm in
         progress so the widget shows which event is being transmitted, not just a
-        bare status word. IDLE has no active event, so it stays "Inactif".
+        bare status word. IDLE has no active event, so it stays "Inactif". FAILED
+        splits on _event_failure_reason: an explicit CSR NAK ("Refusé") and a plain
+        timeout/transport/protocol failure with no reply at all ("Sans réponse") are
+        operationally different facts and must not be conflated in the label.
 
         Reference: daemon-design.md SM2 state → INFO command mapping
         """
@@ -727,7 +736,9 @@ class SIADaemon(BaseDaemon):
         elif self._sm2_state == SM2State.CONFIRMED:
             return f"{self._event_context_prefix()} : Confirmée par la centrale"
         elif self._sm2_state == SM2State.FAILED:
-            return f"{self._event_context_prefix()} : Refusé par la centrale"
+            if self._event_failure_reason == "nak":
+                return f"{self._event_context_prefix()} : Refusé par la centrale"
+            return f"{self._event_context_prefix()} : Sans réponse de la centrale"
         else:
             # Defensive: should not reach here
             return "Inactif"
@@ -1459,6 +1470,7 @@ class SIADaemon(BaseDaemon):
                         )
                     )
                     self._sm2_state = SM2State.FAILED
+                    self._event_failure_reason = "nak"
                     _nak_hex = result['raw_response'].hex() if result.get('raw_response') else None
                     await self._log_sm2_event(
                         "failed_nak",
@@ -1496,6 +1508,7 @@ class SIADaemon(BaseDaemon):
                     else:
                         # Task 3.3: Max retries exhausted - T3 notification
                         self._sm2_state = SM2State.FAILED
+                        self._event_failure_reason = "no_response"
                         await self._log_sm2_event(
                             "failed_max_retries",
                             SM2LogCtx(
@@ -1541,6 +1554,7 @@ class SIADaemon(BaseDaemon):
                     continue
                 else:
                     self._sm2_state = SM2State.FAILED
+                    self._event_failure_reason = "no_response"
                     await self._log_sm2_event(
                         "failed_max_retries",
                         SM2LogCtx(
@@ -1571,6 +1585,7 @@ class SIADaemon(BaseDaemon):
             except (SIAProtocolError, AESEncryptionError) as e:
                 self._logger.error(f"Protocol/transport error in _send_with_retry: {e}")
                 self._sm2_state = SM2State.FAILED
+                self._event_failure_reason = "no_response"
                 await self._log_sm2_event(
                     "failed_max_retries",
                     SM2LogCtx(
@@ -1601,6 +1616,7 @@ class SIADaemon(BaseDaemon):
         # Fallback: loop exhausted without explicit return (defensive — should not reach here
         # under normal flow; all paths above return explicitly)
         self._sm2_state = SM2State.FAILED
+        self._event_failure_reason = "no_response"
         self._notify(
             ErrorCode.EVENT_FAILED,
             EventFailedCtx(
@@ -1909,6 +1925,7 @@ class SIADaemon(BaseDaemon):
 
                     if self._sm1_state == SM1State.NO_NETWORK:
                         self._sm2_state = SM2State.FAILED
+                        self._event_failure_reason = "no_response"
                         self._event_sia_code = event_payload["sia_code"]
                         self._event_zone = event_payload.get("zone")
                         self._notify(

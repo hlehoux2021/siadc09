@@ -67,23 +67,36 @@
     // register its own callbacks or it never updates without a page reload.
     if (typeof jeedom !== 'undefined' && jeedom.cmd && typeof jeedom.cmd.addUpdateFunction === 'function') {
 
+      // Command ids are '' when the eqLogic is missing that command (partial/legacy
+      // config) — never register a callback on an empty id, it would collide with any
+      // other incomplete tile's equally empty registration on the same dashboard.
+      var supervisionLabelId = '#supervision_label_id#';
+      var eventLabelId = '#event_label_id#';
+      var supervisionStateId = '#supervision_state_id#';
+
       // supervision_label: the health text next to the badge.
-      jeedom.cmd.addUpdateFunction('#supervision_label_id#', function(_options) {
-        if (labelEl) labelEl.textContent = _options.display_value;
-      });
+      if (supervisionLabelId) {
+        jeedom.cmd.addUpdateFunction(supervisionLabelId, function(_options) {
+          if (labelEl) labelEl.textContent = _options.display_value;
+        });
+      }
 
       // event_label: the last alarm result line. Directly fixes the "reste à OK"
       // observation — moves to "Confirmé" on its own when the daemon pushes it.
-      jeedom.cmd.addUpdateFunction('#event_label_id#', function(_options) {
-        if (eventEl) eventEl.textContent = _options.display_value;
-      });
+      if (eventLabelId) {
+        jeedom.cmd.addUpdateFunction(eventLabelId, function(_options) {
+          if (eventEl) eventEl.textContent = _options.display_value;
+        });
+      }
 
       // supervision_state: numeric health -> badge color. A live push also proves the
       // tile is fresh, so it clears the stale-grey + tooltip the 10-2 check applied.
-      jeedom.cmd.addUpdateFunction('#supervision_state_id#', function(_options) {
-        setBadgeClass(badgeClassForState(_options.value));
-        if (badge) badge.removeAttribute('title');
-      });
+      if (supervisionStateId) {
+        jeedom.cmd.addUpdateFunction(supervisionStateId, function(_options) {
+          setBadgeClass(badgeClassForState(_options.value));
+          if (badge) badge.removeAttribute('title');
+        });
+      }
     }
 
     // One-shot staleness check (story 10-2): grey the badge + relabel when the last
