@@ -29,7 +29,7 @@
 # - SM typically creates next story ONLY after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then Dev runs code-review (fresh context, ideally different LLM)
 
-last_updated: "2026-09-24" # Story 12-5 closed on Herve's call (TCP evidence from 14-2's session) → in-progress → review
+last_updated: "2026-09-25" # Story 12-4 closed on Herve's call (AC8 on 2026-09-17 field evidence; AC9/AC10 transferred to 12-7) → in-progress → done
 generated: "2026-05-04"
 project: "my-project"
 project_key: "NOKEY"
@@ -110,10 +110,10 @@ development_status:
   epic-9-retrospective: optional
 
   # Epic 10: Dashboard Widget
-  epic-10: in-progress  # reopened 2026-09-18 for the 10-3 live-refresh story (widget never auto-refreshes; field observation on 12-6)
+  epic-10: done  # closed 2026-09-25 after 10-3's code review completed
   10-1-widget-rendering-bootstrap-panel: done
   10-2-widget-staleness-detection-testing: done
-  10-3-widget-live-refresh-on-command-update: review  # 2026-09-18: fix tile not auto-refreshing + "reste à OK" after SM2 CONFIRMED. Task 6 live validation on test-jeedom.lehoux.net PASS (confirmed by Herve 2026-09-24): badge/label live refresh, event line off "OK" unaided, stale-grey after >3×interval stop. All tasks done, moved in-progress → review
+  10-3-widget-live-refresh-on-command-update: done  # 2026-09-18: fix tile not auto-refreshing + "reste à OK" after SM2 CONFIRMED. Task 6 live validation on test-jeedom.lehoux.net PASS (confirmed by Herve 2026-09-24): badge/label live refresh, event line off "OK" unaided, stale-grey after >3×interval stop. Code-reviewed 2026-09-25: AC4's Dev Agent Record/File List corrected to match the actual final execCmd() state (was still narrating the superseded getValue() direction); FAILED event_label split into _event_failure_reason 'nak' ("Refusé par la centrale") vs 'no_response' ("Sans réponse de la centrale"); 2 patches applied (empty-cmd-id guard in both templates, widget-design.md corrected back to execCmd()); 2 deferred (D-55 stale-check/live-push race, D-56 display_value-undefined risk). 0 new regressions. review → done
   epic-10-retrospective: optional
 
   # Epic 11: End-to-End Testing & Market Preparation
@@ -129,7 +129,7 @@ development_status:
   12-1-manual-plugin-installation-dependency-setup: done
   12-2-wizard-flow-connection-test: done
   12-3-daemon-lifecycle-jeedom-controls: done
-  12-4-supervision-loop-strike-recovery: in-progress
+  12-4-supervision-loop-strike-recovery: done  # closed 2026-09-25 on Herve's explicit call: front-matter's false `done` claim corrected (Tasks 6-10/AC8-AC10 TCP pass had never executed) then re-closed honestly. AC8 (Tasks 6-7, TCP strike escalation -> TCP_RECONNECTING) closed on the 2026-09-17 field evidence already on record (the VM session that surfaced TF-1..TF-4, fixed under 7-2). AC9/AC10 (Tasks 8-9, reconnect recovery + self-stop) transferred to 12-7 Task 10/11 (AC11) as a genuinely open gap -- 12-7 hasn't executed it either. No code changes.
   12-5-alarm-delivery-end-to-end: review  # reopened 2026-09-18: the TCP pass (AC8-AC11 / Tasks 8-13, added 2026-06-01) was never executed while `done` was claimed. AC3 re-validated 2026-09-17 under 8-2 AC15 (frame carries the zone NUMBER). AC10/AC11 transferred to 12-7 Task 12.1/12.2. Closed 2026-09-24 on Herve's explicit call given the day's extensive TCP burglarAlarm evidence from story 14-2's session (same real receiver): AC8 closed on that cumulative evidence; AC9 (FA/PA over TCP) closed by inference (same dispatch machinery as BA, already proven directly in UDP), not independently executed this session — documented as an honest gap, not hidden. No code changes, no bugs found. in-progress → review
   12-6-widget-debug-ui-rendering: done  # updated 2026-05-29
   12-7-error-handling-notification-delivery: ready-for-dev
@@ -207,14 +207,19 @@ development_status:
 # TCP burglarAlarm evidence against the same real receiver; AC9 closed by inference (FA/PA share BA's
 # dispatch machinery), not independently executed — in-progress → review; stories_in_progress 4→3,
 # stories_review 1→2)
+# Updated: 2026-09-25 (10-3 code-reviewed and closed → review → done; epic-10 (10-1/10-2/10-3 all done)
+# → closed: stories_review 2→1, stories_done 44→45, epics_in_progress 5→4, epics_done 9→10)
+# Updated: 2026-09-25 (12-4 closed on Herve's explicit call, AC8 on 2026-09-17 field evidence,
+# AC9/AC10 transferred to 12-7 → in-progress → done; epic-12 stays in-progress — 12-5/12-7/12-8 still open;
+# stories_in_progress 3→2, stories_done 45→46)
 summary:
   total_epics: 14
   total_stories: 55
   epics_backlog: 0
-  epics_in_progress: 5
-  epics_done: 9
+  epics_in_progress: 4
+  epics_done: 10
   stories_backlog: 4
   stories_ready_for_dev: 2
-  stories_in_progress: 3
-  stories_review: 2
-  stories_done: 44
+  stories_in_progress: 2
+  stories_review: 1
+  stories_done: 46

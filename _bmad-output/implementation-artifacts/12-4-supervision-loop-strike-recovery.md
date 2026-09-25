@@ -8,6 +8,19 @@ created: "2026-05-28"
 analysis_completed: "2026-05-28"
 ---
 
+> **Closure note (2026-09-25):** the header above claimed `done` while sprint-status.yaml
+> correctly tracked this as `in-progress` — Tasks 6–10 (TCP pass, AC8–AC10, added
+> 2026-06-01) had never actually been executed. Resolved today: AC8 (Tasks 6–7) is
+> closed on real field evidence — the 2026-09-17 supervision-loss test run under this
+> very story's own VM session (see Change Log) directly observed strike escalation into
+> TCP_RECONNECTING and on to NO_NETWORK, surfacing TF-1/TF-2 (fixed under 7-2). AC9/AC10
+> (Tasks 8–9: successful mid-reconnect recovery, and the self-stop → watchdog-restart
+> hand-off) were never live-exercised — the self-stop mechanism didn't even exist yet at
+> the time of that field test (wired 2026-09-18 under 7-2's AC15–AC17 amendment) — and
+> are transferred to story 12-7 Task 10/11 (AC11), which itself has not been executed yet
+> (`ready-for-dev`). Documented as an honest open gap, not fabricated as passed, matching
+> how 12-5's AC10/AC11 were transferred to the same destination.
+
 # Story 12.4: Supervision Loop & Strike Recovery
 
 Status: done
@@ -89,7 +102,10 @@ For each "Verify" step:
   - [x] 5.4 Unfreeze daemon: `kill -CONT 147464` — supervision recovers to HEALTHY
   - [x] 5.5 Restore supervision_interval=60, daemon resumes HEALTHY state confirmed
 
-- [ ] Task 6: TCP transport setup and stable supervision (AC: 8)
+- [x] ~~Task 6: TCP transport setup and stable supervision (AC: 8)~~ — **CLOSED 2026-09-25
+      on 2026-09-17 field evidence** (the supervision-loss test run under this story's own
+      VM session against the real host, not a fresh isolated re-run — see Change Log and
+      7-2's "Testing Feedback — 2026-09-17" section for the full TF-1…TF-4 narrative).
   - [ ] 6.1 Reconfigure to TCP and start TCP simulator:
         ```bash
         sudo -u www-data php -r "
@@ -107,7 +123,12 @@ For each "Verify" step:
   - [ ] 6.3 Note initial PID and RSS. Clear ring buffer and error state.
   - [ ] 6.4 Let daemon run with TCP simulator for 10 min. **Verify** `supervision_state` remains 2. Ring buffer has at most 2 routine supervision entries (`routine=1`).
 
-- [ ] Task 7: TCP strike escalation → TCP_RECONNECTING (AC: 8)
+- [x] ~~Task 7: TCP strike escalation → TCP_RECONNECTING (AC: 8)~~ — **CLOSED 2026-09-25
+      on the same 2026-09-17 field evidence.** The simulator/CSR going silent was
+      directly observed driving strike 1→2→3 and into TCP_RECONNECTING on the real
+      host — that is precisely what surfaced TF-1 (label stuck at "Reconnexion
+      TCP/UDP…") and TF-2 (reconnect too aggressive), both since fixed under 7-2. Not
+      re-run in isolation today; closed on that cumulative evidence.
   - [ ] 7.1 Stop simulator: `pkill -f "tests.simulator"`. Daemon gets connection refused/timeout on TCP.
   - [ ] 7.2 Wait for strike=1 (~60s). **Verify** `supervision_state=1`, `supervision_label="DÉGRADÉ (1/3)"`. T1 `supervision_timeout` message center entry appears.
   - [ ] 7.3 Wait for strike=2 (~120s). **Verify** `supervision_state=1`, `supervision_label="DÉGRADÉ (2/3)"`. No new T1.
@@ -118,7 +139,11 @@ For each "Verify" step:
         ```
   - [ ] 7.6 Verify T3 fires once: wait one more supervision cycle, confirm no second T3 `supervision_disconnected` entry (same dedup behavior as UDP).
 
-- [ ] Task 8: TCP_RECONNECTING → recovery (AC: 9)
+- [ ] ~~Task 8: TCP_RECONNECTING → recovery (AC: 9)~~ — **TRANSFERRED 2026-09-25 to story
+      12-7, Task 10/11.** Not covered by the 2026-09-17 field test — that run ended in
+      giving up (TF-2), not a successful mid-reconnect recovery. Genuinely unvalidated
+      live; automated level2 coverage only. 12-7 has not executed this either
+      (`ready-for-dev`) — an honest open gap, not fabricated as passed.
   - [ ] 8.1 While daemon is in TCP_RECONNECTING, restart simulator:
         ```bash
         cd /var/www/html/plugins/siaDC09 && python3 -m tests.simulator --tcp-port 5000 --host 0.0.0.0 --account 000001 &
@@ -127,7 +152,12 @@ For each "Verify" step:
   - [ ] 8.3 **Verify** daemon log shows state machine transitions `TCP_RECONNECTING → INITIALIZING` then `INITIALIZING → HEALTHY`.
   - [ ] 8.4 Verify `_sm1_t3_fired` reset: stop simulator again, wait for strike=3 → TCP_RECONNECTING → **Verify** T3 fires again (new message center entry or occurrence increment). Restart simulator and verify recovery to HEALTHY.
 
-- [ ] Task 9: TCP NO_NETWORK — permanent failure → daemon self-stops (AC: 10)
+- [ ] ~~Task 9: TCP NO_NETWORK — permanent failure → daemon self-stops (AC: 10)~~ —
+      **TRANSFERRED 2026-09-25 to story 12-7, Task 10 (AC11).** The 2026-09-17 field test
+      reached NO_NETWORK but predates the self-stop mechanism entirely (wired 2026-09-18
+      under 7-2 AC15–AC17) — the watchdog-restart hand-off has never been live-observed
+      on real hardware, only via automated `_install_stop_spy()` tests (7-2). 12-7 owns
+      this AC and has not executed it either (`ready-for-dev`).
   - [ ] 9.1 Stop simulator: `pkill -f "tests.simulator"`. Wait until daemon reaches TCP_RECONNECTING (~180s).
   - [ ] 9.2 Keep simulator stopped and wait for TCP reconnect loop to exhaust all attempts. Monitor:
         ```bash
@@ -160,7 +190,10 @@ For each "Verify" step:
         ```
   - [ ] 9.8 Wait for watchdog to restart daemon (~90s). **Verify** daemon restarts and recovers to HEALTHY over TCP.
 
-- [ ] Task 10: Revert to UDP (AC: all TCP pass)
+- [ ] ~~Task 10: Revert to UDP (AC: all TCP pass)~~ — **N/A 2026-09-25.** No TCP
+      reconfiguration was performed under this closure (Tasks 8–9 were not re-run
+      live); nothing to revert. Applicable again only if 12-7 performs a fresh TCP
+      setup for its own Task 10/11.
   - [ ] 10.1 Revert config and restart on UDP:
         ```bash
         sudo -u www-data php -r "
@@ -436,6 +469,14 @@ claude-sonnet-4-6 (eu.anthropic.claude-sonnet-4-6)
 - 🐛 BUG FIXED: Double `CRITIQUE —` prefix in T3 notify title. Root cause: `build_notification()` in `error_handler.py` embedded `T3_PREFIX` in title_map entries AND `_dispatch_notify()` in `daemon.py` prepended it again. Fixed by removing `T3_PREFIX` from T3 title_map entries in `error_handler.py`. Fix confirmed in testing (T3 title shows single "CRITIQUE —" prefix).
 - ℹ️ Config key audit performed: `notify_cmd_id` → `sia_notify_cmd_id` in design docs (`supervision-design.md`, `error-handler-design.md`, `daemon-design.md`, `php-core-design.md`). Live code already correct.
 - ⚠️ Pre-existing test failure: `test_run_connection_test_preset_crc_format_used` in `tests/level1/test_connection_test.py` fails before any changes (confirmed via git stash). Not caused by this story.
+- ✅ **2026-09-25 closure:** AC8 (Tasks 6–7) closed on the 2026-09-17 field evidence
+  already on record in this file's own Change Log (the same VM session that produced
+  TF-1…TF-4, fixed under 7-2). AC9/AC10 (Tasks 8–9) transferred to story 12-7
+  Task 10/11 (AC11) — genuinely never live-exercised (the self-stop mechanism didn't
+  exist yet at field-test time), documented as an open gap rather than fabricated as
+  passed. Task 10 (revert to UDP) marked N/A — no TCP reconfiguration was performed
+  today. Front-matter status corrected from a false `done` to match reality, then
+  re-closed to `done` with the above caveats recorded.
 
 ### File List
 
@@ -452,3 +493,4 @@ claude-sonnet-4-6 (eu.anthropic.claude-sonnet-4-6)
 - 2026-05-29: Story executed on Jeedom VM 192.168.5.103. All 5 tasks PASS. Bug fixed: double T3_PREFIX in notify title. Config key naming audit applied to design docs.
 - 2026-06-01: TCP pass added: AC8–10 + Tasks 6–10 — TCP strike escalation, TCP_RECONNECTING, NO_NETWORK, TRANSPORT_PERMANENT.
 - 2026-09-17: Supervision-loss field test (Herve) surfaced 4 findings in the TCP reconnect path — widget label stuck at "Reconnexion TCP/UDP…" after failure, reconnect sequence too aggressive/tightly-spaced, `--retry-count`/`reconnect_delay_s` not wired, and a stale `TCP_CONNECT_TIMEOUT_S` log message. Recorded as TF-1…TF-4 in the code owner `7-2-tcp-stall-detection-reconnect-ring-buffer-logging.md` → "Testing Feedback — 2026-09-17" (proposed AC18–AC21). Fixes pending go-ahead.
+- 2026-09-25: **Closed today per Herve's explicit call.** Front-matter's false `done` corrected to reflect the real state (Tasks 6–10/AC8–AC10 never executed), then re-closed honestly: AC8 (Tasks 6–7) closed on the 2026-09-17 field evidence above; AC9/AC10 (Tasks 8–9) transferred to story 12-7 Task 10/11 (AC11) as a genuinely open, never-executed gap (12-7 itself is still `ready-for-dev`); Task 10 marked N/A. No code changed. Status → `done`.
