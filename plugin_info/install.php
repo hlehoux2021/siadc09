@@ -21,6 +21,12 @@ function siaDC09_install(): void {
 }
 
 function siaDC09_update(): void {
+    // Story 13-1 (finding #2): postSave() only runs on save (fresh install, manual re-save).
+    // On upgrade, Jeedom calls this hook, not postSave() — an existing install that never
+    // re-saves its equipment would otherwise never get the new disarm/alarmReset commands.
+    foreach (eqLogic::byType('siaDC09') as $eqLogic) {
+        $eqLogic->postSave();
+    }
 }
 
 function siaDC09_remove(): void {

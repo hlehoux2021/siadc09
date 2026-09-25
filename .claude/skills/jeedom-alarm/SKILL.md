@@ -116,6 +116,22 @@ A CSR expecting a numeric zone needs the label resolved locally against a persis
 `release`, `raz`, `razImmediate`, `activationOk` and `activationImmediateOk` pass `#mode#` alone —
 a restoral or cancel action therefore has **no zone information at all** (see story 13.1).
 
+**siaDC09 wiring for cancel/disarm (story 13.1, rescoped 2026-09-25, ADR-18):** DC-03 addresses
+`BC` (Burglary Cancel) and `OP` (Opening Report / disarm) by **user number**, never by zone — so
+neither siaDC09 command uses a Titre; the address is a configured `sia_user_number` (wizard step 3).
+Two commands, one per alarm-plugin hook that ends a sounding alarm, and **both must be wired** —
+wiring only one silently loses the other case:
+
+| Alarm plugin action | siaDC09 command | Why |
+|---|---|---|
+| **Désactivation OK** (`release`) | `Désarmement` (`disarm`) | sees every disarm; if a burglary alarm is still open (siaDC09's own `sia_open_alarms` cache), sends `BC` then `OP`, then purges the cache |
+| **Réinitialisation** (`raz`) | `Réinitialisation alarme` (`alarmReset`) | sees the mode-change reset that `release` never runs for (system stays armed); if a burglary alarm is still open, sends `BC` alone, then purges the cache |
+
+Because the alarm plugin always runs `release` before `raz` on a normal Désactiver
+(`alarm.class.php:703-712`), whichever of the two commands fires first purges `sia_open_alarms` and
+the second finds it empty — never a duplicate `BC`. If no burglary alarm is open, both commands stay
+silent (a normal disarm's `OP` is a separate, later story — 13-4).
+
 **Integration Pattern**:
 - Alarm plugin exposes **INFO commands** (alarm state, mode, etc.)
 - Alarm plugin exposes **ACTION commands** (arm mode, disarm, etc.)

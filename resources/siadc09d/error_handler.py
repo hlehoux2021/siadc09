@@ -325,12 +325,15 @@ class EventFailedCtx:
         _notify(ErrorCode.EVENT_FAILED, ctx)
     """
 
-    sia_code: Literal["BA", "FA", "PA"]
+    sia_code: Literal["BA", "FA", "PA", "BC", "OP"]
     sia_seq: int
     zone_name: str | None
     max_retries: int
     attempts_made: int
     last_error: str
+    # Story 13-1 (ADR-18): address field for BC/OP — user-addressed, not zone-addressed.
+    # Optional/defaulted so existing BA/FA/PA call sites are unaffected.
+    user_number: int | None = None
 
 
 # Union type for all notification context dataclasses
@@ -356,7 +359,10 @@ def event_type_fr(event_type: str) -> str:
     """Convert SIA alarm command name to French label.
 
     Args:
-        event_type: PHP command or SIA code — "burglarAlarm"/"BA", "fireAlarm"/"FA", "panicAlarm"/"PA"
+        event_type: PHP command or SIA code — "burglarAlarm"/"BA", "fireAlarm"/"FA",
+            "panicAlarm"/"PA", "burglaryCancel"/"BC" (legacy alias, never sent by the
+            current disarm/alarmReset commands, kept for backward compatibility), or
+            the SIA codes "BC" (cancel) / "OP" (disarm, story 13-1, ADR-18)
 
     Returns:
         French label string
@@ -368,6 +374,9 @@ def event_type_fr(event_type: str) -> str:
         "FA": "incendie",
         "panicAlarm": "panique",
         "PA": "panique",
+        "burglaryCancel": "annulation",
+        "BC": "annulation",
+        "OP": "désarmement",
     }
     return mapping.get(event_type, event_type)
 
@@ -394,12 +403,35 @@ def build_notification(code: ErrorCode, context: dict[str, Any]) -> Notification
         ErrorCode.TRANSPORT_PERMANENT: 3,
     }
 
+    # Story 13-1 (finding #4): EVENT_FAILED must name the failed event precisely — BC/OP are a
+    # cancel/disarm, not a generic "alarme" — and address it by configured user number, not
+    # zone (DC-03 addresses BC/OP by user — ADR-18). BA/FA/PA keep their original zone-addressed
+    # wording unchanged.
+    _event_sia_code = str(context.get("sia_code", context.get("event_type", "<inconnu>")))
+    if _event_sia_code == "BC":
+        _event_title_subject = "Annulation"
+        _event_subject, _event_object, _event_gender_e = "L'annulation", "l'annulation", "e"
+    elif _event_sia_code == "OP":
+        _event_title_subject = "Désarmement"
+        _event_subject, _event_object, _event_gender_e = "Le désarmement", "le désarmement", ""
+    else:
+        _event_title_subject = "Alarme"
+        _event_subject = "L'alarme " + event_type_fr(_event_sia_code)
+        _event_object, _event_gender_e = "l'alarme", "e"
+
+    if _event_sia_code in ("BC", "OP"):
+        _event_address_clause = f"(utilisateur: {context.get('user_number', '<inconnu>')})"
+    else:
+        _event_address_clause = (
+            "(zone: " + str(context.get("zone_name", context.get("zone", "<inconnu>"))) + ")"
+        )
+
     title_map: dict[ErrorCode, str] = {
         ErrorCode.SUPERVISION_TIMEOUT: "siaDC09 — Timeout supervision (auto-résolu)",
         ErrorCode.SUPERVISION_NAK: "siaDC09 — NAK supervision (horodatage rejeté — auto-résolu)",
         ErrorCode.BAD_CSR_RESPONSE: "siaDC09 — Réponse incompréhensible de la centrale",
         ErrorCode.SUPERVISION_DISCONNECTED: "siaDC09 — Supervision perdue",
-        ErrorCode.EVENT_FAILED: "siaDC09 — Alarme non transmise",
+        ErrorCode.EVENT_FAILED: f"siaDC09 — {_event_title_subject} non transmis{_event_gender_e}",
         ErrorCode.TRANSPORT_PERMANENT: (
             f"siaDC09 — Connexion {context.get('transport', '<inconnu>')} impossible"
         ),
@@ -433,13 +465,13 @@ def build_notification(code: ErrorCode, context: dict[str, Any]) -> Notification
         ),
         ErrorCode.EVENT_FAILED: (
             T3_PREFIX
-            + "L'alarme "
-            + event_type_fr(str(context.get("sia_code", context.get("event_type", "<inconnu>"))))
-            + " (zone: "
-            + str(context.get("zone_name", context.get("zone", "<inconnu>")))
-            + ") n'a pas pu être transmise\nà la centrale après "
+            + _event_subject
+            + " "
+            + _event_address_clause
+            + " n'a pas pu être transmis" + _event_gender_e + "\nà la centrale après "
             + str(context.get("attempts_made", context.get("retry_count", "?")))
-            + " tentative(s). La centrale de\ntélésurveillance n'a PAS reçu l'alarme.\n"
+            + " tentative(s). La centrale de\ntélésurveillance n'a PAS reçu "
+            + _event_object + ".\n"
             "Vérifiez votre connexion réseau et le service IMA Protect.\n"
             f"Centrale: {csr_address} ({transport})."
         ),
@@ -693,6 +725,7 @@ def _context_to_dict(ctx: NotificationContext | None) -> dict | None:
             "max_retries": ctx.max_retries,
             "attempts_made": ctx.attempts_made,
             "last_error": ctx.last_error,
+            "user_number": ctx.user_number,
         }
 
     # Unknown context type

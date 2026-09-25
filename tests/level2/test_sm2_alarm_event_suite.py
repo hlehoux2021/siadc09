@@ -142,6 +142,8 @@ class TestSM2InstanceVariablesInitialization:
         assert hasattr(mock_daemon, '_sm2_state')
         assert hasattr(mock_daemon, '_event_sia_code')
         assert hasattr(mock_daemon, '_event_zone')
+        # Story 13-1 (ADR-18): BC/OP address by configured user number, not zone
+        assert hasattr(mock_daemon, '_event_user_number')
         assert hasattr(mock_daemon, '_event_attempt_count')
 
     def test_sm2_initial_values(self, mock_daemon):
@@ -239,6 +241,54 @@ class TestSM2StateHelpers:
         mock_daemon._event_failure_reason = "no_response"
         # FA → "incendie" → "Incendie"; no reply reports absence of response, not refusal
         assert mock_daemon._event_label_from_sm2() == "Incendie (zone 2) : Sans réponse de la centrale"
+
+    def test_event_label_from_sm2_confirmed_burglary_cancel(self, mock_daemon):
+        """Story 13-1 AC7 (rescoped 2026-09-25, ADR-18): a confirmed BC names itself
+        "Annulation" and addresses by the configured user number, never a zone — DC-03
+        addresses BC by user number.
+
+        - BC → event_type_fr() → "annulation" → "Annulation"
+        - Label: "Annulation (utilisateur 1) : Confirmée par la centrale"
+        """
+        mock_daemon._sm2_state = SM2State.CONFIRMED
+        mock_daemon._event_sia_code = "BC"
+        mock_daemon._event_user_number = 1
+        # BC gets a French type label like BA/FA/PA, addressed by user number
+        assert (
+            mock_daemon._event_label_from_sm2()
+            == "Annulation (utilisateur 1) : Confirmée par la centrale"
+        )
+
+    def test_event_label_from_sm2_confirmed_opening_report(self, mock_daemon):
+        """Story 13-1 AC7 (ADR-18): a confirmed OP (disarm during an open alarm) names
+        itself "Désarmement", addressed by the configured user number.
+
+        - OP → event_type_fr() → "désarmement" → "Désarmement"
+        - Label: "Désarmement (utilisateur 1) : Confirmée par la centrale"
+        """
+        mock_daemon._sm2_state = SM2State.CONFIRMED
+        mock_daemon._event_sia_code = "OP"
+        mock_daemon._event_user_number = 1
+        assert (
+            mock_daemon._event_label_from_sm2()
+            == "Désarmement (utilisateur 1) : Confirmée par la centrale"
+        )
+
+    def test_event_label_from_sm2_bc_ignores_zone_uses_user_number(self, mock_daemon):
+        """Story 13-1 (ADR-18): even if a stray _event_zone were set, BC/OP must never show
+        a zone clause — the address is always the configured user number.
+
+        - _event_zone set alongside BC has no effect on the label
+        """
+        mock_daemon._sm2_state = SM2State.CONFIRMED
+        mock_daemon._event_sia_code = "BC"
+        mock_daemon._event_zone = "Salon"
+        mock_daemon._event_user_number = 3
+        label = mock_daemon._event_label_from_sm2()
+        # Assert: the user-number clause is used
+        assert "(utilisateur 3)" in label
+        # Assert: no zone clause ever appears for BC/OP
+        assert "zone" not in label
 
 
 # ===== Task 3: Alarm Retry Logic Tests =====

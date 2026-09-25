@@ -125,8 +125,19 @@ def execute_body(php_cmd_source: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def fan_out_body(php_cmd_source: str) -> str:
-    return _extract_method_body(php_cmd_source, "_fanOutBurglaryCancel")
+def disarm_body(execute_body: str) -> str:
+    """The 'disarm' case block only, from the opening `case 'disarm':` to the next `case`."""
+    match = re.search(r"case\s+'disarm'\s*:(.*?)(?=case\s+'\w+'\s*:|\Z)", execute_body, re.DOTALL)
+    return match.group(1) if match else ""
+
+
+@pytest.fixture(scope="module")
+def alarm_reset_body(execute_body: str) -> str:
+    """The 'alarmReset' case block only, from the opening `case 'alarmReset':` to the next `case`."""
+    match = re.search(
+        r"case\s+'alarmReset'\s*:(.*?)(?=case\s+'\w+'\s*:|\Z)", execute_body, re.DOTALL
+    )
+    return match.group(1) if match else ""
 
 
 @pytest.fixture(scope="module")
@@ -236,6 +247,67 @@ def test_prefetch_event_command_uses_message_subtype(postsave_body: str) -> None
     assert "'subType' => 'message'" in prefetch_entry.group(0), (
         "prefetchEvent must use subType 'message' — 'other' has no *Titre* field in the "
         "alarm plugin's action UI, so #zone# could never reach execute()"
+    )
+
+
+def test_disarm_and_alarm_reset_commands_declared_in_action_cmds(postsave_body: str) -> None:
+    """
+    Story 13-1 (rescoped 2026-09-25) AC1-AC6: `disarm` ("Désarmement") and `alarmReset`
+    ("Réinitialisation alarme") are auto-created by postSave() alongside the alarm
+    commands, as ACTION / 'other' — DC-03 addresses BC/OP by user number, never by zone
+    (ADR-18), so neither command needs a Titre. Being in $actionCmds gives them
+    isVisible 0 and returnStateTime 30 / returnStateValue 0 from the shared creation loop.
+
+    Expected result:
+    - 'disarm' and 'alarmReset' are each declared in the $actionCmds array literal
+    - both entries use subType 'other' and the names from the design table
+    - the removed 'burglaryCancel' logicalId is gone
+    """
+    array_literal = postsave_body[: postsave_body.index("foreach ($actionCmds")]
+    disarm_entry = re.search(r"'disarm'\s*=>\s*\[[^\]]*\]", array_literal)
+    reset_entry = re.search(r"'alarmReset'\s*=>\s*\[[^\]]*\]", array_literal)
+    # Assert: both new commands are declared in the action array
+    assert disarm_entry, "logicalId 'disarm' not found in postSave()'s $actionCmds"
+    assert reset_entry, "logicalId 'alarmReset' not found in postSave()'s $actionCmds"
+    # Assert: subType 'other' — neither command has a Titre to carry (address is user_number)
+    assert "'subType' => 'other'" in disarm_entry.group(0), (
+        "disarm must use subType 'other' — DC-03 addresses BC/OP by user number, not a Titre zone"
+    )
+    assert "'subType' => 'other'" in reset_entry.group(0), (
+        "alarmReset must use subType 'other' — DC-03 addresses BC/OP by user number, not a Titre zone"
+    )
+    # Assert: the user-facing names match the design table
+    assert "Désarmement" in disarm_entry.group(0), "disarm must be named 'Désarmement'"
+    assert "Réinitialisation alarme" in reset_entry.group(0), (
+        "alarmReset must be named 'Réinitialisation alarme'"
+    )
+    # Assert: the superseded per-zone command is gone — never shipped, no migration needed
+    assert "'burglaryCancel'" not in array_literal, (
+        "burglaryCancel must be removed from $actionCmds — replaced by disarm/alarmReset"
+    )
+
+
+def test_execute_routes_disarm_and_alarm_reset(execute_body: str) -> None:
+    """
+    Story 13-1 AC1-AC4: execute() has a case for both `disarm` and `alarmReset` — without
+    them the commands exist in Jeedom but do nothing when the alarm plugin's release/raz
+    hooks fire. The removed burglaryCancel case/fan-out method must not linger either.
+
+    Expected result:
+    - 'disarm' and 'alarmReset' each appear as a case in execute()
+    - the superseded 'burglaryCancel' case and _fanOutBurglaryCancel() call are gone
+    """
+    # Assert: both commands are routed
+    assert re.search(r"case\s+'disarm'\s*:", execute_body), "execute() missing case for 'disarm'"
+    assert re.search(r"case\s+'alarmReset'\s*:", execute_body), (
+        "execute() missing case for 'alarmReset'"
+    )
+    # Assert: the superseded per-zone fan-out is gone
+    assert not re.search(r"case\s+'burglaryCancel'\s*:", execute_body), (
+        "execute() must not keep a 'burglaryCancel' case — replaced by disarm/alarmReset"
+    )
+    assert "_fanOutBurglaryCancel(" not in execute_body, (
+        "execute() must not call the removed _fanOutBurglaryCancel()"
     )
 
 
@@ -1780,116 +1852,139 @@ def test_open_alarms_sia_code_mapping_covers_all_alarm_commands(php_cmd_source: 
         )
 
 
-# ── Story 13.1 — burglaryCancel fan-out (Task 4, AC4, AC5) ───────────────────
+# ── Story 13.1 (rescoped 2026-09-25) — disarm/alarmReset, BC/OP by user number ───
 
 
-def test_fan_out_method_exists(php_cmd_source: str) -> None:
+def test_has_open_alarm_and_purge_helpers_exist(php_cmd_source: str) -> None:
     """
-    Design: the fan-out algorithm (story doc "Éventail sur annulation") lives
-    in its own method so it stays testable in isolation from the execute()
-    wiring, which is deferred to Task 2 (blocked by 10-3).
+    Design (ADR-18): disarm/alarmReset share a boolean "is a BA open?" oracle and a
+    whole-table purge helper — no more per-zone fan-out or mono-zone derogation, since
+    there is at most one open burglary alarm to close by construction of the alarm plugin.
 
     Expected result:
-    - a private method _fanOutBurglaryCancel() is declared on siaDC09Cmd
+    - a private method _hasOpenAlarm() is declared on siaDC09Cmd
+    - a private method _purgeOpenAlarms() is declared on siaDC09Cmd
+    - the superseded _fanOutBurglaryCancel()/_closeOpenAlarm() methods are gone
     """
-    # Assert: the fan-out method is declared
-    assert re.search(
-        r"private\s+function\s+_fanOutBurglaryCancel\s*\(", php_cmd_source
-    ), "expected a private _fanOutBurglaryCancel() method implementing the AC4/AC5 algorithm"
+    # Assert: the new oracle helper is declared
+    assert re.search(r"private\s+function\s+_hasOpenAlarm\s*\(", php_cmd_source), (
+        "expected a private _hasOpenAlarm() method — the 'is a BA open?' oracle"
+    )
+    # Assert: the new whole-table purge helper is declared
+    assert re.search(r"private\s+function\s+_purgeOpenAlarms\s*\(", php_cmd_source), (
+        "expected a private _purgeOpenAlarms() method — purges the whole table on a BC"
+    )
+    # Assert: the superseded per-zone methods are removed
+    assert "_fanOutBurglaryCancel" not in php_cmd_source, (
+        "_fanOutBurglaryCancel() must be removed — replaced by _hasOpenAlarm()/_purgeOpenAlarms()"
+    )
+    assert "_closeOpenAlarm" not in php_cmd_source, (
+        "_closeOpenAlarm() must be removed — disarm/alarmReset always purge the whole table"
+    )
 
 
-def test_fan_out_emits_one_bc_per_open_ba_entry(fan_out_body: str) -> None:
+def test_disarm_sends_bc_then_op_when_open_alarm_and_purges(disarm_body: str) -> None:
     """
-    Design (AC4): a burglaryCancel with an empty Titre emits exactly N BC for
-    N open BA zones, by iterating the sia_open_alarms table and dispatching
-    one sendToDaemon() per BA entry.
+    AC1: disarm (wired on `release`) must check _hasOpenAlarm('BA'), and when true send
+    BC then OP — in that order — before purging the table.
 
     Expected result:
-    - the method reads sia_open_alarms via getCache
-    - it iterates the entries and dispatches via sendToDaemon() for 'BA' entries
+    - the case checks _hasOpenAlarm('BA')
+    - two sendToDaemon() calls are made, with 'sia_code' => 'BC' appearing before 'OP'
+    - _purgeOpenAlarms() is called
     """
-    # Assert: the open-alarms table is read back from the eqLogic cache
-    assert re.search(r"getCache\s*\(\s*['\"]sia_open_alarms['\"]", fan_out_body), (
-        "fan-out must read the sia_open_alarms table via getCache()"
+    # Assert: the BA oracle gates the whole branch
+    assert re.search(r"_hasOpenAlarm\s*\(\s*['\"]BA['\"]\s*\)", disarm_body), (
+        "disarm must gate BC/OP emission on _hasOpenAlarm('BA')"
     )
-    # Assert: a dispatch call is made for BA entries (the only code BC closes)
-    assert re.search(r"sendToDaemon\s*\(", fan_out_body), (
-        "fan-out must call sendToDaemon() to emit BC frames for open BA entries"
+    # Assert: both frames are dispatched
+    assert len(re.findall(r"sendToDaemon\s*\(", disarm_body)) >= 2, (
+        "disarm must call sendToDaemon() twice — once for BC, once for OP"
     )
-    # Assert: the code discriminates on the BA sia_code before dispatching
-    assert re.search(r"['\"]BA['\"]", fan_out_body), (
-        "fan-out must check for the 'BA' sia_code — BC only closes burglary entries"
+    bc_pos = disarm_body.find("'BC'")
+    op_pos = disarm_body.find("'OP'")
+    # Assert: BC is dispatched before OP — never the reverse, never simultaneous absence
+    assert bc_pos != -1 and op_pos != -1 and bc_pos < op_pos, (
+        "disarm must emit 'BC' before 'OP' in source order"
+    )
+    # Assert: the table is purged after both frames
+    assert re.search(r"_purgeOpenAlarms\s*\(", disarm_body), (
+        "disarm must call _purgeOpenAlarms() after sending BC/OP"
     )
 
 
-def test_fan_out_bc_carries_matching_zone_number(fan_out_body: str) -> None:
+def test_disarm_silent_and_logs_debug_when_no_open_alarm(disarm_body: str) -> None:
     """
-    Design: each BC must carry the same zone_number as the BA it closes —
-    the zone label is not a usable correlation key (story Dépendance section).
+    AC2: when no BA is open, disarm must send nothing (the normal-disarm OP is story
+    13-4's scope) and log at debug level so the silence is traceable.
 
     Expected result:
-    - the sendToDaemon() payload sources 'zone_number' from the open-alarm entry
+    - an else branch (no sendToDaemon call outside the _hasOpenAlarm guard) logs 'debug'
     """
-    # Assert: zone_number is forwarded from the stored entry, not recomputed
-    assert re.search(r"zone_number.*entry\[['\"]zone_number['\"]\]", fan_out_body) or re.search(
-        r"entry\[['\"]zone_number['\"]\].*zone_number", fan_out_body
-    ), "each BC frame must carry the zone_number of the BA entry it closes"
+    # Assert: the no-alarm path is traced at debug level
+    assert re.search(r"log::add\([^)]*['\"]debug['\"]", disarm_body), (
+        "disarm's no-open-alarm branch must log at 'debug' level"
+    )
 
 
-def test_fan_out_skips_fa_pa_and_logs_debug(fan_out_body: str) -> None:
+def test_disarm_sends_configured_user_number(php_cmd_source: str, disarm_body: str) -> None:
     """
-    Design: BC never closes FA/PA — they are abandoned and logged at debug
-    level so they remain traceable without producing a frame (future
-    FC/PC of story 13-3).
+    AC5: the address field is the configured `sia_user_number`, read via
+    getConfiguration() — never a zone number.
 
     Expected result:
-    - the method distinguishes 'FA' and 'PA' sia_codes from 'BA'
-    - abandoned FA/PA entries are logged via log::add(..., 'debug', ...)
+    - 'sia_user_number' is read from configuration somewhere in siaDC09Cmd
+    - disarm's case forwards a resolved user number to sendToDaemon() as 'user_number'
     """
-    # Assert: FA and PA are recognized as distinct from BA
-    assert re.search(r"['\"]FA['\"]", fan_out_body) and re.search(r"['\"]PA['\"]", fan_out_body), (
-        "fan-out must distinguish FA/PA entries from BA so they are never closed by a BC"
+    # Assert: the configured user number is read (directly or via a shared resolver helper)
+    assert "'sia_user_number'" in php_cmd_source, (
+        "siaDC09Cmd must read the configured 'sia_user_number' somewhere"
     )
-    # Assert: abandoned FA/PA entries are logged at debug level, not silently dropped
-    assert re.search(r"log::add\([^)]*['\"]debug['\"]", fan_out_body), (
-        "abandoned FA/PA entries must be logged at 'debug' level"
+    # Assert: it is forwarded to the daemon as 'user_number'
+    assert "'user_number'" in disarm_body, (
+        "disarm must send 'user_number' to the daemon — never a zone number"
     )
 
 
-def test_fan_out_purges_table_after_processing(fan_out_body: str) -> None:
+def test_alarm_reset_sends_bc_alone_when_open_alarm_and_purges(alarm_reset_body: str) -> None:
     """
-    Design (AC4): after emitting the BC fan-out (or the fallback), the table
-    is emptied so a later burglaryCancel does not re-close stale entries.
+    AC3: alarmReset (wired on `raz`) must check _hasOpenAlarm('BA'), and when true send
+    exactly one BC (never OP — the system was not disarmed), then purge the table.
 
     Expected result:
-    - setCache('sia_open_alarms', ...) is called with an empty array
+    - the case checks _hasOpenAlarm('BA')
+    - exactly one sendToDaemon() call is made, with 'sia_code' => 'BC'
+    - no 'OP' literal appears in this case's body
+    - _purgeOpenAlarms() is called
     """
-    # Assert: the table is purged (written back empty) after fan-out
-    assert re.search(
-        r"setCache\s*\(\s*['\"]sia_open_alarms['\"]\s*,\s*\[\s*\]\s*\)", fan_out_body
-    ), "sia_open_alarms must be purged (set back to []) once the fan-out is processed"
+    # Assert: the BA oracle gates the branch
+    assert re.search(r"_hasOpenAlarm\s*\(\s*['\"]BA['\"]\s*\)", alarm_reset_body), (
+        "alarmReset must gate BC emission on _hasOpenAlarm('BA')"
+    )
+    # Assert: exactly one dispatch — alarmReset never emits an OP
+    assert len(re.findall(r"sendToDaemon\s*\(", alarm_reset_body)) == 1, (
+        "alarmReset must call sendToDaemon() exactly once — BC alone, never paired with OP"
+    )
+    assert "'BC'" in alarm_reset_body, "alarmReset must send sia_code 'BC'"
+    assert "'OP'" not in alarm_reset_body, (
+        "alarmReset must never send 'OP' — the system was not disarmed on this path"
+    )
+    # Assert: the table is purged
+    assert re.search(r"_purgeOpenAlarms\s*\(", alarm_reset_body), (
+        "alarmReset must call _purgeOpenAlarms() after sending BC"
+    )
 
 
-def test_fan_out_empty_table_falls_back_to_single_account_level_bc(fan_out_body: str) -> None:
+def test_alarm_reset_silent_and_logs_debug_when_no_open_alarm(alarm_reset_body: str) -> None:
     """
-    Design (AC5): an empty table (duplicate cancel, cleared cache, daemon or
-    Redis restart) must never produce zero frames — exactly one account-level
-    BC is emitted, flagged with a warning so the operator sees the anomaly.
+    AC4: on the normal Désactiver-while-sounding path, `release` runs before `raz`
+    (ADR-18) — disarm has already purged the table by the time alarmReset runs.
+    alarmReset must find it empty and log at debug level rather than re-closing.
 
     Expected result:
-    - an emptiness check on the BA entries exists
-    - the fallback branch still calls sendToDaemon() with a null zone/zone_number
-    - the fallback branch logs a 'warning'
+    - the no-open-alarm branch logs 'debug'
     """
-    # Assert: the code checks whether any BA entry was found before deciding the fallback
-    assert re.search(r"empty\s*\(", fan_out_body) or re.search(r"===\s*0", fan_out_body), (
-        "fan-out must check whether the open BA entries are empty to trigger the AC5 fallback"
-    )
-    # Assert: the fallback still dispatches a frame — AC5 forbids zero frames
-    assert len(re.findall(r"sendToDaemon\s*\(", fan_out_body)) >= 2, (
-        "the empty-table fallback must still call sendToDaemon() — AC5 forbids zero frames"
-    )
-    # Assert: the fallback is flagged with a warning so the anomaly is visible
-    assert re.search(r"log::add\([^)]*['\"]warning['\"]", fan_out_body), (
-        "the account-level fallback BC must be logged at 'warning' level"
+    # Assert: the no-alarm path is traced at debug level
+    assert re.search(r"log::add\([^)]*['\"]debug['\"]", alarm_reset_body), (
+        "alarmReset's no-open-alarm branch must log at 'debug' level"
     )

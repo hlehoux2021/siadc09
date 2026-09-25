@@ -33,6 +33,8 @@
         "Alarme intrusion": "Burglary alarm",
         "Alarme incendie": "Fire alarm",
         "Alarme panique": "Panic alarm",
+        "Désarmement": "Disarm",
+        "Réinitialisation alarme": "Alarm reset",
         "État supervision": "Supervision state",
         "Supervision": "Supervision",
         "État alarme": "Alarm state",

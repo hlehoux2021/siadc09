@@ -102,7 +102,119 @@ class siaDC09Cmd extends cmd {
                 siaDC09::sendToDaemon($payload);
                 $this->_recordOpenAlarm($logicalId, $zone !== '' ? $zone : null, $zoneNumber);
                 break;
+
+            case 'disarm':
+                // Story 13.1 — wired on the alarm plugin's `release` ("Désactivation OK").
+                // BC/OP address by user number, never by zone (DC-03 p.4) — ADR-18.
+                $userNumber = $this->_resolveSiaUserNumber();
+                if ($this->_hasOpenAlarm('BA')) {
+                    siaDC09::sendToDaemon(['cmd' => 'disarm', 'user_number' => $userNumber, 'sia_code' => 'BC']);
+                    siaDC09::sendToDaemon(['cmd' => 'disarm', 'user_number' => $userNumber, 'sia_code' => 'OP']);
+                    $this->_purgeOpenAlarms('BA');
+                } else {
+                    log::add('siaDC09', 'debug',
+                        'disarm : aucune alarme intrusion ouverte — rien à signaler '
+                        . '(le désarmement normal fait l\'objet de la story 13-4)');
+                }
+                break;
+
+            case 'alarmReset':
+                // Story 13.1 — wired on the alarm plugin's `raz` ("Réinitialisation"). Sees the
+                // mode-change reset that `release` never runs for (system stays armed).
+                $userNumber = $this->_resolveSiaUserNumber();
+                if ($this->_hasOpenAlarm('BA')) {
+                    siaDC09::sendToDaemon(['cmd' => 'alarmReset', 'user_number' => $userNumber, 'sia_code' => 'BC']);
+                    $this->_purgeOpenAlarms('BA');
+                } else {
+                    log::add('siaDC09', 'debug',
+                        'alarmReset : aucune alarme intrusion ouverte — soit `disarm` l\'a déjà '
+                        . 'purgée (désactivation normale), soit rien n\'était à réinitialiser');
+                }
+                break;
         }
+    }
+
+    /**
+     * The configured SIA user number (wizard step 3, `sia_user_number`, default 1) — the
+     * address field for every DC-03 user-addressed code (BC, OP). The alarm plugin never
+     * forwards the Jeedom user to its actions, so this is a configured value, not read data.
+     */
+    private function _resolveSiaUserNumber(): int {
+        $eqLogic = $this->getEqLogic();
+        if ($eqLogic === null) {
+            return 1;
+        }
+        return (int) $eqLogic->getConfiguration('sia_user_number', 1);
+    }
+
+    /**
+     * True when sia_open_alarms still holds a non-expired entry for $siaCode — the "is a BA
+     * still open?" oracle both disarm and alarmReset rely on (story 13-1, ADR-18). There is at
+     * most one open burglary alarm to close by construction of the alarm plugin (one equipment,
+     * one armed/disarmed state), so a boolean is enough — no more per-zone fan-out.
+     */
+    private function _hasOpenAlarm(string $siaCode): bool {
+        $eqLogic = $this->getEqLogic();
+        if ($eqLogic === null) {
+            return false;
+        }
+        foreach ($this->_loadOpenAlarms($eqLogic) as $entry) {
+            if (($entry['sia_code'] ?? null) === $siaCode) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Removes every open $siaCode entry on a BC (story 13-1): whichever of disarm/alarmReset
+     * runs first purges the matching entries, so the alarm plugin's release-before-raz ordering
+     * (alarm.class.php:703-712, ADR-18) guarantees the second command finds none left — never a
+     * duplicate BC. Scoped to $siaCode (always 'BA' today) so a concurrent FA/PA — unrelated to
+     * this burglary disarm — survives for the future story 13-3, per the design's own intent.
+     */
+    private function _purgeOpenAlarms(string $siaCode): void {
+        $eqLogic = $this->getEqLogic();
+        if ($eqLogic === null) {
+            return;
+        }
+        $openAlarms = $this->_loadOpenAlarms($eqLogic);
+        foreach ($openAlarms as $key => $entry) {
+            if (($entry['sia_code'] ?? null) === $siaCode) {
+                unset($openAlarms[$key]);
+            }
+        }
+        $eqLogic->setCache('sia_open_alarms', $openAlarms);
+    }
+
+    /**
+     * sia_open_alarms as an array, TTL-expired and malformed entries already dropped — the
+     * cache may hand the table back JSON-encoded.
+     */
+    private function _loadOpenAlarms($eqLogic): array {
+        $openAlarms = $eqLogic->getCache('sia_open_alarms', []);
+        if (is_string($openAlarms)) {
+            $openAlarms = json_decode($openAlarms, true);
+        }
+        if (!is_array($openAlarms)) {
+            return [];
+        }
+
+        $now = time();
+        foreach ($openAlarms as $key => $entry) {
+            if (!is_array($entry) || !isset($entry['ts']) || ($now - (int) $entry['ts']) > self::OPEN_ALARMS_TTL) {
+                unset($openAlarms[$key]);
+            }
+        }
+        return $openAlarms;
+    }
+
+    /**
+     * Dedups repeated alarms on one zone, and collapses every unresolved zone onto a single
+     * 'account' entry — two unknown labels would otherwise yield two zoneless BC.
+     */
+    private static function _openAlarmKey(string $siaCode, ?int $zoneNumber): string {
+        return $siaCode . '|' . ($zoneNumber !== null ? $zoneNumber : 'account');
     }
 
     /**
@@ -118,27 +230,12 @@ class siaDC09Cmd extends cmd {
             return;
         }
 
-        $now = time();
-        $openAlarms = $eqLogic->getCache('sia_open_alarms', []);
-        if (is_string($openAlarms)) {
-            $openAlarms = json_decode($openAlarms, true);
-        }
-        if (!is_array($openAlarms)) {
-            $openAlarms = [];
-        }
-
-        foreach ($openAlarms as $key => $entry) {
-            if (!is_array($entry) || !isset($entry['ts']) || ($now - (int) $entry['ts']) > self::OPEN_ALARMS_TTL) {
-                unset($openAlarms[$key]);
-            }
-        }
-
-        $key = $siaCode . '|' . ($zoneNumber !== null ? $zoneNumber : 'account');
-        $openAlarms[$key] = [
+        $openAlarms = $this->_loadOpenAlarms($eqLogic);
+        $openAlarms[self::_openAlarmKey($siaCode, $zoneNumber)] = [
             'sia_code'    => $siaCode,
             'zone'        => $zone,
             'zone_number' => $zoneNumber,
-            'ts'          => $now,
+            'ts'          => time(),
         ];
 
         if (count($openAlarms) > self::OPEN_ALARMS_MAX) {

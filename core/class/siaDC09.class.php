@@ -689,6 +689,10 @@ class siaDC09 extends eqLogic {
             'burglarAlarm'  => ['name' => __('Alarme intrusion', __FILE__), 'subType' => 'message'],
             'fireAlarm'     => ['name' => __('Alarme incendie', __FILE__), 'subType' => 'message'],
             'panicAlarm'    => ['name' => __('Alarme panique', __FILE__),  'subType' => 'message'],
+            // Story 13-1 — DC-03 addresses BC/OP by user number, never by zone (ADR-18): no
+            // #zone# tag is needed, so subType 'other' is used — neither command needs a Titre.
+            'disarm'         => ['name' => __('Désarmement', __FILE__),            'subType' => 'other'],
+            'alarmReset'     => ['name' => __('Réinitialisation alarme', __FILE__), 'subType' => 'other'],
             // ADR-17 Amendment 3 (Option D): wired manually by the installer into the alarm
             // plugin's zone IMMEDIATE-actions bucket (not standard/after-delay) — fires as soon
             // as the sensor triggers, well before the BA's own trigger-delay actions fire.

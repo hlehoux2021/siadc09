@@ -320,6 +320,16 @@ $scenarios = scenario::all();
 									<p class="text-muted">
 										<i class="fas fa-info-circle"></i> {{Pour chaque zone reliée à une caméra Frigate ci-dessus : dans le plugin Alarme, ajoutez la commande "Prefetch événement Frigate" de cet équipement aux actions immédiates de la zone correspondante — pas aux actions temporisées — et renseignez son champ Titre avec exactement <code>#zone#</code>. C'est ce champ Titre qui permet à siaDC09 de savoir quelle zone a déclenché et donc quelle caméra interroger dès le déclenchement, avant l'envoi de la trame BA. Sans <code>#zone#</code> dans le Titre, le prefetch ne peut jamais résoudre de caméra.}}
 									</p>
+									<div class="form-group">
+										<label class="col-sm-4 control-label">{{Numéro utilisateur SIA}}</label>
+										<div class="col-sm-6">
+											<input type="number" min="1" max="999" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="sia_user_number" placeholder="1">
+											<p class="help-block">{{Déclarez ce numéro à votre centrale de télésurveillance comme étant l'utilisateur Jeedom. Le plugin Alarme ne transmet jamais l'identité de l'utilisateur Jeedom qui désarme : ce numéro configuré est utilisé à sa place pour toute annulation ou désarmement signalé à la centrale.}}</p>
+										</div>
+									</div>
+									<p class="text-muted">
+										<i class="fas fa-info-circle"></i> {{Annulation / désarmement : deux commandes distinctes, à câbler <strong>toutes les deux</strong> dans le plugin Alarme, sous peine de perdre l'un des deux cas. "Désarmement" — sur l'action "Désactivation OK" — signale à la centrale l'annulation (BC) puis le désarmement (OP) d'une intrusion en cours, adressés par le numéro utilisateur ci-dessus, jamais par zone. "Réinitialisation alarme" — sur l'action "Réinitialisation" — signale la même annulation (BC seul) quand l'alarme est réinitialisée par un changement de mode sans désarmer (le système reste armé) : sans cette seconde commande câblée, ce cas ne serait jamais rapporté à la centrale.}}
+									</p>
 									<div class="form-group" style="margin-top:15px;">
 										<div class="col-sm-12" style="text-align:right;">
 											<a class="btn btn-success" id="bt_step3Next"><i class="fas fa-arrow-right"></i> {{Suivant}}</a>

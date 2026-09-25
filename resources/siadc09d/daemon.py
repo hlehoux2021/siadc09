@@ -143,7 +143,10 @@ class SM2State(Enum):
     FAILED = "FAILED"          # Event failed (NAK/timeout/NO_NETWORK/max retries)
 
 
-SiaEventCode = Literal['BA', 'FA', 'PA']  # SIA alarm event codes: Burglary, Fire, Panic
+# SIA event codes: Burglary, Fire, Panic alarms + Burglary Cancel + Opening/disarm (story 13-1).
+# BC/OP address by user number (ADR-18), unlike BA/FA/PA which address by zone — see
+# EventItem.user_number and _build_event_frame().
+SiaEventCode = Literal['BA', 'FA', 'PA', 'BC', 'OP']
 
 
 class SM2LogCtx(TypedDict):
@@ -163,11 +166,14 @@ class EventItem:
     """Queue item for alarm event delivery (SM2 processing).
 
     Attributes:
-        sia_code: Event SIA code (BA=burglary, FA=fire, PA=panic)
+        sia_code: Event SIA code (BA=burglary, FA=fire, PA=panic, BC=cancel, OP=disarm)
         zone: Zone name from alarm command #zone# tag (None if not specified)
         timestamp: Event timestamp from make_timestamp()
-        zone_number: Zone order number resolved by PHP against the zone table
-                     (None when the label matched no entry — the frame then carries no zone)
+        zone_number: Zone order number resolved by PHP against the zone table (None when the
+                     label matched no entry). Address source for BA/FA/PA only (story 13-1,
+                     ADR-18) — ignored by _build_event_frame() for BC/OP.
+        user_number: Configured SIA user number (wizard step 3, `sia_user_number`) for BC/OP —
+                     DC-03 addresses these by user, never by zone (story 13-1, ADR-18).
         media_url: Optional camera/media URL for the SIA [V...] extended field, or None
                    (story 14-1) — reaches the frame via _build_event_frame()'s extended_data
         callback: Optional callback function called when event completes (signature: callback(success: bool))
@@ -175,7 +181,8 @@ class EventItem:
     sia_code: SiaEventCode
     zone: str | None  # Zone name or None — logs, notifications, inspector
     timestamp: str  # SIA protocol timestamp HH:MM:SS,MM-DD-YYYY
-    zone_number: int | None = None  # Reaches the SIA frame as the Annex B zone digits
+    zone_number: int | None = None  # Reaches the SIA frame as the Annex B zone digits (BA/FA/PA)
+    user_number: int | None = None  # Reaches the SIA frame as the address digits (BC/OP)
     media_url: str | None = None  # Reaches the SIA frame as the [V...] extended-data block
     callback: Any | None = None  # Callback function(success: bool) when send completes
 
@@ -236,6 +243,12 @@ class OnMessageParams(TypedDict, total=False):
 
     camera_eqlogic_id/camera_name/frigate_host (Story 14-2, ADR-17 Amendment 3): present
     only for the "prefetchEvent" command, sent by siaDC09Cmd::_resolvePrefetchTarget().
+
+    sia_code/user_number (Story 13-1, ADR-18): present only for "disarm"/"alarmReset" — these
+    two commands carry their own sia_code per sendToDaemon() call (BC and/or OP), rather than
+    a single fixed code per command name, so on_message() reads sia_code from the payload
+    instead of the static _EVENT_SIA_CODES mapping used by burglarAlarm/fireAlarm/panicAlarm.
+    user_number is the configured SIA user (wizard step 3) — the address field for BC/OP.
     """
     zone: str
     zone_number: int | None
@@ -243,6 +256,8 @@ class OnMessageParams(TypedDict, total=False):
     camera_eqlogic_id: int
     camera_name: str
     frigate_host: str
+    sia_code: str
+    user_number: int | None
 
 
 class InfoCommandsPayload(TypedDict, total=False):
@@ -265,6 +280,7 @@ class EventQueuePayload(TypedDict):
     sia_code: SiaEventCode
     zone: str | None      # Zone name from PHP #zone# tag, or None
     zone_number: int | None  # Zone order number for the SIA frame, or None
+    user_number: int | None  # Configured SIA user, address field for BC/OP (story 13-1)
     media_url: str | None # Verification media URL for SIA [V...] field, or None
     retries_left: int        # Retry budget; reset to MAX_RETRY_DEFAULT on TCP reconnect
 
@@ -282,11 +298,26 @@ QueuePayload = EventQueuePayload | SupervisionQueuePayload
 
 # Map PHP alarm command names → SIA event codes (M2: no magic strings).
 # Used by on_message() to convert PHP sendToDaemon() commands to SIA codes.
+# Story 13-1: "disarm"/"alarmReset" are deliberately absent — see
+# _VARIABLE_SIA_CODE_COMMANDS below. burglaryCancel (13-1's superseded per-zone fan-out
+# design) is removed; it was never shipped.
 _EVENT_SIA_CODES: Final[dict[str, SiaEventCode]] = {
     "burglarAlarm": "BA",
     "fireAlarm": "FA",
     "panicAlarm": "PA",
 }
+
+# Story 13-1 (ADR-18): disarm/alarmReset each make one sendToDaemon() call per frame, with
+# its own "sia_code" key (BC and/or OP) — PHP decides per-frame, not a fixed 1-code-per-cmd
+# mapping like _EVENT_SIA_CODES above. on_message() reads params["sia_code"] for these two
+# commands instead of a static lookup. Documented deviation from daemon-design.md's original
+# "_EVENT_SIA_CODES gains entries for disarm/alarmReset" phrasing — a fixed mapping cannot
+# express "BC then OP from the same command name" (see php-core-design.md, "disarm — wired on
+# release").
+_VARIABLE_SIA_CODE_COMMANDS: Final[frozenset[str]] = frozenset({"disarm", "alarmReset"})
+
+# The only SIA codes disarm/alarmReset are allowed to declare via params["sia_code"].
+_USER_ADDRESSED_SIA_CODES: Final[frozenset[str]] = frozenset({"BC", "OP"})
 
 
 # ===== TASK 2: STRIKE COUNTER AND SM1 STATE MANAGEMENT =====
@@ -318,8 +349,11 @@ class SIADaemon(BaseDaemon):
 
         Instance Variables (SM2 state machine - alarm events):
             _sm2_state: Current SM2 state (IDLE, PENDING, CONFIRMED, FAILED)
-            _event_sia_code: Latest event SIA code (BA=burglary, FA=fire, PA=panic)
+            _event_sia_code: Latest event SIA code (BA=burglary, FA=fire, PA=panic, BC=cancel,
+                             OP=disarm)
             _event_zone: Latest zone name from alarm command #zone# tag
+            _event_user_number: Latest configured SIA user number (BC/OP address field,
+                             story 13-1, ADR-18)
             _event_attempt_count: Current send attempt count for in-flight event
             Note: event_state/event_label are derived via _event_state_from_sm2() /
                   _event_label_from_sm2() helpers — not stored as separate instance vars
@@ -372,8 +406,9 @@ class SIADaemon(BaseDaemon):
 
         # SM2 state machine (alarm event delivery)
         self._sm2_state: SM2State = SM2State.IDLE  # Startup-only state
-        self._event_sia_code: SiaEventCode | None = None  # Latest event code (BA|FA|PA)
+        self._event_sia_code: SiaEventCode | None = None  # Latest event code (BA|FA|PA|BC|OP)
         self._event_zone: str | None = None  # Latest zone from command #zone# tag
+        self._event_user_number: int | None = None  # Latest user number (BC/OP, story 13-1)
         self._event_attempt_count: int = 0  # Track send attempts for current event
         # Why FAILED was reached, for _event_label_from_sm2()'s wording split:
         # 'nak' = the CSR explicitly rejected the event; 'no_response' = no answer at
@@ -687,21 +722,28 @@ class SIADaemon(BaseDaemon):
             return 0
 
     def _event_context_prefix(self) -> str:
-        """Build the "{Type} (zone {zone})" prefix for active SM2 labels.
+        """Build the "{Type} (zone {zone})" / "{Type} (utilisateur {n})" prefix for active
+        SM2 labels.
 
         The alarm type is derived from the latest SIA code via event_type_fr()
-        and capitalised for display (e.g. "intrusion" → "Intrusion"). The zone
-        comes from the alarm command #zone# tag stored at PENDING entry.
+        and capitalised for display (e.g. "intrusion" → "Intrusion"). BC/OP (story 13-1,
+        ADR-18) address by configured user number, never by zone — DC-03 p.4 — so they use
+        _event_user_number instead of _event_zone. BA/FA/PA keep the zone clause.
 
         Returns:
-            str: e.g. "Intrusion (zone 3)". Falls back to "Alarme" if the type
-                 is unknown and omits the zone clause if no zone is recorded.
+            str: e.g. "Intrusion (zone 3)" or "Annulation (utilisateur 1)". Falls back to
+                 "Alarme" if the type is unknown, and omits the clause if no zone/user is
+                 recorded.
         """
         if self._event_sia_code:
             type_fr = event_type_fr(self._event_sia_code)
             type_label = type_fr[:1].upper() + type_fr[1:]
         else:
             type_label = "Alarme"
+        if self._event_sia_code in ("BC", "OP"):
+            if self._event_user_number is not None:
+                return f"{type_label} (utilisateur {self._event_user_number})"
+            return type_label
         if self._event_zone:
             return f"{type_label} (zone {self._event_zone})"
         return type_label
@@ -1399,6 +1441,7 @@ class SIADaemon(BaseDaemon):
         self._sm2_state = SM2State.PENDING
         self._event_sia_code = event_item.sia_code
         self._event_zone = event_item.zone
+        self._event_user_number = event_item.user_number
         self._event_attempt_count = 0
 
         # Increment sequence number ONCE before the loop.
@@ -1528,6 +1571,7 @@ class SIADaemon(BaseDaemon):
                                 max_retries=max_retries,
                                 attempts_made=self._event_attempt_count,
                                 last_error='timeout',
+                                user_number=event_item.user_number,
                             )
                         )
                         await self._update_info_commands({
@@ -1605,6 +1649,7 @@ class SIADaemon(BaseDaemon):
                         max_retries=max_retries,
                         attempts_made=self._event_attempt_count,
                         last_error='protocol_error',
+                        user_number=event_item.user_number,
                     )
                 )
                 await self._update_info_commands({
@@ -1626,6 +1671,7 @@ class SIADaemon(BaseDaemon):
                 max_retries=max_retries,
                 attempts_made=self._event_attempt_count,
                 last_error='loop_exhausted',
+                user_number=event_item.user_number,
             )
         )
         await self._update_info_commands({
@@ -1654,14 +1700,18 @@ class SIADaemon(BaseDaemon):
         Reference: story 5-2 Task 3.2.2b, sia_protocol.py encode_message()
         """
         try:
-            # Build extended data with zone information.
-            # The CSR is given the zone ORDER NUMBER, never the label: SIA DC-09 Annex B
-            # formats it as 3 zero-padded digits → [#001234|BA 001]. Padding happens here
-            # and only here. When the label matched no entry of the zone table PHP sends
-            # zone_number=None and the frame carries no zone field at all.
+            # Build extended data with the address field.
+            # BA/FA/PA address by zone ORDER NUMBER, never the label; BC/OP address by the
+            # configured SIA user number instead — DC-03 p.4, story 13-1, ADR-18. Either way
+            # SIA DC-09 Annex B formats it as 3 zero-padded digits → [#001234|BA 001] or
+            # [#001234|BC 001]. Padding happens here and only here. When the source value is
+            # None the frame carries no address field at all.
             # Note: _sia_seq is incremented once by _send_with_retry before the loop.
             extended_data = {}
-            if event_item.zone_number is not None:
+            if event_item.sia_code in ('BC', 'OP'):
+                if event_item.user_number is not None:
+                    extended_data['zone'] = f"{event_item.user_number:03d}"
+            elif event_item.zone_number is not None:
                 extended_data['zone'] = f"{event_item.zone_number:03d}"
             if event_item.media_url:
                 extended_data['media_url'] = event_item.media_url
@@ -1820,6 +1870,7 @@ class SIADaemon(BaseDaemon):
         retries_left: int = MAX_RETRY_DEFAULT,
         *,
         zone_number: int | None = None,
+        user_number: int | None = None,
     ) -> None:
         """Enqueue an alarm event for SM2 processing at EVENT priority.
 
@@ -1828,13 +1879,16 @@ class SIADaemon(BaseDaemon):
         The enqueue is fire-and-forget: on_message() returns immediately after calling this.
 
         Args:
-            sia_code: SIA event code — "BA" (burglary), "FA" (fire), "PA" (panic)
+            sia_code: SIA event code — "BA" (burglary), "FA" (fire), "PA" (panic),
+                "BC" (burglary cancel), "OP" (disarm)
             zone: Zone name from PHP #zone# tag, or None if not specified
             media_url: Optional camera/media URL for SIA [V...] extended field, or None
             retries_left: Retry budget (default MAX_RETRY_DEFAULT=3). Reset to full
                           when re-enqueuing after TCP_RECONNECTING.
             zone_number: Zone order number resolved by PHP, or None when the label
                          matched no entry of the zone table (frame sent without zone).
+            user_number: Configured SIA user number (story 13-1) — the address field for
+                         BC/OP, or None for BA/FA/PA which use zone_number instead.
 
         Reference: daemon-design.md Component 1 — Task 1.6 on_message()
         """
@@ -1843,13 +1897,14 @@ class SIADaemon(BaseDaemon):
             "sia_code": sia_code,
             "zone": zone,
             "zone_number": zone_number,
+            "user_number": user_number,
             "media_url": media_url,
             "retries_left": retries_left,
         }
         await self._queue.put((QUEUE_PRIORITY_EVENT, counter, QUEUE_TYPE_EVENT, payload))
         self._logger.debug(
             f"EVENT enqueued: sia_code={sia_code}, zone={zone}, "
-            f"zone_number={zone_number}, counter={counter}"
+            f"zone_number={zone_number}, user_number={user_number}, counter={counter}"
         )
 
     async def _enqueue_supervision(self) -> None:
@@ -1928,6 +1983,7 @@ class SIADaemon(BaseDaemon):
                         self._event_failure_reason = "no_response"
                         self._event_sia_code = event_payload["sia_code"]
                         self._event_zone = event_payload.get("zone")
+                        self._event_user_number = event_payload.get("user_number")
                         self._notify(
                             ErrorCode.EVENT_FAILED,
                             EventFailedCtx(
@@ -1937,6 +1993,7 @@ class SIADaemon(BaseDaemon):
                                 max_retries=0,
                                 attempts_made=0,
                                 last_error="no_network",
+                                user_number=event_payload.get("user_number"),
                             ),
                         )
                         self._logger.debug(
@@ -1954,6 +2011,7 @@ class SIADaemon(BaseDaemon):
                             zone=event_payload.get("zone"),
                             timestamp=timestamp_str,
                             zone_number=event_payload.get("zone_number"),
+                            user_number=event_payload.get("user_number"),
                             media_url=event_payload.get("media_url"),
                         )
                         await self._send_with_retry(
@@ -2023,12 +2081,17 @@ class SIADaemon(BaseDaemon):
         the actual send happens asynchronously in _queue_consumer() → _send_with_retry().
 
         Args:
-            cmd: Command name from PHP — "burglarAlarm", "fireAlarm", "panicAlarm", or
+            cmd: Command name from PHP — "burglarAlarm", "fireAlarm", "panicAlarm",
+                "disarm"/"alarmReset" (Story 13-1 — sia_code comes from params, not a
+                fixed mapping; see _VARIABLE_SIA_CODE_COMMANDS), or
                 "prefetchEvent" (Story 14-2, ADR-17 Amendment 3)
             params: PHP payload dict with optional keys:
                 - "zone": str — zone name from #zone# tag (None if absent)
                 - "zone_number": int — zone order number PHP resolved against the zone
                   table (None when the label matched no entry: frame sent without zone)
+                - "sia_code": str — required for "disarm"/"alarmReset" only: "BC" or "OP"
+                - "user_number": int — configured SIA user (story 13-1), address field
+                  for "disarm"/"alarmReset" frames
                 - "media_url": str — camera/media URL (None if absent)
                 - "camera_eqlogic_id"/"camera_name"/"frigate_host" — prefetchEvent only
 
@@ -2068,10 +2131,22 @@ class SIADaemon(BaseDaemon):
             )
             return
 
-        sia_code: SiaEventCode | None = _EVENT_SIA_CODES.get(cmd)
-        if sia_code is None:
-            self._logger.warning(f"on_message: unknown alarm command '{cmd}' — ignored")
-            return
+        sia_code: SiaEventCode | None
+        if cmd in _VARIABLE_SIA_CODE_COMMANDS:
+            # Story 13-1 (ADR-18): disarm/alarmReset carry their own sia_code per call —
+            # one sendToDaemon() per frame — rather than a fixed cmd→code mapping.
+            raw_sia_code = params.get("sia_code")
+            if raw_sia_code not in _USER_ADDRESSED_SIA_CODES:
+                self._logger.warning(
+                    f"on_message: {cmd} missing/invalid sia_code {raw_sia_code!r} — ignored"
+                )
+                return
+            sia_code = cast(SiaEventCode, raw_sia_code)
+        else:
+            sia_code = _EVENT_SIA_CODES.get(cmd)
+            if sia_code is None:
+                self._logger.warning(f"on_message: unknown alarm command '{cmd}' — ignored")
+                return
 
         zone: str | None = params.get("zone")
         media_url: str | None = params.get("media_url")
@@ -2089,11 +2164,27 @@ class SIADaemon(BaseDaemon):
                     "frame will be sent without zone"
                 )
 
+        # Story 13-1: user_number is the address field for BC/OP (ADR-18) — same defensive
+        # int coercion as zone_number, so a JSON string never breaks the f"{n:03d}" format.
+        raw_user_number = params.get("user_number")
+        user_number: int | None = None
+        if raw_user_number is not None:
+            try:
+                user_number = int(raw_user_number)
+            except (TypeError, ValueError):
+                self._logger.warning(
+                    f"on_message: unusable user_number {raw_user_number!r} — "
+                    "frame will be sent without a user address"
+                )
+
         self._logger.debug(
             f"on_message: cmd={cmd} → sia_code={sia_code}, zone={zone}, "
-            f"zone_number={zone_number}, media_url={'<set>' if media_url else None}"
+            f"zone_number={zone_number}, user_number={user_number}, "
+            f"media_url={'<set>' if media_url else None}"
         )
-        await self._enqueue_event(sia_code, zone, media_url, zone_number=zone_number)
+        await self._enqueue_event(
+            sia_code, zone, media_url, zone_number=zone_number, user_number=user_number
+        )
 
     # ===== STORY 14-2 (ADR-17 Amendment 3): FRIGATE EVENT PREFETCH =====
 

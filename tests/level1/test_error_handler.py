@@ -24,7 +24,72 @@ from resources.siadc09d.error_handler import (
     _notify,
     _validate_context,
     classify_error,
+    event_type_fr,
 )
+
+
+def test_event_type_fr_maps_burglary_cancel() -> None:
+    """
+    Story 13-1 AC7: the cancel has a French label, both as PHP command and as SIA code,
+    so the widget/notifications never show the raw "BC".
+
+    Expected result:
+    - event_type_fr("BC") == "annulation"
+    - event_type_fr("burglaryCancel") == "annulation"
+    """
+    # Assert: SIA code form maps to the French label
+    assert event_type_fr("BC") == "annulation"
+    # Assert: PHP command form maps to the same label
+    assert event_type_fr("burglaryCancel") == "annulation"
+
+
+def test_event_type_fr_maps_opening_report() -> None:
+    """
+    Story 13-1 AC7: OP (disarm during an open alarm, ADR-18) gets a French label too,
+    so a confirmed/failed OP never shows the raw "OP" in the widget or a notification.
+
+    Expected result:
+    - event_type_fr("OP") == "désarmement"
+    """
+    # Assert: SIA code "OP" maps to the French label
+    assert event_type_fr("OP") == "désarmement"
+
+
+@pytest.mark.parametrize(
+    "sia_code,expected_subject,expected_address_key,expected_object",
+    [
+        ("BC", "L'annulation", "user_number", "l'annulation"),
+        ("OP", "Le désarmement", "user_number", "le désarmement"),
+    ],
+)
+def test_event_failed_message_names_cancel_or_disarm_not_alarme(
+    sia_code: str, expected_subject: str, expected_address_key: str, expected_object: str
+) -> None:
+    """
+    Story 13-1 AC7 (finding #4): a failed BC/OP must be named as a cancel/disarm in the
+    EVENT_FAILED T3 notification, not as a generic "alarme" — and addressed by the
+    configured user number, not a zone (DC-03 addresses BC/OP by user — ADR-18).
+
+    Expected result:
+    - the message names the event with the correct subject ("L'annulation"/"Le désarmement")
+    - the message addresses it as "(utilisateur: <n>)", never "(zone: ...)"
+    - the generic word "alarme" never appears in the message
+    """
+    from resources.siadc09d.error_handler import build_notification
+
+    payload = build_notification(
+        ErrorCode.EVENT_FAILED,
+        {"sia_code": sia_code, expected_address_key: 1, "attempts_made": 3},
+    )
+    # Assert: the message names the correct subject (cancel or disarm)
+    assert expected_subject in payload["message"], payload["message"]
+    # Assert: the address clause uses "utilisateur", never "zone"
+    assert "(utilisateur: 1)" in payload["message"], payload["message"]
+    assert "zone:" not in payload["message"], payload["message"]
+    # Assert: the generic "alarme" word never appears for a BC/OP failure
+    assert "alarme" not in payload["message"].lower(), payload["message"]
+    # Assert: the object clause ("n'a PAS reçu ...") also names the cancel/disarm
+    assert expected_object in payload["message"], payload["message"]
 
 
 def test_all_error_codes_defined() -> None:
