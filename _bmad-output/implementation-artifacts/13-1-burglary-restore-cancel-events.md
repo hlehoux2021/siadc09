@@ -3,276 +3,238 @@ story_id: "13-1"
 story_key: "13-1-burglary-restore-cancel-events"
 epic_id: "epic-13"
 epic_name: "Alarm Event Vocabulary Extension (v1.1)"
-status: "ready-for-dev"
+status: "in-progress"
 created: "2026-09-17"
 ---
 
-# Story 13.1: Burglary Cancel (BC) — corrélation par zone côté plugin
+# Story 13.1: Désarmement pendant une alarme — Burglary Cancel (BC) + Opening Report (OP)
 
-> **Rescopée le 2026-09-18.** La story couvrait BR **et** BC. BR est retirée et transférée à la
-> story **13-2** (parquée, `backlog`) : le plugin alarme n'émet **aucun** événement « détecteur
-> revenu à la normale », donc BR n'a pas de source. La clé `13-1-burglary-restore-cancel-events`
-> est conservée pour ne pas casser `sprint-status.yaml` ni l'historique (même précédent que
-> 12-5 → 12-7). La décision de conception n° 1 committée en `bfb2445` est **renversée** :
-> la corrélation zone n'est pas l'affaire de la centrale, c'est la nôtre.
+> **Rescopée le 2026-09-25** (`sprint-change-proposal-2026-09-25.md`). Le tableau des codes
+> DC-03 (p. 4) montre que **BC s'adresse par numéro d'utilisateur, jamais par zone** :
+> « Burglary Cancel — alarm has been cancelled by authorized user / User number ». L'éventail
+> par zone (Tasks 2-4 précédentes) n'était donc **pas conforme DC-03** dès le départ. Le périmètre
+> s'étend en même temps sur demande d'Herve : le plugin doit aussi rapporter **OP** (désarmement)
+> quand une alarme intrusion était ouverte, et couvrir le **second** chemin de fin d'alarme du
+> plugin alarme — une remise à zéro (`raz`) sans désactivation, qui laisse le système armé. Deux
+> commandes remplacent `burglaryCancel` : **`disarm`** (câblée sur `release`) et **`alarmReset`**
+> (câblée sur `raz`). CL (armement) et OP-sur-désarmement-normal partent vers la nouvelle story
+> **13-4** (backlog) ; FC/PC (incendie/panique) partent vers **13-3** (backlog). `burglaryCancel`
+> n'a jamais été livré — aucune migration n'est nécessaire. Voir ADR-18 (`architecture.md`).
 
-Status: ready-for-dev — Task 1 (conception) **close** (`613b0fe`) : les trois sections sont
-réécrites en « Burglary Cancel (BC) », conformes à la décision de l'utilisateur du 2026-09-18.
-Reste Tasks 2-9 (code, tests, doc, validation terrain).
+Status: in-progress — Tasks 1-9 closes le 2026-09-25 (conception, code PHP/démon, tests, docs).
+Seule Task 10 reste ouverte : validation IHM sur `test-jeedom.lehoux.net` contre la centrale
+interne (AC8), qui exige un `git push` puis une session avec Herve — hors de portée d'un agent.
 
 ## Story
 
 As a monitored Jeedom user,
-I want the plugin to report the end of an intrusion (BC) **on the same zones that alarmed**,
-So that the CSR closes every open zone of the incident instead of keeping them open until an
-operator calls.
+I want disarming my alarm while a burglary alarm is open to tell the CSR that user N cancelled
+it and disarmed the system,
+So that the operator stops the emergency procedure instead of calling the police.
 
-## Contexte — pourquoi la corrélation nous revient
+## Contexte — pourquoi l'adressage change
 
-Le fait décisif, établi sur la source amont (`jeedom/plugin-alarm`, `core/class/alarm.class.php`,
-master) :
+Le tableau DC-03 (`docs/SIA Codes – Complete DC-03 Event Code List _ Peoplecall Cloud.pdf`,
+p. 4) :
 
-| Côté | Action alarme | Cardinalité | Zone fournie |
-|------|---------------|-------------|--------------|
-| Déclenchement | `outbreak` (`:605`), `outbreakImmediate` (`:583`), `actions` / `actionsImmediate` de zone via `doZoneAction()` | **une fois par zone déclenchée** (garde `:601`, avec `splitZone = 1`) | **oui** — `#zone#` = `$zone['name']` |
-| Réinitialisation | `raz` (`:712`), `razImmediate` (`:707`), `release` (`:703`) | **une seule fois pour l'équipement** | **non** — `#mode#` seulement (et `raz`/`razImmediate` en `:818`/`:822` ne passent **aucune** option) |
-
-Soit **N BA en entrée, 1 événement de réinitialisation sans zone en sortie**. DC-09 n'offre par
-ailleurs aucun champ de référence arrière (grep « restoral »/« cancel » dans
-`docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md` : zéro occurrence) : le numéro de zone
-est la **seule** clé de corrélation transportable, et le numéro de séquence n'est qu'un
-discriminant de doublon (§ 5.5.1.5).
-
-Conséquence : **sans mémoire de notre côté, un BC ne peut pas correspondre aux BA émis.** C'est
-l'option A retenue par l'utilisateur : nous mémorisons les alarmes émises par zone, et le
-déclencheur global unique produit un BC par zone encore ouverte.
-
-Le plugin alarme possède l'information (cache `trigger_zone`, écrit en `:602`, vidé en `:714-715`
-donc **après** que `raz` ait tiré) mais ne la transmet pas — d'où l'option A plutôt qu'une lecture
-opportuniste de son cache (voir « Options écartées »).
-
-### Emplacement de la mémoire — décidé le 2026-09-18 : A-PHP
-
-Deux variantes de l'option A. **A-PHP est retenue** (arbitrage utilisateur du 2026-09-18) ;
-A-démon reste documentée pour que le choix soit traçable.
-
-| | **A-PHP** (retenue) | A-démon |
+| Code | Nom | Champ d'adresse |
 |---|---|---|
-| Support | cache eqLogic (`setCache`/`getCache`, Redis) | `dict` en mémoire dans `daemon.py` |
-| Survit au redémarrage du démon | **oui** — dont le redémarrage *volontaire* introduit par la 7-2 (self-stop sur `NO_NETWORK` → watchdog Jeedom) | non |
-| Conflit de merge | aucun : `siaDC09Cmd.class.php` n'est sous édition par personne | `daemon.py` = point chaud (7-2 / 12-4 / 12-5 / 12-7) |
-| Chirurgie SM2 | **aucune** — un BC est un événement ordinaire de plus | table + cycle de vie à greffer dans SM2 |
-| Numéro de zone | déjà résolu ici (`_resolveZoneNumber()`, 8-2) | à re-transporter |
-| Moment de l'enregistrement | à l'**émission** (pas à l'ACK) | possible à l'ACK |
-| Testable | PHP niveau 1 / 2.5, sans asyncio | niveau 2 asyncio |
+| BA | Burglary Alarm | Zone ou point |
+| **BC** | **Burglary Cancel — annulé par un utilisateur autorisé** | **Numéro d'utilisateur** |
 
-Le seul avantage d'A-démon est de connaître l'ACK. Il ne pèse pas : la politique du plugin est
-**ne jamais supprimer une trame**, donc un BC de trop est bénin et un BC manquant est le cas
-dangereux. Enregistrer à l'émission est donc le bon côté de l'erreur.
+`[#001234|BC 003]` signifie donc « annulé par l'**utilisateur 3** », jamais « zone 3 fermée ».
+Herve a confirmé sur le tableau complet (la copie du dépôt ne va que jusqu'à BC, pages 1-4) que
+CL (armement) et OP (désarmement) s'adressent de la même façon, par numéro d'utilisateur ; OR
+(« Disarm From Alarm ») n'est **pas** retenu — Herve a choisi BC + OP à la place.
 
-## Conception retenue (option A, variante A-PHP)
+Le plugin alarme (`~/dev-hlx/plugin-alarm/core/class/alarm.class.php`) ne transmet **jamais**
+l'identité Jeedom (`user_login`/`user_id`) à ses actions (`doAction()`, `:639-670` : seuls
+`#mode#`/`#alarm_trigger#` sont substitués). Le numéro d'utilisateur SIA est donc une **valeur
+configurée** (`sia_user_number`, assistant étape 3, défaut `1`), pas une donnée lue.
 
-### Déclencheur — une seule commande globale
+### Les deux chemins de fin d'alarme (`:697-717`, `:812-832`)
 
-`burglaryCancel` — « Annulation intrusion », ACTION / `subType message`, `isVisible 0`,
-`returnStateTime 30` / `returnStateValue 0`, créée idempotemment par `postSave()`. L'utilisateur la
-câble sur l'action **`raz`** du plugin alarme (et/ou `razImmediate`). Aucun tag n'est requis dans le
-*Titre*.
+L'onglet « Réinitialisation » (`raz`) est un point d'accroche d'action, pas une commande.
 
-Un *Titre* **non vide** reste une dérogation mono-zone explicite (zone saisie littéralement,
-chemin 8-2 inchangé) ; un *Titre* **vide** déclenche l'éventail depuis la table.
+| Situation | Ce que le plugin exécute | État final |
+|---|---|---|
+| **Désactiver pendant que l'alarme sonne** | « Désactivation OK » (`release`), **puis** « Réinitialisation » (`raz`) | désarmé |
+| **Changement de mode pendant que l'alarme sonne** | « Réinitialisation » (`raz`) **seule**, sans `release` | **reste armé** |
 
-### Table des alarmes ouvertes
+Conséquence : une intrusion peut être annulée **sans** désarmer. `BC` part donc de deux façons :
+apparié à `OP` sur un désarmement, ou seul sur une réinitialisation par changement de mode.
+**Deux commandes, une par point d'accroche.** Comme `release` s'exécute avant `raz`
+(`alarm.class.php:703-712`), la première des deux à agir purge la table `sia_open_alarms` et la
+seconde la trouve vide — jamais de `BC` en double.
 
-Cache eqLogic `sia_open_alarms`, dictionnaire clé → entrée :
+## Conception retenue
 
-- **clé** = `sia_code . '|' . ($zone_number !== null ? $zone_number : 'account')`
-  — déduplique nativement les BA répétés sur une même zone, et fait s'effondrer toutes les zones
-  non résolues sur **une** entrée « compte » (sinon deux libellés inconnus produiraient deux BC
-  sans zone, c'est-à-dire deux doublons sur le fil) ;
-- **entrée** = `['sia_code' => 'BA'|'FA'|'PA', 'zone' => <libellé|null>, 'zone_number' => <int|null>, 'ts' => <timestamp>]`.
+### Deux commandes, chacune sur son point d'accroche
 
-La table est **bornée par construction** : `3 codes × (N zones + 1)`. Un plafond dur
-(`OPEN_ALARMS_MAX`) reste en garde contre un cache corrompu, avec éviction de la **plus ancienne
-par `ts`** — jamais « le premier du dictionnaire », l'ordre d'insertion n'étant pas un contrat.
-Un TTL (`OPEN_ALARMS_TTL`) protège le cas où aucune réinitialisation n'arrive jamais (plugin alarme
-désactivé en pleine alarme).
+| logicalId | name | type | subType | isVisible | SIA code(s) | Câblée sur |
+|---|---|---|---|---|---|---|
+| `disarm` | `Désarmement` | action | other | 0 | `BC`+`OP`, ou rien | `release` (« Désactivation OK ») |
+| `alarmReset` | `Réinitialisation alarme` | action | other | 0 | `BC`, ou rien | `raz` (« Réinitialisation ») |
 
-**Point d'écriture** : branche `burglarAlarm` / `fireAlarm` / `panicAlarm` de
-`siaDC09Cmd::execute()`, juste après `siaDC09::sendToDaemon()`.
+Créées idempotemment par `postSave()`, même `returnStateTime 30` / `returnStateValue 0` que les
+actions alarme. `subType other` : ni l'une ni l'autre n'a besoin d'un *Titre* — l'adresse est
+`sia_user_number`, une valeur configurée, jamais quelque chose que le plugin alarme peut fournir.
 
-### Éventail sur annulation
+`burglaryCancel` est retiré de `$actionCmds`. Jamais livré, donc pas de migration.
 
-Sur `burglaryCancel` avec *Titre* vide :
+### `disarm` (sur `release`)
 
-1. lire `sia_open_alarms` ;
-2. pour chaque entrée de code **`BA`**, émettre un BC portant **le même `zone_number`** que le BA
-   qu'il clôt, dans l'ordre d'insertion ;
-3. vider la table, en journalisant en `debug` les entrées `FA`/`PA` abandonnées — **`BC` ne clôt
-   que des `BA`** ; les entrées incendie/panique sont mémorisées pour les futurs `FC`/`PC`
-   (story 13-3 potentielle) mais ne doivent jamais être fermées par un BC ;
-4. **table vide** (annulation en doublon, cache vidé, démon ou Redis redémarré) → émettre
-   **exactement un** `[#001234|BC]` au niveau du compte avec un `warning`. Jamais zéro trame.
+Si `sia_open_alarms` a une entrée `BA` ouverte : émet `[#{compte}|BC {user:03d}]` puis
+`[#{compte}|OP {user:03d}]`, dans cet ordre, puis purge la table. Sinon : n'émet **rien**
+(l'`OP` du désarmement normal part vers la story 13-4) et journalise en `debug`.
 
-Chaque BC suit le chemin EVENT normal (priorité 0, PENDING → CONFIRMED/FAILED, retries) : N appels
-`sendToDaemon()` indiscernables d'une alarme ordinaire.
+### `alarmReset` (sur `raz`)
 
-### Démon — modifications minimales
+Si `sia_open_alarms` a encore une entrée `BA` ouverte (cas : réinitialisation par changement de
+mode, sans `release`) : émet `[#{compte}|BC {user:03d}]` puis purge la table. Sinon (cas normal :
+`disarm` a déjà purgé) : n'émet **rien**.
 
-- `SiaEventCode = Literal['BA', 'FA', 'PA', 'BC']` (`daemon.py:144`) ;
-- `_EVENT_SIA_CODES` (`:256`) gagne `"burglaryCancel": "BC"` ;
-- `error_handler.py` : `sia_code: Literal[...]` et la table `event_type` → libellé français
-  (`:328`, `:366`) gagnent `BC` → `annulation` ;
-- table de libellés SM2 : `BC` → `Annulation` ;
-- `_build_event_frame()` (`:1556`) est **déjà générique** sur `sia_code` et `zone_number` :
-  aucune modification.
+### La table `sia_open_alarms` — rôle réduit
 
-Pas de nouvel état SM2, pas de table dans le démon, pas de nouvelle sémantique de file.
+Support, clé, forme d'entrée, bornage (`OPEN_ALARMS_MAX`), TTL : **inchangés** de la conception
+précédente (cache eqLogic `sia_open_alarms`, Redis-backed). Son rôle se réduit à un oracle
+« une `BA` est-elle ouverte ? » — plus de fan-out, plus de dérogation mono-zone, plus de repli
+compte : les deux commandes purgent toujours la table entière sur un `BC`, puisqu'il n'existe
+qu'une seule alarme intrusion ouverte possible par construction du plugin alarme (un équipement,
+un état armé/désarmé). Les entrées `FA`/`PA` restent mémorisées pour la future story 13-3.
 
-### `event_state` — inchangé
+### `siaDC09_update()` doit atteindre les installations existantes (constat #2)
 
-0/1/2/3 conservés (axe « état de transmission », orthogonal au type d'événement) ; l'annulation
-passe par `event_label`. Cette décision (n° 2 de `bfb2445`) **survit** au renversement de la
-décision n° 1 : elle ne dépendait pas de l'hypothèse de corrélation.
+`postSave()` ne s'exécute qu'à l'enregistrement de l'équipement (installation neuve, ou
+ré-enregistrement manuel). À la **mise à jour** du plugin, Jeedom appelle `siaDC09_update()`, pas
+`postSave()` : une installation existante qui ne ré-enregistre jamais son équipement ne recevrait
+donc jamais `disarm`/`alarmReset`. `siaDC09_update()` doit parcourir chaque eqLogic `siaDC09` et
+appeler `postSave()` sur chacun.
+
+### Câblage requis (documentation plugin, Task 9)
+
+| Action plugin alarme | Notre commande | Pourquoi |
+|---|---|---|
+| *Désactivation OK* (`release`) | `Désarmement` (`disarm`) | voit chaque désarmement ; émet BC→OP si une BA est ouverte |
+| *Réinitialisation* (`raz`) | `Réinitialisation alarme` (`alarmReset`) | voit la réinitialisation par changement de mode que `release` n'a pas exécutée |
+
+**Câbler les deux.** Un installateur qui n'en câble qu'une perd l'autre cas — la réinitialisation
+par changement de mode (sans `release`) si seul `disarm` est câblé, ou l'annulation du
+désarmement normal si seul `alarmReset` est câblé.
 
 ### Options écartées
 
-- **B — lire le cache `trigger_zone` du plugin alarme.** Techniquement faisable (il est encore
-  peuplé quand notre commande tourne) mais c'est un couplage à l'état interne d'un plugin tiers,
-  sans contrat ni test amont.
-- **C — un BC sans zone ferme tout le compte.** Dépend du comportement de la centrale ; à vérifier
-  sur `192.168.100.15:10002` comme validation (Task 9), pas comme mécanisme.
-- **D — BR depuis le retour à la normale du détecteur.** Hors périmètre → story 13-2.
-- **`reenableTrigger` (`:547`) comme source de BR.** Passe bien `#zone#` mais sa sémantique est
-  « un capteur en défaut à l'armement est revenu à la normale », et il peut tirer sans qu'aucune
-  alarme n'ait eu lieu. Ce n'est pas un rétablissement.
-
-## Dépendance
-
-Numéro de zone livré par l'évolution 8-2 (`zone_number` dans `sia_zone_mappings`, résolu par
-`siaDC09Cmd::_resolveZoneNumber()`) : un BC doit porter **le même** numéro que le BA qu'il clôt, et
-le libellé n'est pas une clé de corrélation utilisable.
+- **Éventail par zone (conception précédente).** Non conforme DC-03 : `BC` s'adresse par
+  utilisateur, jamais par zone.
+- **BC sans adresse.** DC-09 légal, mais une centrale peut le rejeter ou le mal classer.
+- **Lire `lastExecutionUser`** (cache du noyau Jeedom). Couple le plugin à l'état interne d'un
+  autre plugin ; un désarmement déclenché par scénario y lit `system`.
+- **CR pour l'armement.** CR signifie *Recent Closing* (alarme dans les 5 minutes suivant
+  l'armement), pas « armé ».
 
 ## Acceptance Criteria
 
-1. **Conception corrigée :** les trois sections `## Restoral events (BR / BC)` ajoutées par
-   `bfb2445` à `daemon-design.md`, `widget-design.md` et `php-core-design.md` sont **réécrites**
-   (pas complétées) : décision n° 1 renversée, emplacement et cycle de vie de la table documentés,
-   BR retiré et renvoyé vers 13-2.
+> **ACs de la conception précédente (éventail par zone), abandonnées le 2026-09-25 —
+> conservées ici pour traçabilité, ~~barrées~~, remplacées par la liste ci-dessous :**
+>
+> 1. ~~Conception corrigée : les trois sections `## Restoral events (BR / BC)` sont réécrites~~
+> 2. ~~Commande `burglaryCancel` créée par `postSave()`, câblée sur `raz`~~
+> 3. ~~Mémorisation : toute alarme émise crée/rafraîchit une entrée dans `sia_open_alarms`~~
+> 4. ~~Éventail : N BA sur N zones distinctes → exactement N BC portant les mêmes numéros~~
+> 5. ~~Repli jamais muet : table vide → exactement une trame `[#001234|BC]` sans zone~~
+> 6. ~~Dérogation mono-zone : un *Titre* non vide émet un unique BC pour cette zone~~
+> 7. ~~Démon : `SiaEventCode`/`_EVENT_SIA_CODES`/`error_handler.py` acceptent `BC`~~
+> 8. ~~Trames correctes sur la vraie centrale : BA puis BC acquittés~~
+> 9. ~~Validation terrain multi-zones sur `test-jeedom.lehoux.net`~~
 
-2. **Commande exposée :** `burglaryCancel` (« Annulation intrusion ») est créée idempotemment par
-   `postSave()` en ACTION / `message`, `isVisible 0`, `returnStateTime 30` / `returnStateValue 0`,
-   et la documentation plugin indique « à câbler sur l'action *Remise à zéro* (`raz`) du plugin
-   alarme, sans tag dans le Titre ».
+**Nouvelles ACs (2026-09-25) :**
 
-3. **Mémorisation :** toute alarme émise (`burglarAlarm` / `fireAlarm` / `panicAlarm`) crée ou
-   rafraîchit une entrée `(sia_code, zone_number|account)` dans `sia_open_alarms`, avec dédoublonnage
-   vérifié, éviction de la plus ancienne par `ts` au-delà de `OPEN_ALARMS_MAX`, et expiration par
-   `OPEN_ALARMS_TTL`.
+1. **Given** une commande d'action `disarm` (« Désarmement ») câblée sur l'action `release` du
+   plugin alarme, et un `sia_user_number` configuré (défaut 1)
+   **When** l'utilisateur désarme alors qu'au moins une `BA` envoyée par siaDC09 est encore
+   ouverte (`sia_open_alarms`)
+   **Then** exactement deux trames sont émises, dans cet ordre : `[#{compte}|BC {user:03d}]`
+   puis `[#{compte}|OP {user:03d}]`, et la table des alarmes ouvertes est purgée.
 
-4. **Éventail :** un `burglaryCancel` à *Titre* vide, après N BA sur N zones distinctes, émet
-   **exactement N** BC portant les N mêmes numéros de zone ; la table est ensuite vide ; les entrées
-   `FA`/`PA` présentes ne produisent aucune trame et sont journalisées en `debug`.
+2. **And** quand aucune `BA` n'est ouverte, `disarm` n'émet **aucune** trame (l'`OP` normal est
+   la story 13-4) et journalise en `debug`.
 
-5. **Repli jamais muet :** table vide → **exactement une** trame `[#001234|BC]` sans champ zone,
-   plus un `warning`. Zéro trame est un échec de l'AC.
+3. **Given** une commande d'action `alarmReset` (« Réinitialisation alarme ») câblée sur
+   l'action `raz` (« Réinitialisation ») du plugin alarme
+   **When** l'alarme est réinitialisée par un changement de mode pendant qu'elle sonne (pas de
+   `release`, le système reste armé) et qu'une `BA` est ouverte
+   **Then** exactement une trame `[#{compte}|BC {user:03d}]` est émise, et la table est purgée.
 
-6. **Dérogation mono-zone :** un *Titre* non vide émet un unique BC pour cette zone (chemin 8-2
-   inchangé) et retire l'entrée correspondante sans toucher aux autres.
+4. **And** lors d'une Désactivation normale pendant une alarme (`release` puis `raz`),
+   `alarmReset` trouve la table déjà purgée par `disarm` et n'émet **rien** : la séquence
+   complète produit exactement BC puis OP, jamais un second BC.
 
-7. **Démon :** `SiaEventCode`, `_EVENT_SIA_CODES` et `error_handler.py` acceptent `BC` ;
-   `event_state` conserve 0/1/2/3 ; `event_label` nomme l'annulation dans le format **livré par la
-   10-3** : `Annulation (zone 3) : Confirmée par la centrale`. *(Format amendé le 2026-09-25 — voir
-   la note sous les Tasks ; l'énoncé d'origine annonçait
-   `Annulation — Salon — HH:MM:SS — Confirmé par la centrale`.)*
+5. **And** le champ d'adresse n'est jamais un numéro de zone, et n'est jamais vide.
 
-8. **Trames correctes sur la vraie centrale :** `[#001234|BA 001]` puis `[#001234|BC 001]` tous deux
-   acquittés (ACK) par `192.168.100.15:10002` en TCP, compte `001234`.
+6. **And** `siaDC09_update()` crée les deux nouvelles commandes sur les installations existantes,
+   sans enregistrement manuel de l'équipement (constat #2).
 
-9. **Validation terrain multi-zones :** sur `test-jeedom.lehoux.net` (192.168.100.40), via
-   **l'IHM Jeedom réelle** et non par réflexion de code — déclencher deux zones, réinitialiser une
-   fois, lire les deux BC et leurs numéros dans l'inspecteur de protocole.
+7. **And** `SiaEventCode`, `_EVENT_SIA_CODES` et `error_handler.py` acceptent `BC` et `OP`.
+   `event_label` affiche `Annulation (utilisateur 1) : Confirmée par la centrale`, et
+   l'équivalent pour `OP`. La notification EVENT_FAILED T3 nomme une annulation/désarmement
+   échoué, pas une « alarme » (constat #4).
+
+8. **And** les deux trames sont acquittées (ACK) par `192.168.100.15:10002` en TCP, compte
+   `001234`, depuis la vraie IHM Jeedom sur `test-jeedom.lehoux.net`. Deux vérifications, lues
+   dans l'inspecteur de protocole : déclencher une zone puis désarmer (attendre BA, BC, OP) ;
+   déclencher une zone puis changer de mode (attendre BA, BC).
 
 ## Tasks / Subtasks
 
-- [x] Task 1: Réécrire les trois sections de conception de `bfb2445` (AC1) — décision n° 1 renversée,
-      A-PHP documentée face à A-démon, BR renvoyé à 13-2
-- [ ] Task 2: `burglaryCancel` dans `postSave()` + nouveau cas dans `siaDC09Cmd::execute()` (AC2, AC6)
-- [x] Task 3: Table `sia_open_alarms` — écriture, clé, dédoublonnage, `OPEN_ALARMS_MAX`, TTL (AC3)
-- [ ] Task 4: Éventail N BC + purge + `debug` sur `FA`/`PA` + repli compte avec `warning` (AC4, AC5)
-- [ ] Task 5: Démon — `SiaEventCode`, `_EVENT_SIA_CODES`, et le libellé `Annulation` par les deux
-      entrées `BC`/`burglaryCancel` → `annulation` dans `error_handler.py::event_type_fr()`
-      (`:364-371`) (AC7)
-- [x] Task 6: ~~`_event_label_from_sm2()` au format riche~~ — **sans objet, absorbée par Task 5.**
-      Le format riche a été livré hors de cette story par la 10-3 (note ci-dessous)
-- [ ] Task 7: Tests — PHP unitaire sur la table (dédoublonnage, éviction, TTL, éventail, repli,
-      dérogation), niveau 1 construction de trame BC, niveau 2.5 charge utile IPC
-- [ ] Task 8: Documentation plugin + note de câblage dans `.claude/skills/jeedom-alarm/SKILL.md`
-- [ ] Task 9: Validation IHM sur `test-jeedom` contre la centrale interne (AC8, AC9)
+- [x] Task 1: Réécrire les sections de conception (`daemon-design.md`, `php-core-design.md`,
+      `widget-design.md`, `wizard-design.md`) pour l'adressage par utilisateur et les deux
+      commandes — **fait au niveau du Sprint Change Proposal 2026-09-25**, relu et corrigé pour
+      cohérence avec le code réellement livré (Tasks 2-9) : snippets `disarm`/`alarmReset`
+      alignés sur `_resolveSiaUserNumber()`/`_purgeOpenAlarms()` réels, tableau `event_label`
+      corrigé au format ` : {état}` effectivement produit par `_event_label_from_sm2()`, note sur
+      la déviation `_EVENT_SIA_CODES`/`_VARIABLE_SIA_CODE_COMMANDS` ajoutée
+- [x] Task 2: `disarm` et `alarmReset` dans `postSave()` (`$actionCmds`, `subType other`) +
+      config `sia_user_number` + champ assistant étape 3 (AC1-AC6)
+- [x] Task 3: Table `sia_open_alarms` — écriture, clé, dédoublonnage, `OPEN_ALARMS_MAX`, TTL.
+      **Acquise, rôle réduit** : oracle « une BA est-elle ouverte ? », plus de fan-out ni de
+      dérogation mono-zone à retirer du code existant
+- [x] Task 4: `disarm` → BC puis OP si BA ouverte, sinon rien (AC1, AC2) ; `alarmReset` → BC si
+      BA ouverte, sinon rien (AC3, AC4) ; test de la séquence `release` puis `raz` (exactement
+      BC, OP, jamais un second BC)
+- [x] Task 5: Démon — `SiaEventCode` gagne `OP` (BC déjà présent), `_EVENT_SIA_CODES` pour
+      `disarm`/`alarmReset`, `user_number` dans `EventItem` et l'adresse de trame (AC5, AC7)
+- [x] Task 6: `siaDC09_update()` parcourt les eqLogic existants et appelle `postSave()` (AC6,
+      constat #2)
+- [x] Task 7: Libellé EVENT_FAILED T3 nomme l'annulation/désarmement, pas « alarme » (AC7,
+      constat #4)
+- [x] Task 8: Tests — retirer les tests d'éventail/dérogation/repli devenus sans objet, écrire
+      les tests `disarm`/`alarmReset` (BC+OP, BC seul, séquence release-puis-raz, silence sans
+      BA), niveau 1 construction de trame, niveau 2 charge utile IPC (`user_number`)
+- [x] Task 9: Documentation plugin (aide assistant étape 3) + note de câblage
+      `.claude/skills/jeedom-alarm/SKILL.md` — insister sur « câbler les deux commandes »
+- [ ] Task 10: Validation IHM sur `test-jeedom` contre la centrale interne (AC8) — nécessite un
+      `git push` puis une session avec Herve
 
-> **~~Divergence préexistante reprise de `bfb2445`~~ — fermée hors de cette story, constat du
-> 2026-09-25.** La note affirmait deux choses, **périmées toutes les deux** : que
-> `_event_label_from_sm2()` renvoyait `Inactif`/`En cours`/`Confirmé`/`Échoué`, et que l'onglet
-> diagnostic jetait `event_label`. La **10-3** a livré le préfixe riche
-> (`_event_context_prefix()`, `daemon.py:688`) *et* câblé `event_label` de bout en bout
-> (`daemon.py:510` → `siaDC09.ajax.php:190` → `siaDC09_renderEventBadge`,
-> `desktop/js/siaDC09.js:834`, plus les deux gabarits de widget).
->
-> Le format livré n'est cependant **pas** celui qu'annonçait l'AC7. Livré :
-> `Intrusion (zone 3) : Confirmée par la centrale`. AC7 écrivait
-> `Annulation — Salon — HH:MM:SS — Confirmé par la centrale` — trois écarts : séparateur ` : ` et
-> non ` — `, **pas** d'horodatage `HH:MM:SS`, et zone en **numéro** et non en libellé (« Salon »),
-> ce dernier point conformément à l'arbitrage de la 8-2.
->
-> **C'est l'AC7 qui est amendée sur le format livré, pas le code qui est réaligné sur l'AC7 :** la
-> 10-3 est validée en IHM sur `test-jeedom` et passée en code review le 2026-09-25 ; la re-casser
-> pour un exemple rédigé dans une story serait une régression. Il ne reste donc pour le `BC` que
-> les deux entrées de `event_type_fr()` — déjà dans le périmètre de Task 5, d'où Task 6 sans objet.
+## Dépendance
 
-## Séquencement
-
-Bien plus léger qu'avant la réduction de périmètre, parce qu'A-PHP sort du point chaud :
-
-| Task | Touche | Attend |
-|---|---|---|
-| Tasks 1, 3, 4, 7 (PHP) | `siaDC09Cmd.class.php`, tests | rien — aucun agent n'édite ce fichier |
-| Task 2 | `siaDC09.class.php` (`postSave()`) | ~~10-3~~ — **débloquée** : la 10-3 a committé ses éditions (`d3819c0`) et est `done` depuis le 2026-09-25 |
-| Task 5 | `error_handler.py` (`event_type_fr`), `daemon.py` (`SiaEventCode`, `_EVENT_SIA_CODES`) | 12-4, 12-7 — empreinte `daemon.py` réduite à ~2 lignes depuis que Task 6 est sans objet, donc collision quasi nulle |
-| Tasks 8, 9 | doc, validation terrain | les précédentes |
+Le retrait de l'éventail par zone rend la story indépendante de `zone_number`/
+`_resolveZoneNumber()` côté 8-2 — les deux commandes n'utilisent plus aucune résolution de zone.
+La seule dépendance nouvelle est la config `sia_user_number` (assistant étape 3, Task 2).
 
 ## Dev Notes
 
-- **Ne pas commencer par l'extension du `Literal`.** Ajouter `'BC'` fait compiler et construit la
-  trame, ce qui masque toute la question de corrélation jusqu'à ce que la centrale garde des zones
-  ouvertes en production.
-- Les trois tags (`#mode#`, `#alarm_trigger#`, `#zone#`) sont **non documentés dans l'IHM du plugin
-  alarme** (`desktop/php/alarm.php` et `desktop/js/alarm.js` : zéro référence) → la documentation
-  plugin doit détailler le câblage.
-- `#zone#` vaut le **libellé** (`$zone['name']`), jamais un numéro : le modèle de zone est
-  `{name, actions, actionsImmediate, triggers}` (`desktop/js/alarm.js:232-238`), la position dans le
-  tableau n'est ni persistée ni exposée.
-- `doAction()` (`:639`) ignore toute action dont la commande appartient à l'équipement alarme
-  lui-même (`$this->getId() == $cmd->getEqLogic_id()` → `continue`). Sans effet pour nous, mais cela
-  contraint le câblage utilisateur.
-- **Divergence doc/code relevée le 2026-09-18 — cosmétique, mais à corriger (Task 1).**
-  `php-core-design.md:529-556` décrit un `$commandsSpec` unique de 7 entrées portant des `order`
-  1-7. Le `postSave()` livré (`core/class/siaDC09.class.php:622-665`) est structuré autrement :
-
-  | | doc (`php-core-design.md:529-556`) | code livré (`siaDC09.class.php:622-665`) |
-  |---|---|---|
-  | structure | un tableau `$commandsSpec` (7 entrées) | deux tableaux `$actionCmds` (3) + `$infoCmds` (4) |
-  | `order` | 1 à 7 | **absent** — aucun appel `setOrder()` |
-  | `event_state` | `Transmission alarme` | `État alarme` |
-  | `supervision_label` | `Supervision détail` | `Supervision` |
-  | `event_label` | `Dernier événement` | `Alarme` |
-  | `returnStateTime`/`returnStateValue` | sur les 7 | **sur les 7** — vérifié (`:638-639`, `:660-661`) |
-
-  Aucune conséquence fonctionnelle : le garde-fou anti-`PENDING` bloqué (`event_state = 3` figé si
-  le démon tombe en pleine alarme) est bien en place. Deux corollaires quand même :
-  `burglaryCancel` n'a **pas** d'`order` à choisir — il suffit d'une ligne de plus dans
-  `$actionCmds` — et la Task 1 doit aligner la doc sur le code (ou l'inverse), parce qu'un document
-  de conception qui ne décrit pas le code livré est un piège pour le prochain développeur qui s'y
-  fie. C'est aussi ce qui invalide le constat « `order` 8/9 » de la revue adverse, retiré.
+- **Ne pas partir du code existant en le retouchant.** `burglaryCancel`, `_fanOutBurglaryCancel()`,
+  `_closeOpenAlarm()` mono-zone et le repli compte n'ont plus de raison d'être — ils s'appuyaient
+  sur une adresse-zone non conforme DC-03. Les garder « au cas où » créerait deux façons
+  concurrentes d'émettre un BC.
+- `_loadOpenAlarms()` reste utile tel quel : c'est la lecture de la table, indépendante de ce
+  qu'on en fait ensuite (avant : fan-out ; maintenant : test « une BA est-elle ouverte ? »).
+- Le test de séquence `release` puis `raz` (AC4) est le seul test réellement nouveau côté
+  logique : il fixe notre dépendance à l'ordre d'exécution du plugin alarme, documentée dans
+  ADR-18. S'il casse un jour, c'est que le plugin alarme a changé cet ordre.
+- **Historique de conception antérieur** (l'éventail par zone, l'analyse `bfb2445`, l'arbitrage
+  A-PHP vs A-démon du 2026-09-18) reste dans le Change Log ci-dessous pour traçabilité, mais ne
+  décrit plus le code à écrire.
 
 ## Dev Agent Record
 
@@ -282,32 +244,125 @@ Claude Sonnet 5 (bmad-dev-story workflow, persona Amelia)
 
 ### Debug Log References
 
-- Task 3 : cycle red-green-refactor sur `_recordOpenAlarm()` — 8 tests RED ajoutés dans
-  `tests/level1/test_php_eqlogic_stub.py`, GREEN obtenu par l'écriture dans
-  `siaDC09Cmd.class.php` (clé `sia_code|zone_number|account`, dédoublonnage, éviction par `ts`
-  au-delà de `OPEN_ALARMS_MAX`, purge TTL), `php -l` propre.
-- Vérification de non-régression complète : `python3 -m pytest tests/level1/ -q` → 49 échecs,
-  tous confinés à trois fichiers étrangers à ce Task : `test_diagnostic_js_dom.py` (47 —
-  `node_modules`/`jsdom` absent de ce worktree), `test_wizard_config_key_consistency.py::test_csr_provider_key_in_python`
-  et `test_connection_test.py::test_run_connection_test_preset_crc_format_used` (1 chacun — même
-  lacune préexistante côté démon : `"csr_provider"` absent de `resources/siadc09d/siadc09d.py`,
-  sans lien avec `siaDC09Cmd.class.php`). Aucun des 8 tests ciblés du Task 3 n'est dans cette liste.
+> **Entrées antérieures au rescope du 2026-09-25 retirées de cette section** — elles décrivaient
+> l'implémentation de l'éventail par zone (`_recordOpenAlarm()`, `_fanOutBurglaryCancel()`,
+> `burglaryCancel`), remplacée. Voir le Change Log pour l'historique complet. Les entrées Task 3
+> (table `sia_open_alarms`) restent valables : la table est acquise sans changement de code.
+
+- Task 3 (acquise, 2026-09-18/2026-09-25) : cycle red-green-refactor sur `_recordOpenAlarm()` —
+  8 tests niveau 1 dans `test_php_eqlogic_stub.py`, clé `sia_code|zone_number|account`,
+  dédoublonnage, éviction par `ts` au-delà de `OPEN_ALARMS_MAX`, purge TTL. `php -l` propre.
+- Tasks 2/4 (2026-09-25) : retrait de `case 'burglaryCancel'`, `_fanOutBurglaryCancel()`,
+  `_closeOpenAlarm()` de `siaDC09Cmd.class.php` ; ajout de `case 'disarm'`/`case 'alarmReset'`,
+  `_hasOpenAlarm()`, `_purgeOpenAlarms()`, `_resolveSiaUserNumber()`. `_recordOpenAlarm()`/
+  `_loadOpenAlarms()`/`_openAlarmKey()` inchangées (Task 3 acquise). Tests rouges d'abord
+  (`tests/level1/test_burglary_cancel_behavior.py` réécrit intégralement, `tests/level1/
+  test_php_eqlogic_stub.py` — nouveaux fixtures `disarm_body`/`alarm_reset_body`), puis code
+  minimal, puis vérifiés verts (11 + 82 tests).
+- Task 5 (2026-09-25) : `daemon.py` — `SiaEventCode` gagne `'OP'`. Ambiguïté résolue par
+  jugement (documentée dans `daemon-design.md`, section "Consequences for the rest of
+  Component 1") : `_EVENT_SIA_CODES` reste un dict fixe `cmd → code` pour `burglarAlarm`/
+  `fireAlarm`/`panicAlarm` seulement — `disarm`/`alarmReset` en sont délibérément absents, car
+  PHP envoie un `sendToDaemon()` par trame avec son propre `sia_code` (BC puis OP pour
+  `disarm`), ce qu'un mapping fixe 1-code-par-commande ne peut pas exprimer. `on_message()` lit
+  `params['sia_code']` pour ces deux commandes via un nouvel ensemble
+  `_VARIABLE_SIA_CODE_COMMANDS`, validé contre `_USER_ADDRESSED_SIA_CODES = {'BC','OP'}`.
+  `EventItem`/`OnMessageParams`/`EventQueuePayload` gagnent `user_number`. `_build_event_frame()`
+  adresse par `user_number` (zero-paddé) pour BC/OP, par `zone_number` sinon.
+  `_event_context_prefix()` gagne la branche `(utilisateur N)` pour BC/OP, `_event_user_number`
+  ajouté à `__init__`/`_send_with_retry()`/la branche NO_NETWORK immédiate.
+- Task 6 (2026-09-25) : `siaDC09_update()` (`plugin_info/install.php`, stub vide déjà présent)
+  implémentée — `foreach (eqLogic::byType('siaDC09') as $eqLogic) { $eqLogic->postSave(); }`.
+- Task 7 (2026-09-25) : `error_handler.py` — `EventFailedCtx.sia_code` élargi à `Literal['BA',
+  'FA','PA','BC','OP']`, nouveau champ optionnel `user_number` (défaut `None`, sites d'appel
+  BA/FA/PA inchangés). `event_type_fr('OP') == 'désarmement'`. `build_notification()` :
+  wording EVENT_FAILED calculé dynamiquement par `sia_code` (sujet + accord de genre + clause
+  d'adresse « utilisateur » vs « zone ») — vérifié manuellement (`build_notification(...)`) puis
+  couvert par 3 nouveaux tests paramétrés dans `test_error_handler.py`.
+- Task 8 (2026-09-25) : `tests/level1/test_burglary_cancel_behavior.py` réécrit (11 tests :
+  BC+OP ordonnés, silence+debug sans BA, BC seul sur alarmReset, séquence release-puis-raz,
+  user_number configuré/défaut, FA/PA n'ouvrent rien, TTL, cache JSON-string, non-réenregistrement
+  du BC/OP). `test_php_eqlogic_stub.py` : tests d'éventail/dérogation retirés, 7 nouveaux tests
+  structurels sur `disarm`/`alarmReset`. `test_error_handler.py` : `event_type_fr('OP')` + wording
+  EVENT_FAILED (3 tests paramétrés). `test_ipc_daemon_wiring.py` TC-IPC6 : 5 nouveaux tests
+  (`disarm`→BC, `disarm`→OP, `alarmReset`→BC, `sia_code` invalide ignoré + warning, frame BC/OP
+  adressée par `user_number`). `test_sm2_alarm_event_suite.py` : label BC/OP au format
+  `(utilisateur N)`, `_event_user_number` dans `test_sm2_instance_vars_exist`.
+- Suite complète après chaque tâche : `tests/level1` (1187 passed, 2 failed — baseline inchangée),
+  `tests/level2` (348 passed avant Task 8 final, 6 failed — baseline inchangée),
+  `tests/level2_5` (76 passed, 1 failed — baseline inchangée). Total final : 1611 passed / 9
+  failed (2+6+1), identique à la baseline connue avant cette session. `find core/ desktop/
+  -name "*.php" | xargs -n1 php -l` : aucune erreur. `pylint resources/siadc09d/` : 8.85/10
+  (baseline 8.84/10).
 
 ### Completion Notes
 
-- **Task 3 clôturé (AC3).** `_recordOpenAlarm()` mémorise chaque `burglarAlarm`/`fireAlarm`/`panicAlarm`
-  émis dans le cache eqLogic `sia_open_alarms`, à l'émission (juste après `sendToDaemon()`), avec
-  dédoublonnage par clé, éviction de la plus ancienne par `ts` au-delà de `OPEN_ALARMS_MAX` (90) et
-  purge par `OPEN_ALARMS_TTL` (86400s). 8 tests niveau 1 (source-validation, sans interpréteur PHP)
-  couvrent l'écriture, la clé, le dédoublonnage, l'éviction et le TTL.
-- Régression vérifiée : les 49 échecs de la suite `tests/level1/` sont préexistants/environnementaux
-  (voir Debug Log) et n'ont aucun rapport avec cette modification.
+> **Notes antérieures au rescope retirées** (Tasks 2, 4, 5, 7, 8 de la conception par zone) —
+> le code qu'elles décrivaient est à remplacer, pas à conserver. Voir Change Log.
+
+- **Task 3 reste clôturée (AC3 de la conception précédente, rôle inchangé).** `_recordOpenAlarm()`
+  mémorise chaque `burglarAlarm`/`fireAlarm`/`panicAlarm` émis dans `sia_open_alarms`, à
+  l'émission, avec dédoublonnage, éviction par `ts`, purge par TTL. Réutilisée telle quelle comme
+  oracle « une BA est-elle ouverte ? ».
+- **Tasks 1, 2, 4-9 rouvertes** au rescope du 2026-09-25 : le code `burglaryCancel`/éventail/
+  dérogation existant doit être retiré et remplacé par `disarm`/`alarmReset`.
+- **Tasks 1-9 closes (2026-09-25, cette session).** `disarm`/`alarmReset` remplacent
+  `burglaryCancel` de bout en bout : PHP (`postSave()`, `execute()`, `siaDC09_update()`,
+  assistant étape 3), démon (`SiaEventCode`, dispatch `on_message()` à code variable,
+  `_build_event_frame()` adressé par `user_number`), `error_handler.py` (wording EVENT_FAILED,
+  `event_type_fr('OP')`), documentation (design docs Task 1 réconciliés post-implémentation,
+  `.claude/skills/jeedom-alarm/SKILL.md`). Ambiguïté de design résolue par jugement documentée
+  dans `daemon-design.md` (`_EVENT_SIA_CODES` ne gagne pas d'entrées `disarm`/`alarmReset` — un
+  nouvel ensemble `_VARIABLE_SIA_CODE_COMMANDS` fait lire `sia_code` depuis le payload IPC à la
+  place, un mapping fixe ne pouvant exprimer BC-puis-OP sous le même nom de commande). Aucune
+  régression : 1611 tests passés / 9 échecs, identique à la baseline (2 niveau 1, 6 niveau 2, 1
+  niveau 2.5) sur les trois suites. Task 10 (validation IHM réelle) reste hors de portée de cette
+  session — nécessite un `git push` et une session avec Herve sur `test-jeedom.lehoux.net`.
 
 ### File List
 
-- `core/class/siaDC09Cmd.class.php` — MODIFIED (ajout de `_recordOpenAlarm()` et des constantes
-  `OPEN_ALARMS_MAX`/`OPEN_ALARMS_TTL`/`OPEN_ALARMS_SIA_CODES`)
-- `tests/level1/test_php_eqlogic_stub.py` — MODIFIED (8 tests ajoutés pour la table `sia_open_alarms`)
+- `core/class/siaDC09Cmd.class.php` — `case 'burglaryCancel'`, `_fanOutBurglaryCancel()`,
+  `_closeOpenAlarm()` retirés ; `case 'disarm'`, `case 'alarmReset'`, `_hasOpenAlarm()`,
+  `_purgeOpenAlarms()`, `_resolveSiaUserNumber()` ajoutés. `_recordOpenAlarm()`/
+  `_loadOpenAlarms()`/`_openAlarmKey()`/constantes `OPEN_ALARMS_*` inchangés (Task 3 acquise)
+- `core/class/siaDC09.class.php` — `$actionCmds` : `burglaryCancel` → `disarm`+`alarmReset`
+  (`subType other`)
+- `plugin_info/install.php` — `siaDC09_update()` implémentée (itère `eqLogic::byType('siaDC09')`,
+  appelle `postSave()` sur chacun)
+- `core/i18n/en_US.json` — clé `"Annulation intrusion"` remplacée par `"Désarmement"` /
+  `"Réinitialisation alarme"`
+- `desktop/php/siaDC09.php` — champ assistant étape 3 `sia_user_number` (numérique, 1-999,
+  défaut 1) ; paragraphe d'aide « Annulation » réécrit pour `disarm`/`alarmReset`, avertissement
+  explicite « câbler les deux »
+- `resources/siadc09d/daemon.py` — `SiaEventCode` gagne `'OP'` ; `_EVENT_SIA_CODES` perd
+  `burglaryCancel` ; nouveaux `_VARIABLE_SIA_CODE_COMMANDS`/`_USER_ADDRESSED_SIA_CODES` ;
+  `EventItem`/`OnMessageParams`/`EventQueuePayload` gagnent `user_number` ; `on_message()` lit
+  `sia_code` depuis le payload pour `disarm`/`alarmReset` ; `_build_event_frame()` adresse par
+  `user_number` pour BC/OP ; `_event_context_prefix()`/`__init__`/`_send_with_retry()`/branche
+  NO_NETWORK gagnent `_event_user_number` ; 4 sites `EventFailedCtx(...)` gagnent `user_number`
+- `resources/siadc09d/error_handler.py` — `EventFailedCtx.sia_code` élargi (`+'OP'`), nouveau
+  champ `user_number` (défaut `None`) ; `event_type_fr()` gagne `'OP' → 'désarmement'` ;
+  `build_notification()` : wording EVENT_FAILED dynamique par `sia_code` (sujet, genre, adresse
+  utilisateur/zone) ; `_context_to_dict()` (EventFailedCtx branch) transmet `user_number`
+- `.claude/skills/jeedom-alarm/SKILL.md` — note de câblage réécrite pour `disarm`+`alarmReset`,
+  tableau des deux hooks, avertissement « câbler les deux »
+- `tests/level1/test_burglary_cancel_behavior.py` — réécrit intégralement (11 tests
+  `disarm`/`alarmReset`, table TTL/JSON-string conservée)
+- `tests/level1/test_php_eqlogic_stub.py` — tests d'éventail/dérogation retirés ; 7 nouveaux
+  tests structurels (`disarm_body`/`alarm_reset_body` fixtures, `_hasOpenAlarm`/
+  `_purgeOpenAlarms`, ordre BC avant OP, `user_number`, silences debug)
+- `tests/level1/test_error_handler.py` — `event_type_fr('OP')` + 2 tests paramétrés sur le
+  wording EVENT_FAILED BC/OP
+- `tests/level2/test_ipc_daemon_wiring.py` — TC-IPC6 réécrit (`disarm`→BC, `disarm`→OP,
+  `alarmReset`→BC, `sia_code` invalide, frame adressée par `user_number`)
+- `tests/level2/test_sm2_alarm_event_suite.py` — label BC/OP au format `(utilisateur N)`,
+  `_event_user_number` dans `test_sm2_instance_vars_exist`
+- `docs/design/php-core-design.md` — snippets `disarm`/`alarmReset` alignés sur le code réel
+  (Task 1 réconciliation)
+- `docs/design/daemon-design.md` — note de déviation `_EVENT_SIA_CODES`/
+  `_VARIABLE_SIA_CODE_COMMANDS` ; wording EVENT_FAILED documenté (Task 1 réconciliation)
+- `docs/design/widget-design.md` — tableau `event_label` corrigé au format réel (Task 1
+  réconciliation)
 
 ## Change Log
 
@@ -315,6 +370,10 @@ Claude Sonnet 5 (bmad-dev-story workflow, persona Amelia)
 |------|-------------|
 | 2026-09-17 | Story créée depuis les constats de l'Epic 12 — support BR/BC avec trois questions de conception bloquantes |
 | 2026-09-18 | Task 1 / AC1 close (`bfb2445`) : trois questions répondues dans les docs de conception (toujours émettre, table non persistée ; `event_state` inchangé ; zone saisie dans le *Titre*) |
-| 2026-09-18 | **Story rescopée après revue adverse et arbitrage utilisateur.** Constat : le plugin alarme fournit la zone au déclenchement mais la réinitialisation est un événement global **sans zone** (N BA en → 1 réinit. out), et BR n'a aucune source. Décision : **option A** — mémoriser les alarmes émises par zone et produire un BC par zone ouverte ; variante **A-PHP** (cache eqLogic) spécifiée, A-démon documentée et écartée. BR **transféré à la story 13-2** (parquée `backlog`). La décision n° 1 de `bfb2445` est renversée → Task 1 rouverte, les trois sections de conception sont à **réécrire**. Statut in-progress → ready-for-dev, ACs et Tasks refondus. Retrait aussi d'un constat erroné de la revue adverse : les `order` 8/9 n'existent pas, `postSave()` n'utilise aucun `order` |
-| 2026-09-18 | Task 3 / AC3 close : table `sia_open_alarms` (écriture, clé, dédoublonnage, `OPEN_ALARMS_MAX`, TTL) implémentée dans `siaDC09Cmd.class.php` via `_recordOpenAlarm()`, 8 tests niveau 1 ajoutés ; régression vérifiée (49 échecs préexistants/environnementaux, sans rapport) |
-| 2026-09-25 | **Task 6 close sans objet + AC7 amendée.** La divergence `_event_label_from_sm2()` qui motivait Task 6 a été fermée hors de cette story par la **10-3** : préfixe riche livré (`_event_context_prefix()`) et `event_label` câblé de bout en bout jusqu'au widget — les deux constats de la note (format plat, `event_label` jeté par le diagnostic) étaient périmés. Le format livré diffère de l'exemple d'AC7 sur trois points (séparateur ` : `, pas d'horodatage, zone en numéro conformément à la 8-2) : **AC7 est amendée sur le format livré**, la 10-3 étant validée en IHM et revue en code review, plutôt que de la re-casser. Reliquat `BC` réel = deux entrées dans `event_type_fr()`, déjà couvertes par Task 5. Séquencement mis à jour : Task 2 débloquée (10-3 committée en `d3819c0`, `done`), empreinte `daemon.py` de Task 5 réduite à ~2 lignes. Aucun changement de code dans cette passe |
+| 2026-09-18 | **Story rescopée après revue adverse et arbitrage utilisateur.** BR transféré à la story 13-2 (parquée). Option A (mémoriser les alarmes par zone, éventail sur réinitialisation), variante A-PHP retenue. ACs et Tasks refondus |
+| 2026-09-18 | Task 3 / AC3 close : table `sia_open_alarms` implémentée dans `siaDC09Cmd.class.php` via `_recordOpenAlarm()`, 8 tests niveau 1 ajoutés |
+| 2026-09-25 | Task 6 close sans objet + AC7 amendée (format `event_label` livré par la 10-3, format riche) |
+| 2026-09-25 | Tasks 2, 4, 5, 7, 8 closes : commande `burglaryCancel`, éventail N BC, `BC` accepté par le démon, 20 tests ajoutés. Reste Task 9 (validation IHM) |
+| 2026-09-25 | **Story rescopée une seconde fois** (`sprint-change-proposal-2026-09-25.md`), après relecture du tableau DC-03 complet : `BC` s'adresse par **numéro d'utilisateur**, jamais par zone — l'éventail par zone livré le même jour n'était pas conforme DC-03. Périmètre étendu sur demande d'Herve : ajout d'`OP` (désarmement pendant une alarme) et de la commande `alarmReset` (câblée sur `raz`, pour le cas réinitialisation-par-changement-de-mode sans désarmement, découvert lors de cette relecture). `burglaryCancel`, l'éventail, la dérogation mono-zone et le repli compte sont retirés (jamais livrés en dehors de cette session, aucune migration). CL et l'OP du désarmement normal partent vers la nouvelle story 13-4 (backlog) ; FC/PC vers la 13-3 (backlog). Nouvel ADR-18. Tasks 1, 2, 4-9 rouvertes ; Task 3 (table `sia_open_alarms`) reste acquise, rôle réduit. Nouvelle Task 10 (validation IHM, remplace l'ancienne Task 9) |
+| 2026-09-25 | **Tasks 1-9 closes** (rescope de code, cette session). `burglaryCancel`/`_fanOutBurglaryCancel()`/`_closeOpenAlarm()` retirés de `siaDC09Cmd.class.php` ; `disarm`/`alarmReset` ajoutés (PHP : `postSave()`, `execute()` avec `_hasOpenAlarm()`/`_purgeOpenAlarms()`/`_resolveSiaUserNumber()` ; config `sia_user_number` assistant étape 3 ; démon : `SiaEventCode` + `'OP'`, dispatch `on_message()` à `sia_code` variable via `_VARIABLE_SIA_CODE_COMMANDS` — déviation documentée dans `daemon-design.md`, `_EVENT_SIA_CODES` n'exprimait pas BC-puis-OP sous un même nom de commande —, adresse `user_number` dans `_build_event_frame()`/`_event_context_prefix()` ; `error_handler.py` : `event_type_fr('OP')`, wording EVENT_FAILED nommant l'annulation/désarmement au lieu d'« alarme », adressé par utilisateur (constat #4) ; `siaDC09_update()` implémentée (constat #2) ; documentation assistant + `.claude/skills/jeedom-alarm/SKILL.md` réécrites, insistant sur le câblage des deux commandes ; design docs (Task 1) relus et corrigés pour cohérence avec le code livré. Tests : `test_burglary_cancel_behavior.py` réécrit (11 tests), `test_php_eqlogic_stub.py` (7 tests structurels remplacent les tests d'éventail), `test_error_handler.py` (+3 tests), `test_ipc_daemon_wiring.py` TC-IPC6 réécrit (5 tests), `test_sm2_alarm_event_suite.py` (labels BC/OP). Aucune régression : 1611 passed / 9 failed, identique à la baseline (2/6/1) sur level1/level2/level2.5. `php -l` propre sur tout `core/`+`desktop/`. `pylint resources/siadc09d/` : 8.85/10. Task 10 (validation IHM réelle) reste ouverte — hors de portée de cette session |
+| 2026-09-25 | **Correction post-implémentation.** `_purgeOpenAlarms()` videait la table `sia_open_alarms` **entière** sur un BC, y compris les entrées `FA`/`PA` concurrentes — contraire à l'intention documentée (« FA/PA restent mémorisées pour la story 13-3 ») et non couverte par un test. `_purgeOpenAlarms(string $siaCode)` retire désormais uniquement les entrées du code passé (`'BA'` aux deux points d'appel) ; un test de régression ajouté (`test_disarm_with_ba_and_fire_open_purges_only_ba`) couvre le cas BA+FA concurrents. Aucune régression (1188 passed / 2 niveau 1, 6 niveau 2, 1 niveau 2.5 — identique à la baseline, un test de plus qu'avant) |

@@ -349,9 +349,9 @@ displays it verbatim in the last event section.
 The string wraps naturally in the tile (`word-break:break-word`). No PHP-side string
 splitting is needed.
 
-> **v1.1 (Story 13.1):** `BC` adds a row to this table (`Annulation`) without changing the
-> template or `event_state`. `BR` has no source event and is out of scope (story 13-2, parked)
-> — see "Burglary Cancel (BC)" at the end of this document.
+> **v1.1 (Story 13.1):** `BC` and `OP` add rows to this table (`Annulation`, `Désarmement`)
+> without changing the template or `event_state`. `BR` has no source event and is out of scope
+> (story 13-2, parked) — see "Disarm During an Alarm" at the end of this document.
 
 ---
 
@@ -411,58 +411,65 @@ All 7 commands must have `isVisible = 0` (already noted in Task 2.4; confirmed h
 
 ---
 
-## Burglary Cancel (BC) — Story 13.1 design decisions
+## Disarm During an Alarm — Story 13.1 design decisions
 
-**Status:** rewritten 2026-09-18 after user arbitration (Story 13.1 Task 1 / AC1, rescoped).
-**Supersedes** the section this replaces (committed `bfb2445`). BR (Burglary Restoral) has no
-source event in the alarm plugin and is out of scope — see `daemon-design.md`, "Burglary
-Cancel (BC)", for why, and story **13-2** (parked) for its future. This section covers `BC`
-only. No code written yet.
+**Status:** rewritten 2026-09-25 (Sprint Change Proposal, `sprint-change-proposal-2026-09-25.md`).
+**Supersedes** the section this replaces (BC shown with a zone label). DC-03 addresses `BC`
+(and, in this rescope, `OP`) by **user number**, never a zone — see `php-core-design.md`,
+"Disarm During an Alarm", and ADR-18 (`architecture.md`). BR (Burglary Restoral) has no source
+event in the alarm plugin and is out of scope — story **13-2** (parked).
 
-### Decision 2 (unchanged) — `event_state` keeps its four values; BC shows up in `event_label`
+### Decision 2 (unchanged) — `event_state` keeps its four values; BC/OP show up in `event_label`
 
-Answer to Story 13.1 **Open question 2**, carried over from `bfb2445`: this decision did not
-depend on the correlation hypothesis that was reversed, so it survives unmodified. **No new
-numeric values.** `event_state` stays `0/1/2/3` and applies to `BC` unchanged — a `BC` whose
-ACK arrives sets `event_state = 1`, exactly like a `BA`. The *kind* of the last event is
-carried by `event_label`.
+This decision did not depend on the zone-correlation hypothesis that was reversed, so it
+survives unmodified. **No new numeric values.** `event_state` stays `0/1/2/3` and applies to
+`BC`/`OP` unchanged — a `BC` whose ACK arrives sets `event_state = 1`, exactly like a `BA`. The
+*kind* of the last event is carried by `event_label`.
 
 `event_state` measures **delivery status**, not event kind. The two are orthogonal axes and
-adding a fifth numeric value (`Annulé`) would collapse them, with three concrete costs:
+adding new numeric values would collapse them, with three concrete costs:
 
 1. **It breaks every existing scenario trigger.** The documented contract is
    `event_state == 1` → "last transmission confirmed", `== 2` → "failed"
-   (`php-core-design.md`, "Scenario use examples"). A confirmed `BC` landing on a new value
-   would stop matching a user's "transmission OK" scenario and, worse, a *failed* `BC` would
-   have no value at all — a fifth value would describe the event, leaving nowhere to say it
-   did not reach the CSR.
+   (`php-core-design.md`, "Scenario use examples"). A confirmed `BC`/`OP` landing on a new value
+   would stop matching a user's "transmission OK" scenario.
 2. **It would be invisible anyway.** Nothing renders `event_state` today: the dashboard and
    mobile templates interpolate `#event_label#` only, `toHtml()` reads `event_label` for the
    event section (`supervision_state` drives the badge), and
    `siaDC09_loadDiagnosticData()` in `desktop/js/siaDC09.js` consumes
    `supervision_state`, `supervision_label`, `errors` and `messages` — it drops both
-   `event_state` and `event_label`. A new value would add scenario breakage with no UI gain.
+   `event_state` and `event_label`. New values would add scenario breakage with no UI gain.
 3. **The `returnStateValue = 0` auto-revert is calibrated on "3 = in progress".** A new
    terminal value would need its own reasoning about the 30-minute reset; `1`/`2` already
    have it.
 
-`BC` is therefore expressed through the SIA code → French label map, extended in the same
-change: `BA → Intrusion`, `FA → Incendie`, `PA → Panique`, **`BC → Annulation`**.
+`BC`/`OP` are therefore expressed through the SIA code → French label map, extended in the
+same change: `BA → Intrusion`, `FA → Incendie`, `PA → Panique`, **`BC → Annulation`**,
+**`OP → Désarmement`**.
 
 ### `event_label` rows added by Story 13.1
 
+> **Note de conception 2026-09-25 (Task 1, reconciliation post-implémentation).** La première
+> version de ce tableau (séparateur em-dash, horodatage, compteur de tentatives) ne correspondait
+> à aucun format réellement livré : `_event_context_prefix()`/`_event_label_from_sm2()`
+> (`daemon.py`) produisent depuis la story 10-3 le format `"{Type} (zone {zone}) : {état}"` — pas
+> d'horodatage, séparateur ` : `. Ce tableau est corrigé pour refléter ce format réel, simplement
+> étendu à `"{Type} (utilisateur {n}) : {état}"` pour `BC`/`OP` (l'AC7 de la story, écrite après
+> vérification du code livré, utilise déjà ce format).
+
 | Event / SM2 state | `event_label` |
 |---|---|
-| `BC` PENDING | `Annulation — Salon — envoi en cours (tentative 1/3)` |
-| `BC` CONFIRMED | `Annulation — Salon — 14:35:02 — Confirmé par la centrale` |
-| `BC` FAILED (timeout) | `Annulation — Salon — 14:35:02 — Échec (3 tentatives)` |
-| `BC` without a resolved zone (account-level fallback, AC5) | same strings with the zone segment omitted |
+| `BC` PENDING | `Annulation (utilisateur 1) : En cours` |
+| `BC` CONFIRMED | `Annulation (utilisateur 1) : Confirmée par la centrale` |
+| `BC` FAILED (NAK) | `Annulation (utilisateur 1) : Refusé par la centrale` |
+| `BC` FAILED (timeout) | `Annulation (utilisateur 1) : Sans réponse de la centrale` |
+| `OP` CONFIRMED | `Désarmement (utilisateur 1) : Confirmée par la centrale` |
 
-A `BC` with no resolved zone renders `Annulation — 14:35:02 — Confirmé par la centrale`: the
-label never shows an unmatched zone name, mirroring the frame that carries no zone field.
-Because the fan-out (`php-core-design.md`, "Burglary Cancel (BC)") can emit several `BC`
-frames from a single `raz`, several rows can appear in quick succession, one per closed zone —
-each is an ordinary, independent SM2 event with its own label.
+The label always shows the configured user number — never a zone segment, and never omitted:
+unlike `zone_number`, `user_number` has no "unresolved" case. A disarm during an open alarm
+produces exactly two rows in quick succession (`BC` then `OP`, via `disarm`); a mode-change
+reset produces exactly one (`BC`, via `alarmReset`) — each an ordinary, independent SM2 event
+with its own label.
 
 ### What AC7 actually requires
 
@@ -472,20 +479,14 @@ each is an ordinary, independent SM2 event with its own label.
 | Badge classes / `supervision_state` mapping | **none** |
 | `core/template/{dashboard,mobile}/siaDC09.html` | **none** — `#event_label#` is rendered verbatim |
 | `toHtml()` | **none** — reads `event_label` as-is |
-| Daemon `_event_label_from_sm2()` | extended with the `Annulation` label above |
-| Diagnostic tab (`desktop/js/siaDC09.js`) | display `event_label` (and `event_state`), which `siaDC09_loadDiagnosticData()` currently discards although `getDiagnosticData` already returns both |
-
-> **Pre-existing divergence to settle in the same task.** `daemon.py::_event_label_from_sm2()`
-> returns the terse strings `Inactif` / `En cours` / `Confirmé` / `Échoué`, while this document
-> and `daemon-design.md` specify the rich format
-> `Intrusion — Salon — HH:MM:SS — Confirmé par la centrale`. AC7 asserts a French label
-> containing `Annulation`, which is only meaningful in the rich format — so Story 13.1 Task 6
-> brings the code up to the documented format for every SM2 state, not just for `BC`.
+| Daemon `_event_context_prefix()` | branches on `sia_code`: `"(utilisateur {n})"` for `BC`/`OP` via a new `_event_user_number` instance var, `"(zone {zone})"` for `BA`/`FA`/`PA` unchanged |
+| Diagnostic tab (`desktop/js/siaDC09.js`) | display `event_label` (and `event_state`), which `siaDC09_loadDiagnosticData()` currently discards although `getDiagnosticData` already returns both — **not done by this story**, left as a pre-existing gap outside Story 13.1's scope |
 
 ### Deferred — numeric `event_type` command
 
 If a user ever needs a scenario to trigger on "the cancellation was transmitted", the clean
 extension is a **separate** numeric INFO command `event_type`
-(`0` aucun, `1` intrusion, `2` incendie, `3` panique, `4` annulation — and a slot reserved for
-`5` rétablissement if story 13-2 is ever unparked) alongside the unchanged `event_state`. Two
-orthogonal commands, no breakage. Deferred to v1.2 — it is not needed by Story 13.1.
+(`0` aucun, `1` intrusion, `2` incendie, `3` panique, `4` annulation, `5` désarmement — and a
+slot reserved for `6` rétablissement if story 13-2 is ever unparked) alongside the unchanged
+`event_state`. Two orthogonal commands, no breakage. Deferred to v1.2 — it is not needed by
+Story 13.1.

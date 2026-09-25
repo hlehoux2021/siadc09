@@ -342,10 +342,26 @@ so diagnosability is unchanged.
 The zone table is managed by `printEqLogic()` (populate from saved config) and
 `saveEqLogic()` (serialize table rows back to `sia_zone_mappings` before save).
 
+### Numéro utilisateur SIA — *(added 2026-09-25, Story 13.1)*
+
+Below the zone table, one numeric field:
+
+```
+Numéro utilisateur SIA : [ 001 ]
+Déclarez ce numéro à votre centrale de télésurveillance comme étant l'utilisateur Jeedom.
+```
+
+Stored as `sia_user_number` (int, 1-999, default `1`). Unlike the zone table, this is a
+**single configured value**, not something read from the alarm plugin: the alarm plugin never
+forwards the Jeedom user (`user_login`/`user_id`) to its actions
+(`alarm.class.php:639-670`), so there is no per-user source to read from. It addresses every
+DC-03 user-addressed code (`BC`, `OP`, and later `CL`) — see `php-core-design.md`, "Disarm
+During an Alarm", and ADR-18 (`architecture.md`).
+
 ### On "Suivant"
 
-Saves the current `sia_zone_mappings` via standard save, advances to step 4.
-No mandatory validation — empty mapping is allowed.
+Saves the current `sia_zone_mappings` and `sia_user_number` via standard save, advances to
+step 4. No mandatory validation — empty mapping is allowed; `sia_user_number` defaults to `1`.
 
 ---
 
@@ -526,6 +542,7 @@ All stored in `eqLogic->getConfiguration()`. Fields introduced by the wizard:
 | `supervision_interval` | int | Step 1 |
 | `retry_count` | int | Step 1 |
 | `sia_zone_mappings` | array | Step 3 |
+| `sia_user_number` | int (1-999) | Step 3 — Story 13.1, default `1` |
 | `sia_notify_kind` | string | Step 4 — `cmd` \| `internal`; empty means `cmd` |
 | `sia_notify_cmd_id` | int | Step 4 (kind `cmd`) |
 | `sia_notify_cmd_human` | string | Step 4 (kind `cmd`, display only) |

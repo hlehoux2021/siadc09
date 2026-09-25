@@ -107,7 +107,8 @@ Continuous supervision health monitoring is a first-class feature, not an aftert
 - Timestamp auto-heal via NAK (CSR time resync)
 - Retry resilience improvements and supervision history timeline
 - Community-contributed CSR presets (architecture already supports extension)
-- Restoral and cancel events: BR (Burglary Restore — zone back to normal) and BC (Burglary Cancel — user cancelled from the abort window), so the CSR can close an incident instead of keeping it open (Epic 13 / Story 13.1)
+- Restoral and cancel events: BC (Burglary Cancel) followed by OP (Opening Report) when the user disarms during a burglary alarm, both addressed to a configured SIA user number, so the CSR can close the incident as a user-cancelled false alarm (Epic 13 / Story 13.1); BR (Burglary Restore) parked for lack of a source (Story 13.2); FC/PC cancels for fire/panic (Story 13.3)
+- Arm/disarm reporting: CL (Closing Report) on arming, OP (Opening Report) on a normal disarm, same user number (Story 13.4)
 
 ### Vision — v1.5+
 

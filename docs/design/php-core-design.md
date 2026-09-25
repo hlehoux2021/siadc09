@@ -433,10 +433,9 @@ it has no zone identifier to offer. Hence the label → number resolution below.
 `#zone#` is only supplied by `outbreak`, `outbreakImmediate`, the zone-level
 `actions`/`actionsImmediate`, `reenableTrigger` and `activationKo`. `release`, `raz`,
 `razImmediate`, `activationOk` and `activationImmediateOk` pass **`#mode#` only** — which is
-why `burglaryCancel` (BC, Story 13.1) cannot get its zone from the alarm plugin on the normal
-(empty-*Titre*) wiring — it is reconstructed instead from the `sia_open_alarms` memory table,
-specified in "Burglary Cancel (BC)" at the end of this document. `BR` has no source event and
-is out of scope (story 13-2, parked).
+moot for Story 13.1's `disarm`/`alarmReset` commands, since DC-03 addresses `BC`/`OP` by
+**user number**, not zone; see "Disarm During an Alarm" at the end of this document. `BR` has
+no source event and is out of scope (story 13-2, parked).
 
 **User configuration required:** In the alarm plugin's zone action settings, the user must manually configure the ACTION command with `title` = `#zone#` (or any text containing `#zone#`). This is NOT automatic — the user must set this up once during configuration.
 
@@ -530,9 +529,11 @@ public function postSave(): void {
         'burglarAlarm' => ['name' => __('Alarme intrusion', __FILE__), 'subType' => 'message'],
         'fireAlarm'    => ['name' => __('Alarme incendie', __FILE__), 'subType' => 'message'],
         'panicAlarm'   => ['name' => __('Alarme panique', __FILE__),  'subType' => 'message'],
-        // Story 13.1 — BC. Same shape as the three alarm actions above; no zone tag,
-        // wired by the user on the alarm plugin's `raz` action (see "Burglary Cancel (BC)").
-        'burglaryCancel' => ['name' => __('Annulation intrusion', __FILE__), 'subType' => 'message'],
+        // Story 13.1 — no #zone# tag needed: DC-03 addresses BC/OP by user number, not zone.
+        // subType 'other': neither needs a Titre. See "Disarm During an Alarm" at the end of
+        // this document.
+        'disarm'     => ['name' => __('Désarmement', __FILE__),           'subType' => 'other'],
+        'alarmReset' => ['name' => __('Réinitialisation alarme', __FILE__), 'subType' => 'other'],
     ];
     foreach ($actionCmds as $logicalId => $spec) {
         $cmd = $this->getCmd('action', $logicalId);
@@ -578,8 +579,8 @@ public function postSave(): void {
 ```
 
 No `order` key anywhere: Jeedom's `order` is a purely cosmetic display-sort number with no
-functional effect, and the shipped code has never called `setOrder()`. Story 13.1's
-`burglaryCancel` needs none either — it is simply a fourth entry in `$actionCmds`.
+functional effect, and the shipped code has never called `setOrder()`. Story 13.1's `disarm`
+and `alarmReset` need none either — they are simply two more entries in `$actionCmds`.
 
 > **Note de conception 2026-09-18.** Ce bloc reproduit désormais fidèlement le `postSave()`
 > livré (`core/class/siaDC09.class.php:622-666`). La version précédente de ce document décrivait
@@ -1241,157 +1242,140 @@ if (!isConnect('admin')) {
 
 ---
 
-## Burglary Cancel (BC) — Story 13.1 design decisions
+## Disarm During an Alarm — Story 13.1 design decisions
 
-**Status:** rewritten 2026-09-18 after user arbitration (Story 13.1 Task 1 / AC1, rescoped).
-**Supersedes** the section this replaces (committed `bfb2445`), whose Decision 3 (zone typed
-in the action's *Titre*, two commands `burglaryRestore`/`burglaryCancel`) is **reversed** for
-the reason given in `daemon-design.md`, "Burglary Cancel (BC)": the alarm plugin's
-reset-side actions (`raz`, `razImmediate`, `release`) fire **once for the whole equipment**,
-with **no zone information at all** — N `BA` in, 1 zone-less reset out. A per-action *Titre*
-cannot express that; only a memorised table of what is currently open can. `BR` has no source
-event and is out of scope — see story **13-2** (parked). **Doc ahead of code** — nothing in
-this section exists yet; Tasks 2-4 and 8 of Story 13.1 implement it.
+**Status:** rewritten 2026-09-25 (Sprint Change Proposal, `sprint-change-proposal-2026-09-25.md`).
+**Supersedes** the section this replaces (per-zone `BC` fan-out on `raz`), reversed because
+DC-03 addresses `BC` (and `OP`/`CL`) by **user number**, never by zone — the p.4 table reads
+"Burglary Cancel — alarm has been cancelled by authorized user / User number". A per-zone `BC`
+was never DC-03-conformant. See ADR-18 (`architecture.md`).
 
-### One command, wired on `raz` — zone comes from memory, not from the *Titre*
+### Two commands, one per alarm-plugin hook that ends a sounding alarm
 
-| logicalId | name | type | subType | isVisible | SIA code |
-|---|---|---|---|---|---|
-| `burglaryCancel` | `Annulation intrusion` | action | message | 0 | `BC` |
+| logicalId | name | type | subType | isVisible | SIA code(s) | Wired on |
+|---|---|---|---|---|---|---|
+| `disarm` | `Désarmement` | action | other | 0 | `BC`+`OP`, or nothing | `release` ("Désactivation OK") |
+| `alarmReset` | `Réinitialisation alarme` | action | other | 0 | `BC`, or nothing | `raz` ("Réinitialisation") |
 
-Created idempotently by `postSave()` → `_ensureCommands()` (see Task 2.4 above), same
-`returnStateTime = 30` / `returnStateValue = 0` auto-revert as the three alarm actions. It
-still uses `subType message` so a *Titre* remains available — not to carry the zone
-automatically (the alarm plugin cannot provide that on this trigger), but as the **mono-zone
-derogation** described below.
+Both created idempotently by `postSave()` (Task 2.4), same `returnStateTime = 30` /
+`returnStateValue = 0` auto-revert as the alarm actions. Neither needs a *Titre* — the address
+is the configured `sia_user_number`, not anything the alarm plugin can supply — so both use
+`subType other`.
 
-> Logical-id spelling follows the SIA code name (`BC` = *Burglary Cancel*), not the shipped
-> `burglarAlarm`. `burglarAlarm` keeps its spelling: it is already in users' scenarios and
-> renaming it would break them.
+> `burglaryCancel` is removed from `$actionCmds`. It was never shipped, so no migration path is
+> needed.
 
-**Titre non vide = dérogation mono-zone explicite.** The user types the zone label exactly as
-it appears in the plugin's zone-mapping table; the existing 8.2 path
-(`$_options['title']` → `_resolveZoneNumber()`) resolves it, one `BC` is emitted for that zone
-only, and only that zone's entry is removed from the open-alarms table below. This is for the
-case where the user wants to close one zone without touching the others still open.
+**Why two commands, not one.** The alarm plugin has two independent ways to end a sounding
+alarm (`alarm.class.php:697-717`, `:812-832`):
 
-**Titre vide (the normal wiring) = fan-out from the open-alarms table.** With no zone
-information on the trigger itself, the command instead reads `sia_open_alarms` (below) and
-emits one `BC` per zone it finds open. This is what lets a *single* global, zone-less `raz`
-correctly close every zone that alarmed — the correlation the alarm plugin cannot do for us.
+- **Désactiver while sounding:** `release` runs, **then** `raz`. The system ends up disarmed.
+- **Mode change while sounding:** `raz` runs **alone**, with no `release`. The system **stays
+  armed** — an intrusion can be cancelled without disarming.
 
-**Options rejected** (full detail in the story, "Options écartées"):
+`disarm` (on `release`) sees every disarm and decides BC+OP vs. nothing. `alarmReset` (on
+`raz`) sees every reset, including the mode-change case where `disarm` never ran.
 
-- **B — read the alarm plugin's `trigger_zone` cache.** Technically available at the moment
-  our command runs, but couples us to a third party's private, undocumented internal state.
-- **C — a zone-less `BC` closes the whole account on the CSR side.** Depends on receiver
-  behaviour, not something the plugin can guarantee; kept as a field-validation question
-  (Story 13.1 Task 9), not as the mechanism.
-- **`reenableTrigger` as a zone source.** Passes `#zone#`, but its semantics are "a sensor
-  faulted at arming became usable again" — it can fire with no alarm having occurred. Reusing
-  it would misattribute cancellations that never happened.
+### The `sia_open_alarms` table — reduced to "is a BA open?"
 
-### The `sia_open_alarms` table — what memorises the open zones
+**Store, key, entry shape, bounding, write point:** unchanged from the prior design.
 
-**Store:** eqLogic cache (`setCache()` / `getCache()`, Redis-backed), on the `siaDC09`
-equipment. Not a database table, not daemon memory — see `daemon-design.md`, "Burglary Cancel
-(BC)" for the A-PHP vs A-démon comparison that settled this.
+> **Note de conception 2026-09-25 (Task 1, reconciliation post-implémentation).**
+> `_recordOpenAlarm()` / `_loadOpenAlarms()` / `_openAlarmKey()` ont été conservées
+> octet pour octet (Task 3, déjà acquise) — y compris le format de clé
+> `sia_code . '|' . (zone_number ?: 'account')`, par exemple `"BA|3"`. La forme "zonée" de
+> la clé n'a plus d'importance pour la correction du code, mais elle n'a pas été retirée :
+> `disarm`/`alarmReset` ne font jamais que demander « existe-t-il une entrée avec
+> `sia_code === 'BA'` ? » via `_hasOpenAlarm()` — jamais de lecture de clé. Toucher au format
+> de clé n'aurait fait que risquer les tests déjà acquis de la Task 3, sans bénéfice. Les
+> entrées `FA`/`PA` restent mémorisées pour la future story 13-3.
 
-**Key:** `sia_code . '|' . ($zone_number !== null ? $zone_number : 'account')` — e.g. `BA|3` or
-`BA|account`. This both deduplicates repeated `BA`s on the same zone (a re-armed, re-triggered
-zone just refreshes its entry) and collapses every unresolved zone onto **one** `account`
-entry — without this collapse, two unrelated unresolved zones would each produce their own
-zone-less `BC` on cancellation, i.e. two indistinguishable duplicate frames.
+**Role:** no longer a fan-out source. Both commands treat it purely as an oracle: "is there a
+BA still open?" `disarm` and `alarmReset` each purge only the **matching-code** entries on a
+`BC` (`_purgeOpenAlarms('BA')`) — there is at most one open burglary alarm to close by
+construction of the alarm plugin (one equipment, one armed/disarmed state), but a concurrent
+`FA`/`PA` is unrelated to this disarm and must survive for the future story 13-3. A whole-table
+purge was shipped first and caught by code review (2026-09-25): it silently dropped a
+concurrent `FA`/`PA` entry whenever a `BA` also happened to be open, contradicting the intent
+stated just above. `test_disarm_with_ba_and_fire_open_purges_only_ba` pins the fix.
 
-**Entry shape:** `['sia_code' => 'BA'|'FA'|'PA', 'zone' => <label|null>, 'zone_number' => <int|null>, 'ts' => <timestamp>]`.
+> **Note de conception 2026-09-25 (Task 1, reconciliation post-implémentation).** Les deux
+> extraits ci-dessous reflètent désormais fidèlement le code livré
+> (`core/class/siaDC09Cmd.class.php`). Corrections apportées à la première version de ce
+> document : (1) il n'existe aucune méthode statique `siaDC09::getConfig()` dans le code —
+> `sia_user_number` est une config d'eqLogic, lue via un helper d'instance
+> `_resolveSiaUserNumber()` qui appelle `$this->getEqLogic()->getConfiguration('sia_user_number', 1)`,
+> par cohérence avec `_getZoneMapping()` ; (2) `_purgeOpenAlarms(string $siaCode)` prend le code
+> à retirer (toujours `'BA'` aux deux points d'appel) — une première version sans argument
+> vidait toute la table, corrigée en revue de code le même jour (voir le paragraphe "Role"
+> ci-dessus) ; (3) `log::add()` utilise le littéral `'siaDC09'` comme premier argument, pas
+> `__CLASS__` (qui vaudrait `'siaDC09Cmd'` dans ce fichier) — cohérent avec tous les autres
+> appels de `siaDC09Cmd::execute()`.
 
-**Bounding:** naturally bounded to `3 codes × (N zones + 1)` by construction — there is no
-way to accumulate more distinct keys than that. A hard cap `OPEN_ALARMS_MAX` guards against a
-corrupted cache regardless, evicting the **oldest entry by `ts`** (never "first in the
-dictionary" — insertion order is not a contract Redis/PHP arrays guarantee). An
-`OPEN_ALARMS_TTL` protects the case where no reset ever arrives (alarm plugin disabled mid-
-alarm): stale entries expire rather than accumulating forever.
-
-**Write point:** the `burglarAlarm` / `fireAlarm` / `panicAlarm` branch of
-`siaDC09Cmd::execute()`, immediately after `siaDC09::sendToDaemon()` — i.e. at **dispatch**,
-not at ACK. This matches the plugin's "never drop a frame" policy: an entry recorded a moment
-before the daemon has confirmed anything means a spurious extra `BC` in the rare case the
-alarm frame is never delivered, which is the safe side of the error (a missing `BC` would
-leave a real zone open on the CSR).
-
-### Fan-out algorithm (Titre vide)
-
-On `burglaryCancel` with an empty *Titre*:
-
-1. read `sia_open_alarms`;
-2. for every entry whose `sia_code` is **`BA`**, emit one `BC` carrying **the same
-   `zone_number`** as the `BA` it closes, in insertion order;
-3. clear the table, logging any `FA`/`PA` entries found at `debug` level rather than acting on
-   them — **`BC` only closes `BA` entries**; fire/panic entries are kept in mind for a possible
-   future `FC`/`PC` (story 13-3, not scoped here) but must never be closed by a `BC`;
-4. **empty table** (duplicate cancellation, cache cleared, daemon or Redis restarted) → still
-   emit **exactly one** `[#001234|BC]` at the account level with a `warning` logged. Never zero
-   frames — a silent no-op here is indistinguishable from "nothing to report" and the CSR would
-   have no record the user even acted.
-
-Each emitted `BC` follows the ordinary EVENT path (priority 0, PENDING → CONFIRMED/FAILED,
-retries): N calls to `sendToDaemon()` indistinguishable from N ordinary alarms.
-
-### `siaDC09Cmd::execute()` — one new case, reusing 8.2's resolution path
+### `disarm` — wired on `release`
 
 ```php
-switch ($logicalId) {
-    case 'burglarAlarm':
-    case 'fireAlarm':
-    case 'panicAlarm':
-        $zone = trim($_options['title'] ?? '');
-        $zoneNumber = $this->_resolveZoneNumber($zone);
-        siaDC09::sendToDaemon([
-            'cmd'         => $logicalId,
-            'zone'        => $zone !== '' ? $zone : null,
-            'zone_number' => $zoneNumber,
-        ]);
-        $this->_recordOpenAlarm($logicalId, $zone !== '' ? $zone : null, $zoneNumber); // Story 13.1
-        break;
-
-    case 'burglaryCancel':   // Story 13.1 — BC
-        $zone = trim($_options['title'] ?? '');
-        if ($zone !== '') {
-            // mono-zone derogation: one BC for this zone only
-            $zoneNumber = $this->_resolveZoneNumber($zone);
-            siaDC09::sendToDaemon(['cmd' => $logicalId, 'zone' => $zone, 'zone_number' => $zoneNumber]);
-            $this->_closeOpenAlarm('BA', $zoneNumber);
-        } else {
-            // fan-out: one BC per open BA entry, or one account-level BC if none
-            $this->_fanOutBurglaryCancel();
-        }
-        break;
-}
+case 'disarm':
+    // Story 13.1 — wired on the alarm plugin's `release` ("Désactivation OK").
+    // BC/OP address by user number, never by zone (DC-03 p.4) — ADR-18.
+    $userNumber = $this->_resolveSiaUserNumber();
+    if ($this->_hasOpenAlarm('BA')) {
+        siaDC09::sendToDaemon(['cmd' => 'disarm', 'user_number' => $userNumber, 'sia_code' => 'BC']);
+        siaDC09::sendToDaemon(['cmd' => 'disarm', 'user_number' => $userNumber, 'sia_code' => 'OP']);
+        $this->_purgeOpenAlarms('BA');
+    } else {
+        log::add('siaDC09', 'debug',
+            'disarm : aucune alarme intrusion ouverte — rien à signaler '
+            . '(le désarmement normal fait l\'objet de la story 13-4)');
+    }
+    break;
 ```
 
-The IPC payload keys are unchanged (`cmd`, `zone`, `zone_number`), so no change is needed in
-`sendToDaemon()` or in the daemon's `on_message()` dispatch beyond the one new
-`_EVENT_SIA_CODES` entry. `_resolveZoneNumber()` keeps its existing behaviour, including the
-`warning` log when a typed name is absent from `sia_zone_mappings`.
+### `alarmReset` — wired on `raz`
 
-**No `media_url` on a `BC`.** The camera action and `_resolveMediaUrl()` (design, Task 2.3)
-stay on the alarm commands only: there is nothing to record about an intrusion that has ended,
-and an empty `media_url` key would add a branch for no benefit.
+```php
+case 'alarmReset':
+    // Story 13.1 — wired on the alarm plugin's `raz` ("Réinitialisation"). Sees the
+    // mode-change reset that `release` never runs for (system stays armed).
+    $userNumber = $this->_resolveSiaUserNumber();
+    if ($this->_hasOpenAlarm('BA')) {
+        siaDC09::sendToDaemon(['cmd' => 'alarmReset', 'user_number' => $userNumber, 'sia_code' => 'BC']);
+        $this->_purgeOpenAlarms('BA');
+    } else {
+        log::add('siaDC09', 'debug',
+            'alarmReset : aucune alarme intrusion ouverte — soit `disarm` l\'a déjà '
+            . 'purgée (désactivation normale), soit rien n\'était à réinitialiser');
+    }
+    break;
+```
 
-### Wiring the user has to do (Story 13.1 Task 8 — plugin documentation)
+**Ordering guarantee (no duplicate `BC`).** The alarm plugin always runs `release` before `raz`
+on a normal Désactiver (`alarm.class.php:703-712`). Whichever command runs first purges
+`sia_open_alarms`; the second finds it empty and sends nothing. This is cited here so a change
+to that ordering upstream is recognisable — a test pins our side of it (Task 4).
+
+Each emitted frame follows the ordinary EVENT path (priority 0, PENDING →
+CONFIRMED/FAILED, retries): calls to `sendToDaemon()` indistinguishable from an ordinary alarm.
+
+**No `media_url` on `BC`/`OP`.** The camera action and `_resolveMediaUrl()` stay on the alarm
+commands only — there is nothing to record about a disarm.
+
+### `siaDC09_update()` must reach existing installs (finding #2)
+
+`postSave()` only runs when the equipment is saved — a fresh install, or a manual re-save. On
+a plugin **upgrade**, Jeedom calls `siaDC09_update()`, not `postSave()`; an existing install
+that never re-saves its equipment would never get `disarm`/`alarmReset`. `siaDC09_update()`
+must iterate every `siaDC09` eqLogic and call `postSave()` on each, so the new commands appear
+without a manual save.
+
+### Wiring the user has to do (Story 13.1 Task 9 — plugin documentation)
 
 On the **alarm** equipment, in its actions configuration:
 
 | Alarm plugin action | Our command | Why |
 |---|---|---|
-| *À la remise à zéro* (`raz`, `razImmediate`) | `Annulation intrusion` (`BC`), *Titre* empty | the global, zone-less reset — the fan-out closes every zone memorised as open |
+| *Désactivation OK* (`release`) | `Désarmement` (`disarm`) | sees every disarm; sends BC→OP when a BA is open |
+| *Réinitialisation* (`raz`) | `Réinitialisation alarme` (`alarmReset`) | sees the mode-change reset that `release` never ran for |
 
-Optionally, one extra `Annulation intrusion` action per zone with *Titre* = the zone label, for
-the mono-zone derogation (closing a single zone without waiting for a global reset).
-
-The alarm plugin has **no distinct "abandon" vs "resolved" trigger** and no per-zone reset at
-all — `raz`/`razImmediate` are the only reset-side actions and they carry no zone. `BC` is
-therefore always correct as "the alarm ended, whatever zones were open, close them", which is
-why a single command suffices where `bfb2445` had proposed two. The documentation must spell
-out that `#zone#` is unavailable on this trigger — it is undocumented in the alarm plugin's own
-UI — and that leaving the *Titre* empty is the normal, recommended wiring.
+**Wire both.** An installer who wires only one loses the other path — the mode-change reset
+(no `release`) if only `disarm` is wired, or the normal disarm cancel if only `alarmReset` is.
+The wizard help and `jeedom-alarm/SKILL.md` must say so explicitly.

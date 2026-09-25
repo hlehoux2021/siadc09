@@ -23,7 +23,7 @@ elicitationState:
   method: 'self-consistency-validation'
   pendingFindings: []
   resolvedFindings: [F1-moot, F2, F3, F4, F5]
-  adrsCompleted: [ADR-01, ADR-02, ADR-03, ADR-04, ADR-05, ADR-06, ADR-07, ADR-08, ADR-09, ADR-10, ADR-11, ADR-12, ADR-13, ADR-14, ADR-15, ADR-16, ADR-17]
+  adrsCompleted: [ADR-01, ADR-02, ADR-03, ADR-04, ADR-05, ADR-06, ADR-07, ADR-08, ADR-09, ADR-10, ADR-11, ADR-12, ADR-13, ADR-14, ADR-15, ADR-16, ADR-17, ADR-18]
 ---
 
 # Architecture Decision Document
@@ -498,6 +498,35 @@ source for detection state and event id changes, from Jeedom cmds to a direct Fr
   filter in `majEventsCmds()`) — good hygiene, no longer siaDC09's urgency since Option D stops depending on either
   code path, but other consumers of `info_detect_person`/`info_detect_all` in Herve's own Jeedom instance (scenarios,
   automations) likely still are.
+
+---
+
+### ADR-18 — User-addressed event codes and the configured SIA user *(added 2026-09-25)*
+
+**Context.** DC-03 addresses BC, OP and CL by **user number**, and BA/FA/PA by zone. The Jeedom alarm
+plugin drops the core's `user_login`/`user_id` before running its actions (`alarm.class.php:639-670`).
+
+**Decision.**
+- One configured `sia_user_number` (1-999, default 1, wizard step 3) addresses every user-addressed frame.
+- The IPC payload carries `user_number`. The daemon writes it to the address field with the same `:03d`
+  formatting as zone numbers.
+- BC is sent on the two alarm-plugin hooks that end a sounding alarm:
+  - `disarm` on `release` sends BC→OP;
+  - `alarmReset` on `raz` sends BC alone, for a mode-change reset while the system stays armed.
+  - `release` runs before `raz` (`alarm.class.php:703-712`), so the first to act purges `sia_open_alarms`
+    and the second finds nothing. There is never a duplicate BC.
+
+**Rejected.**
+- Per-zone BC: violates the DC-03 address semantics.
+- Address-less BC: legal DC-09, but CSRs may reject it.
+- Login→user mapping via `lastExecutionUser`: couples us to another plugin's internal cache, and a
+  scenario-driven disarm reports `system`. Revisit only if multi-user reporting is requested.
+- CR for arming: it means Recent Closing.
+
+**Consequences.**
+- `sia_open_alarms` becomes the "is a BA open?" oracle.
+- The dedup relies on the alarm plugin's `release`-before-`raz` order. A test pins our side of it, and the
+  order is cited in the design doc so that a change upstream is recognisable.
 
 ---
 

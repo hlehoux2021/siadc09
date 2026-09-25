@@ -2193,39 +2193,80 @@ sudo rm /var/www/html/plugins/siaDC09
 
 ## Epic 13: Alarm Event Vocabulary Extension (v1.1)
 
-Report the *end* of an alarm, not only its start: Burglary Restore (BR) when a zone returns to normal, Burglary Cancel (BC) when the user cancels from the abort window. v1.0 emits BA/FA/PA only, so a CSR keeps an incident open until an operator calls back.
+Report the *end* of an alarm and the system's arm/disarm state, not only the start of an alarm: BC + OP when the user disarms during a burglary alarm, BC alone when the alarm is reset by a mode change while staying armed, CL/OP on arming and a normal disarm, and later BR and the FC/PC cancels. All of BC/CL/OP are addressed to a **user number** (DC-03), never a zone. The alarm plugin forwards no user identity to its actions (`alarm.class.php:639-670`), so the number is a single configured value. v1.0 emits BA/FA/PA only, so a CSR keeps an incident open until an operator calls back.
 
 **Dependencies:** Epic 12 (v1.0 validated on real Jeedom), plus the zone-number resolution added to Story 8.2 — a restoral must carry the same zone number as the alarm it closes.
 **FRs covered:** new (post-MVP, PRD Growth v1.1+)
 **Testing:** level 1 frame building, level 2 SM2 correlation, real Jeedom UI on `test-jeedom.lehoux.net` against the internal receiver `192.168.100.15:10002`
 
-### Story 13.1: Burglary Restore (BR) & Burglary Cancel (BC) Events
+### Story 13.1: Disarm During an Alarm — Burglary Cancel (BC) + Opening Report (OP)
 
 As a monitored Jeedom user,
-I want the plugin to report the end of an intrusion event — zone back to normal (BR) and alarm cancelled by the user (BC),
-So that the CSR closes the incident instead of keeping an open alarm.
-
-This story carries three **blocking design questions** that must be answered in the design docs before code (full analysis with code references in `_bmad-output/implementation-artifacts/13-1-burglary-restore-cancel-events.md`):
-
-1. **Zone correlation** — SM2 keeps a single current event (`daemon.py:339-340`: `_event_sia_code` / `_event_zone`), so after `BA Salon` then `BA Cuisine` it cannot tell which alarm `BR Salon` closes. Per-zone active-alarm map, or unconditional BR with correlation left to the CSR?
-2. **`event_state` vocabulary** — the numeric info command (`siaDC09.class.php:647`) has 0 inactive / 1 confirmed / 2 failed / 3 in progress, none of which means "returned to normal" or "cancelled"; reusing 0 conflates "restored" with "nothing ever happened". New states (widget + labels + diagnostic tab), or expose the restoral elsewhere?
-3. **Commands and alarm-plugin wiring** — which Jeedom action commands to expose, and where their zone comes from: the alarm plugin's natural restore triggers (`release`, `raz`, `razImmediate`) pass **only** `#mode#`, never `#zone#` (`alarm.class.php:703-712`, `:743`), so the zone of a BR cannot come from the alarm plugin at all.
+I want disarming my alarm while a burglary alarm is open to tell the CSR that user N cancelled it and disarmed
+the system,
+So that the operator stops the emergency procedure instead of calling the police.
 
 **Acceptance criteria:**
 
-**Given** the three design questions above
-**When** implementation starts
-**Then** each one is answered in `daemon-design.md`, `widget-design.md` and `php-core-design.md` first
+**Given** a `disarm` action command ("Désarmement") wired on the alarm plugin's `release` action, and a
+configured `sia_user_number` (default 1)
+**When** the user disarms while at least one BA sent by siaDC09 is still open (`sia_open_alarms`)
+**Then** exactly two frames are sent, in this order: `[#{account}|BC {user:03d}]` then
+`[#{account}|OP {user:03d}]`, and the open-alarm table is purged.
 
-**And** `SiaEventCode`, `_EVENT_SIA_CODES` and `error_handler.py`'s code/label maps (`:328`, `:366`) accept BR and BC
+**And** when no BA is open, `disarm` sends **no** frame (OP is Story 13.4) and logs at debug.
 
-**And** a BR frame is `[#{account}|BR {zone_number}]` — the resolved number from the zone table, never the zone label
+**Given** an `alarmReset` action command ("Réinitialisation alarme") wired on the alarm plugin's `raz` action
+("Réinitialisation")
+**When** the alarm is reset by a mode change while sounding (no `release`, the system stays armed) and a BA
+is open
+**Then** exactly one `[#{account}|BC {user:03d}]` is sent, and the table is purged.
 
-**And** an unresolved zone yields `[#{account}|BR]` with a warning, consistent with Story 8.2
+**And** on a normal Désactiver during an alarm (`release` then `raz`), `alarmReset` finds the table already
+purged by `disarm` and sends **nothing**: the whole sequence produces exactly BC, OP, and never a second BC.
 
-**And** BR for a zone that never alarmed, and a duplicate BR, both have a test proving the chosen behaviour
+**And** the address field is never a zone number, and never empty.
 
-**And** the whole flow is validated through the real Jeedom UI on `test-jeedom.lehoux.net`, alarm triggered *and* ended, both frames read in the protocol inspector
+**And** `siaDC09_update()` creates both new commands on existing installs without a manual equipment save.
+
+**And** `SiaEventCode`, `_EVENT_SIA_CODES` and `error_handler.py` accept BC and OP.
+`event_label` reads `Annulation (utilisateur 1) : Confirmée par la centrale`, and the equivalent for OP.
+The EVENT_FAILED T3 notification names a failed cancel/disarm, not an "alarm".
+
+**And** both frames are ACKed by `192.168.100.15:10002` over TCP, account `001234`, from the real Jeedom UI on
+`test-jeedom.lehoux.net`. Two checks, both read in the protocol inspector: trigger a zone then disarm (expect
+BA, BC, OP), and trigger a zone then change the mode (expect BA, BC).
+
+---
+
+### Story 13.3: Fire & Panic Cancels (FC / PC) — *backlog*
+
+BC's counterparts for the other alarm families. `sia_open_alarms` already records FA/PA entries for this
+purpose. It needs the DC-03 address-field definition of FC and of the panic cancel code, checked against the
+full table before any code. Blocking question: which alarm-plugin action ends a fire/panic alarm, given those
+are often separate alarm equipments with no delay.
+
+---
+
+### Story 13.4: Arm/Disarm Reporting — Closing (CL) & Opening (OP)
+
+As a monitored Jeedom user,
+I want the CSR to know when my system is armed and disarmed, and by which user,
+So that it can check openings/closings against my schedule.
+
+**Given** a new `arm` command ("Armement") wired on `activationImmediateOk`
+**When** the alarm is armed
+**Then** `[#{account}|CL {user:03d}]` is sent. It must not go on `activationOk`, which never fires after
+`activationKo`.
+
+**And** the `disarm` command from 13.1 sends `[#{account}|OP {user:03d}]` when no BA is open, instead of
+nothing.
+
+**And** CR is never used for arming. It means "Recent Closing", an alarm within 5 min of arming.
+
+Open question to settle in the story: report arming with bypassed zones (`activationKo`) differently or not.
+
+Real-UI validation on `test-jeedom`: arm, disarm, read CL and OP in the inspector.
 
 ---
 

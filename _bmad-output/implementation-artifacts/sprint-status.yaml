@@ -29,7 +29,7 @@
 # - SM typically creates next story ONLY after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then Dev runs code-review (fresh context, ideally different LLM)
 
-last_updated: "2026-09-25" # Story 12-4 closed on Herve's call (AC8 on 2026-09-17 field evidence; AC9/AC10 transferred to 12-7) → in-progress → done
+last_updated: "2026-09-25" # 13-1 rescoped a second time (sprint-change-proposal-2026-09-25.md): BC/OP addressed by user number, not zone; 13-3/13-4 registered as backlog
 generated: "2026-05-04"
 project: "my-project"
 project_key: "NOKEY"
@@ -138,8 +138,10 @@ development_status:
 
   # Epic 13: Alarm Event Vocabulary Extension (v1.1)
   epic-13: in-progress
-  13-1-burglary-restore-cancel-events: in-progress  # Task 1 (AC1) done (613b0fe/955cc1c). Task 3 (AC3, sia_open_alarms table) done. Starting Task 4 (fan-out) — Task 2 (postSave()) was deferred pending 10-3; 10-3 landed and moved to review 2026-09-24 (siaDC09.class.php edits committed at d3819c0), so Task 2 is unblocked
+  13-1-burglary-restore-cancel-events: in-progress  # rescoped 2026-09-25 (sprint-change-proposal-2026-09-25.md): DC-03 addresses BC by user number, not zone -- the 2026-09-25 per-zone fan-out was non-conformant. New design: `disarm` (on `release`) sends BC+OP, `alarmReset` (on `raz`) sends BC alone for a mode-change reset while staying armed. burglaryCancel/fan-out/mono-zone-override/account-fallback dropped, never shipped outside this session. Tasks 1,2,4-9 reopened; Task 3 (sia_open_alarms table) stays done, role reduced to an "is a BA open?" oracle. New Task 10 = live UI validation, needs a push + Herve
   13-2-burglary-restore-event: backlog  # parked 2026-09-18, no blocker but no SOURCE: no alarm-plugin action expresses "a detector returned to normal"; `reenableTrigger` is not a substitute. Three unparking conditions recorded in the story
+  13-3-fire-panic-cancel-events: backlog  # registered 2026-09-25 (sprint-change-proposal-2026-09-25.md): FC/PC cancels for fire/panic, DC-03-conformant successors to Story 13.1's BC. Blocked on the FC/PC address-field definition and on which alarm-plugin action ends a fire/panic alarm
+  13-4-arm-disarm-closing-opening-reports: backlog  # registered 2026-09-25 (sprint-change-proposal-2026-09-25.md): CL on arming (`activationImmediateOk`), OP on a normal disarm (fills the `else` branch of 13-1's `disarm` command), both by configured user number
   epic-13-retrospective: optional
 
   # Epic 14: Camera Snapshot Attachment (Frigate Integration)
@@ -212,13 +214,17 @@ development_status:
 # Updated: 2026-09-25 (12-4 closed on Herve's explicit call, AC8 on 2026-09-17 field evidence,
 # AC9/AC10 transferred to 12-7 → in-progress → done; epic-12 stays in-progress — 12-5/12-7/12-8 still open;
 # stories_in_progress 3→2, stories_done 45→46)
+# Updated: 2026-09-25 (13-1 rescoped a second time per sprint-change-proposal-2026-09-25.md — DC-03
+# addresses BC by user number, not zone; two new backlog stories registered, 13-3 fire/panic cancels
+# and 13-4 arm/disarm CL/OP reporting; epic-13 stays in-progress, 13-1 stays in-progress;
+# total_stories 55→57, stories_backlog 4→6)
 summary:
   total_epics: 14
-  total_stories: 55
+  total_stories: 57
   epics_backlog: 0
   epics_in_progress: 4
   epics_done: 10
-  stories_backlog: 4
+  stories_backlog: 6
   stories_ready_for_dev: 2
   stories_in_progress: 2
   stories_review: 1
