@@ -181,8 +181,10 @@ le libellé n'est pas une clé de corrélation utilisable.
    inchangé) et retire l'entrée correspondante sans toucher aux autres.
 
 7. **Démon :** `SiaEventCode`, `_EVENT_SIA_CODES` et `error_handler.py` acceptent `BC` ;
-   `event_state` conserve 0/1/2/3 ; `event_label` affiche le format riche
-   `Annulation — Salon — HH:MM:SS — Confirmé par la centrale`.
+   `event_state` conserve 0/1/2/3 ; `event_label` nomme l'annulation dans le format **livré par la
+   10-3** : `Annulation (zone 3) : Confirmée par la centrale`. *(Format amendé le 2026-09-25 — voir
+   la note sous les Tasks ; l'énoncé d'origine annonçait
+   `Annulation — Salon — HH:MM:SS — Confirmé par la centrale`.)*
 
 8. **Trames correctes sur la vraie centrale :** `[#001234|BA 001]` puis `[#001234|BC 001]` tous deux
    acquittés (ACK) par `192.168.100.15:10002` en TCP, compte `001234`.
@@ -198,17 +200,34 @@ le libellé n'est pas une clé de corrélation utilisable.
 - [ ] Task 2: `burglaryCancel` dans `postSave()` + nouveau cas dans `siaDC09Cmd::execute()` (AC2, AC6)
 - [x] Task 3: Table `sia_open_alarms` — écriture, clé, dédoublonnage, `OPEN_ALARMS_MAX`, TTL (AC3)
 - [ ] Task 4: Éventail N BC + purge + `debug` sur `FA`/`PA` + repli compte avec `warning` (AC4, AC5)
-- [ ] Task 5: Démon — `SiaEventCode`, `_EVENT_SIA_CODES`, `error_handler.py`, libellé `Annulation` (AC7)
-- [ ] Task 6: `_event_label_from_sm2()` au format riche (divergence préexistante, cf. note ci-dessous) (AC7)
+- [ ] Task 5: Démon — `SiaEventCode`, `_EVENT_SIA_CODES`, et le libellé `Annulation` par les deux
+      entrées `BC`/`burglaryCancel` → `annulation` dans `error_handler.py::event_type_fr()`
+      (`:364-371`) (AC7)
+- [x] Task 6: ~~`_event_label_from_sm2()` au format riche~~ — **sans objet, absorbée par Task 5.**
+      Le format riche a été livré hors de cette story par la 10-3 (note ci-dessous)
 - [ ] Task 7: Tests — PHP unitaire sur la table (dédoublonnage, éviction, TTL, éventail, repli,
       dérogation), niveau 1 construction de trame BC, niveau 2.5 charge utile IPC
 - [ ] Task 8: Documentation plugin + note de câblage dans `.claude/skills/jeedom-alarm/SKILL.md`
 - [ ] Task 9: Validation IHM sur `test-jeedom` contre la centrale interne (AC8, AC9)
 
-> **Divergence préexistante reprise de `bfb2445` :** `daemon.py::_event_label_from_sm2()` (`:656`)
-> renvoie `Inactif`/`En cours`/`Confirmé`/`Échoué` alors que les deux docs de conception spécifient
-> le format riche. L'AC7 n'a de sens qu'au format riche → Task 6 ferme cette divergence pour **tous**
-> les états SM2, et ajoute la ligne `event_label` que l'onglet diagnostic jette aujourd'hui.
+> **~~Divergence préexistante reprise de `bfb2445`~~ — fermée hors de cette story, constat du
+> 2026-09-25.** La note affirmait deux choses, **périmées toutes les deux** : que
+> `_event_label_from_sm2()` renvoyait `Inactif`/`En cours`/`Confirmé`/`Échoué`, et que l'onglet
+> diagnostic jetait `event_label`. La **10-3** a livré le préfixe riche
+> (`_event_context_prefix()`, `daemon.py:688`) *et* câblé `event_label` de bout en bout
+> (`daemon.py:510` → `siaDC09.ajax.php:190` → `siaDC09_renderEventBadge`,
+> `desktop/js/siaDC09.js:834`, plus les deux gabarits de widget).
+>
+> Le format livré n'est cependant **pas** celui qu'annonçait l'AC7. Livré :
+> `Intrusion (zone 3) : Confirmée par la centrale`. AC7 écrivait
+> `Annulation — Salon — HH:MM:SS — Confirmé par la centrale` — trois écarts : séparateur ` : ` et
+> non ` — `, **pas** d'horodatage `HH:MM:SS`, et zone en **numéro** et non en libellé (« Salon »),
+> ce dernier point conformément à l'arbitrage de la 8-2.
+>
+> **C'est l'AC7 qui est amendée sur le format livré, pas le code qui est réaligné sur l'AC7 :** la
+> 10-3 est validée en IHM sur `test-jeedom` et passée en code review le 2026-09-25 ; la re-casser
+> pour un exemple rédigé dans une story serait une régression. Il ne reste donc pour le `BC` que
+> les deux entrées de `event_type_fr()` — déjà dans le périmètre de Task 5, d'où Task 6 sans objet.
 
 ## Séquencement
 
@@ -217,8 +236,8 @@ Bien plus léger qu'avant la réduction de périmètre, parce qu'A-PHP sort du p
 | Task | Touche | Attend |
 |---|---|---|
 | Tasks 1, 3, 4, 7 (PHP) | `siaDC09Cmd.class.php`, tests | rien — aucun agent n'édite ce fichier |
-| Task 2 | `siaDC09.class.php` (`postSave()`) | **10-3** (éditions non committées en cours) |
-| Tasks 5, 6 | `daemon.py` (quelques lignes), `error_handler.py` | 12-5, 7-2, 12-4, 12-7 |
+| Task 2 | `siaDC09.class.php` (`postSave()`) | ~~10-3~~ — **débloquée** : la 10-3 a committé ses éditions (`d3819c0`) et est `done` depuis le 2026-09-25 |
+| Task 5 | `error_handler.py` (`event_type_fr`), `daemon.py` (`SiaEventCode`, `_EVENT_SIA_CODES`) | 12-4, 12-7 — empreinte `daemon.py` réduite à ~2 lignes depuis que Task 6 est sans objet, donc collision quasi nulle |
 | Tasks 8, 9 | doc, validation terrain | les précédentes |
 
 ## Dev Notes
@@ -298,3 +317,4 @@ Claude Sonnet 5 (bmad-dev-story workflow, persona Amelia)
 | 2026-09-18 | Task 1 / AC1 close (`bfb2445`) : trois questions répondues dans les docs de conception (toujours émettre, table non persistée ; `event_state` inchangé ; zone saisie dans le *Titre*) |
 | 2026-09-18 | **Story rescopée après revue adverse et arbitrage utilisateur.** Constat : le plugin alarme fournit la zone au déclenchement mais la réinitialisation est un événement global **sans zone** (N BA en → 1 réinit. out), et BR n'a aucune source. Décision : **option A** — mémoriser les alarmes émises par zone et produire un BC par zone ouverte ; variante **A-PHP** (cache eqLogic) spécifiée, A-démon documentée et écartée. BR **transféré à la story 13-2** (parquée `backlog`). La décision n° 1 de `bfb2445` est renversée → Task 1 rouverte, les trois sections de conception sont à **réécrire**. Statut in-progress → ready-for-dev, ACs et Tasks refondus. Retrait aussi d'un constat erroné de la revue adverse : les `order` 8/9 n'existent pas, `postSave()` n'utilise aucun `order` |
 | 2026-09-18 | Task 3 / AC3 close : table `sia_open_alarms` (écriture, clé, dédoublonnage, `OPEN_ALARMS_MAX`, TTL) implémentée dans `siaDC09Cmd.class.php` via `_recordOpenAlarm()`, 8 tests niveau 1 ajoutés ; régression vérifiée (49 échecs préexistants/environnementaux, sans rapport) |
+| 2026-09-25 | **Task 6 close sans objet + AC7 amendée.** La divergence `_event_label_from_sm2()` qui motivait Task 6 a été fermée hors de cette story par la **10-3** : préfixe riche livré (`_event_context_prefix()`) et `event_label` câblé de bout en bout jusqu'au widget — les deux constats de la note (format plat, `event_label` jeté par le diagnostic) étaient périmés. Le format livré diffère de l'exemple d'AC7 sur trois points (séparateur ` : `, pas d'horodatage, zone en numéro conformément à la 8-2) : **AC7 est amendée sur le format livré**, la 10-3 étant validée en IHM et revue en code review, plutôt que de la re-casser. Reliquat `BC` réel = deux entrées dans `event_type_fr()`, déjà couvertes par Task 5. Séquencement mis à jour : Task 2 débloquée (10-3 committée en `d3819c0`, `done`), empreinte `daemon.py` de Task 5 réduite à ~2 lignes. Aucun changement de code dans cette passe |
