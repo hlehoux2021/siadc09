@@ -2420,3 +2420,36 @@ the same existing shared dispatch, it does not newly scope clip to BA only.
 UI (reuses 14.1's existing camera mapping and URL template); a structured multi-media format (JSON, MIME tags) —
 space-separated free-form text is the chosen convention, revisit only if the live receiver validation above shows
 it doesn't work.
+
+### Story 14.4: Best-Effort Alarm Media — Any-Label Ranking + Forced Frigate Capture
+
+Extends 14.2/14.3's prefetch per ADR-17 Amendment 4 (`architecture.md`, 2026-09-26), from the requirements in
+`requirements-14-4-frigate-forced-capture-2026-09-26.md`. The alarm fires because the alarm plugin's sensor tripped,
+whatever Frigate saw, so the BA frame should carry the best real image of the zone available within the ≤ 25 s before
+it's sent: a `person` event, else any other real label (cat, dog, bird, car), else a manual Frigate event with label
+`alarm` created at the trip itself. Manual events are never deleted; Frigate retention and the operator own them.
+
+As a monitored Jeedom user with a Frigate camera covering an alarm zone,
+I want every intrusion (BA) frame to carry the best available image and clip of the zone taken while the alarm is
+happening, even when Frigate detected no person,
+So that the operator always sees something useful ("an animal", "nobody visible", "an intruder") without the frame
+ever being delayed.
+
+**Acceptance criteria:**
+
+**Given** a `prefetchEvent` trip on a mapped zone
+**When** the daemon starts the prefetch run
+**Then** it first creates a manual Frigate event (`POST /api/events/{camera}/alarm/create`, 30 s, with recording) and
+pushes it to PHP straight away (rank 3, snapshot + clip URLs), then polls any-label events, excluding manual ones,
+ranked `person` > other label > manual, pushing one callback per improvement
+
+**And** PHP's cache keeps the entry for the newest run and never downgrades it within a run (`run_id` + `rank`)
+
+**And** a create failure (401/403, timeout, Frigate down) only drops down the ladder, with no exception and no delay
+
+**And** `burglarAlarm`'s send path is unchanged in shape (single synchronous cache read, `[V snapshot clip]` join)
+
+**And** the whole flow is validated live on `test-jeedom.lehoux.net` against `192.168.100.15:10002` / account `001234`
+
+**Explicitly out of scope:** PA/FA media; deleting, ending, or retaining manual events; Frigate config changes
+(recommending `snapshots.retain.objects.alarm: 15` only); Frigate 0.18; an operator-visible source label.

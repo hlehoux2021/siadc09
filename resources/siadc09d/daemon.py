@@ -60,7 +60,7 @@ from .messages import (
     SM1_TCP_RECONNECTING_FR,
     SM1_NO_NETWORK_FR,
 )
-from .frigate_prefetch import prefetch_person_event
+from .frigate_prefetch import PrefetchResult, prefetch_alarm_media
 from .ring_buffer import RingBuffer, make_message_entry
 from .sia_protocol import (
     ENCRYPTED_MARKER,
@@ -245,6 +245,10 @@ class OnMessageParams(TypedDict, total=False):
 
     camera_eqlogic_id/camera_name/frigate_host (Story 14-2, ADR-17 Amendment 3): present
     only for the "prefetchEvent" command, sent by siaDC09Cmd::_resolvePrefetchTarget().
+    run_id (Story 14-4, ADR-17 Amendment 4): present only for "prefetchEvent" — a numeric
+    string PHP generates (microtime(true)) and owns; echoed back verbatim on every
+    "prefetch_result" callback of the run, so PHP's cache can tell a newer run from an
+    older, stale one (siaDC09::_handlePrefetchResult()'s monotonic replace rule).
 
     sia_code (Story 13-1, ADR-18): present only for "disarm"/"alarmReset" — these two commands
     carry their own sia_code per sendToDaemon() call (BC and/or OP), rather than a single
@@ -260,6 +264,7 @@ class OnMessageParams(TypedDict, total=False):
     camera_eqlogic_id: int
     camera_name: str
     frigate_host: str
+    run_id: str
     sia_code: str
     user_number: int | None
 
@@ -2094,7 +2099,9 @@ class SIADaemon(BaseDaemon):
         params: OnMessageParams = cast(OnMessageParams, message)
         await self.on_message(cmd, params)
 
-    async def on_message(self, cmd: str, params: OnMessageParams) -> None:
+    async def on_message(  # pylint: disable=too-many-locals
+        self, cmd: str, params: OnMessageParams
+    ) -> None:
         """Receive alarm command from PHP and enqueue for SM2 processing.
 
         Called by _on_message_dispatch() after apikey/cmd extraction.
@@ -2116,24 +2123,26 @@ class SIADaemon(BaseDaemon):
                 - "user_number": int — configured SIA user (stories 13-1/13-4), address
                   field for "disarm"/"alarmReset"/"arm" frames
                 - "media_url": str — camera/media URL (None if absent)
-                - "camera_eqlogic_id"/"camera_name"/"frigate_host" — prefetchEvent only
+                - "camera_eqlogic_id"/"camera_name"/"frigate_host"/"run_id" — prefetchEvent
+                  only (Story 14-4, ADR-17 Amendment 4)
 
         Reference: daemon-design.md Component 1 — Task 1.6 on_message()
         Reference: daemon-design.md — "Forbidden char policy" for media_url
         """
         if cmd == "prefetchEvent":
-            # ADR-17 Amendment 3 (Option D): fire-and-forget dispatch to a tracked
+            # ADR-17 Amendment 3/4 (Option D): fire-and-forget dispatch to a tracked
             # background task — on_message() itself never awaits the Frigate REST
             # call, matching the fire-and-forget contract PHP's execute() relies on.
             self._logger.debug(f"on_message: prefetchEvent received, raw params={params!r}")
             camera_eqlogic_id = params.get("camera_eqlogic_id")
             camera_name = params.get("camera_name")
             frigate_host = params.get("frigate_host")
-            if camera_eqlogic_id is None or not camera_name or not frigate_host:
+            run_id = params.get("run_id")
+            if camera_eqlogic_id is None or not camera_name or not frigate_host or not run_id:
                 self._logger.warning(
                     "on_message: prefetchEvent missing required params — ignored "
                     f"(camera_eqlogic_id={camera_eqlogic_id!r}, camera_name={camera_name!r}, "
-                    f"frigate_host={frigate_host!r})"
+                    f"frigate_host={frigate_host!r}, run_id={run_id!r})"
                 )
                 return
             try:
@@ -2146,10 +2155,11 @@ class SIADaemon(BaseDaemon):
                 return
             self._logger.debug(
                 f"on_message: prefetchEvent spawning tracked task for camera_eqlogic_id="
-                f"{cam_id}, camera_name={camera_name!r}, frigate_host={frigate_host!r}"
+                f"{cam_id}, camera_name={camera_name!r}, frigate_host={frigate_host!r}, "
+                f"run_id={run_id!r}"
             )
             self._track_task(
-                self._run_prefetch(cam_id, camera_name, frigate_host),
+                self._run_prefetch(cam_id, camera_name, frigate_host, str(run_id)),
                 name=f"frigate-prefetch-{cam_id}",
             )
             return
@@ -2217,39 +2227,54 @@ class SIADaemon(BaseDaemon):
             sia_code, zone, media_url, zone_number=zone_number, user_number=user_number
         )
 
-    # ===== STORY 14-2 (ADR-17 Amendment 3): FRIGATE EVENT PREFETCH =====
+    # ===== STORY 14-2/14-4 (ADR-17 Amendment 3/4): FRIGATE EVENT PREFETCH =====
 
-    async def _run_prefetch(self, camera_eqlogic_id: int, camera_name: str, frigate_host: str) -> None:
-        """Query Frigate for a confirmed person event, push the outcome back to PHP.
+    async def _run_prefetch(
+        self, camera_eqlogic_id: int, camera_name: str, frigate_host: str, run_id: str
+    ) -> None:
+        """Run the best-effort alarm-media prefetch, pushing each improvement back to PHP.
 
         Runs as a tracked background task spawned by on_message()'s "prefetchEvent"
-        branch — entirely inside the alarm zone's immediate-action window. Always sends
-        a result, including a miss, so PHP's per-camera cache never keeps a stale hit
-        from an earlier, unrelated trigger on the same camera (AC5).
+        branch — entirely inside the alarm zone's immediate-action window. Story 14-4
+        (ADR-17 Amendment 4) sends one callback per rank improvement (forced-capture
+        manual event first, then any-label real events ranked person > other label),
+        plus a clip-ready upgrade, instead of 14-2's single end-of-run callback. `run_id`
+        is echoed back on every callback unchanged, so PHP's monotonic cache rule
+        (siaDC09::_handlePrefetchResult()) can never let a late callback from an older
+        run overwrite a newer one — this replaces 14-2 AC5's "always send a result"
+        contract (superseded by the placeholder cache entry PHP writes before triggering
+        this run).
 
         Args:
             camera_eqlogic_id: siaDC09-side cache key (the camera's Jeedom eqLogic id)
             camera_name: Frigate-native camera name (getConfiguration('name') on the
                 camera eqLogic)
             frigate_host: Frigate server host:port, e.g. "192.168.100.18:5000"
+            run_id: Numeric string PHP generated and owns (siaDC09Cmd::execute()'s
+                "prefetchEvent" case) — echoed back verbatim on every callback.
 
-        Reference: ADR-17, Amendment 3 — _bmad-output/planning-artifacts/architecture.md
-        Reference: 14-2 Task 4.3
+        Reference: ADR-17, Amendment 3/4 — _bmad-output/planning-artifacts/architecture.md
+        Reference: 14-4 Task 3.2
         """
         base_url = f"http://{frigate_host}"
         self._logger.debug(
             f"_run_prefetch: querying {base_url} camera={camera_name!r} "
-            f"(camera_eqlogic_id={camera_eqlogic_id})"
+            f"(camera_eqlogic_id={camera_eqlogic_id}, run_id={run_id!r})"
         )
-        result = await prefetch_person_event(base_url, camera_name)
-        self._logger.debug(f"_run_prefetch: result={result!r}")
-        await self._send_callback({
-            "type": "prefetch_result",
-            "camera_eqlogic_id": camera_eqlogic_id,
-            "found": 1 if result.found else 0,
-            "event_id": result.event_id or "",
-            "clip_found": 1 if result.clip_found else 0,
-        })
+
+        async def _on_result(result: PrefetchResult) -> None:
+            self._logger.debug(f"_run_prefetch: result={result!r} (run_id={run_id!r})")
+            await self._send_callback({
+                "type": "prefetch_result",
+                "camera_eqlogic_id": camera_eqlogic_id,
+                "found": 1 if result.found else 0,
+                "event_id": result.event_id or "",
+                "clip_found": 1 if result.clip_found else 0,
+                "rank": result.rank,
+                "run_id": run_id,
+            })
+
+        await prefetch_alarm_media(base_url, camera_name, _on_result)
 
     # ===== TASK 5 (Story 5-3): on_start — DAEMON STARTUP =====
 

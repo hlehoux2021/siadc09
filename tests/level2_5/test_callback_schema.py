@@ -486,17 +486,18 @@ def test_info_update_zero_values_not_dropped() -> None:
     )
 
 
-# ── prefetch_result schema (Story 14-2, ADR-17 Amendment 3) ────────────────────
+# ── prefetch_result schema (Story 14-2, ADR-17 Amendment 3; extended by 14-4) ───
 
 
 def test_prefetch_result_required_fields() -> None:
     """
-    prefetch_result requires type, camera_eqlogic_id, found, event_id, and (Story 14-3)
-    clip_found — PHP's _handlePrefetchResult() must be able to key its per-camera cache
-    entry and unconditionally overwrite it (AC5) on every message, hit or miss.
+    prefetch_result requires type, camera_eqlogic_id, found, event_id, clip_found (Story
+    14-3), and rank/run_id (Story 14-4, ADR-17 Amendment 4) — PHP's _handlePrefetchResult()
+    keys its per-camera cache entry and applies its run_id/rank monotonic replace rule on
+    every message.
 
     Expected result:
-    - All 5 required fields present in both the hit and miss samples
+    - All 7 required fields present in both the hit and miss samples
     """
     for payload in (SAMPLE_PREFETCH_RESULT_HIT, SAMPLE_PREFETCH_RESULT_MISS):
         for field in REQUIRED_FIELDS["prefetch_result"]:
@@ -562,3 +563,35 @@ def test_prefetch_result_survives_json_roundtrip() -> None:
         assert roundtripped == payload
         # Assert: found survives as int, not coerced to bool/string
         assert type(roundtripped["found"]) is int
+
+
+def test_prefetch_result_rank_is_always_int_never_bool() -> None:
+    """
+    Story 14-4 (ADR-17 Amendment 4): "rank" (1=person/2=other/3=manual/4=none) follows the
+    same int-not-bool convention as "found"/"clip_found".
+
+    Expected result:
+    - rank is exactly int, never bool, in both samples
+    - hit sample has rank=1 (person), miss sample has rank=4 (none)
+    """
+    for payload in (SAMPLE_PREFETCH_RESULT_HIT, SAMPLE_PREFETCH_RESULT_MISS):
+        # Assert: strict int check, same reasoning as the "found" field above
+        assert type(payload["rank"]) is int, f"rank must be int, not bool: {payload}"
+    assert SAMPLE_PREFETCH_RESULT_HIT["rank"] == 1
+    assert SAMPLE_PREFETCH_RESULT_MISS["rank"] == 4
+
+
+def test_prefetch_result_run_id_is_a_nonempty_string() -> None:
+    """
+    Story 14-4: "run_id" is the numeric string PHP generated (microtime(true)) and owns —
+    the daemon only ever echoes it back verbatim, never generates or parses it itself.
+
+    Expected result:
+    - run_id is a non-empty str in both samples, present even on a miss (same "never
+      omitted" convention as event_id)
+    """
+    for payload in (SAMPLE_PREFETCH_RESULT_HIT, SAMPLE_PREFETCH_RESULT_MISS):
+        # Assert: run_id is a non-empty string, never omitted
+        assert isinstance(payload["run_id"], str) and payload["run_id"], (
+            f"run_id must be a non-empty str: {payload}"
+        )

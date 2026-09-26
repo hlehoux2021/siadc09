@@ -1,0 +1,400 @@
+# Story 14.4: Best-Effort Alarm Media — Any-Label Ranking + Forced Frigate Capture
+
+Status: ready-for-dev
+
+<!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
+
+## Story
+
+As a monitored Jeedom user with a Frigate camera covering an alarm zone,
+I want every intrusion (BA) frame to carry the best available image and clip of the zone taken while the alarm is
+happening, even when Frigate detected no person,
+so that the operator always sees something useful ("an animal", "nobody visible", "an intruder") without the frame
+ever being delayed.
+
+**Sources:** ADR-17 Amendment 4 (`_bmad-output/planning-artifacts/architecture.md`, "ADR-17, Amendment 4
+(2026-09-26)"), requirements `_bmad-output/planning-artifacts/requirements-14-4-frigate-forced-capture-2026-09-26.md`
+(FR1–FR6, NFR1–NFR4, §8 AC seeds), epics.md Story 14.4. Builds on 14-2 (prefetch/cache) and 14-3 (`[V snapshot clip]`).
+
+## Acceptance Criteria
+
+1. **Forced capture first.** When the daemon receives `prefetchEvent`, the first Frigate call of the run is
+   `POST {base_url}/api/events/{camera}/alarm/create` with JSON body `{"duration": 30, "include_recording": true}`,
+   before any `GET /api/events` poll. The label is the constant `"alarm"`.
+2. **Early push (rank 3).** As soon as the create call returns a non-empty `event_id`, the daemon sends a
+   `prefetch_result` callback with `found=1`, `event_id=<manual id>`, `clip_found=1` (per-source rule, AC7), `rank=3`
+   and the run's `run_id`. It's sent before the first poll, not at the end of the run.
+3. **Any-label search.** In the same run, the daemon polls `GET /api/events` with `camera`, `after = t0 − 30 s`,
+   `has_snapshot=1`, `sort=date_desc` and a `limit` > 1 (named constant). There's **no** `label` filter, every 2 s,
+   within the unchanged 25 s budget measured from t0. Client-side it drops every row whose `label == "alarm"`
+   **or** whose `data.type == "api"`, and every row without a truthy `has_snapshot`.
+4. **Ranking.** Rank 1 is the most recent `person` row. Rank 2 is the most recent row with any other label. Rank 3 is
+   the manual event, and rank 4 is nothing. Within a run, the daemon switches to another event **only on a strict rank
+   improvement**. A same-rank event seen in a later poll never replaces the one already chosen, which keeps it
+   consistent with the PHP rule in AC6. On rank 1 with the clip ready, the run stops. On rank 2 it keeps polling for a
+   person until the budget runs out.
+5. **One callback per improvement.** A callback is sent each time the rank improves (with `clip_found` decided by
+   AC7), and once more when the chosen rank-1/2 event's clip becomes ready (same rank, `clip_found` 0→1). No other
+   callbacks are sent, except the final rank-4 miss described in AC9.
+6. **PHP monotonic cache rule** (`siaDC09::_handlePrefetchResult`). An incoming result replaces the stored entry for
+   its camera only if one of these holds:
+   (a) its `run_id` is numerically greater than the stored one, or there's no usable stored `run_id`;
+   (b) it has the same `run_id` and a smaller `rank`;
+   (c) it has the same `run_id` and the same `rank`, the stored `clip_found` is false and the incoming one is true.
+
+   In every other case it's ignored, with a `debug` log line. The stored entry gains the `run_id` and `rank` fields.
+   `found`, `event_id`, `clip_found` and `ts` keep their exact 14-3 shape and meaning, so the snapshot and clip
+   resolvers are unchanged. A late callback from an older run never overwrites a newer run's entry (requirements
+   §8.7).
+7. **Per-source clip rule, in the daemon only.** Rank 3 sends `clip_found=1` immediately. Ranks 1 and 2 send
+   `clip_found=1` only once `_check_clip_ready()` has confirmed `has_clip`. PHP never branches on the source
+   beyond `rank`.
+8. **`run_id` owned by PHP.** The `prefetchEvent` case in `siaDC09Cmd::execute()` generates
+   `run_id = (string) microtime(true)`. It writes a **placeholder** cache entry for that camera
+   (`found=false, event_id=null, clip_found=false, rank=4, run_id, ts=time()`) **before** calling `sendToDaemon`,
+   then passes `run_id` in the payload. The daemon echoes it verbatim on every callback of that run. A stale hit from
+   an earlier run can then never be attached, even if the create call fails and no callback ever arrives. This
+   replaces 14-2 AC5's "the miss callback clears the entry".
+9. **Failure never crashes, never delays.** If the create call gets HTTP 401/403/404/5xx, times out, or finds Frigate
+   down, the daemon logs **one** `warning` for the run (with the status when there is one), skips the rank-3 push and
+   carries on with the rank 1/2 search. If polling finds nothing either, it sends exactly one final rank-4 miss
+   (`found=0, event_id="", clip_found=0, rank=4`), which PHP ignores under rule AC6, the placeholder already being
+   rank 4. Nothing raises past `frigate_prefetch`, and `burglarAlarm` is never blocked or delayed.
+10. **Never delete.** No code path calls Frigate's `DELETE`, `/end`, `/retain` or any other mutating endpoint besides
+    `create`. A test asserts this on the module source.
+11. **Send path unchanged.** `burglarAlarm`/`fireAlarm`/`panicAlarm`'s single shared `_readPrefetchCacheEntry()` read
+    (14-3 TOCTOU fix), `_resolveFrigateSnapshotUrl`/`_resolveFrigateClipUrl`, `PREFETCH_CACHE_TTL = 120` and the
+    space-joined `media_url` stay as they are. There's no new network call on the send path. The 14-3 execute
+    harness tests still pass with entries that carry the new `run_id`/`rank` fields, and with legacy entries that
+    don't.
+12. **Tests before live** (memory `prefer-tests-over-live-trial-and-error`). Level-1/level-2 tests cover: create-first
+    ordering, the rank-3 early push, the exclusion (label and type backstop, including a leftover `alarm` event from
+    an earlier trip), the ranking and most-recent tie-break, no same-rank switching, clip upgrade, the create-failure
+    fallback, the final rank-4 miss, and the PHP no-downgrade/stale-run rule. The IPC schema fixture is updated.
+    Regression runs are compared against the known baseline (level1 2, level2 6, level2_5 1), not 0.
+13. **Live validation** on `test-jeedom.lehoux.net` (push first; code arrives by `git pull`), against the real receiver
+    `192.168.100.15:10002`, account `001234`, checked through the real Jeedom UI/API and Frigate, not by
+    reflection:
+    - (a) no Frigate event → the BA frame carries `[V …/{alarm-id}/snapshot.jpg …/{alarm-id}/clip.mp4]`, and Frigate
+      shows an `alarm` event with a clip;
+    - (b) person in view → the frame carries the person event's media, and the `alarm` event still exists;
+    - (c) (if an animal can be staged or found) another label → that event's media;
+    - (d) disarm during the entry delay → no BA frame, and the `alarm` event stays.
+
+    Record what the receiver shows for the forced clip URL while it's still partial (Amendment 4 R5).
+
+## Tasks / Subtasks
+
+- [x] **Task 1 — Tests first: daemon prefetch module** (AC: 1, 2, 3, 4, 5, 7, 9, 10, 12)
+  - [x] 1.1 In `tests/level1/test_frigate_prefetch.py`, add `_post_json` tests: 200 + JSON → dict; `HTTPError` 401/403
+        → `None` with status surfaced (see Task 2.1 return shape); URLError/timeout/malformed JSON → never raises.
+  - [x] 1.2 `_create_manual_event` tests: URL is `/api/events/{camera}/alarm/create` with the camera URL-quoted, and
+        the body is exactly `{"duration": 30, "include_recording": true}`. It returns the `event_id` on
+        `success: true`, and `None` on `success: false`, an empty id, or any error.
+  - [x] 1.3 `_query_candidate_events` / ranking tests with fake `/api/events` rows:
+        - the exclusion: `label=="alarm"`; `label!="alarm"` but `data.type=="api"`; a row with no `data`; a row
+          without a snapshot;
+        - person beats a more recent cat;
+        - the most recent of two cats wins;
+        - no `label` query parameter is sent, `sort=date_desc` is sent, and `limit` equals the constant.
+  - [x] 1.4 `prefetch_alarm_media` orchestration tests (patch the helpers and collect the `on_result` calls):
+        - create is called before the first query;
+        - rank 3 is pushed with `clip_found=True`;
+        - 3 → 2 (`clip_found=False`) → 2 (`clip_found=True`) → 1;
+        - a later same-rank event is ignored;
+        - the run stops on rank 1 with the clip ready;
+        - it keeps polling on rank 2;
+        - a create failure means no rank-3 push, and the search still runs;
+        - with nothing found and a failed create, exactly one final rank-4 miss;
+        - with nothing found but a successful create, no final miss;
+        - the budget is respected, with a deadline from t0 and create time included;
+        - an `on_result` that raises doesn't kill the run.
+  - [x] 1.5 A source-scan test: `frigate_prefetch.py` contains no `DELETE` method, `/end`, `/retain`, or
+        `method="PUT"`, and only one `POST` (the create).
+- [x] **Task 2 — Implement `resources/siadc09d/frigate_prefetch.py`** (AC: 1–5, 7, 9, 10)
+  - [x] 2.1 `_post_json(url: str, body: dict[str, object], timeout: float) -> tuple[int | None, object | None]`:
+        - `urllib.request.Request(..., method="POST")` with `Content-Type: application/json`;
+        - never raises; returns `(status, decoded)`, or `(e.code, None)` on `HTTPError` (catch it **before**
+          `URLError`, since it's a subclass), or `(None, None)` on a network or JSON error;
+        - mirror `_get_json`'s except tuple. Keep `_get_json` as is.
+  - [x] 2.2 `_create_manual_event(base_url, camera, timeout) -> tuple[str | None, int | None]`, returning
+        `(event_id, http_status)`. Add the constants `MANUAL_EVENT_LABEL: Final[str] = "alarm"`,
+        `MANUAL_EVENT_DURATION_S: Final[int] = 30` and `MANUAL_EVENT_API_TYPE: Final[str] = "api"`.
+  - [x] 2.3 Add `_query_candidate_events(base_url, camera, after_ts, timeout) -> list[dict[str, object]]`, which
+        returns filtered rows, plus a pure `_best_candidate(rows) -> tuple[int, str] | None` that returns
+        `(rank, event_id)`. Remove `_query_latest_person_event` and `_PERSON_LABEL` only if nothing else uses them
+        (check with grep, including `tests/` and `scripts/`). Otherwise keep them.
+  - [x] 2.4 Extend `PrefetchResult` with `rank: int = RANK_NONE` (constants `RANK_PERSON=1`, `RANK_OTHER=2`,
+        `RANK_MANUAL=3`, `RANK_NONE=4`; an `IntEnum` is fine too, but its value must go over IPC as a plain int).
+        The existing positional construction `PrefetchResult(found, event_id, clip_found)` must keep working, since
+        the level-2 tests import it.
+  - [x] 2.5 `async def prefetch_alarm_media(base_url, camera, on_result: Callable[[PrefetchResult], Awaitable[None]],
+        *, same keyword budget params) -> PrefetchResult`:
+        - compute `after_ts` and `deadline` at entry (t0);
+        - create the manual event via `asyncio.wait_for(asyncio.to_thread(...), http_timeout_s + SLACK)`;
+        - push rank 3;
+        - loop: query, rank, push on a strict improvement; while a rank-1/2 event is held without its clip, call
+          `_check_clip_ready` once per iteration (don't use the blocking `_poll_clip_ready`, which would stop the
+          person search); stop on rank 1 with the clip;
+        - cap each sleep at the time left (the 14-3 deadline-overrun fix);
+        - wrap each `on_result` await in `try/except Exception` with a warning log, so one callback failure doesn't
+          end the run;
+        - return the final best result.
+
+        Keep `prefetch_person_event` only if something else still calls it. Otherwise remove it and its now-dead
+        tests, and say so in the Completion Notes.
+  - [x] 2.6 Update the module docstring (Amendment 4 reference; "never deletes manual events") and the
+        `PREFETCH_AFTER_BUFFER_S` comment (the principle is now "stale or not this alarm's").
+- [x] **Task 3 — Tests first, then implement: daemon wiring** (AC: 2, 5, 8, 9, 12)
+  - [x] 3.1 In `tests/level2/test_frigate_prefetch_dispatch.py`:
+        - `run_id` is required: a missing or non-string value is ignored with a warning, the way a missing
+          `camera_name` is today;
+        - `_run_prefetch` forwards `run_id` and `rank` on every callback;
+        - the payload uses only ints 0/1 for flags (`_send_callback` drops bools) and `rank` as an int;
+        - one run with three improvements → three `_send_callback` calls, in order.
+
+        The existing tests patch `resources.siadc09d.daemon.prefetch_person_event` by name (lines 76, 99, 133, 165,
+        193). Retarget them to `prefetch_alarm_media`, using a fake that awaits `on_result(...)` to drive the
+        callbacks, and keep their intent: fire-and-forget, never awaited in `on_message`, and a miss still reaching
+        PHP.
+  - [x] 3.2 `resources/siadc09d/daemon.py`:
+        - `prefetchEvent` branch (~2124-2155): read and validate `run_id`, then pass it to
+          `_run_prefetch(cam_id, camera_name, frigate_host, run_id)`;
+        - `_run_prefetch` (~2222): call `prefetch_alarm_media` with a closure `on_result` that builds
+          `{"type": "prefetch_result", "camera_eqlogic_id", "found", "event_id", "clip_found", "rank", "run_id"}`
+          and awaits `_send_callback`;
+        - update the import at line 63, the `Params` TypedDict (~line 246-262: add `run_id: str`), and the
+          on_message docstring (~2119).
+  - [x] 3.3 In `tests/fixtures/ipc_schema.py`, add `rank` and `run_id` to `REQUIRED_FIELDS["prefetch_result"]`, and
+        update `SAMPLE_PREFETCH_RESULT_HIT`/`_MISS` plus the comment. Adjust `tests/level2_5/test_callback_schema.py`
+        (add: `rank` is an int, never a bool; `run_id` is a non-empty str).
+- [x] **Task 4 — Tests first, then implement: PHP** (AC: 6, 8, 11, 12)
+  - [x] 4.1 Add a new PHP real-execution harness for `siaDC09::_handlePrefetchResult`, following
+        `_run_execute_burglar_alarm`'s pattern in `tests/level1/test_frigate_snapshot_resolution.py` (strip
+        `<?php`/`require_once`, stub `log`, and a `FakeEqLogic` with `getCache`/`setCache`). Invoke the private
+        static method via `ReflectionMethod::setAccessible(true)`, or through the `case 'prefetch_result'` dispatch
+        if that's easier to reach. Cover this matrix:
+        - newer run replaces;
+        - older run is ignored;
+        - same run, better rank replaces;
+        - same run, worse rank is ignored;
+        - same run and rank, clip 0→1 replaces;
+        - same run and rank, clip 1→0 is ignored;
+        - a missing stored `run_id` (legacy 14-3 entry) is replaced;
+        - an entry for another camera is left untouched.
+  - [x] 4.2 Extend the `prefetchEvent` tests, either with a real-execution harness in
+        `tests/level1/test_frigate_prefetch_trigger.py` or source-level like that file's current tests (prefer real
+        execution). Check that:
+        - `sendToDaemon` receives a numeric-string `run_id`;
+        - the placeholder is written to `sia_prefetch_cache[camId]` **before** `sendToDaemon`;
+        - nothing is written on the early-return paths (empty zone, literal `#zone#`, unresolved target).
+  - [x] 4.3 `core/class/siaDC09.class.php` `_handlePrefetchResult` (596-623):
+        - apply rule AC6, comparing `run_id` as `(float)`;
+        - store `run_id` (string) and `rank` (int, default 4 when absent);
+        - keep the try/catch and the debug logs, and add an "ignored (…)" debug line;
+        - update the docblock ("unconditionally overwrites" is no longer true);
+        - when it replaces, keep writing a **fresh array literal** at `$cache[(int) $camId] = [ ... ]` with
+          `'clip_found' => !empty($data['clip_found'])`, and never `array_merge` with the old entry. The existing
+          source-reflection tests in `tests/level1/test_php_eqlogic_stub.py:896-980` pin exactly that and must keep
+          passing. Update the docstring of `test_handle_prefetch_result_never_merges_stale_entries` from 14-2 AC5's
+          "unconditionally overwrite" to Amendment 4's "replace only per the run_id/rank rule, and never merge".
+  - [x] 4.4 `core/class/siaDC09Cmd.class.php` `prefetchEvent` case (38-79): after a successful
+        `_resolvePrefetchTarget`, generate `run_id` and write the placeholder with the same read-modify-write shape as
+        `_handlePrefetchResult` (factor a small private helper only if it stays readable). Wrap it in its own
+        `try/catch (\Throwable)` with a warning. A failed placeholder write must never block `sendToDaemon`. Then
+        add `'run_id' => $runId` to the payload.
+  - [x] 4.5 Check that the existing 14-3 `TestExecuteBurglarAlarmMediaUrlJoin` still passes, and add one case whose
+        entry carries `run_id`/`rank` (AC11).
+- [x] **Task 5 — Regression + lint** (AC: 12)
+  - [x] 5.1 `python3 -m pytest tests/level1/ tests/level2/ tests/level2_5/`. Compare against the baseline (level1 2,
+        level2 6, level2_5 1) and name any new failure.
+  - [x] 5.2 `python3 -m pylint resources/siadc09d/`; `php -l core/class/siaDC09.class.php core/class/siaDC09Cmd.class.php`.
+- [ ] **Task 6 — Live validation** (AC: 13)
+  - [ ] 6.1 Commit and push when Herve asks, then `git pull` on test-jeedom.lehoux.net and restart the daemon. Check
+        the daemon is actually running (memory `jeedom-daemon-down-looks-like-frozen-label`).
+  - [ ] 6.2 Confirm the Frigate plugin's configured port is 5000, since create needs the admin role (Amendment 4
+        R1). If it's 8971, expect case (a) to degrade to a plain BA plus a warning, and report that instead of
+        "fixing" it with credentials (the template-tokens-never-secrets rule).
+  - [ ] 6.3 Cases (a), (b), (d), plus (c) if available. For each one, record the received frame (protocol inspector),
+        the Frigate event list (label, `data.type`), and the daemon log's callback sequence.
+  - [ ] 6.4 Case (a): open the clip URL right after the frame and again at about t0 + 45 s. Record HTTP 400 → partial
+        → full, and what the receiver shows.
+
+## Dev Notes
+
+### What changes, file by file (current state → change → preserve)
+
+**`resources/siadc09d/frigate_prefetch.py`**
+- *Today:*
+  - `_get_json` (GET, never raises);
+  - `_query_latest_person_event` (`label=person`, `has_snapshot=1`, `sort=desc`, `limit=1`; no `in_progress`
+    filter, on purpose);
+  - `_check_clip_ready` (`has_clip` on the event row);
+  - `_poll_clip_ready` (blocking until the deadline);
+  - `prefetch_person_event` → one `PrefetchResult(found, event_id, clip_found)`. Constants: after buffer 30 s, max
+    wait 25 s, poll 2 s, HTTP timeout 5 s, `wait_for` slack 1 s.
+- *Change:* add a POST helper, create, any-label query plus ranking, and an orchestrator with an `on_result` callback
+  (Tasks 2.1-2.5).
+- *Preserve:*
+  - no Jeedom dependency (NFR2, the Amendment 3 boundary);
+  - blocking urllib only via `asyncio.to_thread` inside `asyncio.wait_for`;
+  - never raises;
+  - no `in_progress` filter (memory `frigate-rest-in-progress-filter-unreliable`);
+  - the 14-3 deadline-cap fix;
+  - all existing constants and values.
+
+**`resources/siadc09d/daemon.py`**
+- *Today:*
+  - on_message `prefetchEvent` validates `camera_eqlogic_id`, `camera_name` and `frigate_host`, then
+    `_track_task(self._run_prefetch(...), name=f"frigate-prefetch-{cam_id}")`;
+  - `_run_prefetch` sends **one** callback at the end.
+- *Change:* add `run_id`, and send incremental callbacks through the `on_result` closure.
+- *Preserve:*
+  - fire-and-forget, with a tracked task (no untracked tasks);
+  - `_send_callback`'s bool rejection (send ints);
+  - base URL `http://{frigate_host}`.
+- *Hot-spot:* daemon.py is the file several parallel agents merge into (memory `parallel-agents-daemon-conflict`).
+  Pull and rebase before editing, and keep the diff confined to the prefetch section.
+
+**`core/class/siaDC09.class.php`**
+- *Today:* the `case 'prefetch_result'` dispatch is at ~498, and `_handlePrefetchResult` (596-623) unconditionally
+  overwrites `$cache[(int)$camId]`.
+- *Change:* apply the AC6 rule and store `run_id`/`rank`.
+- *Preserve:* the try/catch (never throws into the callback endpoint), and the `is_string` → `json_decode` tolerance.
+
+**`core/class/siaDC09Cmd.class.php`**
+- *Today:*
+  - the `prefetchEvent` case (38-79) guards against an empty zone or a literal `#zone#`, then
+    `_findZoneEntry` → `_resolvePrefetchTarget` → `sendToDaemon`;
+  - the send case (81-114) does one `_readPrefetchCacheEntry` read and resolves snapshot then clip;
+  - `PREFETCH_CACHE_TTL = 120` (line 27).
+- *Change:* the prefetchEvent case only (run_id, placeholder, payload field).
+- *Preserve:* the whole send path, byte-for-byte in behaviour (AC11); the resolvers; `_buildFrigateMediaUrl`; the
+  warning texts in French.
+
+### Why a placeholder write (AC8), and why a single cache key stays
+
+- The placeholder is needed because, without it, a failed create plus a miss would leave the previous run's hit in
+  the cache until the ~25 s final callback. That's the exact stale-media case Amendment 4 still calls "wrong".
+  Writing it in the PHP process that owns `run_id` closes that gap at t0.
+- Verified in Jeedom core (`core/class/eqLogic.class.php:2040-2047`, cloned 2026-09-26):
+  - `getCache`/`setCache` store **all** of an eqLogic's cache keys in one `cache::` blob, `eqLogicCacheAttr{id}`;
+  - `setCache` is itself a read-modify-write of that blob.
+- So splitting `sia_prefetch_cache` into per-camera keys would narrow but not remove the lost-update window between
+  concurrent writers. Those writers are the placeholder (alarm-plugin PHP process) and callbacks for another camera
+  (callback endpoint process). They're only concurrent when two cameras trip within milliseconds.
+- Within one run, the daemon's callbacks are serialized (each `await _send_callback`).
+- **Decision for this story:** keep the single `sia_prefetch_cache` key (the 14-3 tests and the reader are
+  unchanged), keep each read-modify-write tight (no logic between `getCache` and `setCache` beyond the rule), and
+  record the residual race in the Completion Notes as a new deferred item.
+
+### Frigate 0.17.2 contract (verified in source, `/tmp/frigate-src` tag v0.17.2)
+
+**Create** (`frigate/api/event.py:1737-1798`)
+- Validates only the camera (404 if unknown) and a non-empty label. It requires the admin role.
+- Returns `{"success": true, "message": "Successfully created event.", "event_id": "<ts>.<us>-<6 chars>"}`
+  synchronously. The insert and the snapshot are asynchronous, and the snapshot has been measured ready at 0.53 s.
+
+**Port 5000 is admin** (`api/auth.py:577-579`). The deployed `frigate_host` is `192.168.100.18:5000`.
+
+**`GET /api/events`** (`event.py:98-370`)
+- The selected columns include `label`, `start_time`, `has_clip`, `has_snapshot` and `data`, and `data.type` is
+  `"api"` for manual events and `"object"` for real ones.
+- `sort` accepts `date_desc`/`date_asc`/`score_*`/`speed_*`. **Any other value, including 14-2's `desc`, falls back
+  to `start_time DESC`**, so use `date_desc` explicitly.
+- The default `limit` is 100. Pick a small named constant (e.g. 20), since manual events now take slots in the list.
+
+**Manual events**
+- `end_time = t0 + duration` (`track/object_processing.py:524`).
+- `clip.mp4` serves the segments already on disk: HTTP 400 until the first flush (~10 s), then a partial clip, then
+  the full clip from about t0 + 40 s.
+- Always alert review segments, so they follow `record.alerts.retain`. Snapshots use `snapshots.retain.objects.alarm`
+  or `default`.
+- **Never add `alarm` to `objects.track`**; it's dropped with a warning.
+- Manual events never publish to MQTT `events` (memory `frigate-manual-event-api-no-mqtt`), which doesn't matter
+  because nothing reads MQTT here.
+
+**Event id format.** Manual ids have the same `<ts>.<us>-<rand>` shape as real ids, so `_buildFrigateMediaUrl`
+needs no change.
+
+### Guardrails
+
+- **Media URLs:** siaDC09 stores only the literal placeholder template, never a real secret, and adds no Frigate
+  credentials (memory `media-url-template-never-real-secret`).
+- **Scope:** BA is the product scope. Media resolution stays shared by BA/FA/PA as it has been since 14-1/14-2 (14-3
+  review decision), so don't add or remove a gate. `prefetchEvent` is only wired to intrusion zones anyway.
+- **IPC:** flags are int 0/1 and `rank` is an int; `run_id` is a string echoed verbatim. Never send Python bools.
+- **Python style:** full typing (`X | Y`), `Final` constants, no magic numbers or strings, Google docstrings,
+  specific exceptions, `asyncio.wait_for` around every network op, `Callable`/`Awaitable` from `collections.abc`.
+- **PHP style:** PHP 8 types on new methods, `??`, and log messages in French like the surrounding ones.
+- **Never delete** manual events (AC10); Herve's explicit decision.
+- **Budget:** the 25 s window is measured from t0 and includes the create call (worst case 6 s if the create hangs).
+  Don't extend `PREFETCH_MAX_WAIT_S`.
+
+### Cross-story impact
+
+- **14-2 AC5** ("always send a result so a stale hit is cleared"): now covered by the PHP placeholder (AC8), plus the
+  final rank-4 miss when nothing else was sent (AC9).
+- **14-2 / Amendment 3 two-outcome contract and `label=person`:** superseded by Amendment 4. Update the docstrings
+  that still say "no third tier".
+- **Deferred items:**
+  - D-52 (concurrent same-camera triggers): resolved by `run_id`, since the newer run owns the cache. Mark it
+    resolved in `deferred-work.md` with a pointer to 14-4.
+  - D-53 (tight margin with a short entry delay): largely mitigated, because a rank-3 entry lands about 1 s after t0.
+    Note that in `deferred-work.md`.
+  - D-54 (no trigger-time correlation): still applies, now to any label, and the ranking accepts it (most recent in
+    the window). Leave it open and add a one-line note.
+  - D-59 (clip ready just after the deadline): unchanged for ranks 1/2.
+- **Known accepted cost** (Amendment 4, "one entry = one event"): a rank-2 event can replace the manual event's
+  snapshot+clip with a snapshot alone if its clip isn't ready by BA time.
+
+### Previous-story intelligence (14-3, 14-2)
+
+- 14-3 review fixes to keep: `_poll_clip_ready`'s remaining-time cap (apply the same cap to every sleep in the new
+  loop), and the single shared cache read in `execute()`.
+- 14-2 live lessons:
+  - `prefetchEvent` must stay `subType='message'` (for the `#zone#` Titre field; memory
+    `alarm-plugin-subtype-message-for-titre-tag`);
+  - the `in_progress` filter was dropped on purpose;
+  - after-buffer 30 s (Herve's deployment assumption: one narrow camera per zone).
+- Test patterns:
+  - pytest-asyncio with `patch.object(frigate_prefetch, "<helper>")` and `sys.path` insert of `resources/siadc09d`
+    (`tests/level1/test_frigate_prefetch.py`);
+  - the `mock_daemon` fixture with `_send_callback = AsyncMock()` (`tests/level2/test_frigate_prefetch_dispatch.py`);
+  - the PHP real-execution harness with Jeedom stubs (`tests/level1/test_frigate_snapshot_resolution.py:603-722`,
+    skipped when `php` is missing). D-61 notes that the harness only asserts `returncode`; in the new harness also
+    assert that `stderr` is empty on the happy path.
+- Recent commits (`4fd41dc` 14-3 review, `736de3a`/`d2921ba` 14-1) touched the same PHP files. Rebase and don't
+  revert them.
+
+### Project Structure Notes
+
+- No new files outside `tests/`. All REST code stays in `resources/siadc09d/frigate_prefetch.py`.
+- No wizard/UI or `plugin_info` change. No new config key. `frigate_media_url_template` is unchanged.
+- Recommendation for Herve's Frigate config (not code, not in this story's diff): add `alarm: 15` under
+  `snapshots.retain.objects` in `pailly-proxified/etc/frigate/config.yml`.
+
+### References
+
+- [Source: _bmad-output/planning-artifacts/architecture.md#ADR-17, Amendment 4 (2026-09-26)]
+- [Source: _bmad-output/planning-artifacts/requirements-14-4-frigate-forced-capture-2026-09-26.md]
+- [Source: _bmad-output/planning-artifacts/epics.md#Story 14.4]
+- [Source: _bmad-output/implementation-artifacts/14-3-attach-frigate-clip-alongside-snapshot.md]
+- [Source: _bmad-output/implementation-artifacts/14-2-frigate-event-prefetch-immediate-action.md]
+- [Source: _bmad-output/implementation-artifacts/deferred-work.md — D-51..D-54, D-57..D-61]
+- [Source: resources/siadc09d/frigate_prefetch.py; resources/siadc09d/daemon.py (~2124-2239, 503-535, 246-262)]
+- [Source: core/class/siaDC09.class.php (~498, 596-623); core/class/siaDC09Cmd.class.php (27, 38-114, 307-529)]
+- [Source: tests/fixtures/ipc_schema.py; tests/level2_5/test_callback_schema.py:489-560]
+- [Source: Frigate v0.17.2 — frigate/api/event.py, api/auth.py, track/object_processing.py, review/maintainer.py]
+- [Source: Jeedom core — core/class/eqLogic.class.php:2040-2047 (getCache/setCache)]
+- [Source: scripts/frigate_latency_probe.py — `_http_json` POST pattern already proven against the deployed Frigate]
+
+## Dev Agent Record
+
+### Agent Model Used
+
+### Debug Log References
+
+### Completion Notes List
+
+### File List

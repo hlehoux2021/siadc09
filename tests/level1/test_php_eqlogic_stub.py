@@ -932,10 +932,10 @@ def test_handle_prefetch_result_never_merges_stale_entries(
     handle_prefetch_result_body: str,
 ) -> None:
     """
-    AC5: every prefetch outcome — including a miss — must unconditionally overwrite
-    the per-camera cache entry, never merge with or preserve a previous entry's
-    'found'/'event_id' values (that would let a stale hit survive a later miss on the
-    same camera).
+    Story 14-4 (ADR-17 Amendment 4, superseding 14-2 AC5): when _handlePrefetchResult()
+    does replace the per-camera cache entry (per its run_id/rank monotonic rule, tested
+    separately), it must still be a full replace, never a merge with or partial
+    preservation of a previous entry's 'found'/'event_id' values.
 
     Expected result:
     - the assignment writes a fresh array literal at $cache[<key>], not a partial

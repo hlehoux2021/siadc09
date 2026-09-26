@@ -26,6 +26,12 @@ class siaDC09Cmd extends cmd {
     // trigger delay — a confirmed prefetch hit older than this is treated as expired.
     private const PREFETCH_CACHE_TTL = 120;
 
+    // ADR-17 Amendment 4 (Story 14-4): the placeholder rank written at prefetchEvent time,
+    // before the daemon has reported anything back — mirrors
+    // resources/siadc09d/frigate_prefetch.py's RANK_NONE (worse than any real rank, so the
+    // first genuine callback of the run always replaces it per _prefetchResultShouldReplace()).
+    private const PREFETCH_RANK_NONE = 4;
+
     private const OPEN_ALARMS_SIA_CODES = [
         'burglarAlarm' => 'BA',
         'fireAlarm'    => 'FA',
@@ -70,11 +76,20 @@ class siaDC09Cmd extends cmd {
                     break;
                 }
                 log::add('siaDC09', 'debug', 'prefetchEvent: resolved target=' . json_encode($target));
+                // ADR-17 Amendment 4 (Story 14-4, R2): run_id is generated and owned here,
+                // by the process that owns the cache — no clock-sync question with the
+                // daemon. The placeholder is written BEFORE sendToDaemon(), so a create
+                // call that fails on the daemon side (Frigate refused/unreachable, no
+                // callback ever sent for this run) still can't leave a stale hit from an
+                // earlier, unrelated trigger sitting in the cache.
+                $runId = (string) microtime(true);
+                $this->_writePrefetchPlaceholder((int) $target['camera_eqlogic_id'], $runId);
                 siaDC09::sendToDaemon([
                     'cmd'               => 'prefetchEvent',
                     'camera_eqlogic_id' => $target['camera_eqlogic_id'],
                     'camera_name'       => $target['camera_name'],
                     'frigate_host'      => $target['frigate_host'],
+                    'run_id'            => $runId,
                 ]);
                 break;
 
@@ -381,6 +396,45 @@ class siaDC09Cmd extends cmd {
         } catch (\Throwable $e) {
             log::add('siaDC09', 'warning', 'Lecture du cache de prefetch Frigate échouée : ' . $e->getMessage());
             return null;
+        }
+    }
+
+    /**
+     * ADR-17 Amendment 4 (Story 14-4, R2): writes a rank-PREFETCH_RANK_NONE placeholder
+     * entry for `$cameraEqLogicId`, tagged with the new run's `$runId`, BEFORE
+     * sendToDaemon() is called. Without this, a create call that fails on the daemon side
+     * (Frigate refused/unreachable — no callback ever sent for this run) would leave
+     * whatever entry an earlier, unrelated trigger on the same camera left behind sitting
+     * in the cache indefinitely, which is exactly the "stale/not this alarm's" case
+     * Amendment 4 still calls wrong. Once this placeholder is in place, the very first
+     * genuine `prefetch_result` callback of this run always replaces it — its `run_id` is
+     * numerically greater than any prior stored one (`_prefetchResultShouldReplace()`).
+     * Same read-modify-write shape and never-throws contract as `_handlePrefetchResult()`.
+     * A failed write here never blocks `sendToDaemon()`.
+     */
+    private function _writePrefetchPlaceholder(int $cameraEqLogicId, string $runId): void {
+        try {
+            $eqLogic = $this->getEqLogic();
+            if ($eqLogic === null) {
+                return;
+            }
+            $raw = $eqLogic->getCache('sia_prefetch_cache', []);
+            $cache = is_string($raw) ? json_decode($raw, true) : $raw;
+            if (!is_array($cache)) {
+                $cache = [];
+            }
+            $cache[$cameraEqLogicId] = [
+                'found'      => false,
+                'event_id'   => null,
+                'clip_found' => false,
+                'rank'       => self::PREFETCH_RANK_NONE,
+                'run_id'     => $runId,
+                'ts'         => time(),
+            ];
+            $eqLogic->setCache('sia_prefetch_cache', $cache);
+        } catch (\Throwable $e) {
+            log::add('siaDC09', 'warning', 'Écriture du placeholder de cache prefetch Frigate échouée : '
+                . $e->getMessage());
         }
     }
 

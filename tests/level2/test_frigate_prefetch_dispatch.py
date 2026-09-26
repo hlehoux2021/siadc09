@@ -1,16 +1,18 @@
-"""Story 14-2 (ADR-17 Amendment 3, Option D) — daemon-side prefetchEvent dispatch.
+"""Story 14-2/14-4 (ADR-17 Amendment 3/4, Option D) — daemon-side prefetchEvent dispatch.
 
 Tests cover:
 - on_message("prefetchEvent", ...) spawns a tracked background task and returns
   before the Frigate REST call resolves (fire-and-forget, never awaited)
-- the tracked task calls _send_callback() with the exact "prefetch_result" shape on
-  both a confirmed hit and a miss — including int 0/1 for "found", never a Python bool
-- missing required params are rejected without spawning a task or sending anything
+- the tracked task's on_result callback pushes _send_callback() with the exact
+  "prefetch_result" shape on every improvement — including int 0/1 for "found"/
+  "clip_found", "rank" as an int, and "run_id" echoed back verbatim (Story 14-4)
+- missing required params (including the new run_id) are rejected without spawning a
+  task or sending anything
 - an unknown alarm command (the pre-existing branch) is unaffected by the new branch
 
 Test level: Level 2 (async, no Jeedom required)
 Framework: pytest-asyncio
-Reference: _bmad-output/implementation-artifacts/14-2-frigate-event-prefetch-immediate-action.md
+Reference: _bmad-output/implementation-artifacts/14-4-best-effort-alarm-media-forced-capture.md
 """
 
 import asyncio
@@ -19,7 +21,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from resources.siadc09d.daemon import SIADaemon, SM1State, SM2State
-from resources.siadc09d.frigate_prefetch import PrefetchResult
+from resources.siadc09d.frigate_prefetch import RANK_MANUAL, RANK_NONE, RANK_PERSON, PrefetchResult
 from tests.conftest import make_daemon_preset
 
 
@@ -54,8 +56,16 @@ def mock_daemon():
     return daemon
 
 
+_BASE_PARAMS = {
+    "camera_eqlogic_id": 42,
+    "camera_name": "vigi_sud-est",
+    "frigate_host": "192.168.100.18:5000",
+    "run_id": "1790193160.123456",
+}
+
+
 class TestPrefetchEventDispatch:
-    """on_message("prefetchEvent", ...) — Task 4.2/4.3."""
+    """on_message("prefetchEvent", ...) — Task 4.2/4.3, extended by Story 14-4 Task 3.2."""
 
     @pytest.mark.asyncio
     async def test_spawns_tracked_task_and_returns_before_network_resolves(self, mock_daemon) -> None:
@@ -69,15 +79,12 @@ class TestPrefetchEventDispatch:
         """
         release_gate = asyncio.Event()
 
-        async def _slow_prefetch(*_args, **_kwargs) -> PrefetchResult:
+        async def _slow_prefetch(base_url, camera, on_result, **_kwargs) -> PrefetchResult:
             await release_gate.wait()
-            return PrefetchResult(found=True, event_id="evt-1")
+            return PrefetchResult(found=True, event_id="evt-1", rank=RANK_PERSON)
 
-        with patch("resources.siadc09d.daemon.prefetch_person_event", side_effect=_slow_prefetch):
-            await mock_daemon.on_message(
-                "prefetchEvent",
-                {"camera_eqlogic_id": 42, "camera_name": "vigi_sud-est", "frigate_host": "192.168.100.18:5000"},
-            )
+        with patch("resources.siadc09d.daemon.prefetch_alarm_media", side_effect=_slow_prefetch):
+            await mock_daemon.on_message("prefetchEvent", dict(_BASE_PARAMS))
             # Assert: on_message returned even though the network call is still blocked
             assert len(mock_daemon._tasks) == 1
             release_gate.set()
@@ -87,24 +94,25 @@ class TestPrefetchEventDispatch:
         assert len(mock_daemon._tasks) == 0
 
     @pytest.mark.asyncio
-    async def test_sends_hit_result_with_int_found_flag(self, mock_daemon) -> None:
+    async def test_on_result_callback_pushes_expected_shape_with_rank_and_run_id(self, mock_daemon) -> None:
         """
-        A confirmed Frigate person event must push found=1 (int, never a Python bool —
-        _send_callback() drops any payload containing a bool value) with the event id.
+        Story 14-4: each PrefetchResult improvement pushed via on_result must carry the
+        full new shape — int 0/1 for found/clip_found (never a Python bool —
+        _send_callback() drops any payload containing one), rank as an int, and run_id
+        echoed back verbatim from the incoming params.
 
         Expected result:
-        - _send_callback called once with type=prefetch_result, found=1, the event id
+        - _send_callback called once with the exact expected payload shape
         """
-        with patch(
-            "resources.siadc09d.daemon.prefetch_person_event",
-            new=AsyncMock(return_value=PrefetchResult(
-                found=True, event_id="1790193165.543115-0e6wzj", clip_found=True
-            )),
-        ):
-            await mock_daemon.on_message(
-                "prefetchEvent",
-                {"camera_eqlogic_id": 42, "camera_name": "vigi_sud-est", "frigate_host": "192.168.100.18:5000"},
+        async def _fake_prefetch(base_url, camera, on_result, **_kwargs) -> PrefetchResult:
+            result = PrefetchResult(
+                found=True, event_id="1790193165.543115-0e6wzj", clip_found=True, rank=RANK_PERSON
             )
+            await on_result(result)
+            return result
+
+        with patch("resources.siadc09d.daemon.prefetch_alarm_media", side_effect=_fake_prefetch):
+            await mock_daemon.on_message("prefetchEvent", dict(_BASE_PARAMS))
             await asyncio.gather(*mock_daemon._tasks)
 
         # Assert: exactly one callback push, with the expected shape
@@ -114,74 +122,93 @@ class TestPrefetchEventDispatch:
             "found": 1,
             "event_id": "1790193165.543115-0e6wzj",
             "clip_found": 1,
+            "rank": RANK_PERSON,
+            "run_id": "1790193160.123456",
         })
         # Assert: found/clip_found are real ints, never Python bools (would be silently dropped)
         sent_payload = mock_daemon._send_callback.await_args.args[0]
         assert type(sent_payload["found"]) is int
         assert type(sent_payload["clip_found"]) is int
+        assert type(sent_payload["rank"]) is int
+        assert isinstance(sent_payload["run_id"], str)
 
     @pytest.mark.asyncio
-    async def test_sends_hit_result_with_person_found_but_clip_not_ready(self, mock_daemon) -> None:
+    async def test_multiple_improvements_push_multiple_ordered_callbacks(self, mock_daemon) -> None:
         """
-        Story 14-3, AC1/AC2: a confirmed person event whose clip never became ready must
-        still push found=1 with clip_found=0 — the two outcomes are independent.
+        Story 14-4: a run with several rank improvements (manual, then person) must push
+        one _send_callback() call per improvement, in order, all sharing the same run_id.
 
         Expected result:
-        - _send_callback called once with found=1, clip_found=0 (both real ints)
+        - _send_callback awaited twice, ranks in order [RANK_MANUAL, RANK_PERSON]
+        - both calls carry the same run_id
         """
-        with patch(
-            "resources.siadc09d.daemon.prefetch_person_event",
-            new=AsyncMock(return_value=PrefetchResult(
-                found=True, event_id="1790193165.543115-0e6wzj", clip_found=False
-            )),
-        ):
-            await mock_daemon.on_message(
-                "prefetchEvent",
-                {"camera_eqlogic_id": 42, "camera_name": "vigi_sud-est", "frigate_host": "192.168.100.18:5000"},
-            )
+        async def _fake_prefetch(base_url, camera, on_result, **_kwargs) -> PrefetchResult:
+            manual = PrefetchResult(found=True, event_id="evt-manual-1", clip_found=True, rank=RANK_MANUAL)
+            await on_result(manual)
+            person = PrefetchResult(found=True, event_id="evt-person-1", clip_found=True, rank=RANK_PERSON)
+            await on_result(person)
+            return person
+
+        with patch("resources.siadc09d.daemon.prefetch_alarm_media", side_effect=_fake_prefetch):
+            await mock_daemon.on_message("prefetchEvent", dict(_BASE_PARAMS))
             await asyncio.gather(*mock_daemon._tasks)
 
-        # Assert: person hit is unaffected by the clip miss, clip_found is explicitly 0
-        mock_daemon._send_callback.assert_awaited_once_with({
-            "type": "prefetch_result",
-            "camera_eqlogic_id": 42,
-            "found": 1,
-            "event_id": "1790193165.543115-0e6wzj",
-            "clip_found": 0,
-        })
-        sent_payload = mock_daemon._send_callback.await_args.args[0]
-        assert type(sent_payload["clip_found"]) is int
+        assert mock_daemon._send_callback.await_count == 2
+        sent_ranks = [call.args[0]["rank"] for call in mock_daemon._send_callback.await_args_list]
+        assert sent_ranks == [RANK_MANUAL, RANK_PERSON]
+        sent_run_ids = [call.args[0]["run_id"] for call in mock_daemon._send_callback.await_args_list]
+        assert sent_run_ids == ["1790193160.123456", "1790193160.123456"]
 
     @pytest.mark.asyncio
-    async def test_sends_miss_result_so_php_clears_any_stale_hit(self, mock_daemon) -> None:
+    async def test_sends_miss_result_with_rank_none(self, mock_daemon) -> None:
         """
-        AC5: every prefetch outcome, including a miss, must overwrite PHP's per-camera
-        cache entry — a miss is a real, meaningful result, not a "nothing happened" case.
+        Story 14-4 AC9: a run that finds nothing at all pushes exactly one final miss
+        callback with rank=RANK_NONE (replacing 14-2 AC5's "always send a result").
 
         Expected result:
-        - _send_callback called once with found=0, event_id=""
+        - _send_callback called once with found=0, event_id="", clip_found=0, rank=4
         """
-        with patch(
-            "resources.siadc09d.daemon.prefetch_person_event",
-            new=AsyncMock(return_value=PrefetchResult(found=False, event_id=None, clip_found=False)),
-        ):
-            await mock_daemon.on_message(
-                "prefetchEvent",
-                {"camera_eqlogic_id": 42, "camera_name": "vigi_sud-est", "frigate_host": "192.168.100.18:5000"},
-            )
+        async def _fake_prefetch(base_url, camera, on_result, **_kwargs) -> PrefetchResult:
+            miss = PrefetchResult(found=False, event_id=None, clip_found=False, rank=RANK_NONE)
+            await on_result(miss)
+            return miss
+
+        with patch("resources.siadc09d.daemon.prefetch_alarm_media", side_effect=_fake_prefetch):
+            await mock_daemon.on_message("prefetchEvent", dict(_BASE_PARAMS))
             await asyncio.gather(*mock_daemon._tasks)
 
-        # Assert: a miss is still actively pushed (never silently skipped) — clip_found=0 always on a miss
         mock_daemon._send_callback.assert_awaited_once_with({
             "type": "prefetch_result",
             "camera_eqlogic_id": 42,
             "found": 0,
             "event_id": "",
             "clip_found": 0,
+            "rank": RANK_NONE,
+            "run_id": "1790193160.123456",
         })
 
     @pytest.mark.asyncio
-    async def test_missing_params_never_spawns_task_or_sends_callback(self, mock_daemon) -> None:
+    async def test_missing_run_id_never_spawns_task_or_sends_callback(self, mock_daemon) -> None:
+        """
+        Story 14-4: run_id is now required — without it (or camera identity), a
+        malformed prefetchEvent message must be rejected immediately.
+
+        Expected result:
+        - no task added to daemon._tasks
+        - _send_callback never called
+        """
+        with patch("resources.siadc09d.daemon.prefetch_alarm_media") as mock_prefetch:
+            await mock_daemon.on_message(
+                "prefetchEvent",
+                {"camera_eqlogic_id": 42, "camera_name": "vigi_sud-est", "frigate_host": "192.168.100.18:5000"},
+            )
+            # Assert: nothing was spawned for a payload missing run_id
+            assert len(mock_daemon._tasks) == 0
+            mock_prefetch.assert_not_called()
+        mock_daemon._send_callback.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_missing_camera_params_never_spawns_task_or_sends_callback(self, mock_daemon) -> None:
         """
         A malformed prefetchEvent message (missing camera identity) must be rejected
         immediately — no task spawned, no network call, no callback push.
@@ -190,8 +217,10 @@ class TestPrefetchEventDispatch:
         - no task added to daemon._tasks
         - _send_callback never called
         """
-        with patch("resources.siadc09d.daemon.prefetch_person_event") as mock_prefetch:
-            await mock_daemon.on_message("prefetchEvent", {"camera_eqlogic_id": 42})
+        with patch("resources.siadc09d.daemon.prefetch_alarm_media") as mock_prefetch:
+            await mock_daemon.on_message(
+                "prefetchEvent", {"camera_eqlogic_id": 42, "run_id": "1790193160.123456"}
+            )
             # Assert: nothing was spawned for an incomplete payload
             assert len(mock_daemon._tasks) == 0
             mock_prefetch.assert_not_called()

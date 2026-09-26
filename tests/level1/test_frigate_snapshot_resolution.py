@@ -823,3 +823,23 @@ class TestExecuteBurglarAlarmMediaUrlJoin:
             # Assert: exactly one frame sent, no exception surfaced (php returncode already
             # asserted inside _run_execute_burglar_alarm)
             assert len(out["sent"]) == 1, f"expected exactly one frame for entry={entry!r}"
+
+    def test_entry_carrying_run_id_and_rank_resolves_unaffected(self) -> None:
+        """
+        Story 14-4 (ADR-17 Amendment 4) AC11: burglarAlarm's send path is unchanged in
+        shape — a cache entry that now also carries 'run_id' and 'rank' (written by
+        _handlePrefetchResult()'s new monotonic-replace rule) must resolve exactly the
+        same media_url as before; the extra fields are simply ignored by the resolvers.
+
+        Expected result:
+        - media_url resolves both URLs, space-joined, exactly as with a 14-3-shaped entry
+        """
+        entry = _fresh_entry(found=True, clip_found=True)
+        entry["run_id"] = "1790193160.123456"
+        entry["rank"] = 1
+        out = _run_execute_burglar_alarm(entry)
+        # Assert: unaffected by the two new fields
+        assert out["sent"][0]["media_url"] == (
+            "https://cameras.lehoux.net/api/events/evt-1/snapshot.jpg "
+            "https://cameras.lehoux.net/api/events/evt-1/clip.mp4"
+        )

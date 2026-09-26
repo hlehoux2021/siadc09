@@ -33,6 +33,13 @@ class siaDC09 extends eqLogic {
     const NOTIFY_INTERNAL_MESSAGE = 'message';
     const NOTIFY_INTERNAL_SCENARIO = 'scenario';
 
+    /**
+     * ADR-17 Amendment 4 (Story 14-4): the "nothing found" rank a prefetch_result
+     * callback's 'rank' field defaults to when absent (a pre-14-4 payload shape, or a
+     * malformed one) — mirrors resources/siadc09d/frigate_prefetch.py's RANK_NONE.
+     */
+    private const PREFETCH_RANK_NONE = 4;
+
     private static function getPython3(): string {
         if (method_exists('system', 'getCmdPython3')) {
             return system::getCmdPython3(__CLASS__);
@@ -586,12 +593,15 @@ class siaDC09 extends eqLogic {
     }
 
     /**
-     * ADR-17 Amendment 3 (Option D): stores the daemon's Frigate REST prefetch outcome —
-     * hit or miss — into a per-camera cache entry, keyed by camera_eqlogic_id, that
-     * burglarAlarm's execute() reads synchronously and locally (siaDC09Cmd::
-     * _resolveFrigateSnapshotUrl()). Unconditionally overwrites the existing entry for
-     * that camera — including on a miss — so a later burglarAlarm never reuses a stale
-     * hit from an earlier, unrelated trigger on the same camera (AC5).
+     * ADR-17 Amendment 3 (Option D), extended by Amendment 4 (Story 14-4): stores the
+     * daemon's Frigate REST prefetch outcome into a per-camera cache entry, keyed by
+     * camera_eqlogic_id, that burglarAlarm's execute() reads synchronously and locally
+     * (siaDC09Cmd::_resolveFrigateSnapshotUrl()/_resolveFrigateClipUrl()). Replaces the
+     * existing entry only per _prefetchResultShouldReplace()'s run_id/rank monotonic rule
+     * — never merges with a previous entry (still a fresh array literal), but no longer
+     * unconditionally overwrites on every message (superseded 14-2 AC5: a stale hit is
+     * now cleared by the placeholder entry siaDC09Cmd::execute()'s prefetchEvent case
+     * writes before triggering the run, not by "every callback always wins").
      */
     private static function _handlePrefetchResult($eqLogic, array $data): void {
         try {
@@ -601,6 +611,7 @@ class siaDC09 extends eqLogic {
                 log::add(__CLASS__, 'warning', '_handlePrefetchResult: camera_eqlogic_id absent — message ignoré');
                 return;
             }
+            $camKey = (int) $cameraEqLogicId;
 
             $raw = $eqLogic->getCache('sia_prefetch_cache', []);
             $cache = is_string($raw) ? json_decode($raw, true) : $raw;
@@ -608,19 +619,63 @@ class siaDC09 extends eqLogic {
                 $cache = [];
             }
 
-            $cache[(int) $cameraEqLogicId] = [
+            $incomingRunId = (string) ($data['run_id'] ?? '');
+            $incomingRank = (int) ($data['rank'] ?? self::PREFETCH_RANK_NONE);
+            $incomingClipFound = !empty($data['clip_found']);
+
+            $existing = $cache[$camKey] ?? null;
+            if (is_array($existing)
+                && !self::_prefetchResultShouldReplace($existing, $incomingRunId, $incomingRank, $incomingClipFound)
+            ) {
+                log::add(__CLASS__, 'debug', '_handlePrefetchResult: résultat ignoré (ni plus récent, ni meilleur) '
+                    . 'pour eqLogicId=' . $camKey . ' -> ' . json_encode($data));
+                return;
+            }
+
+            $cache[$camKey] = [
                 'found'      => !empty($data['found']),
                 'event_id'   => $data['event_id'] ?? null,
                 'clip_found' => !empty($data['clip_found']),
+                'rank'       => $incomingRank,
+                'run_id'     => $incomingRunId,
                 'ts'         => time(),
             ];
             log::add(__CLASS__, 'debug', '_handlePrefetchResult: sia_prefetch_cache mis à jour pour eqLogicId='
-                . $cameraEqLogicId . ' -> ' . json_encode($cache[(int) $cameraEqLogicId]));
+                . $camKey . ' -> ' . json_encode($cache[$camKey]));
 
             $eqLogic->setCache('sia_prefetch_cache', $cache);
         } catch (\Throwable $e) {
             log::add(__CLASS__, 'warning', 'Traitement du résultat de prefetch Frigate échoué : ' . $e->getMessage());
         }
+    }
+
+    /**
+     * ADR-17 Amendment 4, Decision 5 — the monotonic cache-replace rule:
+     * - a numerically greater run_id than the one stored (or no usable stored run_id —
+     *   a legacy pre-14-4 entry) always replaces, whatever the rank;
+     * - the same run_id with a smaller (better) rank replaces;
+     * - the same run_id and rank, with the stored clip_found false and the incoming one
+     *   true, replaces (the clip-ready upgrade);
+     * - anything else (an older run, a same-run worse rank, a same-run/rank/clip-state
+     *   duplicate) is ignored.
+     */
+    private static function _prefetchResultShouldReplace(
+        array $existing, string $incomingRunId, int $incomingRank, bool $incomingClipFound
+    ): bool {
+        $storedRunId = isset($existing['run_id']) ? (string) $existing['run_id'] : '';
+        if ($storedRunId === '') {
+            return true;
+        }
+        if ((float) $incomingRunId !== (float) $storedRunId) {
+            return (float) $incomingRunId > (float) $storedRunId;
+        }
+
+        $storedRank = isset($existing['rank']) ? (int) $existing['rank'] : self::PREFETCH_RANK_NONE;
+        if ($incomingRank !== $storedRank) {
+            return $incomingRank < $storedRank;
+        }
+
+        return $incomingClipFound && empty($existing['clip_found']);
     }
 
     public function toHtml($_version = 'dashboard') {

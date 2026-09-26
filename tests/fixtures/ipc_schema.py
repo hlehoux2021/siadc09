@@ -29,11 +29,16 @@ REQUIRED_FIELDS: Final[dict[str, list[str]]] = {
     "notify": ["type", "title", "message"],
     "error_update": ["type"],
     "message_trace": ["type", "dialog"],
-    # prefetch_result (Story 14-2, ADR-17 Amendment 3; extended by Story 14-3): "found" and
-    # "clip_found" are always sent as int 0/1 (never a Python bool — _send_callback() drops
-    # any payload containing one) and "event_id" is always sent, as "" on a miss (never
-    # omitted, so PHP always overwrites the per-camera cache entry — AC5).
-    "prefetch_result": ["type", "camera_eqlogic_id", "found", "event_id", "clip_found"],
+    # prefetch_result (Story 14-2, ADR-17 Amendment 3; extended by 14-3, then 14-4): "found"
+    # and "clip_found" are always sent as int 0/1 (never a Python bool — _send_callback()
+    # drops any payload containing one) and "event_id" is always sent, as "" on a miss.
+    # Story 14-4 (ADR-17 Amendment 4) adds "rank" (int, 1=person/2=other/3=manual/4=none)
+    # and "run_id" (the numeric string PHP generated and owns, echoed back verbatim) — PHP's
+    # cache now replaces an entry only per the run_id/rank monotonic rule, not on every
+    # callback unconditionally (superseded 14-2 AC5's "always overwrite").
+    "prefetch_result": [
+        "type", "camera_eqlogic_id", "found", "event_id", "clip_found", "rank", "run_id",
+    ],
 }
 
 ERROR_ENTRY_REQUIRED_FIELDS: Final[list[str]] = [
@@ -126,6 +131,8 @@ SAMPLE_PREFETCH_RESULT_HIT: Final[dict] = {
     "found": 1,
     "event_id": "1790193165.543115-0e6wzj",
     "clip_found": 1,
+    "rank": 1,
+    "run_id": "1790193160.123456",
 }
 
 SAMPLE_PREFETCH_RESULT_MISS: Final[dict] = {
@@ -134,4 +141,6 @@ SAMPLE_PREFETCH_RESULT_MISS: Final[dict] = {
     "found": 0,
     "event_id": "",
     "clip_found": 0,
+    "rank": 4,
+    "run_id": "1790193160.123456",
 }
