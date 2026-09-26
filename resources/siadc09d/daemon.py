@@ -2218,6 +2218,7 @@ class SIADaemon(BaseDaemon):
             "camera_eqlogic_id": camera_eqlogic_id,
             "found": 1 if result.found else 0,
             "event_id": result.event_id or "",
+            "clip_found": 1 if result.clip_found else 0,
         })
 
     # ===== TASK 5 (Story 5-3): on_start — DAEMON STARTUP =====

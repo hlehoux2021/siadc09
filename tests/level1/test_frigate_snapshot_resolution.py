@@ -14,9 +14,12 @@ Reference: ADR-17, _bmad-output/planning-artifacts/architecture.md
 """
 import json
 import re
+import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -97,11 +100,21 @@ def resolve_snapshot_body(php_cmd_source: str) -> str:
 
 
 @pytest.fixture(scope="module")
+def resolve_clip_body(php_cmd_source: str) -> str:
+    return _extract_method_body(php_cmd_source, "_resolveFrigateClipUrl")
+
+
+@pytest.fixture(scope="module")
 def build_media_url_body(php_cmd_source: str) -> str:
     return _extract_method_body(php_cmd_source, "_buildFrigateMediaUrl")
 
 
-def _run_build_frigate_media_url(build_media_url_body: str, template: str, event_id: str) -> str | None:
+def _run_build_frigate_media_url(
+    build_media_url_body: str,
+    template: str,
+    event_id: str,
+    media_file: str | None = None,
+) -> str | None:
     """Execute the REAL extracted _buildFrigateMediaUrl() body via `php`, no Jeedom bootstrap.
 
     The method is pure parse_url() string logic with zero Jeedom dependency (no cmd::, no
@@ -109,20 +122,26 @@ def _run_build_frigate_media_url(build_media_url_body: str, template: str, event
     behavior for the tricky path-vs-query reassembly, not just that certain strings appear
     in the source text (the project's usual Level 1 PHP convention, which alone can't catch
     an ordering bug like this).
+
+    Story 14-3: `media_file` is optional so existing two-argument callers (verifying the
+    default stays 'snapshot.jpg') keep working unchanged; passing it exercises the new
+    third parameter.
     """
+    args = [template, event_id] if media_file is None else [template, event_id, media_file]
+    call_args = ", ".join(f"$argv[{i + 1}]" for i in range(len(args)))
     harness = (
         "<?php\n"
-        "function _test_build_frigate_media_url($template, $eventId) {\n"
+        "function _test_build_frigate_media_url($template, $eventId, $mediaFile = 'snapshot.jpg') {\n"
         f"{build_media_url_body}\n"
         "}\n"
-        "echo json_encode(_test_build_frigate_media_url($argv[1], $argv[2]));\n"
+        f"echo json_encode(_test_build_frigate_media_url({call_args}));\n"
     )
     with tempfile.NamedTemporaryFile(mode="w", suffix=".php", delete=False) as f:
         f.write(harness)
         tmp_path = f.name
     try:
         result = subprocess.run(
-            ["php", tmp_path, template, event_id],
+            ["php", tmp_path, *args],
             capture_output=True,
             text=True,
             timeout=5,
@@ -362,6 +381,116 @@ class TestBuildFrigateMediaUrl:
         # Assert: space and slash inside event_id are escaped, not left raw
         assert result == "https://host/api/events/a%20b%2Fc/snapshot.jpg"
 
+    def test_media_file_param_defaults_to_snapshot_jpg(self, build_media_url_body: str) -> None:
+        """
+        Story 14-3, Task 5.1/5.4: the new third parameter must default to 'snapshot.jpg' so
+        every pre-14-3 caller (_resolveFrigateSnapshotUrl()'s two-argument call form) keeps
+        its exact existing behavior unchanged.
+
+        Expected result:
+        - calling with only (template, event_id) — no third argument — still produces
+          snapshot.jpg, identical to pre-14-3 behavior
+        """
+        result = _run_build_frigate_media_url(build_media_url_body, "https://host/", "abc123")
+        # Assert: default trailing segment unchanged
+        assert result == "https://host/api/events/abc123/snapshot.jpg"
+
+    def test_media_file_param_substitutes_clip_mp4(self, build_media_url_body: str) -> None:
+        """
+        Story 14-3: passing 'clip.mp4' as the third argument (as _resolveFrigateClipUrl()
+        does) must substitute it for the trailing path segment, everything else unchanged.
+
+        Expected result:
+        - the resulting URL ends in .../clip.mp4 instead of .../snapshot.jpg
+        """
+        result = _run_build_frigate_media_url(build_media_url_body, "https://host/", "abc123", "clip.mp4")
+        # Assert: clip.mp4 substituted in place of the default snapshot.jpg
+        assert result == "https://host/api/events/abc123/clip.mp4"
+
+    def test_media_file_param_declared_in_signature(self, php_cmd_source: str) -> None:
+        """
+        Expected result:
+        - _buildFrigateMediaUrl()'s signature declares the new $mediaFile parameter with a
+          default of 'snapshot.jpg'
+        """
+        # Assert: new parameter present with the documented default
+        assert re.search(
+            r"_buildFrigateMediaUrl\([^)]*\$mediaFile\s*=\s*'snapshot\.jpg'[^)]*\)",
+            php_cmd_source,
+        )
+
+
+class TestResolveFrigateClipUrlExists:
+    """Story 14-3: _resolveFrigateClipUrl() is _resolveFrigateSnapshotUrl()'s sibling —
+    same cache entry, same TTL rule, gated on 'clip_found' instead of 'found'."""
+
+    def test_method_exists(self, resolve_clip_body: str) -> None:
+        """
+        Expected result:
+        - _resolveFrigateClipUrl() is a real method with a non-empty body
+        """
+        # Assert: helper method present
+        assert resolve_clip_body != ""
+
+    def test_gates_on_clip_found_not_found(self, resolve_clip_body: str) -> None:
+        """
+        Expected result:
+        - the method checks the cache entry's 'clip_found' key, not 'found'
+        """
+        # Assert: gated on the clip-specific flag
+        assert "'clip_found'" in resolve_clip_body
+
+    def test_reads_prefetch_cache_keyed_by_eqlogic_id(self, resolve_clip_body: str) -> None:
+        """
+        Expected result:
+        - reads the same sia_prefetch_cache, keyed by the camera's eqLogic id — the same
+          cache _resolveFrigateSnapshotUrl() reads, not a separate one
+        """
+        # Assert: same cache mechanism as the snapshot resolver
+        assert "getCache('sia_prefetch_cache'" in resolve_clip_body
+        assert re.search(r"\$cache\[\s*\(int\)\s*\$eqLogicId\s*\]", resolve_clip_body)
+
+    def test_checks_ttl(self, resolve_clip_body: str) -> None:
+        """
+        Expected result:
+        - the same PREFETCH_CACHE_TTL expiry rule is enforced (no independent clip TTL)
+        """
+        # Assert: TTL expiry enforced, same constant as the snapshot resolver
+        assert "PREFETCH_CACHE_TTL" in resolve_clip_body
+
+    def test_reads_media_url_template_config(self, resolve_clip_body: str) -> None:
+        """
+        Expected result:
+        - reads the same frigate_media_url_template configuration key
+        """
+        # Assert: same configurable template, no new config field
+        assert "frigate_media_url_template" in resolve_clip_body
+
+    def test_calls_build_frigate_media_url_with_clip_mp4(self, resolve_clip_body: str) -> None:
+        """
+        Expected result:
+        - delegates URL construction to _buildFrigateMediaUrl(), passing 'clip.mp4'
+        """
+        # Assert: URL reassembly delegated, with the clip-specific trailing segment
+        assert re.search(r"_buildFrigateMediaUrl\([^)]*'clip\.mp4'", resolve_clip_body)
+
+    def test_wrapped_in_try_catch(self, resolve_clip_body: str) -> None:
+        """
+        Expected result:
+        - the whole method body is guarded by try/catch (AC5: never blocks or throws)
+        """
+        # Assert: defensive wrapping present
+        assert "try" in resolve_clip_body
+        assert "catch" in resolve_clip_body
+
+    def test_returns_null_type_hint(self, php_cmd_source: str) -> None:
+        """
+        Expected result:
+        - the method is typed to return ?string (nullable)
+        """
+        # Assert: nullable return type declared
+        assert re.search(r"_resolveFrigateClipUrl\([^)]*\)\s*:\s*\?string", php_cmd_source)
+
 
 class TestResolveFrigateSnapshotUrlNeverThrows:
     """The alarm-send path must never block or throw on camera/plugin absence (AC5)."""
@@ -469,3 +598,228 @@ class TestExecuteWiresMediaUrlConditionally:
             # payload built as a variable and passed by reference — assert conditional assignment exists
             assert re.search(r"if\s*\([^)]*!==\s*null[^)]*\)\s*\{[^}]*media_url", execute_body, re.DOTALL) \
                 or re.search(r"\$\w+\['media_url'\]\s*=", execute_body)
+
+
+# ── Story 14-3 — execute()'s burglarAlarm case: real-execution AC5 cache-state matrix ──
+#
+# Executes the REAL core/class/siaDC09Cmd.class.php via `php`, Jeedom replaced by minimal
+# stubs, following the exact precedent of tests/level1/test_burglary_cancel_behavior.py —
+# this is what actually reaches the daemon payload, not just source-text shape.
+
+pytestmark = pytest.mark.skipif(shutil.which("php") is None, reason="php CLI not installed")
+
+_EXECUTE_STUBS = r"""
+class log {
+    public static array $entries = [];
+    public static function add($plugin, $level, $message): void {
+        self::$entries[] = ['level' => $level, 'message' => $message];
+    }
+}
+
+function __($text, $file = '') {
+    return $text;
+}
+
+class FakeEqLogic {
+    public array $cache;
+    private array $config;
+    public function __construct(array $cache, array $config) {
+        $this->cache = $cache;
+        $this->config = $config;
+    }
+    public function getCache($key, $default = null) {
+        return $this->cache[$key] ?? $default;
+    }
+    public function setCache($key, $value): void {
+        $this->cache[$key] = $value;
+    }
+    public function getConfiguration($key, $default = null) {
+        return $this->config[$key] ?? $default;
+    }
+}
+
+class cmd {
+    public string $logicalId = '';
+    public ?FakeEqLogic $eqLogic = null;
+    public function getLogicalId() {
+        return $this->logicalId;
+    }
+    public function getEqLogic() {
+        return $this->eqLogic;
+    }
+}
+
+class siaDC09 {
+    public static array $sent = [];
+    public static function sendToDaemon(array $params): void {
+        self::$sent[] = $params;
+    }
+}
+"""
+
+_EXECUTE_DRIVER = r"""
+$scenario = json_decode(file_get_contents($argv[1]), true);
+$config = ['sia_zone_mappings' => $scenario['zone_mappings']];
+if (array_key_exists('template', $scenario) && $scenario['template'] !== null) {
+    $config['frigate_media_url_template'] = $scenario['template'];
+}
+$eqLogic = new FakeEqLogic($scenario['cache'], $config);
+$cmd = new siaDC09Cmd();
+$cmd->logicalId = 'burglarAlarm';
+$cmd->eqLogic = $eqLogic;
+$cmd->execute(['title' => $scenario['zone']]);
+echo json_encode(['sent' => siaDC09::$sent, 'logs' => log::$entries]);
+"""
+
+
+def _run_execute_burglar_alarm(
+    cache: dict[str, Any],
+    template: str | None = "https://cameras.lehoux.net/",
+    zone: str = "Salon",
+    camera_eqlogic_id: int = 99,
+) -> dict[str, Any]:
+    """Run one real execute(['title' => zone]) call for logicalId='burglarAlarm' and
+    return the payload actually passed to siaDC09::sendToDaemon().
+
+    Args:
+        cache: the eqLogic's initial 'sia_prefetch_cache' content (keyed by
+            camera_eqlogic_id, matching siaDC09::_handlePrefetchResult()'s write shape).
+        template: frigate_media_url_template configuration value, or None to leave it
+            unconfigured (both resolvers must then return null).
+        zone: the zone label passed as the action's #zone# title.
+        camera_eqlogic_id: the zone mapping's frigate_camera_eqlogic_id.
+
+    Returns:
+        {"sent": [payloads passed to sendToDaemon()], "logs": [{"level", "message"}]}
+    """
+    source = PHP_CMD_FILE.read_text(encoding="utf-8")
+    source = source.replace("<?php", "", 1)
+    source = re.sub(r"^require_once .*core\.inc\.php';\s*$", "", source, count=1, flags=re.MULTILINE)
+    scenario = {
+        "zone": zone,
+        "zone_mappings": [
+            {"zone_name": zone, "zone_number": 3, "frigate_camera_eqlogic_id": camera_eqlogic_id}
+        ],
+        "cache": {"sia_prefetch_cache": {str(camera_eqlogic_id): cache} if cache else {}},
+        "template": template,
+    }
+    with tempfile.TemporaryDirectory() as tmp:
+        harness = Path(tmp) / "harness.php"
+        harness.write_text(
+            "<?php\n" + _EXECUTE_STUBS + source + _EXECUTE_DRIVER,
+            encoding="utf-8",
+        )
+        scenario_file = Path(tmp) / "scenario.json"
+        scenario_file.write_text(json.dumps(scenario), encoding="utf-8")
+        result = subprocess.run(
+            ["php", str(harness), str(scenario_file)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    assert result.returncode == 0, f"PHP execution failed: {result.stderr}\n{result.stdout}"
+    return json.loads(result.stdout)
+
+
+def _fresh_entry(found: bool, clip_found: bool, event_id: str = "evt-1", age_s: int = 0) -> dict[str, Any]:
+    return {
+        "found": found,
+        "clip_found": clip_found,
+        "event_id": event_id,
+        "ts": int(time.time()) - age_s,
+    }
+
+
+class TestExecuteBurglarAlarmMediaUrlJoin:
+    """Story 14-3, AC4/AC5: execute()'s burglarAlarm case reads the cached entry once and
+    resolves both snapshot and clip URLs, joining with a single space when both resolve —
+    six cache-state combinations, matching 14-1's AC5 / 14-2's AC7 life-safety framing
+    (never blocks or throws regardless of clip-cache state)."""
+
+    def test_both_resolve_space_joined_single_string(self) -> None:
+        """
+        Expected result:
+        - media_url is one string, snapshot URL then clip URL, space-separated
+        """
+        out = _run_execute_burglar_alarm(_fresh_entry(found=True, clip_found=True))
+        # Assert: exactly one sendToDaemon() call, with both URLs space-joined in order
+        assert out["sent"][0]["media_url"] == (
+            "https://cameras.lehoux.net/api/events/evt-1/snapshot.jpg "
+            "https://cameras.lehoux.net/api/events/evt-1/clip.mp4"
+        )
+
+    def test_snapshot_only_when_clip_not_found(self) -> None:
+        """
+        Expected result:
+        - media_url carries only the snapshot URL when clip_found is false
+        """
+        out = _run_execute_burglar_alarm(_fresh_entry(found=True, clip_found=False))
+        # Assert: single URL, snapshot only
+        assert out["sent"][0]["media_url"] == "https://cameras.lehoux.net/api/events/evt-1/snapshot.jpg"
+
+    def test_clip_only_when_snapshot_not_found(self) -> None:
+        """
+        Expected result:
+        - media_url carries only the clip URL when found is false but clip_found is true
+          (an inconsistent-looking but structurally possible cache state — the resolver
+          must not assume one implies the other)
+        """
+        out = _run_execute_burglar_alarm(_fresh_entry(found=False, clip_found=True))
+        # Assert: single URL, clip only
+        assert out["sent"][0]["media_url"] == "https://cameras.lehoux.net/api/events/evt-1/clip.mp4"
+
+    def test_neither_resolves_media_url_key_entirely_absent(self) -> None:
+        """
+        Expected result:
+        - the 'media_url' key is entirely absent from the payload — never present as null
+        """
+        out = _run_execute_burglar_alarm(_fresh_entry(found=False, clip_found=False))
+        # Assert: key omitted entirely, matching the unchanged 14-1/14-2 fallback contract
+        assert "media_url" not in out["sent"][0]
+
+    def test_stale_pre_14_3_cache_entry_missing_clip_found_key(self) -> None:
+        """
+        A pre-14-3 cache entry never had a 'clip_found' key at all — the clip resolver
+        must treat its absence the same as false (never crash on a legacy/partial shape).
+
+        Expected result:
+        - clip resolves to null (media_url carries only the snapshot URL); no crash,
+          no PHP warning-level log about an undefined key
+        """
+        legacy_entry = {"found": True, "event_id": "evt-1", "ts": int(time.time())}
+        out = _run_execute_burglar_alarm(legacy_entry)
+        # Assert: snapshot alone, clip silently absent
+        assert out["sent"][0]["media_url"] == "https://cameras.lehoux.net/api/events/evt-1/snapshot.jpg"
+        # Assert: no crash surfaced as a warning-level log entry
+        assert not [e for e in out["logs"] if e["level"] == "error"]
+
+    def test_expired_entry_resolves_neither(self) -> None:
+        """
+        Expected result:
+        - an entry older than PREFETCH_CACHE_TTL resolves to neither URL, media_url absent
+        """
+        out = _run_execute_burglar_alarm(_fresh_entry(found=True, clip_found=True, age_s=999))
+        # Assert: both expired, key omitted entirely
+        assert "media_url" not in out["sent"][0]
+
+    def test_never_throws_regardless_of_cache_state(self) -> None:
+        """
+        Life-safety framing (14-1 AC5 / 14-2 AC7): execute()'s burglarAlarm case must never
+        block or throw regardless of clip-cache state — exercised across the full matrix.
+
+        Expected result:
+        - every scenario returns cleanly (php exits 0) and always sends exactly one frame
+        """
+        scenarios = [
+            _fresh_entry(found=True, clip_found=True),
+            _fresh_entry(found=True, clip_found=False),
+            _fresh_entry(found=False, clip_found=True),
+            _fresh_entry(found=False, clip_found=False),
+            {"found": True, "event_id": "evt-1", "ts": int(time.time())},  # legacy shape
+            {},  # empty/malformed entry
+        ]
+        for entry in scenarios:
+            out = _run_execute_burglar_alarm(entry)
+            # Assert: exactly one frame sent, no exception surfaced (php returncode already
+            # asserted inside _run_execute_burglar_alarm)
+            assert len(out["sent"]) == 1, f"expected exactly one frame for entry={entry!r}"

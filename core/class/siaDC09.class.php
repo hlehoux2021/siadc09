@@ -609,9 +609,10 @@ class siaDC09 extends eqLogic {
             }
 
             $cache[(int) $cameraEqLogicId] = [
-                'found'    => !empty($data['found']),
-                'event_id' => $data['event_id'] ?? null,
-                'ts'       => time(),
+                'found'      => !empty($data['found']),
+                'event_id'   => $data['event_id'] ?? null,
+                'clip_found' => !empty($data['clip_found']),
+                'ts'         => time(),
             ];
             log::add(__CLASS__, 'debug', '_handlePrefetchResult: sia_prefetch_cache mis à jour pour eqLogicId='
                 . $cameraEqLogicId . ' -> ' . json_encode($cache[(int) $cameraEqLogicId]));

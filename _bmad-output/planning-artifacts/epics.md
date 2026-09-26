@@ -2356,5 +2356,63 @@ zone with a configured entry delay: trigger the sensor, confirm the prefetch fir
 frame sent after the delay carries the correct `[V...]` snapshot URL
 
 **Explicitly out of scope (deferred, tracked in ADR-17 Amendment 3):** clip attachment (architecturally compatible,
-confirmed no rework needed, but not implemented here); PA/FA media attachment for zero-delay zones; reporting the
+confirmed no rework needed, but not implemented here — see Story 14.3); PA/FA media attachment for zero-delay zones; reporting the
 two confirmed Frigate-plugin bugs upstream.
+
+### Story 14.3: Attach Frigate Video Clip Alongside Snapshot in Alarm Frame
+
+Extends 14.2's Option D prefetch cache (per ADR-17 Amendment 3, `architecture.md`) to also carry a clip URL for the
+same confirmed person event, and attaches both media (snapshot + clip) in the SIA frame's single `[V...]` field
+when both are available by frame-build time. Clip readiness is confirmed not to require waiting for the Frigate
+event's `end` (`architecture.md` ADR-17 Amendment 3, `frigate_latency_probe.py` measurement: 0.53s-11.49s,
+bounded by Frigate's ~10s continuous-recording segment flush cycle, not by the tracked object's dwell time) — this
+fits inside the same trigger-delay prefetch window 14.2 already uses, with no new wait/poll logic.
+
+**V-field format decision (2026-09-26):** the SIA DC-09 protocol's Verification `["V"]` extended-data field is
+explicitly free-form (§5.5.1.8, "the format of these variable length fields are free form, and are not specified
+here") and, per the protocol's own grammar, is not guaranteed to be repeatable per-identifier in a way real CSR
+parsers handle safely (most extended-data parsers key by identifier letter, so a second `[V...]` block would
+silently overwrite the first rather than add to it — not something to rely on against an unverified generic
+receiver). Decision: **one `[V...]` block, both URLs space-separated when both are available** (a well-formed
+URL never contains a literal space), e.g.
+`[Vhttps://cameras.lehoux.net/api/events/abc/snapshot.jpg https://cameras.lehoux.net/api/events/abc/clip.mp4]`.
+No MIME/type tag is added alongside each URL — the file extension already carried by the existing
+`_buildFrigateMediaUrl()` construction (`.jpg` for snapshot, `.mp4` for clip) is the only type indicator, matching
+the only real-world convention observed for this free-form field. When only one of the two media is available
+(the other missing/not-ready/omitted), the field carries that single URL alone — same as 14.2's existing
+contract, unchanged.
+
+As a monitored Jeedom user with a Frigate camera covering an alarm zone,
+I want the SIA alarm frame to carry both a snapshot and a short video clip when Frigate has both ready,
+So that the monitoring center gets the richest available evidence without ever waiting on it.
+
+**Acceptance criteria:**
+
+**Given** the same `prefetchEvent` cache entry populated by 14.2 (event id, camera, confirmed person label),
+**When** the trigger-delay window is still open after the person-event confirmation,
+**Then** the daemon also constructs a clip URL for that event via Frigate's own `/api/events/{event_id}/clip.mp4`
+endpoint, reusing 14.1's existing `frigate_media_url_template` placeholder-substitution mechanism (no new config
+field) — the same way the snapshot URL is already built
+
+**And** `burglarAlarm`'s `media_url` attachment reads both the cached snapshot URL and the cached clip URL at
+frame-build time and joins them with a single space into one `[V...]` block when both are present; when only one
+is present, that one alone is attached (unchanged from 14.2); when neither is present, `media_url` is omitted
+entirely (unchanged from 14.1/14.2's existing fallback contract)
+
+**And** the clip lookup at `burglarAlarm`-execute time stays a bounded, non-blocking cache read — same latency
+class as 14.2's existing snapshot cache read; no new synchronous network call happens on the standard-action path
+
+**And** a test proves the alarm-send path never blocks or throws regardless of clip-cache state (clip ready,
+clip not ready, Frigate API unreachable for the clip call specifically while the snapshot call succeeded, and
+vice versa, both ready, neither ready) — same life-safety framing as 14.1's AC
+
+**And** the whole flow is validated on `test-jeedom.lehoux.net` against a real Frigate camera and the real
+receiver: trigger a real alarm with both snapshot and clip available in time, confirm the SIA frame's `[V...]`
+field carries both URLs space-separated in the protocol inspector, and confirm what the receiver at
+`192.168.100.15:10002` actually does with a dual-URL `[V...]` field (generic receiver, behavior not
+previously verified for this shape — document the observed result even if the receiver only shows/uses one)
+
+**Explicitly out of scope:** PA/FA clip attachment (14.2's BA-only scope carries forward); any new wizard/config
+UI (reuses 14.1's existing camera mapping and URL template); a structured multi-media format (JSON, MIME tags) —
+space-separated free-form text is the chosen convention, revisit only if the live receiver validation above shows
+it doesn't work.

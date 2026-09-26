@@ -878,6 +878,31 @@ def test_handle_prefetch_result_never_merges_stale_entries(
     assert "array_merge" not in handle_prefetch_result_body
 
 
+# ── Story 14-3 — _handlePrefetchResult() stores clip_found ──────────────────
+
+
+def test_handle_prefetch_result_stores_clip_found(
+    handle_prefetch_result_body: str,
+) -> None:
+    """
+    Story 14-3, AC3: the cache entry gains a fourth key, 'clip_found', derived from the
+    incoming message's clip_found field — same defensive coercion pattern as 'found'
+    (!empty(), never crashes on an absent/malformed key).
+
+    Expected result:
+    - the cache entry array literal includes a 'clip_found' key
+    - it is derived from $data['clip_found'] via the same !empty() coercion as 'found'
+    """
+    # Assert: new key present in the fresh-array literal
+    assert "'clip_found'" in handle_prefetch_result_body
+    # Assert: same defensive coercion convention as the existing 'found' field —
+    # a payload with clip_found absent/falsy must never crash, just store false
+    assert re.search(
+        r"'clip_found'\s*=>\s*!empty\(\s*\$data\[\s*['\"]clip_found['\"]\s*\]\s*\)",
+        handle_prefetch_result_body,
+    ), "clip_found must use the same !empty($data['clip_found']) defensive coercion as 'found'"
+
+
 # ── Story 6.3 — error_update uses plugin-level config ───────────────────────
 
 

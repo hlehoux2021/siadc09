@@ -491,12 +491,12 @@ def test_info_update_zero_values_not_dropped() -> None:
 
 def test_prefetch_result_required_fields() -> None:
     """
-    prefetch_result requires type, camera_eqlogic_id, found, and event_id — PHP's
-    _handlePrefetchResult() must be able to key its per-camera cache entry and
-    unconditionally overwrite it (AC5) on every message, hit or miss.
+    prefetch_result requires type, camera_eqlogic_id, found, event_id, and (Story 14-3)
+    clip_found — PHP's _handlePrefetchResult() must be able to key its per-camera cache
+    entry and unconditionally overwrite it (AC5) on every message, hit or miss.
 
     Expected result:
-    - All 4 required fields present in both the hit and miss samples
+    - All 5 required fields present in both the hit and miss samples
     """
     for payload in (SAMPLE_PREFETCH_RESULT_HIT, SAMPLE_PREFETCH_RESULT_MISS):
         for field in REQUIRED_FIELDS["prefetch_result"]:
@@ -518,6 +518,22 @@ def test_prefetch_result_found_is_always_int_never_bool() -> None:
         assert type(payload["found"]) is int, f"found must be int, not bool: {payload}"
     assert SAMPLE_PREFETCH_RESULT_HIT["found"] == 1
     assert SAMPLE_PREFETCH_RESULT_MISS["found"] == 0
+
+
+def test_prefetch_result_clip_found_is_always_int_never_bool() -> None:
+    """
+    Story 14-3 (AC1): "clip_found" follows the exact same int-not-bool convention as
+    "found" — _send_callback() drops the entire payload if any value is a Python bool.
+
+    Expected result:
+    - clip_found is exactly int, never bool, in both samples
+    - hit sample has clip_found=1, miss sample has clip_found=0
+    """
+    for payload in (SAMPLE_PREFETCH_RESULT_HIT, SAMPLE_PREFETCH_RESULT_MISS):
+        # Assert: strict int check, same reasoning as the "found" field above
+        assert type(payload["clip_found"]) is int, f"clip_found must be int, not bool: {payload}"
+    assert SAMPLE_PREFETCH_RESULT_HIT["clip_found"] == 1
+    assert SAMPLE_PREFETCH_RESULT_MISS["clip_found"] == 0
 
 
 def test_prefetch_result_miss_still_carries_event_id_key() -> None:

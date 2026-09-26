@@ -29,7 +29,7 @@
 # - SM typically creates next story ONLY after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then Dev runs code-review (fresh context, ideally different LLM)
 
-last_updated: "2026-09-25" # 13-1 Task 10 closed — live validation via the Jeedom API against the real receiver on test-jeedom.lehoux.net; in-progress → review
+last_updated: "2026-09-26" # 14-3 Tasks 1-5 implemented + tested, Task 6.1/6.2 clean (0 regressions), Task 6.3-6.6 live validation BLOCKED (no network access) — ready-for-dev → in-progress
 generated: "2026-05-04"
 project: "my-project"
 project_key: "NOKEY"
@@ -148,6 +148,7 @@ development_status:
   epic-14: in-progress  # registered 2026-09-22 per ADR-17 (architecture.md) — Option A, majority-case-only. Superseded 2026-09-24 by 14-2's Option D (ADR-17 Amendment 3) for the at-alarm-time data source
   14-1-attach-frigate-snapshot-alarm-frame: in-progress  # Tasks 1-7 done. Task 4 live validation: 4.1/4.3/4.8/4.9/4.10/4.11 done (AC3/AC7/AC8 confirmed on real host); 4.2/4.4 still open. Superseded at-alarm-time data source by 14-2 (ADR-17 Amendment 3) — Task 1's wizard mapping stays, Task 2/6's info_detect_person/info_id read does not
   14-2-frigate-event-prefetch-immediate-action: done  # registered 2026-09-24 per ADR-17 Amendment 3 (Option D) — party-mode review (Winston/Amelia/John) after two confirmed problems with 14-1's Option A: info_detect_person staleness, info_id has no label filter (any tracked class can hijack it). Tasks 1-6 implemented via TDD + live validation on test-jeedom.lehoux.net: hit path confirmed (real Frigate snapshot URL attached to a real BA frame end-to-end) and miss path confirmed (wrong-label event correctly excluded, no delay). Two live bugs found and fixed along the way (prefetchEvent subType 'other'→'message' for the #zone# Titre field; in_progress filter dropped + after-buffer tuned 15s→60s→30s). Code-reviewed 2026-09-24: 5 patches applied, 3 deferred (D-49/D-50/D-51), 2 decisions deferred as-is (D-52/D-53), 2 dismissed. Task 6.7 (hit-then-miss-in-quick-succession) left open as optional, covered by existing test + individual live confirmations. review → done
+  14-3-attach-frigate-clip-alongside-snapshot: in-progress  # registered 2026-09-26 per ADR-17 Amendment 3 — clip support confirmed architecturally compatible with 14-2's Option D prefetch/cache (measured 0.53-11.49s latency, no wait-for-end), extends that cache with a clip URL. Both snapshot+clip attached in one space-separated [V...] block when both available (V is free-form per spec; repeating the identifier is not reliably parsed by real CSRs) — decision made after consulting sia-dc09-expert skill, no public Ajax Systems reference found (no web search tool available, local plugin-ajaxSystem has nothing on this). Story file created 2026-09-26 — story-created gap in epics' own ADR-prose ("daemon constructs clip URL via frigate_media_url_template") corrected during story creation: daemon only confirms clip readiness (new clip_found on prefetch_result), PHP builds both URLs (zero Jeedom dependency preserved in the daemon). 2026-09-26 dev session: Tasks 1-5 implemented and tested (TDD, all green), Task 6.1/6.2 (regression + lint) clean, 0 regressions vs baseline. Task 6.3-6.6 (deploy + live validation against test-jeedom.lehoux.net / real receiver 192.168.100.15:10002) BLOCKED — no network access from this sandboxed session; deferred, not skipped. Status stays in-progress until live validation runs.
   epic-14-retrospective: optional
 
 # Summary Statistics
@@ -221,14 +222,20 @@ development_status:
 # Updated: 2026-09-25 (13-1 Task 10 closed — live validation against the real receiver on
 # test-jeedom.lehoux.net via the Jeedom API, driven by the agent after Herve's manual pull/save/
 # wiring; in-progress → review; stories_in_progress 2→1, stories_review 1→2)
+# Updated: 2026-09-26 (14-3 registered via correct-course per ADR-17 Amendment 3 — clip attachment
+# alongside snapshot in the same [V...] field, extending 14-2's prefetch cache; epic-14 stays
+# in-progress; total_stories 57→58, stories_backlog 6→7)
+# Updated: 2026-09-26 (14-3 dev session: Tasks 1-5 implemented/tested, Task 6.1/6.2 clean,
+# Task 6.3-6.6 live validation blocked — no network access from this sandboxed session;
+# ready-for-dev → in-progress; stories_ready_for_dev 2→1, stories_in_progress 1→2)
 summary:
   total_epics: 14
-  total_stories: 57
+  total_stories: 58
   epics_backlog: 0
   epics_in_progress: 4
   epics_done: 10
-  stories_backlog: 6
-  stories_ready_for_dev: 2
-  stories_in_progress: 1
+  stories_backlog: 7
+  stories_ready_for_dev: 1
+  stories_in_progress: 2
   stories_review: 2
   stories_done: 46

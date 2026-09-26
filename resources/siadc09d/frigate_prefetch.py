@@ -55,6 +55,7 @@ class PrefetchResult:
 
     found: bool
     event_id: str | None
+    clip_found: bool = False
 
 
 def _get_json(url: str, timeout: float) -> object | None:
@@ -118,6 +119,75 @@ def _query_latest_person_event(base_url: str, camera: str, after_ts: int, timeou
     return event_id if isinstance(event_id, str) and event_id else None
 
 
+def _check_clip_ready(base_url: str, event_id: str, timeout: float) -> bool:
+    """Single bounded check of whether Frigate reports a clip ready for `event_id`.
+
+    Mirrors `_get_json()`'s never-raise contract: any HTTP/network error or malformed
+    response resolves to False, the same as "not ready yet" — never raises.
+
+    Reads the event row's `has_clip` boolean (per `scripts/frigate_latency_probe.py`'s
+    `poll()`, line 137) rather than probing the guessable `.../clip.mp4` URL directly —
+    one HTTP call cheaper, and the more direct readiness signal Frigate itself exposes.
+
+    Args:
+        base_url: e.g. "http://192.168.100.18:5000"
+        event_id: Frigate event id, already confirmed by `_query_latest_person_event()`.
+        timeout: Per-request timeout in seconds.
+
+    Returns:
+        True if the event row's `has_clip` field is truthy, False otherwise (including
+        on any error or malformed response).
+    """
+    url = f"{base_url}/api/events/{urllib.parse.quote(event_id, safe='')}"
+    body = _get_json(url, timeout)
+    _logger.debug(f"_check_clip_ready: GET {url} -> {body!r}")
+    if not isinstance(body, dict):
+        return False
+    return bool(body.get("has_clip"))
+
+
+async def _poll_clip_ready(
+    base_url: str,
+    event_id: str,
+    deadline: float,
+    poll_interval_s: float,
+    http_timeout_s: float,
+) -> bool:
+    """Poll `_check_clip_ready()` until it returns True or `deadline` (monotonic) passes.
+
+    Shares the same overall `deadline` as the person-event confirmation poll — this
+    never extends the total prefetch budget beyond `PREFETCH_MAX_WAIT_S`, only spends
+    whatever of that budget remains after a person event was confirmed.
+
+    Args:
+        base_url: e.g. "http://192.168.100.18:5000"
+        event_id: Frigate event id to check clip readiness for.
+        deadline: Absolute `time.monotonic()` deadline shared with the caller's poll loop.
+        poll_interval_s: Delay between polls in seconds.
+        http_timeout_s: Per-request timeout in seconds.
+
+    Returns:
+        True once a clip is confirmed ready, False if the deadline passes first —
+        never raises.
+    """
+    while True:
+        try:
+            ready = await asyncio.wait_for(
+                asyncio.to_thread(_check_clip_ready, base_url, event_id, http_timeout_s),
+                timeout=http_timeout_s + PREFETCH_WAIT_FOR_SLACK_S,
+            )
+        except (asyncio.TimeoutError, TimeoutError):
+            _logger.debug("_poll_clip_ready: poll attempt timed out")
+            ready = False
+        if ready:
+            _logger.debug(f"_poll_clip_ready: clip confirmed ready for event_id={event_id!r}")
+            return True
+        if time.monotonic() >= deadline:
+            _logger.debug("_poll_clip_ready: deadline exhausted, clip not ready — clip_found=False")
+            return False
+        await asyncio.sleep(poll_interval_s)
+
+
 async def prefetch_person_event(
     base_url: str,
     camera: str,
@@ -141,8 +211,11 @@ async def prefetch_person_event(
         after_buffer_s: Grace window before "now" for the `after=` filter.
 
     Returns:
-        PrefetchResult(found=True, event_id=...) on a confirmed match,
-        PrefetchResult(found=False, event_id=None) on timeout or any error — never raises.
+        PrefetchResult(found=True, event_id=..., clip_found=...) on a confirmed match
+        (clip_found reflects whether a clip became ready within the remaining budget),
+        PrefetchResult(found=False, event_id=None, clip_found=False) on timeout or any
+        error — never raises. The clip check is only ever attempted after a person event
+        is confirmed; a person-event miss skips it entirely.
     """
     after_ts = int(time.time() - after_buffer_s)
     deadline = time.monotonic() + max_wait_s
@@ -161,8 +234,11 @@ async def prefetch_person_event(
             event_id = None
         if event_id:
             _logger.debug(f"prefetch_person_event: confirmed event_id={event_id!r}")
-            return PrefetchResult(found=True, event_id=event_id)
+            clip_found = await _poll_clip_ready(
+                base_url, event_id, deadline, poll_interval_s, http_timeout_s
+            )
+            return PrefetchResult(found=True, event_id=event_id, clip_found=clip_found)
         if time.monotonic() >= deadline:
             _logger.debug("prefetch_person_event: max_wait_s exhausted, no matching event — miss")
-            return PrefetchResult(found=False, event_id=None)
+            return PrefetchResult(found=False, event_id=None, clip_found=False)
         await asyncio.sleep(poll_interval_s)

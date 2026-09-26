@@ -96,8 +96,13 @@ class siaDC09Cmd extends cmd {
                 // missing camera/plugin never changes the payload shape sent to the daemon.
                 $zoneEntry = $this->_findZoneEntry($zone, $this->_getZoneMapping()) ?? [];
                 $snapshotUrl = $this->_resolveFrigateSnapshotUrl($zoneEntry);
-                if ($snapshotUrl !== null) {
-                    $payload['media_url'] = $snapshotUrl;
+                $clipUrl = $this->_resolveFrigateClipUrl($zoneEntry);
+                // Story 14-3: join both media (space-separated, one [V...] block) when both
+                // resolve; fall back to whichever one resolves alone; omit entirely when
+                // neither does — same fallback contract as 14-1/14-2, just for two URLs.
+                $mediaParts = array_filter([$snapshotUrl, $clipUrl], fn($u) => $u !== null);
+                if (!empty($mediaParts)) {
+                    $payload['media_url'] = implode(' ', $mediaParts);
                 }
                 siaDC09::sendToDaemon($payload);
                 $this->_recordOpenAlarm($logicalId, $zone !== '' ? $zone : null, $zoneNumber);
@@ -390,6 +395,71 @@ class siaDC09Cmd extends cmd {
     }
 
     /**
+     * Story 14-3 sibling of _resolveFrigateSnapshotUrl(): same cache entry, same TTL/expiry
+     * rule, same template-configured check — gates on the cache entry's 'clip_found' key
+     * instead of 'found', and appends 'clip.mp4' instead of 'snapshot.jpg'. There is no
+     * independent clip TTL: both outcomes are written by the same single prefetch_result
+     * callback at the same moment (siaDC09::_handlePrefetchResult()), so they share one 'ts'.
+     * A cache entry with 'clip_found' absent entirely (a stale pre-14-3 entry, or a
+     * partially-written one) resolves to null via the same !empty() defensive read as
+     * 'found' — never a crash. Never throws.
+     */
+    private function _resolveFrigateClipUrl(array $zoneEntry): ?string {
+        try {
+            $eqLogicId = $zoneEntry['frigate_camera_eqlogic_id'] ?? null;
+            if (empty($eqLogicId)) {
+                log::add('siaDC09', 'debug',
+                    '_resolveFrigateClipUrl: frigate_camera_eqlogic_id absent de zoneEntry');
+                return null;
+            }
+            $eqLogic = $this->getEqLogic();
+            if ($eqLogic === null) {
+                log::add('siaDC09', 'debug', '_resolveFrigateClipUrl: getEqLogic() a retourné null');
+                return null;
+            }
+            $raw = $eqLogic->getCache('sia_prefetch_cache', []);
+            log::add('siaDC09', 'debug', '_resolveFrigateClipUrl: getCache(sia_prefetch_cache) brut='
+                . json_encode($raw));
+            $cache = is_string($raw) ? json_decode($raw, true) : $raw;
+            if (!is_array($cache)) {
+                log::add('siaDC09', 'debug', '_resolveFrigateClipUrl: cache décodé non-array');
+                return null;
+            }
+            $entry = $cache[(int) $eqLogicId] ?? null;
+            log::add('siaDC09', 'debug', "_resolveFrigateClipUrl: eqLogicId=$eqLogicId entry="
+                . json_encode($entry));
+            if (!is_array($entry) || empty($entry['clip_found'])) {
+                log::add('siaDC09', 'debug',
+                    "_resolveFrigateClipUrl: pas d'entrée trouvée ou clip_found=false pour eqLogicId=$eqLogicId");
+                return null;
+            }
+            $age = time() - (int) ($entry['ts'] ?? 0);
+            if ($age > self::PREFETCH_CACHE_TTL) {
+                log::add('siaDC09', 'debug',
+                    "_resolveFrigateClipUrl: entrée expirée (age={$age}s > " . self::PREFETCH_CACHE_TTL . 's)');
+                return null;
+            }
+            $eventId = $entry['event_id'] ?? null;
+            if (!is_string($eventId) || $eventId === '') {
+                log::add('siaDC09', 'debug', '_resolveFrigateClipUrl: event_id absent ou vide dans l\'entrée');
+                return null;
+            }
+            $template = $eqLogic->getConfiguration('frigate_media_url_template', '');
+            if (!is_string($template) || $template === '') {
+                log::add('siaDC09', 'debug',
+                    '_resolveFrigateClipUrl: frigate_media_url_template non configuré');
+                return null;
+            }
+            $mediaUrl = self::_buildFrigateMediaUrl($template, $eventId, 'clip.mp4');
+            log::add('siaDC09', 'debug', '_resolveFrigateClipUrl: résolu media_url=' . json_encode($mediaUrl));
+            return $mediaUrl;
+        } catch (\Throwable $e) {
+            log::add('siaDC09', 'warning', 'Résolution du clip Frigate échouée : ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
      * Builds an absolute media URL from a configurable template containing literal placeholder
      * credentials (e.g. `<user>`, `<pass>`, `<token>`) plus the Frigate event id — siaDC09 never
      * stores or transmits a real secret; the CSR substitutes the placeholder itself, out-of-band
@@ -401,15 +471,22 @@ class siaDC09Cmd extends cmd {
      * @param string $template e.g. "https://<user>:<pass>@host/" or "https://host/?accesstoken=<token>"
      * @param string $eventId Frigate event id, read from the sia_prefetch_cache entry (see
      *                        _resolveFrigateSnapshotUrl())
+     * @param string $mediaFile Trailing path segment appended after the event id — defaults
+     *                        to 'snapshot.jpg' so every pre-14-3 caller's behavior is unchanged;
+     *                        Story 14-3's _resolveFrigateClipUrl() passes 'clip.mp4' instead.
      * @return string|null null when the template has no scheme or host — never throws
      */
-    private static function _buildFrigateMediaUrl(string $template, string $eventId): ?string {
+    private static function _buildFrigateMediaUrl(
+        string $template,
+        string $eventId,
+        string $mediaFile = 'snapshot.jpg'
+    ): ?string {
         $parts = parse_url($template);
         if (!is_array($parts) || empty($parts['scheme']) || empty($parts['host'])) {
             return null;
         }
 
-        $path = rtrim($parts['path'] ?? '', '/') . '/api/events/' . rawurlencode($eventId) . '/snapshot.jpg';
+        $path = rtrim($parts['path'] ?? '', '/') . '/api/events/' . rawurlencode($eventId) . '/' . $mediaFile;
 
         $userinfo = '';
         if (isset($parts['user']) && $parts['user'] !== '') {

@@ -97,7 +97,9 @@ class TestPrefetchEventDispatch:
         """
         with patch(
             "resources.siadc09d.daemon.prefetch_person_event",
-            new=AsyncMock(return_value=PrefetchResult(found=True, event_id="1790193165.543115-0e6wzj")),
+            new=AsyncMock(return_value=PrefetchResult(
+                found=True, event_id="1790193165.543115-0e6wzj", clip_found=True
+            )),
         ):
             await mock_daemon.on_message(
                 "prefetchEvent",
@@ -111,10 +113,44 @@ class TestPrefetchEventDispatch:
             "camera_eqlogic_id": 42,
             "found": 1,
             "event_id": "1790193165.543115-0e6wzj",
+            "clip_found": 1,
         })
-        # Assert: found is a real int, never a Python bool (would be silently dropped)
+        # Assert: found/clip_found are real ints, never Python bools (would be silently dropped)
         sent_payload = mock_daemon._send_callback.await_args.args[0]
         assert type(sent_payload["found"]) is int
+        assert type(sent_payload["clip_found"]) is int
+
+    @pytest.mark.asyncio
+    async def test_sends_hit_result_with_person_found_but_clip_not_ready(self, mock_daemon) -> None:
+        """
+        Story 14-3, AC1/AC2: a confirmed person event whose clip never became ready must
+        still push found=1 with clip_found=0 — the two outcomes are independent.
+
+        Expected result:
+        - _send_callback called once with found=1, clip_found=0 (both real ints)
+        """
+        with patch(
+            "resources.siadc09d.daemon.prefetch_person_event",
+            new=AsyncMock(return_value=PrefetchResult(
+                found=True, event_id="1790193165.543115-0e6wzj", clip_found=False
+            )),
+        ):
+            await mock_daemon.on_message(
+                "prefetchEvent",
+                {"camera_eqlogic_id": 42, "camera_name": "vigi_sud-est", "frigate_host": "192.168.100.18:5000"},
+            )
+            await asyncio.gather(*mock_daemon._tasks)
+
+        # Assert: person hit is unaffected by the clip miss, clip_found is explicitly 0
+        mock_daemon._send_callback.assert_awaited_once_with({
+            "type": "prefetch_result",
+            "camera_eqlogic_id": 42,
+            "found": 1,
+            "event_id": "1790193165.543115-0e6wzj",
+            "clip_found": 0,
+        })
+        sent_payload = mock_daemon._send_callback.await_args.args[0]
+        assert type(sent_payload["clip_found"]) is int
 
     @pytest.mark.asyncio
     async def test_sends_miss_result_so_php_clears_any_stale_hit(self, mock_daemon) -> None:
@@ -127,7 +163,7 @@ class TestPrefetchEventDispatch:
         """
         with patch(
             "resources.siadc09d.daemon.prefetch_person_event",
-            new=AsyncMock(return_value=PrefetchResult(found=False, event_id=None)),
+            new=AsyncMock(return_value=PrefetchResult(found=False, event_id=None, clip_found=False)),
         ):
             await mock_daemon.on_message(
                 "prefetchEvent",
@@ -135,12 +171,13 @@ class TestPrefetchEventDispatch:
             )
             await asyncio.gather(*mock_daemon._tasks)
 
-        # Assert: a miss is still actively pushed (never silently skipped)
+        # Assert: a miss is still actively pushed (never silently skipped) — clip_found=0 always on a miss
         mock_daemon._send_callback.assert_awaited_once_with({
             "type": "prefetch_result",
             "camera_eqlogic_id": 42,
             "found": 0,
             "event_id": "",
+            "clip_found": 0,
         })
 
     @pytest.mark.asyncio
