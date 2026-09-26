@@ -3,7 +3,7 @@ story_id: "13-4"
 story_key: "13-4-arm-disarm-closing-opening-reports"
 epic_id: "epic-13"
 epic_name: "Alarm Event Vocabulary Extension (v1.1)"
-status: "ready-for-dev"
+status: "review"
 created: "2026-09-26"
 ---
 
@@ -129,9 +129,13 @@ so that it can check openings/closings against my schedule.
   - [x] `docs/design/widget-design.md` : ligne `CL` ajoutée au tableau `event_label`, mapping
         SIA→français étendu, `_event_context_prefix()` mis à jour.
   - [x] `docs/design/wizard-design.md` : note « et later CL » corrigée (CL livré).
-- [ ] Task 7: Validation live sur `test-jeedom.lehoux.net` contre la centrale interne (AC10) —
-      même mécanisme que 13-1 Task 10 (API Jeedom, clés scopées par plugin, `type=cmd&id=<id>`
-      pour déclencher, `type=fullData` pour vérifier le câblage `activationImmediateOk`).
+- [x] Task 7: Validation live sur `test-jeedom.lehoux.net` contre la centrale interne (AC10) —
+      via l'API Jeedom (`core/api/jeeApi.php`, clés scopées `plugin=alarm`/`plugin=siaDC09`
+      fournies par Herve), après qu'Herve a fait le `git pull`, la sauvegarde de l'équipement
+      (commande `arm` créée) et le câblage manuel (confirmé en relisant la config de
+      l'eqLogic `alarm` via `type=fullData` : `activationImmediateOk` → cmd `#289#` (`arm`),
+      `release` → cmd `#287#` (`disarm`), `raz` → cmd `#288#` (`alarmReset`), tous
+      `enable: "1"`). Voir Dev Agent Record pour le détail.
 
 ## Dev Notes
 
@@ -213,6 +217,19 @@ Claude Sonnet 5 (bmad-dev-story workflow)
   inchangée), `tests/level2_5` (77 passed, 1 failed — baseline inchangée). `find core/
   desktop/ -name "*.php" | xargs -n1 php -l` : aucune erreur. `pylint resources/siadc09d/` :
   8.85/10 (identique à la baseline pré-13-4).
+- Task 7 (validation live, 2026-09-26) : premier essai bloqué — `supervision_state` = 0
+  (« ARRÊTÉ ») sur `test-jeedom.lehoux.net` : le démon siaDC09 n'était pas démarré (piège déjà
+  connu — cf. mémoire projet « daemon down looks like frozen label »). Alarme remise à l'état
+  désarmé propre, script `/tmp` avec les clés API supprimé. Après qu'Herve a redémarré le
+  démon : `supervision_state` est resté à `1` (« Connexion en cours d'initialisation ») pendant
+  ~55s avant de passer à `2` (« Connexion OK ») — délai de démarrage de supervision déjà
+  documenté (D-42, `daemon_supervision_startup_delay`), pas un bug de cette story. Une fois
+  `HEALTHY` : armement → `event_label` = « Armement (utilisateur 1) : Confirmée par la
+  centrale » (t≈0.04s, CL acquitté) ; désarmement sans BA ouverte → « Désarmement (utilisateur
+  1) : Confirmée par la centrale » (t≈0.05s, OP seul, jamais BC). État final `enable=0`/
+  `state=0` — aucun nettoyage supplémentaire nécessaire. Mécanisme d'accès identique à 13-1 :
+  clés API scopées par plugin, jamais la clé core ; aucune clé écrite sur disque au-delà d'un
+  script `/tmp` supprimé après usage.
 
 ### Completion Notes List
 
@@ -226,8 +243,10 @@ Claude Sonnet 5 (bmad-dev-story workflow)
   `error_handler.py` : `event_type_fr('CL')`, wording EVENT_FAILED dédié à CL (« L'armement »,
   accord masculin comme OP), clause d'adresse utilisateur étendue à CL. Aucune régression sur
   les trois suites de tests. Documentation (aide assistant, `jeedom-alarm/SKILL.md`, quatre
-  design docs) réconciliée avec le code livré (Task 6). Task 7 (validation live sur
-  `test-jeedom.lehoux.net`) reste ouverte.
+  design docs) réconciliée avec le code livré (Task 6). Task 7 close (2026-09-26) : validation
+  live sur `test-jeedom.lehoux.net` — armement confirmé CL, désarmement sans BA ouverte confirmé
+  OP seul, après un premier essai bloqué par le démon arrêté (résolu par Herve). Toutes les
+  tâches et tous les AC sont couverts. Statut : ready-for-dev → review.
 
 ### File List
 
@@ -265,4 +284,5 @@ Claude Sonnet 5 (bmad-dev-story workflow)
 | Date | Description |
 |------|-------------|
 | 2026-09-26 | Story créée (contexte déjà largement conçu par le rescope de 13-1 / sprint-change-proposal-2026-09-25.md) |
-| 2026-09-26 | Tasks 1-6 closes. `arm` (Armement, mapping fixe → CL) ajoutée ; `disarm`'s branche `else` envoie désormais OP (13-4 AC3) au lieu du silence de 13-1. Démon et error_handler généralisés à CL via `_USER_ADDRESSED_SIA_CODES`. 4 tests de 13-1 réécrits (silence → OP), 2+3 tests ajoutés (arm). Aucune régression (baseline inchangée : level1 2, level2 6, level2.5 1 échecs pré-existants). Documentation (assistant, skill, 4 design docs) réconciliée avec le code livré. Task 7 (validation live) reste ouverte |
+| 2026-09-26 | Tasks 1-6 closes. `arm` (Armement, mapping fixe → CL) ajoutée ; `disarm`'s branche `else` envoie désormais OP (13-4 AC3) au lieu du silence de 13-1. Démon et error_handler généralisés à CL via `_USER_ADDRESSED_SIA_CODES`. 4 tests de 13-1 réécrits (silence → OP), 2+3 tests ajoutés (arm). Aucune régression (baseline inchangée : level1 2, level2 6, level2.5 1 échecs pré-existants). Documentation (assistant, skill, 4 design docs) réconciliée avec le code livré. Commit `ba780fe` + push sur `master` |
+| 2026-09-26 | **Task 7 close.** Validation live sur `test-jeedom.lehoux.net`, compte réel, centrale interne réelle, via l'API Jeedom (clés scopées par plugin). Câblage manuel d'Herve confirmé par lecture de la config (`activationImmediateOk`→`arm`, `release`→`disarm`, `raz`→`alarmReset`, tous actifs). Premier essai bloqué par le démon arrêté (`supervision_state=0`) — résolu par Herve, délai de démarrage de supervision habituel (~55s) observé avant `HEALTHY`. Armement confirmé CL (`event_label` = "Armement (utilisateur 1) : Confirmée par la centrale") ; désarmement sans BA ouverte confirmé OP seul. État final propre. Statut : ready-for-dev → review |
