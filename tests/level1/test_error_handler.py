@@ -55,23 +55,38 @@ def test_event_type_fr_maps_opening_report() -> None:
     assert event_type_fr("OP") == "désarmement"
 
 
+def test_event_type_fr_maps_closing_report() -> None:
+    """
+    Story 13-4 AC8: CL (arming, ADR-18) gets a French label too, so a confirmed/failed CL
+    never shows the raw "CL" in the widget or a notification.
+
+    Expected result:
+    - event_type_fr("CL") == "armement"
+    """
+    # Assert: SIA code "CL" maps to the French label
+    assert event_type_fr("CL") == "armement"
+
+
 @pytest.mark.parametrize(
     "sia_code,expected_subject,expected_address_key,expected_object",
     [
         ("BC", "L'annulation", "user_number", "l'annulation"),
         ("OP", "Le désarmement", "user_number", "le désarmement"),
+        ("CL", "L'armement", "user_number", "l'armement"),
     ],
 )
 def test_event_failed_message_names_cancel_or_disarm_not_alarme(
     sia_code: str, expected_subject: str, expected_address_key: str, expected_object: str
 ) -> None:
     """
-    Story 13-1 AC7 (finding #4): a failed BC/OP must be named as a cancel/disarm in the
-    EVENT_FAILED T3 notification, not as a generic "alarme" — and addressed by the
-    configured user number, not a zone (DC-03 addresses BC/OP by user — ADR-18).
+    Story 13-1 AC7 (finding #4) / Story 13-4 AC8: a failed BC/OP/CL must be named as a
+    cancel/disarm/arm in the EVENT_FAILED T3 notification, not as a generic "alarme" — and
+    addressed by the configured user number, not a zone (DC-03 addresses BC/OP/CL by user
+    — ADR-18).
 
     Expected result:
-    - the message names the event with the correct subject ("L'annulation"/"Le désarmement")
+    - the message names the event with the correct subject ("L'annulation"/"Le
+      désarmement"/"L'armement")
     - the message addresses it as "(utilisateur: <n>)", never "(zone: ...)"
     - the generic word "alarme" never appears in the message
     """

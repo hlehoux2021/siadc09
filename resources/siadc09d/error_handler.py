@@ -325,14 +325,14 @@ class EventFailedCtx:
         _notify(ErrorCode.EVENT_FAILED, ctx)
     """
 
-    sia_code: Literal["BA", "FA", "PA", "BC", "OP"]
+    sia_code: Literal["BA", "FA", "PA", "BC", "OP", "CL"]
     sia_seq: int
     zone_name: str | None
     max_retries: int
     attempts_made: int
     last_error: str
-    # Story 13-1 (ADR-18): address field for BC/OP — user-addressed, not zone-addressed.
-    # Optional/defaulted so existing BA/FA/PA call sites are unaffected.
+    # Stories 13-1/13-4 (ADR-18): address field for BC/OP/CL — user-addressed, not
+    # zone-addressed. Optional/defaulted so existing BA/FA/PA call sites are unaffected.
     user_number: int | None = None
 
 
@@ -362,7 +362,8 @@ def event_type_fr(event_type: str) -> str:
         event_type: PHP command or SIA code — "burglarAlarm"/"BA", "fireAlarm"/"FA",
             "panicAlarm"/"PA", "burglaryCancel"/"BC" (legacy alias, never sent by the
             current disarm/alarmReset commands, kept for backward compatibility), or
-            the SIA codes "BC" (cancel) / "OP" (disarm, story 13-1, ADR-18)
+            the SIA codes "BC" (cancel) / "OP" (disarm, story 13-1, ADR-18) / "CL"
+            (arm, story 13-4, ADR-18)
 
     Returns:
         French label string
@@ -377,6 +378,7 @@ def event_type_fr(event_type: str) -> str:
         "burglaryCancel": "annulation",
         "BC": "annulation",
         "OP": "désarmement",
+        "CL": "armement",
     }
     return mapping.get(event_type, event_type)
 
@@ -403,10 +405,10 @@ def build_notification(code: ErrorCode, context: dict[str, Any]) -> Notification
         ErrorCode.TRANSPORT_PERMANENT: 3,
     }
 
-    # Story 13-1 (finding #4): EVENT_FAILED must name the failed event precisely — BC/OP are a
-    # cancel/disarm, not a generic "alarme" — and address it by configured user number, not
-    # zone (DC-03 addresses BC/OP by user — ADR-18). BA/FA/PA keep their original zone-addressed
-    # wording unchanged.
+    # Story 13-1 (finding #4) / Story 13-4: EVENT_FAILED must name the failed event
+    # precisely — BC/OP/CL are a cancel/disarm/arm, not a generic "alarme" — and address it
+    # by configured user number, not zone (DC-03 addresses BC/OP/CL by user — ADR-18). BA/
+    # FA/PA keep their original zone-addressed wording unchanged.
     _event_sia_code = str(context.get("sia_code", context.get("event_type", "<inconnu>")))
     if _event_sia_code == "BC":
         _event_title_subject = "Annulation"
@@ -414,12 +416,15 @@ def build_notification(code: ErrorCode, context: dict[str, Any]) -> Notification
     elif _event_sia_code == "OP":
         _event_title_subject = "Désarmement"
         _event_subject, _event_object, _event_gender_e = "Le désarmement", "le désarmement", ""
+    elif _event_sia_code == "CL":
+        _event_title_subject = "Armement"
+        _event_subject, _event_object, _event_gender_e = "L'armement", "l'armement", ""
     else:
         _event_title_subject = "Alarme"
         _event_subject = "L'alarme " + event_type_fr(_event_sia_code)
         _event_object, _event_gender_e = "l'alarme", "e"
 
-    if _event_sia_code in ("BC", "OP"):
+    if _event_sia_code in ("BC", "OP", "CL"):
         _event_address_clause = f"(utilisateur: {context.get('user_number', '<inconnu>')})"
     else:
         _event_address_clause = (

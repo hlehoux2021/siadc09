@@ -116,21 +116,21 @@ A CSR expecting a numeric zone needs the label resolved locally against a persis
 `release`, `raz`, `razImmediate`, `activationOk` and `activationImmediateOk` pass `#mode#` alone —
 a restoral or cancel action therefore has **no zone information at all** (see story 13.1).
 
-**siaDC09 wiring for cancel/disarm (story 13.1, rescoped 2026-09-25, ADR-18):** DC-03 addresses
-`BC` (Burglary Cancel) and `OP` (Opening Report / disarm) by **user number**, never by zone — so
-neither siaDC09 command uses a Titre; the address is a configured `sia_user_number` (wizard step 3).
-Two commands, one per alarm-plugin hook that ends a sounding alarm, and **both must be wired** —
-wiring only one silently loses the other case:
+**siaDC09 wiring for cancel/disarm/arm (stories 13.1 and 13.4, ADR-18):** DC-03 addresses `BC`
+(Burglary Cancel), `OP` (Opening Report / disarm) and `CL` (Closing Report / arm) by **user
+number**, never by zone — so none of the three siaDC09 commands use a Titre; the address is a
+configured `sia_user_number` (wizard step 3). **Three commands must be wired**, each on its own
+alarm-plugin hook — wiring only some of them silently loses the others' case:
 
 | Alarm plugin action | siaDC09 command | Why |
 |---|---|---|
-| **Désactivation OK** (`release`) | `Désarmement` (`disarm`) | sees every disarm; if a burglary alarm is still open (siaDC09's own `sia_open_alarms` cache), sends `BC` then `OP`, then purges the cache |
-| **Réinitialisation** (`raz`) | `Réinitialisation alarme` (`alarmReset`) | sees the mode-change reset that `release` never runs for (system stays armed); if a burglary alarm is still open, sends `BC` alone, then purges the cache |
+| **Désactivation OK** (`release`) | `Désarmement` (`disarm`) | sees every disarm; if a burglary alarm is still open (siaDC09's own `sia_open_alarms` cache), sends `BC` then `OP`, then purges the cache — otherwise sends `OP` alone (13-4: a normal disarm outside any alarm context) |
+| **Réinitialisation** (`raz`) | `Réinitialisation alarme` (`alarmReset`) | sees the mode-change reset that `release` never runs for (system stays armed); if a burglary alarm is still open, sends `BC` alone, then purges the cache; otherwise stays silent |
+| **Activation OK (immediate)** (`activationImmediateOk`) | `Armement` (`arm`) | fires on **every** successful arm — unconditionally sends `CL`. Must **never** be wired on "Activation OK (standard)" (`activationOk`): that action never fires after an "Activation KO" (a bypassed/open zone at arming time), so an armament with a bypass would silently never report `CL` |
 
 Because the alarm plugin always runs `release` before `raz` on a normal Désactiver
-(`alarm.class.php:703-712`), whichever of the two commands fires first purges `sia_open_alarms` and
-the second finds it empty — never a duplicate `BC`. If no burglary alarm is open, both commands stay
-silent (a normal disarm's `OP` is a separate, later story — 13-4).
+(`alarm.class.php:703-712`), whichever of `disarm`/`alarmReset` fires first purges
+`sia_open_alarms` and the second finds it empty — never a duplicate `BC`.
 
 **Integration Pattern**:
 - Alarm plugin exposes **INFO commands** (alarm state, mode, etc.)

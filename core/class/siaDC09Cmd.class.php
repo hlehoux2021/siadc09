@@ -117,10 +117,23 @@ class siaDC09Cmd extends cmd {
                     siaDC09::sendToDaemon(['cmd' => 'disarm', 'user_number' => $userNumber, 'sia_code' => 'OP']);
                     $this->_purgeOpenAlarms('BA');
                 } else {
-                    log::add('siaDC09', 'debug',
-                        'disarm : aucune alarme intrusion ouverte — rien à signaler '
-                        . '(le désarmement normal fait l\'objet de la story 13-4)');
+                    // Story 13-4 — no BA was open: this is a normal disarm, outside any
+                    // alarm context. Sends the Opening Report alone.
+                    siaDC09::sendToDaemon(['cmd' => 'disarm', 'user_number' => $userNumber, 'sia_code' => 'OP']);
                 }
+                break;
+
+            case 'arm':
+                // Story 13-4 — wired on the alarm plugin's `activationImmediateOk`, which
+                // fires on every successful arm (unlike `activationOk`, which never fires
+                // after `activationKo`). Always sends exactly one CL: unlike disarm/
+                // alarmReset, this command never varies its code, so — like burglarAlarm/
+                // fireAlarm/panicAlarm — the mapping lives in the daemon's fixed
+                // _EVENT_SIA_CODES, not in the payload.
+                siaDC09::sendToDaemon([
+                    'cmd'         => 'arm',
+                    'user_number' => $this->_resolveSiaUserNumber(),
+                ]);
                 break;
 
             case 'alarmReset':

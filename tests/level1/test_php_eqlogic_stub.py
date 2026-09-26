@@ -141,6 +141,13 @@ def alarm_reset_body(execute_body: str) -> str:
 
 
 @pytest.fixture(scope="module")
+def arm_body(execute_body: str) -> str:
+    """The 'arm' case block only, from the opening `case 'arm':` to the next `case`."""
+    match = re.search(r"case\s+'arm'\s*:(.*?)(?=case\s+'\w+'\s*:|\Z)", execute_body, re.DOTALL)
+    return match.group(1) if match else ""
+
+
+@pytest.fixture(scope="module")
 def run_notify_target_body(php_source: str) -> str:
     """Single entry point for critical notifications — every caller delegates here."""
     return _extract_method_body(php_source, "_runNotifyTarget")
@@ -308,6 +315,70 @@ def test_execute_routes_disarm_and_alarm_reset(execute_body: str) -> None:
     )
     assert "_fanOutBurglaryCancel(" not in execute_body, (
         "execute() must not call the removed _fanOutBurglaryCancel()"
+    )
+
+
+def test_arm_command_declared_in_action_cmds(postsave_body: str) -> None:
+    """
+    Story 13-4 AC1, AC6, AC7: `arm` ("Armement") is auto-created by postSave() alongside
+    disarm/alarmReset, as ACTION / 'other' — DC-03 addresses CL by user number, never by
+    zone (ADR-18), so it needs no Titre. siaDC09_update() (13-1) already loops postSave()
+    over every existing eqLogic, so no separate migration is needed for 'arm'.
+
+    Expected result:
+    - 'arm' is declared in the $actionCmds array literal
+    - its entry uses subType 'other' and the name 'Armement'
+    """
+    array_literal = postsave_body[: postsave_body.index("foreach ($actionCmds")]
+    arm_entry = re.search(r"'arm'\s*=>\s*\[[^\]]*\]", array_literal)
+    # Assert: the new command is declared in the action array
+    assert arm_entry, "logicalId 'arm' not found in postSave()'s $actionCmds"
+    # Assert: subType 'other' — no Titre to carry (address is user_number)
+    assert "'subType' => 'other'" in arm_entry.group(0), (
+        "arm must use subType 'other' — DC-03 addresses CL by user number, not a Titre zone"
+    )
+    # Assert: the user-facing name matches the design table
+    assert "Armement" in arm_entry.group(0), "arm must be named 'Armement'"
+
+
+def test_execute_routes_arm(execute_body: str) -> None:
+    """
+    Story 13-4 AC1: execute() has a case for `arm` — without it the command exists in
+    Jeedom but does nothing when the alarm plugin's activationImmediateOk hook fires.
+
+    Expected result:
+    - 'arm' appears as a case in execute()
+    """
+    # Assert: the command is routed
+    assert re.search(r"case\s+'arm'\s*:", execute_body), "execute() missing case for 'arm'"
+
+
+def test_arm_sends_user_number_unconditionally(arm_body: str) -> None:
+    """
+    Story 13-4 AC1, AC6: arm (wired on `activationImmediateOk`) always sends exactly one
+    frame, addressed by the configured sia_user_number — never a zone number, and never
+    conditional the way disarm/alarmReset are on an open BA. Unlike disarm/alarmReset, arm
+    never varies its SIA code, so — like burglarAlarm/fireAlarm/panicAlarm — it must NOT
+    send its own 'sia_code': the cmd→code mapping lives in the daemon's fixed
+    _EVENT_SIA_CODES (daemon.py), not in the payload.
+
+    Expected result:
+    - exactly one sendToDaemon() call is made
+    - 'user_number' is forwarded to the daemon
+    - no 'sia_code' key is sent (the daemon derives CL from the 'arm' cmd name alone)
+    """
+    # Assert: exactly one dispatch — arm always sends its frame, unconditionally
+    assert len(re.findall(r"sendToDaemon\s*\(", arm_body)) == 1, (
+        "arm must call sendToDaemon() exactly once, unconditionally"
+    )
+    # Assert: addressed by user number, never a zone
+    assert "'user_number'" in arm_body, (
+        "arm must send 'user_number' to the daemon — never a zone number"
+    )
+    # Assert: no explicit sia_code — the daemon's fixed mapping derives CL from 'arm'
+    assert "'sia_code'" not in arm_body, (
+        "arm must not send its own 'sia_code' — the daemon's fixed _EVENT_SIA_CODES mapping "
+        "derives CL from the 'arm' cmd name, same pattern as burglarAlarm/fireAlarm/panicAlarm"
     )
 
 
@@ -1938,17 +2009,27 @@ def test_disarm_sends_bc_then_op_when_open_alarm_and_purges(disarm_body: str) ->
     )
 
 
-def test_disarm_silent_and_logs_debug_when_no_open_alarm(disarm_body: str) -> None:
+def test_disarm_sends_op_when_no_open_alarm(disarm_body: str) -> None:
     """
-    AC2: when no BA is open, disarm must send nothing (the normal-disarm OP is story
-    13-4's scope) and log at debug level so the silence is traceable.
+    Story 13-4 AC3, AC4: when no BA is open (normal disarm, outside any alarm context),
+    disarm must send exactly one OP — filling the `else` branch that 13-1 left silent.
+    The BC+OP branch when a BA IS open (AC1, 13-1) is untouched by this story — this test
+    only covers the no-open-alarm path.
 
     Expected result:
-    - an else branch (no sendToDaemon call outside the _hasOpenAlarm guard) logs 'debug'
+    - exactly one sendToDaemon() call is made outside the _hasOpenAlarm branch, with
+      'sia_code' => 'OP'
+    - no 'BC' literal appears in this path (only the BA-open branch sends BC)
     """
-    # Assert: the no-alarm path is traced at debug level
-    assert re.search(r"log::add\([^)]*['\"]debug['\"]", disarm_body), (
-        "disarm's no-open-alarm branch must log at 'debug' level"
+    # Isolate the `else` branch: everything after the first `} else {`
+    else_branch = disarm_body[disarm_body.index("} else {") :]
+    # Assert: exactly one dispatch in the else branch — OP alone
+    assert len(re.findall(r"sendToDaemon\s*\(", else_branch)) == 1, (
+        "disarm's no-open-alarm branch must call sendToDaemon() exactly once — OP alone"
+    )
+    assert "'OP'" in else_branch, "disarm's no-open-alarm branch must send sia_code 'OP'"
+    assert "'BC'" not in else_branch, (
+        "disarm's no-open-alarm branch must never send 'BC' — no alarm was open"
     )
 
 

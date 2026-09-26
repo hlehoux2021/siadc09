@@ -355,8 +355,8 @@ Stored as `sia_user_number` (int, 1-999, default `1`). Unlike the zone table, th
 **single configured value**, not something read from the alarm plugin: the alarm plugin never
 forwards the Jeedom user (`user_login`/`user_id`) to its actions
 (`alarm.class.php:639-670`), so there is no per-user source to read from. It addresses every
-DC-03 user-addressed code (`BC`, `OP`, and later `CL`) — see `php-core-design.md`, "Disarm
-During an Alarm", and ADR-18 (`architecture.md`).
+DC-03 user-addressed code (`BC`, `OP`, and `CL` — story 13-4) — see `php-core-design.md`,
+"Disarm During an Alarm", and ADR-18 (`architecture.md`).
 
 ### On "Suivant"
 

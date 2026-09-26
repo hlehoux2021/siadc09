@@ -433,9 +433,9 @@ it has no zone identifier to offer. Hence the label → number resolution below.
 `#zone#` is only supplied by `outbreak`, `outbreakImmediate`, the zone-level
 `actions`/`actionsImmediate`, `reenableTrigger` and `activationKo`. `release`, `raz`,
 `razImmediate`, `activationOk` and `activationImmediateOk` pass **`#mode#` only** — which is
-moot for Story 13.1's `disarm`/`alarmReset` commands, since DC-03 addresses `BC`/`OP` by
-**user number**, not zone; see "Disarm During an Alarm" at the end of this document. `BR` has
-no source event and is out of scope (story 13-2, parked).
+moot for Story 13.1's `disarm`/`alarmReset` commands and Story 13-4's `arm` command, since
+DC-03 addresses `BC`/`OP`/`CL` by **user number**, not zone; see "Disarm During an Alarm" at
+the end of this document. `BR` has no source event and is out of scope (story 13-2, parked).
 
 **User configuration required:** In the alarm plugin's zone action settings, the user must manually configure the ACTION command with `title` = `#zone#` (or any text containing `#zone#`). This is NOT automatic — the user must set this up once during configuration.
 
@@ -529,11 +529,12 @@ public function postSave(): void {
         'burglarAlarm' => ['name' => __('Alarme intrusion', __FILE__), 'subType' => 'message'],
         'fireAlarm'    => ['name' => __('Alarme incendie', __FILE__), 'subType' => 'message'],
         'panicAlarm'   => ['name' => __('Alarme panique', __FILE__),  'subType' => 'message'],
-        // Story 13.1 — no #zone# tag needed: DC-03 addresses BC/OP by user number, not zone.
-        // subType 'other': neither needs a Titre. See "Disarm During an Alarm" at the end of
-        // this document.
+        // Stories 13-1/13-4 — no #zone# tag needed: DC-03 addresses BC/OP/CL by user number,
+        // not zone. subType 'other': none of the three needs a Titre. See "Disarm During an
+        // Alarm" at the end of this document.
         'disarm'     => ['name' => __('Désarmement', __FILE__),           'subType' => 'other'],
         'alarmReset' => ['name' => __('Réinitialisation alarme', __FILE__), 'subType' => 'other'],
+        'arm'        => ['name' => __('Armement', __FILE__),              'subType' => 'other'],
     ];
     foreach ($actionCmds as $logicalId => $spec) {
         $cmd = $this->getCmd('action', $logicalId);
@@ -579,8 +580,9 @@ public function postSave(): void {
 ```
 
 No `order` key anywhere: Jeedom's `order` is a purely cosmetic display-sort number with no
-functional effect, and the shipped code has never called `setOrder()`. Story 13.1's `disarm`
-and `alarmReset` need none either — they are simply two more entries in `$actionCmds`.
+functional effect, and the shipped code has never called `setOrder()`. Story 13.1's `disarm`/
+`alarmReset` and Story 13-4's `arm` need none either — they are simply more entries in
+`$actionCmds`.
 
 > **Note de conception 2026-09-18.** Ce bloc reproduit désormais fidèlement le `postSave()`
 > livré (`core/class/siaDC09.class.php:622-666`). La version précédente de ce document décrivait
@@ -1323,12 +1325,33 @@ case 'disarm':
         siaDC09::sendToDaemon(['cmd' => 'disarm', 'user_number' => $userNumber, 'sia_code' => 'OP']);
         $this->_purgeOpenAlarms('BA');
     } else {
-        log::add('siaDC09', 'debug',
-            'disarm : aucune alarme intrusion ouverte — rien à signaler '
-            . '(le désarmement normal fait l\'objet de la story 13-4)');
+        // Story 13-4 — no BA was open: this is a normal disarm, outside any alarm
+        // context. Sends the Opening Report alone.
+        siaDC09::sendToDaemon(['cmd' => 'disarm', 'user_number' => $userNumber, 'sia_code' => 'OP']);
     }
     break;
 ```
+
+### `arm` — wired on `activationImmediateOk` (Story 13-4)
+
+```php
+case 'arm':
+    // Story 13-4 — wired on the alarm plugin's `activationImmediateOk`, which fires on
+    // every successful arm (unlike `activationOk`, which never fires after
+    // `activationKo`). Always sends exactly one CL — never conditional.
+    siaDC09::sendToDaemon([
+        'cmd'         => 'arm',
+        'user_number' => $this->_resolveSiaUserNumber(),
+    ]);
+    break;
+```
+
+**No `sia_code` in `arm`'s payload — deliberately.** Unlike `disarm`/`alarmReset`, `arm` never
+varies its SIA code: it always means CL. It therefore follows the `burglarAlarm`/`fireAlarm`/
+`panicAlarm` pattern (a fixed `cmd → code` mapping lives in the daemon's `_EVENT_SIA_CODES`),
+not the `disarm`/`alarmReset` pattern (`_VARIABLE_SIA_CODE_COMMANDS`, code carried per-call in
+the payload). Sending `'sia_code' => 'CL'` from PHP anyway would be redundant and misleading —
+it would suggest the daemon reads it, when the daemon's fixed mapping ignores it entirely.
 
 ### `alarmReset` — wired on `raz`
 
@@ -1367,15 +1390,19 @@ that never re-saves its equipment would never get `disarm`/`alarmReset`. `siaDC0
 must iterate every `siaDC09` eqLogic and call `postSave()` on each, so the new commands appear
 without a manual save.
 
-### Wiring the user has to do (Story 13.1 Task 9 — plugin documentation)
+### Wiring the user has to do (Story 13.1 Task 9 / Story 13-4 Task 6 — plugin documentation)
 
 On the **alarm** equipment, in its actions configuration:
 
 | Alarm plugin action | Our command | Why |
 |---|---|---|
-| *Désactivation OK* (`release`) | `Désarmement` (`disarm`) | sees every disarm; sends BC→OP when a BA is open |
+| *Désactivation OK* (`release`) | `Désarmement` (`disarm`) | sees every disarm; sends BC→OP when a BA is open, OP alone otherwise (13-4) |
 | *Réinitialisation* (`raz`) | `Réinitialisation alarme` (`alarmReset`) | sees the mode-change reset that `release` never ran for |
+| *Activation OK (immédiate)* (`activationImmediateOk`) | `Armement` (`arm`) | fires on every successful arm; sends CL unconditionally (13-4) |
 
-**Wire both.** An installer who wires only one loses the other path — the mode-change reset
-(no `release`) if only `disarm` is wired, or the normal disarm cancel if only `alarmReset` is.
-The wizard help and `jeedom-alarm/SKILL.md` must say so explicitly.
+**Wire all three.** An installer who wires only some loses the others' path — the mode-change
+reset (no `release`) if `alarmReset` isn't wired, the normal-disarm `OP` if `disarm` isn't
+wired, or every armament report if `arm` isn't wired. `arm` must go on *Activation OK
+(immédiate)*, never on *Activation OK (standard)* — the latter never fires after an *Activation
+KO* (a bypassed/open zone at arming time), so a bypassed armament would silently never report
+`CL`. The wizard help and `jeedom-alarm/SKILL.md` say so explicitly.

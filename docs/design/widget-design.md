@@ -443,9 +443,9 @@ adding new numeric values would collapse them, with three concrete costs:
    terminal value would need its own reasoning about the 30-minute reset; `1`/`2` already
    have it.
 
-`BC`/`OP` are therefore expressed through the SIA code → French label map, extended in the
-same change: `BA → Intrusion`, `FA → Incendie`, `PA → Panique`, **`BC → Annulation`**,
-**`OP → Désarmement`**.
+`BC`/`OP`/`CL` are therefore expressed through the SIA code → French label map, extended in
+the same change: `BA → Intrusion`, `FA → Incendie`, `PA → Panique`, **`BC → Annulation`**,
+**`OP → Désarmement`**, **`CL → Armement`** (story 13-4).
 
 ### `event_label` rows added by Story 13.1
 
@@ -464,12 +464,15 @@ same change: `BA → Intrusion`, `FA → Incendie`, `PA → Panique`, **`BC → 
 | `BC` FAILED (NAK) | `Annulation (utilisateur 1) : Refusé par la centrale` |
 | `BC` FAILED (timeout) | `Annulation (utilisateur 1) : Sans réponse de la centrale` |
 | `OP` CONFIRMED | `Désarmement (utilisateur 1) : Confirmée par la centrale` |
+| `CL` CONFIRMED | `Armement (utilisateur 1) : Confirmée par la centrale` |
 
 The label always shows the configured user number — never a zone segment, and never omitted:
 unlike `zone_number`, `user_number` has no "unresolved" case. A disarm during an open alarm
 produces exactly two rows in quick succession (`BC` then `OP`, via `disarm`); a mode-change
-reset produces exactly one (`BC`, via `alarmReset`) — each an ordinary, independent SM2 event
-with its own label.
+reset produces exactly one (`BC`, via `alarmReset`); a normal disarm outside any alarm context
+produces exactly one (`OP` alone, via `disarm`'s `else` branch — story 13-4); an arm produces
+exactly one (`CL`, via `arm` — story 13-4) — each an ordinary, independent SM2 event with its
+own label.
 
 ### What AC7 actually requires
 
@@ -479,7 +482,7 @@ with its own label.
 | Badge classes / `supervision_state` mapping | **none** |
 | `core/template/{dashboard,mobile}/siaDC09.html` | **none** — `#event_label#` is rendered verbatim |
 | `toHtml()` | **none** — reads `event_label` as-is |
-| Daemon `_event_context_prefix()` | branches on `sia_code`: `"(utilisateur {n})"` for `BC`/`OP` via a new `_event_user_number` instance var, `"(zone {zone})"` for `BA`/`FA`/`PA` unchanged |
+| Daemon `_event_context_prefix()` | branches on `sia_code`: `"(utilisateur {n})"` for `BC`/`OP`/`CL` (story 13-4 adds `CL` via `_USER_ADDRESSED_SIA_CODES`, replacing the original hardcoded `("BC", "OP")` tuple) via a new `_event_user_number` instance var, `"(zone {zone})"` for `BA`/`FA`/`PA` unchanged |
 | Diagnostic tab (`desktop/js/siaDC09.js`) | display `event_label` (and `event_state`), which `siaDC09_loadDiagnosticData()` currently discards although `getDiagnosticData` already returns both — **not done by this story**, left as a pre-existing gap outside Story 13.1's scope |
 
 ### Deferred — numeric `event_type` command

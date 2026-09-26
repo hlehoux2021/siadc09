@@ -694,6 +694,9 @@ class siaDC09 extends eqLogic {
             // #zone# tag is needed, so subType 'other' is used — neither command needs a Titre.
             'disarm'         => ['name' => __('Désarmement', __FILE__),            'subType' => 'other'],
             'alarmReset'     => ['name' => __('Réinitialisation alarme', __FILE__), 'subType' => 'other'],
+            // Story 13-4 — DC-03 addresses CL by user number too (ADR-18): no #zone# tag
+            // needed, same subType 'other' as disarm/alarmReset.
+            'arm'            => ['name' => __('Armement', __FILE__),               'subType' => 'other'],
             // ADR-17 Amendment 3 (Option D): wired manually by the installer into the alarm
             // plugin's zone IMMEDIATE-actions bucket (not standard/after-delay) — fires as soon
             // as the sensor triggers, well before the BA's own trigger-delay actions fire.

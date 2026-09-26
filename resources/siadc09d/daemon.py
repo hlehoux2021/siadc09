@@ -143,10 +143,10 @@ class SM2State(Enum):
     FAILED = "FAILED"          # Event failed (NAK/timeout/NO_NETWORK/max retries)
 
 
-# SIA event codes: Burglary, Fire, Panic alarms + Burglary Cancel + Opening/disarm (story 13-1).
-# BC/OP address by user number (ADR-18), unlike BA/FA/PA which address by zone — see
-# EventItem.user_number and _build_event_frame().
-SiaEventCode = Literal['BA', 'FA', 'PA', 'BC', 'OP']
+# SIA event codes: Burglary, Fire, Panic alarms + Burglary Cancel + Opening/disarm (story 13-1)
+# + Closing/arm (story 13-4). BC/OP/CL address by user number (ADR-18), unlike BA/FA/PA which
+# address by zone — see EventItem.user_number and _build_event_frame().
+SiaEventCode = Literal['BA', 'FA', 'PA', 'BC', 'OP', 'CL']
 
 
 class SM2LogCtx(TypedDict):
@@ -244,11 +244,13 @@ class OnMessageParams(TypedDict, total=False):
     camera_eqlogic_id/camera_name/frigate_host (Story 14-2, ADR-17 Amendment 3): present
     only for the "prefetchEvent" command, sent by siaDC09Cmd::_resolvePrefetchTarget().
 
-    sia_code/user_number (Story 13-1, ADR-18): present only for "disarm"/"alarmReset" — these
-    two commands carry their own sia_code per sendToDaemon() call (BC and/or OP), rather than
-    a single fixed code per command name, so on_message() reads sia_code from the payload
-    instead of the static _EVENT_SIA_CODES mapping used by burglarAlarm/fireAlarm/panicAlarm.
-    user_number is the configured SIA user (wizard step 3) — the address field for BC/OP.
+    sia_code (Story 13-1, ADR-18): present only for "disarm"/"alarmReset" — these two commands
+    carry their own sia_code per sendToDaemon() call (BC and/or OP), rather than a single
+    fixed code per command name, so on_message() reads sia_code from the payload instead of
+    the static _EVENT_SIA_CODES mapping used by burglarAlarm/fireAlarm/panicAlarm/arm.
+    user_number (Story 13-1/13-4, ADR-18) is the configured SIA user (wizard step 3) — the
+    address field for BC/OP/CL. Present for "disarm"/"alarmReset" and "arm" alike; "arm"
+    never sends sia_code (its code, CL, is fixed).
     """
     zone: str
     zone_number: int | None
@@ -301,10 +303,14 @@ QueuePayload = EventQueuePayload | SupervisionQueuePayload
 # Story 13-1: "disarm"/"alarmReset" are deliberately absent — see
 # _VARIABLE_SIA_CODE_COMMANDS below. burglaryCancel (13-1's superseded per-zone fan-out
 # design) is removed; it was never shipped.
+# Story 13-4: "arm" is a fixed mapping (always CL, unconditionally) — unlike disarm/
+# alarmReset, it never varies its code, so it belongs here, not in
+# _VARIABLE_SIA_CODE_COMMANDS.
 _EVENT_SIA_CODES: Final[dict[str, SiaEventCode]] = {
     "burglarAlarm": "BA",
     "fireAlarm": "FA",
     "panicAlarm": "PA",
+    "arm": "CL",
 }
 
 # Story 13-1 (ADR-18): disarm/alarmReset each make one sendToDaemon() call per frame, with
@@ -316,8 +322,12 @@ _EVENT_SIA_CODES: Final[dict[str, SiaEventCode]] = {
 # release").
 _VARIABLE_SIA_CODE_COMMANDS: Final[frozenset[str]] = frozenset({"disarm", "alarmReset"})
 
-# The only SIA codes disarm/alarmReset are allowed to declare via params["sia_code"].
-_USER_ADDRESSED_SIA_CODES: Final[frozenset[str]] = frozenset({"BC", "OP"})
+# User-addressed SIA codes (ADR-18): address by configured sia_user_number, never a zone.
+# Also the only codes disarm/alarmReset are allowed to declare via params["sia_code"] — CL
+# (story 13-4) reaches this set via the fixed _EVENT_SIA_CODES mapping instead, since "arm"
+# is not in _VARIABLE_SIA_CODE_COMMANDS, but is still user-addressed for framing purposes
+# (_build_event_frame(), _event_context_prefix()).
+_USER_ADDRESSED_SIA_CODES: Final[frozenset[str]] = frozenset({"BC", "OP", "CL"})
 
 
 # ===== TASK 2: STRIKE COUNTER AND SM1 STATE MANAGEMENT =====
@@ -726,9 +736,9 @@ class SIADaemon(BaseDaemon):
         SM2 labels.
 
         The alarm type is derived from the latest SIA code via event_type_fr()
-        and capitalised for display (e.g. "intrusion" → "Intrusion"). BC/OP (story 13-1,
-        ADR-18) address by configured user number, never by zone — DC-03 p.4 — so they use
-        _event_user_number instead of _event_zone. BA/FA/PA keep the zone clause.
+        and capitalised for display (e.g. "intrusion" → "Intrusion"). BC/OP/CL (stories
+        13-1, 13-4, ADR-18) address by configured user number, never by zone — DC-03 p.4 —
+        so they use _event_user_number instead of _event_zone. BA/FA/PA keep the zone clause.
 
         Returns:
             str: e.g. "Intrusion (zone 3)" or "Annulation (utilisateur 1)". Falls back to
@@ -740,7 +750,7 @@ class SIADaemon(BaseDaemon):
             type_label = type_fr[:1].upper() + type_fr[1:]
         else:
             type_label = "Alarme"
-        if self._event_sia_code in ("BC", "OP"):
+        if self._event_sia_code in _USER_ADDRESSED_SIA_CODES:
             if self._event_user_number is not None:
                 return f"{type_label} (utilisateur {self._event_user_number})"
             return type_label
@@ -1702,14 +1712,14 @@ class SIADaemon(BaseDaemon):
         """
         try:
             # Build extended data with the address field.
-            # BA/FA/PA address by zone ORDER NUMBER, never the label; BC/OP address by the
-            # configured SIA user number instead — DC-03 p.4, story 13-1, ADR-18. Either way
-            # SIA DC-09 Annex B formats it as 3 zero-padded digits → [#001234|BA 001] or
-            # [#001234|BC 001]. Padding happens here and only here. When the source value is
-            # None the frame carries no address field at all.
+            # BA/FA/PA address by zone ORDER NUMBER, never the label; BC/OP/CL address by the
+            # configured SIA user number instead — DC-03 p.4, stories 13-1/13-4, ADR-18.
+            # Either way SIA DC-09 Annex B formats it as 3 zero-padded digits →
+            # [#001234|BA 001] or [#001234|BC 001]. Padding happens here and only here. When
+            # the source value is None the frame carries no address field at all.
             # Note: _sia_seq is incremented once by _send_with_retry before the loop.
             extended_data = {}
-            if event_item.sia_code in ('BC', 'OP'):
+            if event_item.sia_code in _USER_ADDRESSED_SIA_CODES:
                 if event_item.user_number is not None:
                     extended_data['zone'] = f"{event_item.user_number:03d}"
             elif event_item.zone_number is not None:

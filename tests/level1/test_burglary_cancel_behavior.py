@@ -214,20 +214,19 @@ def test_disarm_with_open_ba_emits_bc_then_op_in_order_and_purges_table() -> Non
     assert _open_alarms(out["cache"]) == {}
 
 
-def test_disarm_with_no_open_ba_emits_nothing_and_logs_debug() -> None:
+def test_disarm_with_no_open_ba_emits_op() -> None:
     """
-    AC2: disarming with no open burglary alarm memorized (normal disarm, no alarm ever
-    fired) must stay silent — the OP for a normal disarm is story 13-4's scope, not 13-1's.
+    Story 13-4 AC3: disarming with no open burglary alarm memorized (normal disarm,
+    outside any alarm context) must send a single OP — filling the `else` branch that
+    story 13-1 left silent.
 
     Expected result:
-    - no frame is sent at all
-    - a debug log line explains why
+    - exactly one frame is sent: cmd=disarm/sia_code=OP
     """
     out = _run([{"logical_id": "disarm"}])
-    # Assert: disarm never invents a frame when nothing is open
-    assert out["sent"] == []
-    # Assert: the silence is explained at debug level, not silently dropped
-    assert _logs_at(out["logs"], "debug"), "disarm with no open BA must log at debug"
+    frames = _cancel_frames(out["sent"])
+    # Assert: a normal disarm now reports OP, never BC (no alarm was open)
+    assert [p["sia_code"] for p in frames] == ["OP"]
 
 
 def test_disarm_uses_the_configured_sia_user_number() -> None:
@@ -268,22 +267,59 @@ def test_disarm_defaults_user_number_to_one_when_unconfigured() -> None:
     assert numbers == [1, 1]
 
 
-def test_disarm_with_only_fire_or_panic_open_emits_nothing() -> None:
+# ── Story 13-4 — arm (wired on `activationImmediateOk`) ──────────────────────────
+
+
+def test_arm_emits_cl_unconditionally() -> None:
     """
-    AC2: BC/OP close a burglary alarm only — an open fire or panic alarm alone must not
-    make disarm emit anything (FA/PA are kept for the future story 13-3, not closed here).
+    Story 13-4 AC1, AC6: arming always sends exactly one CL — never conditional on
+    sia_open_alarms, unlike disarm/alarmReset.
 
     Expected result:
-    - no frame is sent
-    - the table still holds the FA/PA entries afterwards (not purged, since nothing fired)
+    - exactly one frame is sent, with cmd=arm and user_number set
+    """
+    out = _run([{"logical_id": "arm"}])
+    arm_frames = [p for p in out["sent"] if p.get("cmd") == "arm"]
+    # Assert: exactly one arm frame, unconditionally
+    assert len(arm_frames) == 1
+    # Assert: addressed by the (default) configured user number
+    assert arm_frames[0]["user_number"] == 1
+    # Assert: arm never sends its own sia_code — the daemon derives CL from the cmd name
+    assert "sia_code" not in arm_frames[0]
+
+
+def test_arm_uses_the_configured_sia_user_number() -> None:
+    """
+    Story 13-4 AC1: the address field is the configured `sia_user_number` (wizard step 3,
+    shared with disarm/alarmReset), not a hardcoded value.
+
+    Expected result:
+    - the arm frame carries user_number == 7
+    """
+    out = _run([{"logical_id": "arm"}], user_number=7)
+    arm_frames = [p for p in out["sent"] if p.get("cmd") == "arm"]
+    # Assert: the configured user number reaches the frame
+    assert arm_frames[0]["user_number"] == 7
+
+
+def test_disarm_with_only_fire_or_panic_open_emits_op_not_bc() -> None:
+    """
+    AC2 (13-1) / AC3 (13-4): BC closes a burglary alarm only — an open fire or panic alarm
+    alone must not make disarm emit a BC (FA/PA are kept for the future story 13-3, not
+    closed here). No BA being open means this is, from disarm's perspective, a normal
+    disarm: it sends OP alone (13-4).
+
+    Expected result:
+    - exactly one frame is sent: cmd=disarm/sia_code=OP (never BC)
+    - the table still holds the FA/PA entries afterwards (not purged, since no BA fired)
     """
     out = _run([
         {"logical_id": "fireAlarm", "title": "Garage"},
         {"logical_id": "panicAlarm"},
         {"logical_id": "disarm"},
     ])
-    # Assert: no BC/OP for a fire/panic-only table
-    assert _cancel_frames(out["sent"]) == []
+    # Assert: OP alone for a fire/panic-only table — never BC
+    assert [p["sia_code"] for p in _cancel_frames(out["sent"])] == ["OP"]
     # Assert: FA/PA entries are untouched — only a BC purges the table
     assert len(_open_alarms(out["cache"])) == 2
 
@@ -384,16 +420,17 @@ def test_release_then_raz_sequence_emits_exactly_bc_op_never_a_second_bc() -> No
 def test_expired_ba_entry_is_not_treated_as_open() -> None:
     """
     AC5 (via Task 3, unchanged): OPEN_ALARMS_TTL expires an entry whose reset never
-    arrived. An expired BA (two days old) must not count as "open" for disarm.
+    arrived. An expired BA (two days old) must not count as "open" for disarm — story
+    13-4: a disarm with nothing open sends OP alone, never BC.
 
     Expected result:
-    - disarm emits nothing for an expired-only table
+    - disarm emits OP alone for an expired-only table (never BC)
     """
     stale_ts = int(time.time()) - EXPIRED_AGE_S
     cache = {"sia_open_alarms": {"BA|3": _open_alarm_seed("BA", "Salon", 3, ts=stale_ts)}}
     out = _run([{"logical_id": "disarm"}], cache=cache)
-    # Assert: an expired entry is not "open" — disarm has nothing to close
-    assert _cancel_frames(out["sent"]) == []
+    # Assert: an expired entry is not "open" — disarm reports a normal disarm (OP), not BC
+    assert [p["sia_code"] for p in _cancel_frames(out["sent"])] == ["OP"]
 
 
 def test_table_read_as_json_string_still_detects_open_ba() -> None:
@@ -418,16 +455,17 @@ def test_table_read_as_json_string_still_detects_open_ba() -> None:
 def test_bc_and_op_are_never_recorded_as_open_alarms() -> None:
     """
     A BC/OP closes an alarm; it must never be memorized as one itself, or a later
-    disarm/alarmReset would try to close a cancel.
+    disarm/alarmReset would try to close a cancel. Story 13-4: the second disarm now
+    reports its own OP (normal disarm, nothing open) instead of staying silent.
 
     Expected result:
-    - after disarm closes the one open BA, the table stays empty on a second disarm
-      (no new entry was created by the BC/OP frames just sent)
+    - the first disarm finds the open BA and sends BC then OP
+    - the second disarm finds nothing open (BC/OP created no new entry) and sends OP alone
     """
     out = _run([
         {"logical_id": "burglarAlarm", "title": "Salon"},
         {"logical_id": "disarm"},
         {"logical_id": "disarm"},
     ])
-    # Assert: only the first disarm found an open BA — BC/OP created no new entry
-    assert [p["sia_code"] for p in _cancel_frames(out["sent"])] == ["BC", "OP"]
+    # Assert: first disarm closes the BA (BC, OP); second disarm reports its own OP alone
+    assert [p["sia_code"] for p in _cancel_frames(out["sent"])] == ["BC", "OP", "OP"]

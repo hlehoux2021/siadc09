@@ -393,6 +393,34 @@ async def test_on_message_disarm_missing_sia_code_is_ignored(caplog):
     assert "sia_code" in caplog.text  # the anomaly is traceable
 
 
+# ===== TC-IPC7: arm → CL by user number (story 13-4, ADR-18) =====
+
+
+@pytest.mark.asyncio
+async def test_on_message_arm_enqueues_cl_with_user_number():
+    """AC1: PHP's 'arm' call (wired on activationImmediateOk) reaches the queue as a CL
+    event addressed by user number — via the daemon's fixed cmd→code mapping, since arm
+    (unlike disarm/alarmReset) never varies its SIA code and never sends its own
+    'sia_code' key.
+
+    Expected:
+    - exactly one EVENT item is enqueued (not dropped as an unknown command)
+    - payload["sia_code"] == "CL", derived from the 'arm' cmd name alone
+    - payload["user_number"] carries the configured user through IPC
+    - payload["zone_number"] is None — CL is never zone-addressed
+    """
+    daemon = _make_daemon()
+
+    await daemon.on_message("arm", {"user_number": 1})
+
+    assert daemon._queue.qsize() == 1  # arm's CL enqueued, not ignored
+    _prio, _counter, item_type, payload = daemon._queue.get_nowait()
+    assert item_type == QUEUE_TYPE_EVENT  # CL is an ordinary event item
+    assert payload["sia_code"] == "CL"  # 'arm' cmd name → CL via _EVENT_SIA_CODES
+    assert payload["user_number"] == 1  # configured user carried through IPC
+    assert payload["zone_number"] is None  # never zone-addressed
+
+
 @pytest.mark.asyncio
 async def test_build_event_frame_bc_and_op_address_by_user_number():
     """AC5: BC/OP frames carry the configured user number as their address field, zero-
@@ -408,11 +436,13 @@ async def test_build_event_frame_bc_and_op_address_by_user_number():
     daemon = _make_daemon()
     bc = EventItem(sia_code="BC", zone=None, timestamp="12:00:00,09-25-2026", user_number=1)
     op = EventItem(sia_code="OP", zone=None, timestamp="12:00:00,09-25-2026", user_number=1)
+    cl = EventItem(sia_code="CL", zone=None, timestamp="12:00:00,09-26-2026", user_number=1)
     bc_with_stray_zone = EventItem(
         sia_code="BC", zone=None, timestamp="12:00:00,09-25-2026", zone_number=9, user_number=1
     )
 
     assert b"[#001234|BC 001]" in daemon._build_event_frame(bc)  # user-number address, zero-padded
     assert b"[#001234|OP 001]" in daemon._build_event_frame(op)  # same contract for OP
+    assert b"[#001234|CL 001]" in daemon._build_event_frame(cl)  # same contract for CL (13-4)
     # Assert: zone_number is ignored on BC/OP — the address always comes from user_number
     assert b"[#001234|BC 001]" in daemon._build_event_frame(bc_with_stray_zone)

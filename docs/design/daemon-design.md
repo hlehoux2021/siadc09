@@ -1415,3 +1415,32 @@ surgery).
   `event_type_fr()` case) whenever it is unparked.
 - CL/the `OP`-on-normal-disarm branch: story 13-4, filling the `else` branch of `disarm` and
   adding one more command (`arm`) and `Literal` member.
+
+## Arm/Disarm Reporting — Story 13-4 design decisions
+
+**Status:** implemented 2026-09-26. Fills the two gaps 13-1 deliberately left open.
+
+- `disarm`'s `else` branch (no BA open) now sends `OP` alone instead of logging at debug — a
+  normal disarm, outside any alarm context.
+- `SiaEventCode` gains `'CL'`; `_USER_ADDRESSED_SIA_CODES` gains `'CL'` (address by
+  `user_number`, same as `BC`/`OP`).
+- **`arm` is a fixed-mapping command, not a variable one.** Unlike `disarm`/`alarmReset`, `arm`
+  never varies its SIA code — it always means `CL`. It is therefore added to `_EVENT_SIA_CODES`
+  (`"arm": "CL"`), following the `burglarAlarm`/`fireAlarm`/`panicAlarm` pattern, **not** added
+  to `_VARIABLE_SIA_CODE_COMMANDS`. PHP's `arm` case never sends its own `sia_code` — the
+  daemon derives `CL` from the command name alone, same as it derives `BA` from
+  `burglarAlarm`.
+- `_event_context_prefix()` and `_build_event_frame()`'s two previously-hardcoded `("BC",
+  "OP")` tuples are both replaced by the `_USER_ADDRESSED_SIA_CODES` constant (already extended
+  to `CL`) — one place to extend if a future user-addressed code appears, instead of two.
+- `error_handler.py`: `EventFailedCtx.sia_code` widens to include `'CL'`. `event_type_fr('CL')
+  == 'armement'`. `build_notification()` gains a `CL` branch: subject `"L'armement"`/object
+  `"l'armement"`, masculine agreement (no trailing `e` on "transmis", same as `OP`), address
+  clause `"(utilisateur: N)"` — the address-clause condition widens from `("BC", "OP")` to
+  `("BC", "OP", "CL")`.
+- `siaDC09_update()` (13-1) needs no change: it already loops `postSave()` over every existing
+  `siaDC09` eqLogic, so adding `arm` to `$actionCmds` is enough to reach existing installs.
+- The alarm plugin's `activationImmediateOk` fires on every successful arm; `activationOk`
+  never fires again once `activationKo` has fired for the current arming session (a bypassed
+  zone). `arm` is wired on `activationImmediateOk` for that reason — see
+  `php-core-design.md`'s wiring table and `jeedom-alarm/SKILL.md`.
