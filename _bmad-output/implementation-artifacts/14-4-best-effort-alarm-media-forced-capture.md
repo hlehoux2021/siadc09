@@ -1,6 +1,6 @@
 # Story 14.4: Best-Effort Alarm Media — Any-Label Ranking + Forced Frigate Capture
 
-Status: ready-for-dev
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -209,7 +209,10 @@ ever being delayed.
   - [x] 5.1 `python3 -m pytest tests/level1/ tests/level2/ tests/level2_5/`. Compare against the baseline (level1 2,
         level2 6, level2_5 1) and name any new failure.
   - [x] 5.2 `python3 -m pylint resources/siadc09d/`; `php -l core/class/siaDC09.class.php core/class/siaDC09Cmd.class.php`.
-- [ ] **Task 6 — Live validation** (AC: 13)
+- [ ] **Task 6 — Live validation** (AC: 13) — **BLOCKED, 2026-09-27: no SSH access to
+      test-jeedom.lehoux.net from this session (port 22 times out; HTTPS to the Jeedom UI
+      itself is reachable). Commit `e9d5332` pushed to `origin/master`. Deferred, not
+      skipped, not fabricated as a pass — same precedent as 14-3's Task 6.3-6.6 blocker.**
   - [ ] 6.1 Commit and push when Herve asks, then `git pull` on test-jeedom.lehoux.net and restart the daemon. Check
         the daemon is actually running (memory `jeedom-daemon-down-looks-like-frozen-label`).
   - [ ] 6.2 Confirm the Frigate plugin's configured port is 5000, since create needs the admin role (Amendment 4
@@ -393,8 +396,71 @@ needs no change.
 
 ### Agent Model Used
 
+Claude Sonnet 5 (eu.anthropic.claude-sonnet-5)
+
 ### Debug Log References
+
+- Full regression run (2026-09-27): `tests/level1/ tests/level2/ tests/level2_5/` → 1705 passed, 9 failed —
+  identical to the known pre-existing baseline (memory `level1-test-baseline-failures`: level1 2, level2 6,
+  level2_5 1). 40 new tests added, 0 regressions.
+- `python3 -m pylint resources/siadc09d/` → 8.89/10 (baseline before this story: 8.85/10 — no new findings;
+  `frigate_prefetch.py` alone: 9.61/10 after refactor, remaining findings are the codebase's existing
+  f-string-logging/broad-except conventions).
+- `php -l` clean on `core/class/siaDC09.class.php`, `core/class/siaDC09Cmd.class.php`, and every PHP file under
+  `core/`/`desktop/`.
+- Live validation (Task 6) attempted 2026-09-27: `ssh test-jeedom.lehoux.net` times out (port 22) from this
+  session; `curl https://test-jeedom.lehoux.net/` returns 200/302, so the Jeedom UI itself is reachable but
+  `git pull` on the host is not possible from here. Commit `e9d5332` pushed to `origin/master` regardless, ready
+  for a session with SSH access to deploy and validate.
 
 ### Completion Notes List
 
+- Tasks 1-5 implemented via TDD (red-green-refactor per task), fully tested, 0 regressions. Task 6 (live
+  validation) is BLOCKED on network access — see Debug Log References — not skipped, not fabricated as a pass.
+- `frigate_prefetch.py`: `prefetch_person_event()`/`_query_latest_person_event()`/`_poll_clip_ready()` removed
+  (superseded by `prefetch_alarm_media()`/`_query_candidate_events()`/`_best_candidate()`, with the clip-upgrade
+  check now interleaved per-poll-iteration inside the orchestrator itself, since a blocking clip-only poll would
+  have stopped the any-label search from ever noticing a person event appearing later). `_check_clip_ready()` is
+  unchanged and still used. The orchestrator was refactored into `_create_forced_capture()`,
+  `_maybe_upgrade_clip()`, and a small generic `_run_with_deadline_timeout()` helper to keep pylint's
+  branches/statements/locals thresholds — confirmed no test coverage was lost, still 32/32 green after the split.
+- `siaDC09::_handlePrefetchResult()` now applies the AC6 run_id/rank monotonic rule via a new
+  `_prefetchResultShouldReplace()` helper, but still writes a fresh array literal on replace (never `array_merge`),
+  keeping the 14-2-era source-reflection test (`test_handle_prefetch_result_never_merges_stale_entries`) green —
+  only its docstring needed updating, not its assertions.
+- `siaDC09Cmd::execute()`'s `prefetchEvent` case now generates `run_id` and calls a new
+  `_writePrefetchPlaceholder()` before `sendToDaemon()`, per AC8. Kept the single shared `sia_prefetch_cache` key
+  (Dev Notes' "why a placeholder write, and why a single cache key stays") — recorded the residual
+  concurrent-writer race as a new deferred item, D-77, rather than refactoring to a per-camera key in this story.
+- Deferred-work.md updated: D-52 marked RESOLVED (the run_id/rank rule removes the "last callback wins" race
+  regardless of arrival order), D-53 marked "largely mitigated" (the manual event reaches the cache ~1s after t0
+  instead of ~25-31s), D-54 got a one-line note (the same-recency limitation now applies to any label, accepted
+  explicitly by Amendment 4), D-77 opened (single shared cache-key concurrency, accepted trade-off).
+- No new dependencies, no new config fields, no wizard/UI changes.
+- One new test file (`test_frigate_prefetch_cache_replace.py`) added for the AC6 replace-rule matrix via real PHP
+  execution (`ReflectionMethod`, no `setAccessible()` call needed — a no-op since PHP 8.1, deprecated in 8.5).
+- Sprint-status.yaml: `epic-14` reopened `done` → `in-progress` for this story (registered before this dev
+  session); left as `in-progress` here since Task 6 is still open. `14-4-...` stays `in-progress`, not moved to
+  `review`.
+
 ### File List
+
+- `resources/siadc09d/frigate_prefetch.py` (rewritten: forced capture, any-label ranking, orchestration)
+- `resources/siadc09d/daemon.py` (`_run_prefetch()` incremental callbacks; `Params` TypedDict `run_id`;
+  `on_message()` validates/forwards `run_id`)
+- `core/class/siaDC09.class.php` (`_handlePrefetchResult()` monotonic replace rule; new
+  `_prefetchResultShouldReplace()`; new `PREFETCH_RANK_NONE` constant)
+- `core/class/siaDC09Cmd.class.php` (`prefetchEvent` case generates `run_id` and writes the placeholder; new
+  `_writePrefetchPlaceholder()`; new `PREFETCH_RANK_NONE` constant)
+- `tests/level1/test_frigate_prefetch.py` (rewritten for `prefetch_alarm_media()` and its helpers)
+- `tests/level1/test_frigate_prefetch_trigger.py` (extended: `run_id`/placeholder source-shape + new real-execution
+  class `TestExecutePrefetchEventRealRun`)
+- `tests/level1/test_frigate_prefetch_cache_replace.py` (new: AC6 replace-rule matrix, real PHP execution)
+- `tests/level1/test_frigate_snapshot_resolution.py` (added AC11 regression case: entry carrying `run_id`/`rank`)
+- `tests/level1/test_php_eqlogic_stub.py` (docstring update on the "never merges" test — assertions unchanged)
+- `tests/level2/test_frigate_prefetch_dispatch.py` (rewritten for `prefetch_alarm_media()`/`run_id`/`rank`)
+- `tests/level2_5/test_callback_schema.py` (new `rank`/`run_id` field tests)
+- `tests/fixtures/ipc_schema.py` (`prefetch_result` schema extended with `rank`/`run_id`)
+- `_bmad-output/implementation-artifacts/deferred-work.md` (D-52 resolved, D-53/D-54 annotated, D-77 opened)
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` (14-4 registered/in-progress; epic-14 reopened)
+- `_bmad-output/implementation-artifacts/14-4-best-effort-alarm-media-forced-capture.md` (this story file)
