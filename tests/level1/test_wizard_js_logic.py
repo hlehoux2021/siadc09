@@ -156,6 +156,24 @@ def test_show_step_applies_readonly_on_step1(js_source: str) -> None:
     assert re.search(pattern, js_source, re.DOTALL)
 
 
+def test_show_step_3_fetches_persisted_eqlogic_via_byid(js_source: str) -> None:
+    """
+    Task 4.2 live-test finding (2026-09-26): sia_zone_mappings has no corresponding
+    .eqLogicAttr input, so getValues('.eqLogicAttr') can never return it — entering step 3
+    always saw an empty saved mapping, no camera pre-selected, and re-saving the zone table
+    silently wiped every frigate_camera_eqlogic_id to null. Step 3 must fetch the real
+    persisted eqLogic from the server instead of relying on the form-field scrape.
+
+    Expected result:
+    - the step===3 branch calls jeedom.eqLogic.byId(...)
+    - siaDC09_loadZoneData is called with the byId() success callback's result, not with
+      the raw getValues('.eqLogicAttr') result directly
+    """
+    pattern = r"step\s*===?\s*3.*?jeedom\.eqLogic\.byId\(\{.*?success:\s*function\s*\([^)]*\)\s*\{.*?siaDC09_loadZoneData\("
+    # Assert: step 3 fetches the persisted eqLogic before loading zone data
+    assert re.search(pattern, js_source, re.DOTALL)
+
+
 def test_set_wizard_step_updates_hidden_field(js_source: str) -> None:
     """
     siaDC09_setWizardStep must write to the hidden sia_wizard_step field.
@@ -480,6 +498,25 @@ def test_config_summary_displays_media_url_template(js_source: str) -> None:
     assert re.search(pattern, js_source, re.DOTALL), (
         "Connection summary must display frigate_media_url_template"
     )
+
+
+def test_config_summary_encryption_never_bare_truthy_check(js_source: str) -> None:
+    """
+    Task 4.2 live-test finding (2026-09-26): persisted checkbox config comes back as the
+    string "0" when unchecked (not absent), and a bare `cfg.encryption_enabled ?` check
+    treats "0" as truthy in JS — the summary always showed "activé" regardless of the
+    real saved state. Must compare against an explicit on-value, same convention already
+    used by siaDC09_fillFromPreset() for the same field.
+
+    Expected result:
+    - no bare `cfg.encryption_enabled ?` ternary anywhere in the source
+    - the encryption line instead uses an explicit equality check ('1', 1, or true)
+    """
+    # Assert: the old bare-truthy bug pattern is gone
+    assert not re.search(r"cfg\.encryption_enabled\s*\?", js_source)
+    # Assert: an explicit on-value comparison exists near the Chiffrement summary line
+    pattern = r"encryption_enabled\s*===\s*(true|'1'|1).*?Chiffrement|Chiffrement.*?encryption_enabled\s*===\s*(true|'1'|1)"
+    assert re.search(pattern, js_source, re.DOTALL)
 
 
 def test_config_summary_handles_empty_zones(js_source: str) -> None:

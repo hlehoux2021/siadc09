@@ -85,8 +85,19 @@ function siaDC09_showStep(step) {
     siaDC09_runConnectionTest()
   }
   if (step === 3) {
-    var eqLogic = $('.eqLogic').getValues('.eqLogicAttr')[0]
-    siaDC09_loadZoneData(eqLogic)
+    // sia_zone_mappings has no corresponding .eqLogicAttr input (it's a JS-managed config
+    // blob, not a rendered form field), so getValues('.eqLogicAttr') can never return it —
+    // it only ever reflects fields actually tagged in the DOM. Fetch the real persisted
+    // eqLogic from the server instead, or the saved camera mapping never pre-selects on
+    // wizard reload (bug found live 2026-09-26): the zone table then re-saves with every
+    // frigate_camera_eqlogic_id wiped to null, silently destroying the working mapping.
+    var eqLogicId = $('.eqLogic').getValues('.eqLogicAttr')[0].id
+    jeedom.eqLogic.byId({
+      id: eqLogicId,
+      success: function(fullEqLogic) {
+        siaDC09_loadZoneData(fullEqLogic)
+      }
+    })
   }
   if (step === 4) {
     siaDC09_initNotifyTarget()
@@ -667,10 +678,15 @@ function siaDC09_populateConfigSummary(eqLogic) {
   ).append(
     $('<span>').text((cfg.supervision_interval || 60) + 's, ' + (cfg.retry_count || 6) + ' tentatives')
   ).appendTo($conn)
+  // Persisted checkbox config comes back as the string "0" when unchecked, not absent —
+  // a bare truthy check on cfg.encryption_enabled treats "0" as truthy and always shows
+  // "activé" (bug found live 2026-09-26). Compare explicitly, same convention already used
+  // by siaDC09_fillFromPreset() for the same field.
+  var encryptionOn = cfg.encryption_enabled === true || cfg.encryption_enabled === '1' || cfg.encryption_enabled === 1
   $('<div>').append(
     $('<strong>').text('Chiffrement : ')
   ).append(
-    $('<span>').text(cfg.encryption_enabled ? 'activé' : 'désactivé')
+    $('<span>').text(encryptionOn ? 'activé' : 'désactivé')
   ).appendTo($conn)
   $('<div>').append(
     $('<strong>').text('URL media Frigate : ')

@@ -3,13 +3,17 @@ story_id: "14-1"
 story_key: "14-1-attach-frigate-snapshot-alarm-frame"
 epic_id: "epic-14"
 epic_name: "Camera Snapshot Attachment (Frigate Integration)"
-status: "in-progress"
+status: "review"
 created: "2026-09-22"
 ---
 
 # Story 14.1: Attach Frigate Snapshot to Alarm Frame (Majority Case Only)
 
-Status: in-progress
+Status: review — all tasks complete. Task 4.2 re-scoped to match the wizard's actual filtered-dropdown
+design (AC2's literal wording predates that design) and confirmed live 2026-09-26. Two unrelated bugs found
+during that live check fixed inline (Task 8): camera selection wasn't restored on wizard reload (and was
+silently wiping the working mapping on every Step 3 save — needs re-saving live), and the connection summary
+always showed encryption as "activé". 0 regressions.
 
 ## Story
 
@@ -119,11 +123,50 @@ camera missed the person), clip/video attachment, and the independent MQTT/REST 
         `_AJAX_ACTIONS` in `test_wizard_config_key_consistency.py` — all following the deletion of the now-dead
         `getCameraCommands` handler. 0 regressions.
 
-- [ ] Task 4: Live validation on the Jeedom test host (AC: 2, 7)
+- [x] Task 4: Live validation on the Jeedom test host (AC: 2, 7)
   - [x] 4.1 Deploy (git push then pull on the host — code arrives by git pull, per memory
         `jeedom-test-host-deploy`).
-  - [ ] 4.2 Map a zone to a real Frigate camera via the updated wizard Step 3; confirm the warning path if a
-        camera without `info_detect_person`/`info_url_snapshot` is selected.
+  - [x] 4.2 **Re-scoped and PASS (2026-09-26)** — AC2's literal wording ("if the selected camera equipment
+        doesn't expose both... saving the mapping warns the user") no longer matches how the wizard actually
+        works: `getFrigateCameras` (Task 1.2/6.4) already filters the dropdown to only qualifying cameras, so
+        a non-qualifying camera structurally cannot be selected in the first place. The only real warning
+        path is `#siaDC09-step3-nocamera`, shown when the discovered list is empty. Confirmed live: (a) the
+        dropdown lists real Frigate cameras correctly — "constaté plusieurs fois" (Herve); (b) the no-camera
+        banner did not appear, correctly, since qualifying cameras exist (not exercised for a genuinely empty
+        list, but no code path exists that could show it incorrectly); (c) saving Step 3 with no camera
+        selected for a zone does not crash or block (confirmed no validation code exists anywhere that could
+        block it). **Two real bugs found during this check, not part of AC2/4.2's own scope but fixed inline
+        per this story's established pattern (Tasks 5-7) — see Task 8.**
+
+- [x] Task 8 (new, 2026-09-26): Two bugs found during Task 4.2's live wizard walkthrough
+  - [x] 8.1 **Camera selection not restored on wizard reload — and silently destructive.** Confirmed via a
+        live `fullData` read of the eqLogic's own persisted `sia_zone_mappings`: after Herve reopened the
+        wizard and clicked through, both zones' `frigate_camera_eqlogic_id` had been overwritten to `null` —
+        the working mapping from story 14-3's live validation session was wiped. Root cause: `sia_zone_mappings`
+        has no corresponding `.eqLogicAttr` input anywhere in `desktop/php/siaDC09.php` (confirmed by grep),
+        so `siaDC09_showStep(3)`'s `$('.eqLogic').getValues('.eqLogicAttr')[0]` — which only ever reflects
+        DOM-tagged form fields — can never return it, regardless of what's actually persisted server-side.
+        `savedMapping` was therefore always `[]` on wizard entry, no camera ever pre-selected, and
+        `saveEqLogic()` then rebuilt the mapping from the (unselected) DOM rows, overwriting the real config
+        with nulls on every single Step 3 save. **Fixed:** `siaDC09_showStep`'s step-3 branch now fetches the
+        real persisted eqLogic via `jeedom.eqLogic.byId({id, success})` (Jeedom core API, confirmed against
+        `jeedom/core/core/js/eqLogic.class.js:307-333`) before calling `siaDC09_loadZoneData()`, instead of
+        the form-field scrape. New test `test_show_step_3_fetches_persisted_eqlogic_via_byid`
+        (`tests/level1/test_wizard_js_logic.py`). **The destroyed mapping needs re-saving on the live host**
+        (Zone1→vig-nord id 3, Zone2→vigi_sud-est id 4, per the 14-3 session's own logs) — not something this
+        fix restores automatically.
+  - [x] 8.2 **Connection summary always shows "Chiffrement : activé", regardless of the real config.**
+        Classic JS truthy-string bug: Jeedom persists an unchecked checkbox as the string `"0"`, not an
+        absent key, and `cfg.encryption_enabled ? 'activé' : 'désactivé'` treats any non-empty string —
+        including `"0"` — as truthy. Unrelated to Frigate, but found in the exact same
+        `siaDC09_populateConfigSummary()` function this story's own Task 7.3 already touched (to add the
+        media URL template line), so fixed inline rather than filed separately. **Fixed:** explicit equality
+        check (`=== true || === '1' || === 1`), same convention already used by `siaDC09_fillFromPreset()`
+        for the same field. New test `test_config_summary_encryption_never_bare_truthy_check`
+        (`tests/level1/test_wizard_js_logic.py`).
+  - [x] 8.3 `node --check` clean on `desktop/js/siaDC09.js`. Full `tests/level1/` suite: 1225 passed / 2
+        failed — exact pre-existing baseline (memory `level1-test-baseline-failures`), +2 new tests, 0
+        regressions.
   - [x] 4.3 Trigger an alarm while Frigate has an active person detection on the mapped camera; confirm the SIA
         frame's `[V...]` field carries the snapshot URL, read via the protocol inspector (story 9-2). **PASS
         (2026-09-23, 4th live attempt)** — see 4.11.
@@ -529,9 +572,9 @@ code was touched.
 | `core/class/siaDC09Cmd.class.php` | Added `_resolveFrigateSnapshotUrl()`; wired conditional `media_url` into `execute()`'s alarm-trigger payload. Fixed (2026-09-23, live-validation bug): swapped the non-existent scoped `cmd::byLogicalId()` call for `cmd::byEqLogicIdAndLogicalId()`. Task 6 (2026-09-23): swapped the `info_url_snapshot` read for `info_id` + new `frigate_media_url_template` config; added `_buildFrigateMediaUrl()`. |
 | `core/ajax/siaDC09.ajax.php` | Added `getFrigateCameras` action; deleted `getCameraCommands` (dead code, no remaining callers). Fixed (2026-09-23, same bug): swapped `cmd::byLogicalId()` for `cmd::byEqLogicIdAndLogicalId()`. Task 6 (2026-09-23): swapped its `info_url_snapshot` filter check for `info_id`. |
 | `desktop/php/siaDC09.php` | Step 3 zone table: merged two camera/media columns into one "Caméra Frigate" column; added `#siaDC09-step3-nocamera` warning banner. Task 6 (2026-09-23): added the `frigate_media_url_template` field above the zone table. Task 7 (2026-09-23): that field changed from `type="password"` to `type="text"` (never holds a real secret). |
-| `desktop/js/siaDC09.js` | `saveEqLogic()`, `siaDC09_loadZoneData()`, `siaDC09_loadZoneTable()`, `siaDC09_buildZoneRow()`, `siaDC09_populateConfigSummary()` updated for the single-camera schema (`frigate_camera_eqlogic_id`/`frigate_camera_label`) and the new `getFrigateCameras` AJAX action. Task 7 (2026-09-23): `bt_step4Finish`'s success callback resets `window.modifyWithoutSave`/`jeeFrontEnd.modifyWithoutSave` before `reload()`; `siaDC09_populateConfigSummary()` now displays `frigate_media_url_template`. |
+| `desktop/js/siaDC09.js` | `saveEqLogic()`, `siaDC09_loadZoneData()`, `siaDC09_loadZoneTable()`, `siaDC09_buildZoneRow()`, `siaDC09_populateConfigSummary()` updated for the single-camera schema (`frigate_camera_eqlogic_id`/`frigate_camera_label`) and the new `getFrigateCameras` AJAX action. Task 7 (2026-09-23): `bt_step4Finish`'s success callback resets `window.modifyWithoutSave`/`jeeFrontEnd.modifyWithoutSave` before `reload()`; `siaDC09_populateConfigSummary()` now displays `frigate_media_url_template`. Task 8 (2026-09-26): `siaDC09_showStep()`'s step-3 branch now fetches the persisted eqLogic via `jeedom.eqLogic.byId()` instead of `getValues('.eqLogicAttr')` (camera selection wasn't restored on reload and was silently wiping the saved mapping); `siaDC09_populateConfigSummary()`'s encryption line uses an explicit equality check instead of a bare truthy check on `cfg.encryption_enabled` (always showed "activé" due to the persisted `"0"` string). |
 | `tests/level1/test_frigate_snapshot_resolution.py` | New — structural tests for `_resolveFrigateSnapshotUrl()`, `getFrigateCameras`, and the conditional `media_url` wiring in `execute()`. Updated (2026-09-23) to assert `cmd::byEqLogicIdAndLogicalId()` instead of the non-existent scoped `byLogicalId()`, plus a new negative assertion forbidding `byLogicalId(` in both call sites. Task 6 (2026-09-23): 15 new tests — real-execution coverage of `_buildFrigateMediaUrl()` via a `php` subprocess harness, plus `info_id`/`frigate_media_url_template` assertions replacing `info_url_snapshot`. |
-| `tests/level1/test_wizard_js_logic.py` | Updated 2 tests that asserted on the deleted `camera_action_cmd_id`/`media_url_cmd_id`/labels JS fields to assert on `frigate_camera_eqlogic_id`/`frigate_camera_label` instead. Task 7 (2026-09-23): 2 new tests for the `modifyWithoutSave` reset and the connection summary's media URL display. |
+| `tests/level1/test_wizard_js_logic.py` | Updated 2 tests that asserted on the deleted `camera_action_cmd_id`/`media_url_cmd_id`/labels JS fields to assert on `frigate_camera_eqlogic_id`/`frigate_camera_label` instead. Task 7 (2026-09-23): 2 new tests for the `modifyWithoutSave` reset and the connection summary's media URL display. Task 8 (2026-09-26): 2 new tests — `test_show_step_3_fetches_persisted_eqlogic_via_byid`, `test_config_summary_encryption_never_bare_truthy_check`. |
 | `tests/level1/test_wizard_ajax_contracts.py` | Replaced the obsolete 6-test "getCameraCommands Action" section with a 5-test "getFrigateCameras Action" section. Docstring corrected (2026-09-23) to name `byEqLogicIdAndLogicalId`. Task 6 (2026-09-23): fixed the `info_url_snapshot`-substring assertion (incidental regression) to assert `info_id` plus a negative assertion. |
 | `tests/level1/test_wizard_config_key_consistency.py` | `_AJAX_ACTIONS`: `getCameraCommands` → `getFrigateCameras`. |
 | `resources/siadc09d/daemon.py` | Task 5 (2026-09-23): added `media_url` field to `EventItem`; `_queue_consumer()`'s `EventItem(...)` construction now passes `media_url=event_payload.get("media_url")`; `_build_event_frame()` adds `media_url` to `extended_data` when present. |
@@ -554,3 +597,4 @@ code was touched.
 | 2026-09-23 | Herve tested Task 6's wizard changes live and reported 3 UI findings. Added Task 7, implemented via `bmad-dev-story`, TDD red-first: media URL template field un-masked (`type="text"`, never held a real secret); `bt_step4Finish` no longer triggers a spurious browser "unsaved changes" prompt on Terminer (Jeedom core's `modifyWithoutSave` dirty-flag now reset before `reload()`, traced to `jeedom/core/desktop/common/js/utils.js`/`plugin.template.js`); connection summary now displays the media URL template. 3 new Level 1 tests. Full `tests/level1/`: 1138/8 — exact baseline, +3 new, 0 regressions. |
 | 2026-09-23 | Live validation attempt #4 — **PASS.** Received frame carries `[Vhttps://<user>:<password>@frigate.lehoux.net/api/events/1790193165.543115-0e6wzj/snapshot.jpg]` between the data field and the timestamp, template + `info_id` correctly combined. Confirms AC3/AC7/AC8 (userinfo-placeholder form) end to end on the real host. 4.3 and 4.10 marked done. Still open: 4.2 (warning path for a camera missing the two Frigate commands) and 4.4 (no-detection case sends normally with no `media_url`, no delay) — and AC8's query-token form (`?accesstoken=<token>`) hasn't been exercised live yet, only unit-tested. |
 | 2026-09-23 | Attempting 4.4, Herve found `info_detect_person` stuck at `1` from a real detection 14 minutes prior (Frigate's own UI confirmed the event had ended, 10s duration) — MQTT traffic was flowing generally, so not a total outage, specifically the 1→0 transition was never applied. Investigated `frigate.class.php`: `handleObject()` itself has no logic withholding a 0-transition, but `handleAllObject()`'s explicit force-clear-stragglers-to-0 safety net (keyed off the aggregate `info_detect_all`) shows the plugin author already anticipated this exact staleness — a known, partially-mitigated limitation, not fully solved. Documented as a new ADR-17 risk note (inverse of the risk ADR-17 originally worried about: a stale snapshot attached to a new alarm, not a missing one). Unblocked 4.4 with `frigate_force_detection.php --detect=0`; received frame `[#20881|BA 002]`, no `[V...]` — PASS, matches AC4. |
+| 2026-09-26 | Task 4.2 re-scoped to match the wizard's actual filtered-dropdown design (`getFrigateCameras` already excludes non-qualifying cameras, so AC2's literal "warn on selecting a bad camera" scenario can't occur) and confirmed live by Herve. Two unrelated bugs found during the live walkthrough, fixed inline as Task 8: (1) camera selection wasn't restored on wizard reload — `sia_zone_mappings` has no `.eqLogicAttr` input, so `getValues()` could never read it back, and `saveEqLogic()` then overwrote the real persisted mapping with nulls on every Step 3 save (confirmed via a live `fullData` read: 14-3's working Zone1/Zone2 camera mapping had already been wiped this way) — fixed by fetching the persisted eqLogic via `jeedom.eqLogic.byId()` instead; (2) the connection summary always showed "Chiffrement : activé" regardless of the real config — a bare truthy check on the persisted `"0"` string — fixed with an explicit equality check. 2 new Level 1 tests, `node --check` clean. Full `tests/level1/`: 1225 passed / 2 failed — exact pre-existing baseline, 0 regressions. All tasks now complete. **Live host note: the destroyed zone→camera mapping needs re-saving** (Zone1→vig-nord id 3, Zone2→vigi_sud-est id 4). Status `in-progress → review`. |
