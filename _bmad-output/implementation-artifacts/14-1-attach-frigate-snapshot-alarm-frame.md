@@ -3,17 +3,18 @@ story_id: "14-1"
 story_key: "14-1-attach-frigate-snapshot-alarm-frame"
 epic_id: "epic-14"
 epic_name: "Camera Snapshot Attachment (Frigate Integration)"
-status: "review"
+status: "done"
 created: "2026-09-22"
 ---
 
 # Story 14.1: Attach Frigate Snapshot to Alarm Frame (Majority Case Only)
 
-Status: review — all tasks complete. Task 4.2 re-scoped to match the wizard's actual filtered-dropdown
+Status: done — all tasks complete. Task 4.2 re-scoped to match the wizard's actual filtered-dropdown
 design (AC2's literal wording predates that design) and confirmed live 2026-09-26. Two unrelated bugs found
 during that live check fixed inline (Task 8): camera selection wasn't restored on wizard reload (and was
 silently wiping the working mapping on every Step 3 save — needs re-saving live), and the connection summary
-always showed encryption as "activé". 0 regressions.
+always showed encryption as "activé". Code review (2026-09-26): 1 finding (missing error callback on the new
+byId() call) fixed inline. 0 regressions throughout.
 
 ## Story
 
@@ -167,6 +168,15 @@ camera missed the person), clip/video attachment, and the independent MQTT/REST 
   - [x] 8.3 `node --check` clean on `desktop/js/siaDC09.js`. Full `tests/level1/` suite: 1225 passed / 2
         failed — exact pre-existing baseline (memory `level1-test-baseline-failures`), +2 new tests, 0
         regressions.
+  - [x] 8.4 **Code review finding (2026-09-26), fixed inline**: the new `jeedom.eqLogic.byId()` call (8.1)
+        was added with only a `success` callback, breaking the error-handling convention every other
+        `jeedom.eqLogic.*` call in this file follows. Verified against Jeedom core source
+        (`core/dom/dom.utils.js`, `core/js/private.class.js`): a hard network/HTTP failure still surfaces via
+        a global toast, but a logical/PHP-level failure (`state != 'ok'`, e.g. a stale eqLogic id) falls
+        through to a console-only default handler — the zone table then stays empty with nothing shown to
+        the user. Added an `error` callback showing `#div_alert`, same pattern as every other call site. New
+        test `test_show_step_3_byid_call_has_error_handler`. Full `tests/level1/`: 1226 passed / 2 failed —
+        exact baseline, +1 new test, 0 regressions.
   - [x] 4.3 Trigger an alarm while Frigate has an active person detection on the mapped camera; confirm the SIA
         frame's `[V...]` field carries the snapshot URL, read via the protocol inspector (story 9-2). **PASS
         (2026-09-23, 4th live attempt)** — see 4.11.
@@ -598,3 +608,4 @@ code was touched.
 | 2026-09-23 | Live validation attempt #4 — **PASS.** Received frame carries `[Vhttps://<user>:<password>@frigate.lehoux.net/api/events/1790193165.543115-0e6wzj/snapshot.jpg]` between the data field and the timestamp, template + `info_id` correctly combined. Confirms AC3/AC7/AC8 (userinfo-placeholder form) end to end on the real host. 4.3 and 4.10 marked done. Still open: 4.2 (warning path for a camera missing the two Frigate commands) and 4.4 (no-detection case sends normally with no `media_url`, no delay) — and AC8's query-token form (`?accesstoken=<token>`) hasn't been exercised live yet, only unit-tested. |
 | 2026-09-23 | Attempting 4.4, Herve found `info_detect_person` stuck at `1` from a real detection 14 minutes prior (Frigate's own UI confirmed the event had ended, 10s duration) — MQTT traffic was flowing generally, so not a total outage, specifically the 1→0 transition was never applied. Investigated `frigate.class.php`: `handleObject()` itself has no logic withholding a 0-transition, but `handleAllObject()`'s explicit force-clear-stragglers-to-0 safety net (keyed off the aggregate `info_detect_all`) shows the plugin author already anticipated this exact staleness — a known, partially-mitigated limitation, not fully solved. Documented as a new ADR-17 risk note (inverse of the risk ADR-17 originally worried about: a stale snapshot attached to a new alarm, not a missing one). Unblocked 4.4 with `frigate_force_detection.php --detect=0`; received frame `[#20881|BA 002]`, no `[V...]` — PASS, matches AC4. |
 | 2026-09-26 | Task 4.2 re-scoped to match the wizard's actual filtered-dropdown design (`getFrigateCameras` already excludes non-qualifying cameras, so AC2's literal "warn on selecting a bad camera" scenario can't occur) and confirmed live by Herve. Two unrelated bugs found during the live walkthrough, fixed inline as Task 8: (1) camera selection wasn't restored on wizard reload — `sia_zone_mappings` has no `.eqLogicAttr` input, so `getValues()` could never read it back, and `saveEqLogic()` then overwrote the real persisted mapping with nulls on every Step 3 save (confirmed via a live `fullData` read: 14-3's working Zone1/Zone2 camera mapping had already been wiped this way) — fixed by fetching the persisted eqLogic via `jeedom.eqLogic.byId()` instead; (2) the connection summary always showed "Chiffrement : activé" regardless of the real config — a bare truthy check on the persisted `"0"` string — fixed with an explicit equality check. 2 new Level 1 tests, `node --check` clean. Full `tests/level1/`: 1225 passed / 2 failed — exact pre-existing baseline, 0 regressions. All tasks now complete. **Live host note: the destroyed zone→camera mapping needs re-saving** (Zone1→vig-nord id 3, Zone2→vigi_sud-est id 4). Status `in-progress → review`. |
+| 2026-09-26 | Code review (`/bmad-code-review`): 1 finding — the new `jeedom.eqLogic.byId()` call (Task 8.1) had no `error` callback, breaking this file's established error-handling convention (verified against Jeedom core source: a logical/PHP-level failure would fail silently, console-only, leaving Step 3's zone table empty with no user feedback). Fixed inline: added an `error` callback showing `#div_alert`, matching every other `jeedom.eqLogic.*` call site. 1 new test. Full `tests/level1/`: 1226 passed / 2 failed — exact baseline, 0 regressions. Status `review → done`. |

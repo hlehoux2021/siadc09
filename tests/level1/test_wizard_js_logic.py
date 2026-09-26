@@ -174,6 +174,27 @@ def test_show_step_3_fetches_persisted_eqlogic_via_byid(js_source: str) -> None:
     assert re.search(pattern, js_source, re.DOTALL)
 
 
+def test_show_step_3_byid_call_has_error_handler(js_source: str) -> None:
+    """
+    Code review finding (2026-09-26): jeedom.eqLogic.byId() was added with only a success
+    callback. Network/HTTP failures still surface via Jeedom core's global toast, but a
+    logical/PHP-level failure (state != 'ok', e.g. a stale eqLogic id) falls through to a
+    console-only default handler — the zone table then stays empty with nothing shown to
+    the user, breaking the error-handling convention every other jeedom.eqLogic.* call in
+    this file follows.
+
+    Expected result:
+    - the step===3 jeedom.eqLogic.byId(...) call has an error callback that shows an alert
+      via #div_alert, same convention as every other AJAX call in this file
+    """
+    pattern = (
+        r"step\s*===?\s*3.*?jeedom\.eqLogic\.byId\(\{"
+        r".*?error:\s*function\s*\([^)]*\)\s*\{[^}]*div_alert[^}]*showAlert"
+    )
+    # Assert: byId() call has an error handler matching this file's established pattern
+    assert re.search(pattern, js_source, re.DOTALL)
+
+
 def test_set_wizard_step_updates_hidden_field(js_source: str) -> None:
     """
     siaDC09_setWizardStep must write to the hidden sia_wizard_step field.

@@ -94,6 +94,9 @@ function siaDC09_showStep(step) {
     var eqLogicId = $('.eqLogic').getValues('.eqLogicAttr')[0].id
     jeedom.eqLogic.byId({
       id: eqLogicId,
+      error: function(error) {
+        $('#div_alert').showAlert({ message: error.message, level: 'danger' })
+      },
       success: function(fullEqLogic) {
         siaDC09_loadZoneData(fullEqLogic)
       }
