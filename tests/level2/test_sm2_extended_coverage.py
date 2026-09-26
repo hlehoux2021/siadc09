@@ -244,6 +244,37 @@ class TestRetryMechanics:
         assert result == SM2State.FAILED
         assert daemon._sm2_state == SM2State.FAILED
 
+    @pytest.mark.asyncio
+    async def test_transport_error_event_failed_carries_user_number(self, daemon):
+        """Test: EVENT_FAILED context on the asyncio.TimeoutError/SIATransportError
+        retry-exhaustion path carries the event's user_number (story 13-1, ADR-18).
+
+        Code-review regression: this except-block's EventFailedCtx() call was
+        missing user_number=event_item.user_number, unlike its three sibling
+        EventFailedCtx call sites in _send_with_retry — a BC/OP event that fails
+        via a transport error (not a NAK/no-response) would render the T3
+        EVENT_FAILED notification's address clause as "<inconnu>".
+
+        Expected result:
+        - _notify called once with ErrorCode.EVENT_FAILED
+        - Context's user_number matches the EventItem's configured user_number
+        """
+        event = EventItem(sia_code="BC", zone=None, user_number=3,
+                           timestamp="12:30:45,04-13-2026")
+        daemon._send_raw = AsyncMock(side_effect=asyncio.TimeoutError())
+
+        await daemon._send_with_retry(event, max_retries=0)
+
+        event_failed_calls = [
+            c for c in daemon._notify.call_args_list
+            if c.args and c.args[0] == ErrorCode.EVENT_FAILED
+        ]
+        assert len(event_failed_calls) == 1
+
+        ctx = event_failed_calls[0].args[1]
+        # Assert: user_number reaches the EVENT_FAILED context, not the dataclass default
+        assert ctx.user_number == 3
+
 
 # ===== SEQUENCE NUMBER TESTS =====
 

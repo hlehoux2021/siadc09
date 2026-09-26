@@ -1618,6 +1618,7 @@ class SIADaemon(BaseDaemon):
                             max_retries=max_retries,
                             attempts_made=self._event_attempt_count,
                             last_error='timeout',
+                            user_number=event_item.user_number,
                         )
                     )
                     await self._update_info_commands({
