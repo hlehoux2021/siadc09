@@ -3,7 +3,7 @@ story_id: "13-1"
 story_key: "13-1-burglary-restore-cancel-events"
 epic_id: "epic-13"
 epic_name: "Alarm Event Vocabulary Extension (v1.1)"
-status: "in-progress"
+status: "review"
 created: "2026-09-17"
 ---
 
@@ -21,9 +21,9 @@ created: "2026-09-17"
 > **13-4** (backlog) ; FC/PC (incendie/panique) partent vers **13-3** (backlog). `burglaryCancel`
 > n'a jamais été livré — aucune migration n'est nécessaire. Voir ADR-18 (`architecture.md`).
 
-Status: in-progress — Tasks 1-9 closes le 2026-09-25 (conception, code PHP/démon, tests, docs).
-Seule Task 10 reste ouverte : validation IHM sur `test-jeedom.lehoux.net` contre la centrale
-interne (AC8), qui exige un `git push` puis une session avec Herve — hors de portée d'un agent.
+Status: review — Tasks 1-10 closes le 2026-09-25. Task 10 (validation live sur
+`test-jeedom.lehoux.net` contre la centrale interne, AC8) exécutée via l'API Jeedom
+(`core/api/jeeApi.php`, clés scopées par plugin), pas par clic manuel — voir Dev Agent Record.
 
 ## Story
 
@@ -212,8 +212,9 @@ désarmement normal si seul `alarmReset` est câblé.
       BA), niveau 1 construction de trame, niveau 2 charge utile IPC (`user_number`)
 - [x] Task 9: Documentation plugin (aide assistant étape 3) + note de câblage
       `.claude/skills/jeedom-alarm/SKILL.md` — insister sur « câbler les deux commandes »
-- [ ] Task 10: Validation IHM sur `test-jeedom` contre la centrale interne (AC8) — nécessite un
-      `git push` puis une session avec Herve
+- [x] Task 10: Validation live sur `test-jeedom` contre la centrale interne (AC8) — exécutée via
+      l'API Jeedom (`core/api/jeeApi.php`), après `git pull` + câblage manuel par Herve. Voir
+      Dev Agent Record pour le détail des scénarios et des preuves
 
 ## Dépendance
 
@@ -318,6 +319,42 @@ Claude Sonnet 5 (bmad-dev-story workflow, persona Amelia)
   régression : 1611 tests passés / 9 échecs, identique à la baseline (2 niveau 1, 6 niveau 2, 1
   niveau 2.5) sur les trois suites. Task 10 (validation IHM réelle) reste hors de portée de cette
   session — nécessite un `git push` et une session avec Herve sur `test-jeedom.lehoux.net`.
+- **Task 10 close (2026-09-25), validée en direct via l'API Jeedom, pas par clic manuel.**
+  Après le `git push`/`pull` et le câblage manuel par Herve (`disarm`→`release`,
+  `alarmReset`→`raz`, confirmé en relisant `config['release']`/`config['raz']` de l'eqLogic
+  `alarm` via `core/api/jeeApi.php?type=fullData`), trois scénarios exécutés contre la vraie
+  centrale interne, compte réel, avec nettoyage complet après chacun (désarmement + remise à
+  zéro des deux détecteurs virtuels) :
+  - **AC1 (disarm, BA ouverte → BC puis OP) :** `burglarAlarm` forcé, puis `released` appelé ;
+    interrogation à haute fréquence (session HTTP persistante, sans délai entre lectures) de
+    `event_state`/`event_label` a capturé les deux transitions dans l'ordre :
+    `t=0.035s → "Annulation (utilisateur 1) : Confirmée par la centrale"` puis
+    `t=0.052s → "Désarmement (utilisateur 1) : Confirmée par la centrale"` — BC puis OP,
+    17 ms d'écart, les deux réellement acquittés par la centrale.
+  - **AC3/AC4 (alarmReset, réinitialisation par changement de mode) :** chaîne physique réelle
+    — équipement armé, détecteur virtuel `Detecteur2` mis à 1, délai de déclenchement réel
+    observé (~31s) avant que `Statut` (état sonnant du plugin alarme) passe à 1 — puis rappel
+    de la **même** action de mode (« Standard ») pendant que l'alarme sonnait, sans passer par
+    `released`. Résultat : `event_label` = `"Annulation (utilisateur 1) : Confirmée par la
+    centrale"` (BC seul), et **`Actif` (`enable`) est resté à `1`** pendant que `Statut`
+    retombait à `0` — preuve directe que le système est resté armé (chemin `alarmReset`, pas
+    `disarm`).
+  - **AC2 (disarm, aucune BA ouverte → rien) :** armement puis `released` immédiat, sans alarme
+    entre les deux. `event_label` inchangé avant/après — aucune trame envoyée.
+  - **Non testé en direct, par construction :** la survie d'une entrée `FA`/`PA` concurrente au
+    travers d'un `_purgeOpenAlarms('BA')` (le bug corrigé cette session) — rien ne lit encore
+    cette mémoire côté API tant que la story 13-3 n'existe pas, donc rien n'est observable de
+    l'extérieur ; couvert uniquement par le test de régression PHP
+    (`test_disarm_with_ba_and_fire_open_purges_only_ba`). De même, la création des commandes par
+    `siaDC09_update()` (constat #2) n'a pas été déclenchée de façon isolée — les commandes
+    étaient déjà présentes après le `pull`+sauvegarde d'Herve, ce qui ne distingue pas
+    `postSave()` d'un enregistrement manuel de `siaDC09_update()` d'une mise à jour de plugin ;
+    couvert par les tests PHP unitaires seulement.
+  - **Mécanisme d'accès :** clés API scopées par plugin (`plugin=alarm`, `plugin=siaDC09`),
+    jamais la clé core, conformément à la préférence d'Herve. Découverte des identifiants de
+    commandes réels via `type=fullData` (lecture seule) ; déclenchements via `type=cmd&id=<id>`
+    (`execCmd()` réel — même chemin qu'un clic dans l'IHM ou qu'un capteur physique). Aucune
+    clé n'a été écrite sur disque au-delà d'un script `/tmp` supprimé en fin de session.
 
 ### File List
 
@@ -377,3 +414,4 @@ Claude Sonnet 5 (bmad-dev-story workflow, persona Amelia)
 | 2026-09-25 | **Story rescopée une seconde fois** (`sprint-change-proposal-2026-09-25.md`), après relecture du tableau DC-03 complet : `BC` s'adresse par **numéro d'utilisateur**, jamais par zone — l'éventail par zone livré le même jour n'était pas conforme DC-03. Périmètre étendu sur demande d'Herve : ajout d'`OP` (désarmement pendant une alarme) et de la commande `alarmReset` (câblée sur `raz`, pour le cas réinitialisation-par-changement-de-mode sans désarmement, découvert lors de cette relecture). `burglaryCancel`, l'éventail, la dérogation mono-zone et le repli compte sont retirés (jamais livrés en dehors de cette session, aucune migration). CL et l'OP du désarmement normal partent vers la nouvelle story 13-4 (backlog) ; FC/PC vers la 13-3 (backlog). Nouvel ADR-18. Tasks 1, 2, 4-9 rouvertes ; Task 3 (table `sia_open_alarms`) reste acquise, rôle réduit. Nouvelle Task 10 (validation IHM, remplace l'ancienne Task 9) |
 | 2026-09-25 | **Tasks 1-9 closes** (rescope de code, cette session). `burglaryCancel`/`_fanOutBurglaryCancel()`/`_closeOpenAlarm()` retirés de `siaDC09Cmd.class.php` ; `disarm`/`alarmReset` ajoutés (PHP : `postSave()`, `execute()` avec `_hasOpenAlarm()`/`_purgeOpenAlarms()`/`_resolveSiaUserNumber()` ; config `sia_user_number` assistant étape 3 ; démon : `SiaEventCode` + `'OP'`, dispatch `on_message()` à `sia_code` variable via `_VARIABLE_SIA_CODE_COMMANDS` — déviation documentée dans `daemon-design.md`, `_EVENT_SIA_CODES` n'exprimait pas BC-puis-OP sous un même nom de commande —, adresse `user_number` dans `_build_event_frame()`/`_event_context_prefix()` ; `error_handler.py` : `event_type_fr('OP')`, wording EVENT_FAILED nommant l'annulation/désarmement au lieu d'« alarme », adressé par utilisateur (constat #4) ; `siaDC09_update()` implémentée (constat #2) ; documentation assistant + `.claude/skills/jeedom-alarm/SKILL.md` réécrites, insistant sur le câblage des deux commandes ; design docs (Task 1) relus et corrigés pour cohérence avec le code livré. Tests : `test_burglary_cancel_behavior.py` réécrit (11 tests), `test_php_eqlogic_stub.py` (7 tests structurels remplacent les tests d'éventail), `test_error_handler.py` (+3 tests), `test_ipc_daemon_wiring.py` TC-IPC6 réécrit (5 tests), `test_sm2_alarm_event_suite.py` (labels BC/OP). Aucune régression : 1611 passed / 9 failed, identique à la baseline (2/6/1) sur level1/level2/level2.5. `php -l` propre sur tout `core/`+`desktop/`. `pylint resources/siadc09d/` : 8.85/10. Task 10 (validation IHM réelle) reste ouverte — hors de portée de cette session |
 | 2026-09-25 | **Correction post-implémentation.** `_purgeOpenAlarms()` videait la table `sia_open_alarms` **entière** sur un BC, y compris les entrées `FA`/`PA` concurrentes — contraire à l'intention documentée (« FA/PA restent mémorisées pour la story 13-3 ») et non couverte par un test. `_purgeOpenAlarms(string $siaCode)` retire désormais uniquement les entrées du code passé (`'BA'` aux deux points d'appel) ; un test de régression ajouté (`test_disarm_with_ba_and_fire_open_purges_only_ba`) couvre le cas BA+FA concurrents. Aucune régression (1188 passed / 2 niveau 1, 6 niveau 2, 1 niveau 2.5 — identique à la baseline, un test de plus qu'avant) |
+| 2026-09-25 | **Commit + push** (`16aaef1` docs, `1c5a36b` code+tests) sur `master`, sur demande explicite d'Herve. Puis **Task 10 close** : validation live sur `test-jeedom.lehoux.net` (compte réel, centrale interne réelle), exécutée par l'agent directement via l'API Jeedom (`core/api/jeeApi.php`, clés scopées par plugin fournies par Herve) après qu'Herve a fait le `git pull`, la sauvegarde de l'équipement (commandes `disarm`/`alarmReset` créées) et le câblage manuel (`disarm`→`release`, `alarmReset`→`raz`). AC1 capturé avec horodatage précis (BC confirmé à t=0.035s, OP à t=0.052s, 17ms d'écart, session HTTP à interrogation continue) ; AC3/AC4 confirmé via la chaîne physique réelle (capteur virtuel → délai de déclenchement réel ~31s → `Statut` sonnant) avec preuve directe que le système reste armé (`Actif` reste à 1) pendant la réinitialisation ; AC2 confirmé (rien envoyé sans alarme ouverte). Nettoyage complet après chaque scénario (désarmement, détecteurs à 0). La survie d'une entrée `FA`/`PA` concurrente (le bug corrigé ci-dessus) et la création des commandes par `siaDC09_update()` spécifiquement ne sont pas observables via cette API et restent couvertes par les seuls tests unitaires PHP. Statut : in-progress → review |

@@ -29,7 +29,7 @@
 # - SM typically creates next story ONLY after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then Dev runs code-review (fresh context, ideally different LLM)
 
-last_updated: "2026-09-25" # 13-1 rescoped a second time (sprint-change-proposal-2026-09-25.md): BC/OP addressed by user number, not zone; 13-3/13-4 registered as backlog
+last_updated: "2026-09-25" # 13-1 Task 10 closed — live validation via the Jeedom API against the real receiver on test-jeedom.lehoux.net; in-progress → review
 generated: "2026-05-04"
 project: "my-project"
 project_key: "NOKEY"
@@ -138,7 +138,7 @@ development_status:
 
   # Epic 13: Alarm Event Vocabulary Extension (v1.1)
   epic-13: in-progress
-  13-1-burglary-restore-cancel-events: in-progress  # rescoped 2026-09-25 (sprint-change-proposal-2026-09-25.md): DC-03 addresses BC by user number, not zone -- the 2026-09-25 per-zone fan-out was non-conformant. New design: `disarm` (on `release`) sends BC+OP, `alarmReset` (on `raz`) sends BC alone for a mode-change reset while staying armed. burglaryCancel/fan-out/mono-zone-override/account-fallback dropped, never shipped outside this session. Tasks 1,2,4-9 reopened; Task 3 (sia_open_alarms table) stays done, role reduced to an "is a BA open?" oracle. New Task 10 = live UI validation, needs a push + Herve
+  13-1-burglary-restore-cancel-events: review  # rescoped 2026-09-25 (sprint-change-proposal-2026-09-25.md): DC-03 addresses BC by user number, not zone -- the 2026-09-25 per-zone fan-out was non-conformant. New design: `disarm` (on `release`) sends BC+OP, `alarmReset` (on `raz`) sends BC alone for a mode-change reset while staying armed. burglaryCancel/fan-out/mono-zone-override/account-fallback dropped, never shipped outside this session. Committed+pushed (16aaef1 docs, 1c5a36b code+tests). Task 10 (live validation) closed same day: driven directly via the Jeedom API (plugin-scoped keys) against the real receiver on test-jeedom.lehoux.net, after Herve did the git pull, equipment save, and manual release/raz wiring. AC1 (BC then OP, 17ms apart) and AC3/AC4 (mode-change reset, system stays armed) captured with live timestamps; AC2 (no-op) confirmed. in-progress -> review
   13-2-burglary-restore-event: backlog  # parked 2026-09-18, no blocker but no SOURCE: no alarm-plugin action expresses "a detector returned to normal"; `reenableTrigger` is not a substitute. Three unparking conditions recorded in the story
   13-3-fire-panic-cancel-events: backlog  # registered 2026-09-25 (sprint-change-proposal-2026-09-25.md): FC/PC cancels for fire/panic, DC-03-conformant successors to Story 13.1's BC. Blocked on the FC/PC address-field definition and on which alarm-plugin action ends a fire/panic alarm
   13-4-arm-disarm-closing-opening-reports: backlog  # registered 2026-09-25 (sprint-change-proposal-2026-09-25.md): CL on arming (`activationImmediateOk`), OP on a normal disarm (fills the `else` branch of 13-1's `disarm` command), both by configured user number
@@ -218,6 +218,9 @@ development_status:
 # addresses BC by user number, not zone; two new backlog stories registered, 13-3 fire/panic cancels
 # and 13-4 arm/disarm CL/OP reporting; epic-13 stays in-progress, 13-1 stays in-progress;
 # total_stories 55→57, stories_backlog 4→6)
+# Updated: 2026-09-25 (13-1 Task 10 closed — live validation against the real receiver on
+# test-jeedom.lehoux.net via the Jeedom API, driven by the agent after Herve's manual pull/save/
+# wiring; in-progress → review; stories_in_progress 2→1, stories_review 1→2)
 summary:
   total_epics: 14
   total_stories: 57
@@ -226,6 +229,6 @@ summary:
   epics_done: 10
   stories_backlog: 6
   stories_ready_for_dev: 2
-  stories_in_progress: 2
-  stories_review: 1
+  stories_in_progress: 1
+  stories_review: 2
   stories_done: 46
