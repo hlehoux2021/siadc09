@@ -3,14 +3,17 @@ story_id: "12-5"
 story_key: "12-5-alarm-delivery-end-to-end"
 epic_id: "epic-12"
 epic_name: "Jeedom VM Integration Testing"
-status: "review"
+status: "done"
 created: "2026-05-29"
 analysis_completed: "2026-05-29"
 ---
 
 # Story 12.5: Alarm Delivery End-to-End
 
-Status: review
+Status: done — code review 2026-09-26 of the reopen→close reasoning trail: 1 decision resolved (AC8's
+cross-story account mismatch confirmed benign by Herve), 2 patches applied (corrected two "per this story's
+own Pass/Fail Protocol" framings that weren't accurate — AC9 and the AC10/AC11 transfer are honest overrides/
+open gaps, not protocol-compliant closures), 2 dismissed as noise.
 
 > **Réouverte 2026-09-18.** Le statut `done` était faux : la passe UDP (AC1–AC7, Tasks 0–7) est
 > validée, mais la passe TCP (AC8–AC11, Tasks 8–13, ajoutée le 2026-06-01) n'a jamais été exécutée —
@@ -185,11 +188,17 @@ For each "Verify" step:
       already exercised both FA and PA directly and confirmed identical behavior (Task 3, 2026-05-29,
       PASS); (c) Herve's explicit judgment call given the volume of TCP evidence gathered today via the
       shared code path. **Not directly proven for the TCP+FA/PA combination specifically** — recorded
-      here as an honest gap closed by inference, not a live re-execution, per this story's own
-      Pass/Fail Protocol.
+      here as an honest gap closed by inference, not a live re-execution. **Correction (code review
+      2026-09-26): this is an explicit human override of the Pass/Fail Protocol, not compliance with
+      it** — the Protocol above defines exactly three outcomes (PASS/FAIL/BLOCKED), none of which is
+      "closed by inference without an observation"; the earlier wording claiming this was "per this
+      story's own Pass/Fail Protocol" was inaccurate and has been corrected here.
   - [x] 10.1/10.2/10.3 Closed per the above — not independently executed this session.
 
-- [ ] ~~Task 11: TCP — NAK path T2 (AC: 10)~~ — **TRANSFÉRÉ 2026-09-18 à la story 12-7, Task 12.1.**
+- [ ] ~~Task 11: TCP — NAK path T2 (AC: 10)~~ — **TRANSFÉRÉ 2026-09-18 à la story 12-7, Task 12.1 —
+      toujours un écart ouvert, non exécuté (correction, code review 2026-09-26) : 12-7 est encore
+      `ready-for-dev`, sa Task 12 est décochée. Le transfert documente où la preuve doit être apportée,
+      pas qu'elle l'a été — même honnêteté que le transfert AC9/AC10 de la story 12-4 vers 12-7.**
       12-7 portait déjà ce test mot pour mot et sa Task 10 fait la mise en TCP. Ne pas exécuter ici.
       Le mode opératoire ci-dessous est conservé pour référence (le simulateur avec `--account FFFFFF`
       reste le seul moyen de provoquer un NAK à la demande — le récepteur réel n'en fournit pas sur commande).
@@ -207,7 +216,9 @@ For each "Verify" step:
         ```
   - [ ] 11.5 Wait for supervision recovery: `supervision_state=2`.
 
-- [ ] ~~Task 12: TCP — timeout path T3 (AC: 11)~~ — **TRANSFÉRÉ 2026-09-18 à la story 12-7, Task 12.2.**
+- [ ] ~~Task 12: TCP — timeout path T3 (AC: 11)~~ — **TRANSFÉRÉ 2026-09-18 à la story 12-7, Task 12.2 —
+      toujours un écart ouvert, non exécuté (correction, code review 2026-09-26), même statut que
+      Task 11 ci-dessus.**
       Mode opératoire conservé pour référence. Variante sans simulateur, si besoin de rester sur le
       récepteur réel : pointer `csr_port` sur un port fermé du même hôte → `ConnectionRefusedError` →
       3 retries → T3 `EVENT_FAILED`.
@@ -224,6 +235,51 @@ For each "Verify" step:
   - [x] 13.0 **DONE** — current live config already matches the reference config; no action needed.
   - [ ] 13.1 *(variante simulateur)* Not applicable — never switched away from the reference config.
   - [x] 13.2 N/A — daemon is on TCP (the reference config), not UDP; nothing to verify here.
+
+### Review Findings
+
+Code review 2026-09-26 of the reopen→close reasoning trail (commits `5474fec`..`aa98b5f`), three parallel
+adversarial layers (Blind Hunter, Edge Case Hunter, Acceptance Auditor). This is a docs/reasoning review, not
+a code review — no source files exist to patch. Findings verified against the actual cited evidence, not
+taken at face value.
+
+- [x] [Review][Decision] **Resolved by Herve (2026-09-26): AC8 accepted as-is** — account `20881` confirmed
+  as the account genuinely live during that point of story 14-2's 2026-09-24 session, before it was later
+  reconfigured to `001234` the same day. No reopening, no doc change to AC8 itself.
+  AC8's cross-story "cumulative evidence" cites the wrong account number — the frames
+  quoted from story 14-2's 2026-09-24 session (`[#20881|BA 002]...`, `14-2-frigate-event-prefetch-immediate-action.md:256,477,513`)
+  carry account `20881`, not this story's reference config account `001234`
+  (`test-sia-internal.lehoux.net`/`192.168.100.15:10002`, per this story's own Infrastructure table and memory
+  `sia-test-server-endpoint`). The closure's framing ("same receiver, same config, dozens of successful
+  deliveries") is contradicted by the very evidence cited for it — the daemon may have been pointed at a
+  different account during 14-2's session than the one this story claims to validate. This story's own fresh
+  Task 9 trigger was independently inconclusive (stale zone name + supervision blip), so with the borrowed
+  evidence now in question, AC8 may have no clean supporting evidence at all under its own reference config.
+  Herve must decide: (a) accept AC8 as-is (e.g. if `20881` was in fact the live account at that point in
+  14-2's session and `001234` was set later that day — needs a timeline check), or (b) reopen AC8 for a
+  clean, isolated re-run against the confirmed `001234` config.
+
+- [x] [Review][Patch] Self-contradictory Protocol framing — the Task 10/AC9 closure text says the inference
+  closure (fireAlarm/panicAlarm over TCP never triggered, closed on shared-dispatch-machinery reasoning
+  alone) is "per this story's own Pass/Fail Protocol," but the Protocol section above defines exactly three
+  outcomes (PASS/FAIL/BLOCKED) with no inferred-PASS category — verified by reading it directly. The
+  underlying code claim used to justify the inference (`_EVENT_SIA_CODES`/`_send_with_retry()`/
+  `_build_event_frame()` share one generic path with no event-type branching) is independently verified TRUE
+  against `resources/siadc09d/daemon.py`, so the inference itself is reasonable — but calling it Protocol
+  compliance is not accurate. **Fixed:** Task 10's closure text and the AC9 status-table line now both state
+  this was an explicit human override of the Protocol, not compliance with it.
+
+- [x] [Review][Patch] AC10/AC11 "transferred to 12-7" is presented as settled ("ne pas rejouer ici"), but
+  `12-7-error-handling-notification-delivery.md` is still `status: ready-for-dev` with Task 12 (which carries
+  these exact ACs) unchecked — confirmed, not yet executed anywhere. Story 12-4's own parallel transfer of
+  AC9/AC10 to 12-7 explicitly flags this as "a genuinely open gap -- 12-7 hasn't executed it either"; this
+  story's transfer language should match that same honesty rather than implying coverage exists. **Fixed:**
+  Task 11/Task 12's transfer notes and the AC10/AC11 status-table lines now explicitly say the gap is still
+  open and unexecuted, matching 12-4's wording pattern.
+
+Dismissed as noise (verified against the actual evidence, not applied): AC9's "no event-type branching in the
+send path" claim (confirmed true against `daemon.py`); AC3's zone-order-number claim (already established and
+tested under story 8.2 AC15, out of scope to re-litigate here).
 
 ## Dev Notes
 
@@ -489,10 +545,10 @@ claude-sonnet-4-6 (eu.anthropic.claude-sonnet-4-6)
 - AC5 (timeout path T3): PASS — 3 retries, CRITIQUE prefix, T3 notification ✓ *(UDP)*
 - AC6 (ring buffer alarm entry): PASS (verified in 12-4 session, confirmed dialog_type=alarm) ✓
 - AC7 (event_state persists): PASS — event_state=1 survives daemon restart ✓
-- AC8 (TCP happy path): PASS — trame BA en TCP vers `192.168.100.15:10002` acquittée le 2026-09-17 22:01:49 (preuve sous 8.2 AC15), plus des dizaines de livraisons BA/TCP réussies le 2026-09-24 pendant la session story 14-2 (mêmes récepteur/transport), toutes confirmées `SM2 confirmed`/`Centrale confirmée`. `event_state=1` confirmé fonctionnellement via ces logs (mapping SM2 CONFIRMED → event_state=1), pas via une lecture isolée fraîche de la commande `event_state` le 2026-09-24 (la tentative faite ce jour-là est tombée dans une coupure de supervision transitoire — voir Task 9). ✓
-- AC9 (TCP FA/PA): **CLOSED 2026-09-24 sur décision explicite de Herve** — fireAlarm/panicAlarm n'ont pas été déclenchés en TCP ce jour-là (la session du jour portait uniquement sur burglarAlarm, périmètre de la story 14-2). Fermé par inférence : même mécanique de dispatch que burglarAlarm (`_EVENT_SIA_CODES`/`_send_with_retry()`/`_build_event_frame()`, aucune branche spécifique au type d'événement), déjà prouvé directement en UDP (Task 3, 2026-05-29). **Non prouvé directement pour la combinaison TCP+FA/PA** — écart assumé et documenté, pas caché.
-- AC10 (TCP NAK T2): **TRANSFÉRÉ** à 12-7 Task 12.1 (2026-09-18)
-- AC11 (TCP timeout T3): **TRANSFÉRÉ** à 12-7 Task 12.2 (2026-09-18)
+- AC8 (TCP happy path): PASS — trame BA en TCP vers `192.168.100.15:10002` acquittée le 2026-09-17 22:01:49 (preuve sous 8.2 AC15), plus des dizaines de livraisons BA/TCP réussies le 2026-09-24 pendant la session story 14-2 (mêmes récepteur/transport ; compte `20881` à ce moment de la session 14-2, avant reconfiguration en `001234` — confirmé par Herve, code review 2026-09-26, accepté tel quel), toutes confirmées `SM2 confirmed`/`Centrale confirmée`. `event_state=1` confirmé fonctionnellement via ces logs (mapping SM2 CONFIRMED → event_state=1), pas via une lecture isolée fraîche de la commande `event_state` le 2026-09-24 (la tentative faite ce jour-là est tombée dans une coupure de supervision transitoire — voir Task 9). ✓
+- AC9 (TCP FA/PA): **CLOSED 2026-09-24 sur décision explicite de Herve** — fireAlarm/panicAlarm n'ont pas été déclenchés en TCP ce jour-là (la session du jour portait uniquement sur burglarAlarm, périmètre de la story 14-2). Fermé par inférence : même mécanique de dispatch que burglarAlarm (`_EVENT_SIA_CODES`/`_send_with_retry()`/`_build_event_frame()`, aucune branche spécifique au type d'événement — vérifié contre le code réel), déjà prouvé directement en UDP (Task 3, 2026-05-29). **Non prouvé directement pour la combinaison TCP+FA/PA** — écart assumé et documenté, pas caché. **Correction (code review 2026-09-26) : ceci est une dérogation explicite au Pass/Fail Protocol, pas une conformité à celui-ci** — le Protocol ne définit que PASS/FAIL/BLOCKED, aucune catégorie "clos par inférence".
+- AC10 (TCP NAK T2): **TRANSFÉRÉ** à 12-7 Task 12.1 (2026-09-18) — **écart toujours ouvert, non exécuté** (correction, code review 2026-09-26) : 12-7 reste `ready-for-dev`, Task 12 décochée
+- AC11 (TCP timeout T3): **TRANSFÉRÉ** à 12-7 Task 12.2 (2026-09-18) — même statut que AC10 ci-dessus
 
 ### File List
 
