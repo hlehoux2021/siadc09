@@ -432,7 +432,14 @@ def build_notification(code: ErrorCode, context: dict[str, Any]) -> Notification
         _event_object, _event_gender_e = "l'alarme", "e"
 
     if _event_sia_code in USER_ADDRESSED_SIA_CODES:
-        _event_address_clause = f"(utilisateur: {context.get('user_number', '<inconnu>')})"
+        # context['user_number'] is always present but may be None (EventFailedCtx defaults
+        # to None) — dict.get(key, default) only falls back when the KEY is absent, not when
+        # its value is None, so the old bare .get(..., '<inconnu>') rendered the literal text
+        # "(utilisateur: None)" (code review 2026-09-26).
+        _event_user_number = context.get('user_number')
+        _event_address_clause = (
+            f"(utilisateur: {_event_user_number if _event_user_number is not None else '<inconnu>'})"
+        )
     else:
         _event_address_clause = (
             "(zone: " + str(context.get("zone_name", context.get("zone", "<inconnu>"))) + ")"

@@ -107,6 +107,30 @@ def test_event_failed_message_names_cancel_or_disarm_not_alarme(
     assert expected_object in payload["message"], payload["message"]
 
 
+def test_event_failed_message_shows_inconnu_not_none_when_user_number_is_none() -> None:
+    """
+    Code review finding (2026-09-26): EventFailedCtx.user_number defaults to None, and
+    to_dict() always includes the key ("user_number": ctx.user_number) — so the context dict
+    passed to build_notification() always HAS the key, just possibly with value None.
+    dict.get(key, default) only falls back when the key is ABSENT, never when its value is
+    None, so the old `context.get('user_number', '<inconnu>')` rendered the literal text
+    "(utilisateur: None)" whenever a BC/OP/CL failure was notified before user_number had
+    ever been resolved.
+
+    Expected result:
+    - the address clause reads "(utilisateur: <inconnu>)", never "(utilisateur: None)"
+    """
+    from resources.siadc09d.error_handler import build_notification
+
+    payload = build_notification(
+        ErrorCode.EVENT_FAILED,
+        {"sia_code": "BC", "user_number": None, "attempts_made": 3},
+    )
+    # Assert: the fallback text is shown, not the literal string "None"
+    assert "(utilisateur: <inconnu>)" in payload["message"], payload["message"]
+    assert "None" not in payload["message"], payload["message"]
+
+
 def test_all_error_codes_defined() -> None:
     """All 6 error codes defined and accessible.
 

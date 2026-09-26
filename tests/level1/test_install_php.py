@@ -59,6 +59,30 @@ def test_install_php_has_update_hook(install_source: str) -> None:
     )
 
 
+def test_install_php_update_hook_isolates_each_eqlogic(install_source: str) -> None:
+    """
+    Code review finding (2026-09-26): siaDC09_update() iterates every siaDC09 eqLogic and
+    calls postSave() on each, unconditionally and with no try/catch — one misbehaving
+    equipment (bad cache, malformed config) would throw and abort migration for every other
+    equipment after it in the loop, on every future plugin update, forever.
+
+    Expected result:
+    - the postSave() call inside siaDC09_update()'s loop is wrapped in a try/catch
+    """
+    import re
+
+    match = re.search(
+        r"function siaDC09_update\(\).*?\n\}", install_source, re.DOTALL
+    )
+    assert match, "siaDC09_update() function body not found"
+    body = match.group(0)
+    # Assert: postSave() call is guarded so one bad eqLogic can't abort the rest
+    assert re.search(r"try\s*\{[^}]*postSave\(\)", body, re.DOTALL), (
+        "siaDC09_update() must wrap postSave() in try/catch per eqLogic"
+    )
+    assert "catch" in body
+
+
 def test_install_php_has_remove_hook(install_source: str) -> None:
     """
     siaDC09_remove() function must be defined. Called on plugin removal.

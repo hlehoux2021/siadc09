@@ -267,6 +267,30 @@ def test_disarm_defaults_user_number_to_one_when_unconfigured() -> None:
     assert numbers == [1, 1]
 
 
+@pytest.mark.parametrize("bad_user_number", [0, -1, 1000, 9999])
+def test_disarm_falls_back_to_one_when_sia_user_number_out_of_range(bad_user_number: int) -> None:
+    """
+    Code review finding (2026-09-26): the wizard field has min="1" max="999" (DC-03 Annex B:
+    3 zero-padded digits) but nothing enforced that range server-side — a saved out-of-range
+    value would reach f"{n:03d}" unclamped on the daemon side, breaking the fixed-width
+    address-field contract (a negative number, or 4+ digits).
+
+    Expected result:
+    - an out-of-range configured sia_user_number falls back to the same default (1) as an
+      unconfigured one, never reaching the daemon payload as-is
+    """
+    out = _run(
+        [
+            {"logical_id": "burglarAlarm", "title": "Salon"},
+            {"logical_id": "disarm"},
+        ],
+        user_number=bad_user_number,
+    )
+    numbers = [p["user_number"] for p in _cancel_frames(out["sent"])]
+    # Assert: out-of-range value clamped to the default, never sent as-is
+    assert numbers == [1, 1]
+
+
 # ── Story 13-4 — arm (wired on `activationImmediateOk`) ──────────────────────────
 
 

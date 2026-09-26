@@ -413,6 +413,45 @@ async def test_on_message_disarm_declaring_cl_is_rejected(caplog):
     assert "sia_code" in caplog.text  # the anomaly is traceable
 
 
+@pytest.mark.asyncio
+async def test_on_message_rejects_bc_with_missing_user_number(caplog):
+    """Code review finding (2026-09-26): AC5 requires the BC/OP/CL address field is NEVER
+    empty. Before this fix, a missing/unparsable user_number for a user-addressed code just
+    logged a warning and enqueued the frame anyway with user_number=None (silently sent with
+    no address field at all) — unlike an invalid sia_code, which is already rejected outright.
+
+    Expected:
+    - no EVENT item is enqueued when user_number is missing for a user-addressed sia_code
+    - a warning is logged
+    """
+    daemon = _make_daemon()
+    daemon._logger = logging.getLogger("test_missing_user_number")
+
+    with caplog.at_level(logging.WARNING, logger="test_missing_user_number"):
+        await daemon.on_message("disarm", {"sia_code": "BC"})
+
+    assert daemon._queue.qsize() == 0  # never enqueued without a resolvable address
+    assert "user_number" in caplog.text  # the anomaly is traceable
+
+
+@pytest.mark.asyncio
+async def test_on_message_rejects_bc_with_unparsable_user_number(caplog):
+    """Same AC5 guarantee, for an unparsable (not just missing) user_number.
+
+    Expected:
+    - no EVENT item is enqueued
+    - a warning is logged
+    """
+    daemon = _make_daemon()
+    daemon._logger = logging.getLogger("test_unparsable_user_number")
+
+    with caplog.at_level(logging.WARNING, logger="test_unparsable_user_number"):
+        await daemon.on_message("disarm", {"sia_code": "BC", "user_number": "not-a-number"})
+
+    assert daemon._queue.qsize() == 0  # never enqueued with an unresolvable address
+    assert "user_number" in caplog.text  # the anomaly is traceable
+
+
 # ===== TC-IPC7: arm → CL by user number (story 13-4, ADR-18) =====
 
 
@@ -471,3 +510,24 @@ async def test_build_event_frame_bc_and_op_address_by_user_number():
         sia_code="CL", zone=None, timestamp="12:00:00,09-26-2026", zone_number=9, user_number=1
     )
     assert b"[#001234|CL 001]" in daemon._build_event_frame(cl_with_stray_zone)
+
+
+@pytest.mark.asyncio
+async def test_build_event_frame_omits_address_for_out_of_range_user_number():
+    """Code review finding (2026-09-26), defense in depth: on_message() already rejects a
+    missing user_number for BC/OP/CL, and PHP's own _resolveSiaUserNumber() now clamps to
+    1-999 — but _build_event_frame() itself must not trust an out-of-range value either, in
+    case any future caller bypasses both of those guards. f"{n:03d}" on a negative or 4+
+    digit number would silently break the fixed-width Annex B address-field contract.
+
+    Expected:
+    - an out-of-range user_number (negative or >999) omits the address field entirely,
+      exactly like a None user_number — never a malformed one
+    """
+    daemon = _make_daemon()
+    negative = EventItem(sia_code="BC", zone=None, timestamp="12:00:00,09-26-2026", user_number=-1)
+    too_big = EventItem(sia_code="OP", zone=None, timestamp="12:00:00,09-26-2026", user_number=1000)
+
+    # Assert: no address field at all — never a signed or over-width one
+    assert b"[#001234|BC]" in daemon._build_event_frame(negative)
+    assert b"[#001234|OP]" in daemon._build_event_frame(too_big)

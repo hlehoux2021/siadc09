@@ -3,7 +3,7 @@ story_id: "13-1"
 story_key: "13-1-burglary-restore-cancel-events"
 epic_id: "epic-13"
 epic_name: "Alarm Event Vocabulary Extension (v1.1)"
-status: "review"
+status: "done"
 created: "2026-09-17"
 ---
 
@@ -21,9 +21,13 @@ created: "2026-09-17"
 > **13-4** (backlog) ; FC/PC (incendie/panique) partent vers **13-3** (backlog). `burglaryCancel`
 > n'a jamais été livré — aucune migration n'est nécessaire. Voir ADR-18 (`architecture.md`).
 
-Status: review — Tasks 1-10 closes le 2026-09-25. Task 10 (validation live sur
+Status: done — Tasks 1-10 closes le 2026-09-25. Task 10 (validation live sur
 `test-jeedom.lehoux.net` contre la centrale interne, AC8) exécutée via l'API Jeedom
 (`core/api/jeeApi.php`, clés scopées par plugin), pas par clic manuel — voir Dev Agent Record.
+Code review 2026-09-26 : 4 patches appliqués et testés (validation de plage `sia_user_number`,
+isolation try/catch dans `siaDC09_update()`, rejet daemon d'une adresse manquante pour BC/OP/CL,
+bug `dict.get`/`None` dans la notification EVENT_FAILED), 5 items différés, 3 rejetés comme bruit.
+0 régression.
 
 ## Story
 
@@ -216,6 +220,22 @@ désarmement normal si seul `alarmReset` est câblé.
       l'API Jeedom (`core/api/jeeApi.php`), après `git pull` + câblage manuel par Herve. Voir
       Dev Agent Record pour le détail des scénarios et des preuves
 
+### Review Findings
+
+Code review 2026-09-26 (`300b02a..ed8af11`, code+tests only — docs/design excluded from this pass),
+three parallel adversarial layers (Blind Hunter, Edge Case Hunter, Acceptance Auditor). All findings
+verified against the actual code, not taken at face value.
+
+- [x] [Review][Patch] `_resolveSiaUserNumber()` had no range validation [`core/class/siaDC09Cmd.class.php`] — the wizard field has `min="1" max="999"` (DC-03 Annex B: 3 zero-padded digits) but that's HTML-only; a saved 0/negative/>999 value would reach `f"{n:03d}"` on the daemon side unclamped. **Fixed:** clamp to 1-999, fallback to the existing default (1) otherwise. New parametrized test `test_disarm_falls_back_to_one_when_sia_user_number_out_of_range` (0, -1, 1000, 9999).
+- [x] [Review][Patch] `siaDC09_update()` had no try/catch around `postSave()` [`plugin_info/install.php`] — one misbehaving eqLogic would throw and abort migration for every other siaDC09 eqLogic on the same instance, on every future plugin update. **Fixed:** each `postSave()` call is now isolated in its own try/catch, logging and continuing. New test `test_install_php_update_hook_isolates_each_eqlogic`.
+- [x] [Review][Patch] AC5 gap — daemon didn't enforce "address field is never empty" at the IPC boundary [`resources/siadc09d/daemon.py`, `on_message()`] — a missing/unparsable `user_number` for a user-addressed code (BC/OP/CL) just logged a warning and enqueued the frame anyway with no address field, unlike an invalid `sia_code`, which is already rejected outright. Confirmed unreachable from today's only real caller (PHP always resolves a valid default) but latent and untested. **Fixed:** reject (warn + drop), same as the `sia_code` validation. New tests `test_on_message_rejects_bc_with_missing_user_number`, `test_on_message_rejects_bc_with_unparsable_user_number`.
+- [x] [Review][Patch] `f"{user_number:03d}"` had no bounds check in `_build_event_frame()` [`resources/siadc09d/daemon.py`] — defense in depth alongside the two fixes above, in case a future caller bypasses both. **Fixed:** omit the address field entirely for an out-of-range value (same as `None`), never format one unchecked. New test `test_build_event_frame_omits_address_for_out_of_range_user_number`.
+- [x] [Review][Patch] `context.get('user_number', '<inconnu>')` never actually falls back [`resources/siadc09d/error_handler.py:435`] — `EventFailedCtx.user_number` defaults to `None` and `to_dict()` always includes the key, so `dict.get(key, default)`'s default never triggers (it only applies when the key is *absent*, not when its value is `None`) — a BC/OP/CL failure notified before `user_number` was ever resolved rendered the literal text "(utilisateur: None)" in a French user-facing notification. **Fixed:** explicit `is not None` check. New test `test_event_failed_message_shows_inconnu_not_none_when_user_number_is_none`.
+
+Deferred (real, pre-existing pattern or accepted design characteristic, not newly actionable — appended to `deferred-work.md`): two `sendToDaemon()` calls (BC then OP) with no atomicity and unconditional purge regardless of send success (pre-existing fire-and-forget local-socket IPC, identical pattern used by every command in the plugin, not fixable within this story); a theoretical concurrent disarm/alarmReset race producing a double BC (mitigated today by the alarm plugin's own documented release-before-raz ordering guarantee, same risk class as 14-2's D-52/D-53); the global `sia_user_number` meaning every household member disarms under the same SIA address (a disclosed Jeedom-platform limitation — the alarm plugin never exposes which user disarmed — not something this story could fix); debug-only logging collapsing two distinct "no open alarm" states for `alarmReset`; hardcoded French grammatical-gender flags in `build_notification()`, fragile for a future SIA code.
+
+Dismissed as noise (verified false against the actual code): "`_hasOpenAlarm`/`_purgeOpenAlarms` assume at most one open alarm, contradicted by per-zone keying" — false: DC-03 deliberately carries no zone info for BC/OP (ADR-18), so collapsing every open per-zone BA entry into one account-level BC is the correct, intended design, not a bug; "`_EVENT_SIA_CODES` phrasing vs. the shipped `_VARIABLE_SIA_CODE_COMMANDS` design" — already disclosed and justified in this story's own Dev Notes, not a hidden deviation; "`burglaryCancel` legacy alias is unverified dead code" — it's a French-label lookup entry for the SIA code `"BC"`, not code invoked by name, no functional risk.
+
 ## Dépendance
 
 Le retrait de l'éventail par zone rend la story indépendante de `zone_number`/
@@ -389,7 +409,24 @@ Claude Sonnet 5 (bmad-dev-story workflow, persona Amelia)
   tests structurels (`disarm_body`/`alarm_reset_body` fixtures, `_hasOpenAlarm`/
   `_purgeOpenAlarms`, ordre BC avant OP, `user_number`, silences debug)
 - `tests/level1/test_error_handler.py` — `event_type_fr('OP')` + 2 tests paramétrés sur le
-  wording EVENT_FAILED BC/OP
+  wording EVENT_FAILED BC/OP. Code review 2026-09-26 : `test_event_failed_message_shows_inconnu_not_none_when_user_number_is_none`
+- `core/class/siaDC09Cmd.class.php` — Code review 2026-09-26 : `_resolveSiaUserNumber()` clamp
+  1-999
+- `plugin_info/install.php` — Code review 2026-09-26 : `postSave()` isolé par try/catch dans
+  `siaDC09_update()`
+- `resources/siadc09d/daemon.py` — Code review 2026-09-26 : `on_message()` rejette `user_number`
+  manquant/invalide pour un code adressé utilisateur ; `_build_event_frame()` garde-fou de plage
+  0-999 avant `f"{n:03d}"`
+- `resources/siadc09d/error_handler.py` — Code review 2026-09-26 : correction du bug
+  `dict.get(key, default)`/`None` sur la clause d'adresse EVENT_FAILED
+- `tests/level1/test_burglary_cancel_behavior.py` — Code review 2026-09-26 : test paramétré
+  `test_disarm_falls_back_to_one_when_sia_user_number_out_of_range` (0, -1, 1000, 9999)
+- `tests/level1/test_install_php.py` — Code review 2026-09-26 :
+  `test_install_php_update_hook_isolates_each_eqlogic`
+- `tests/level2/test_ipc_daemon_wiring.py` — Code review 2026-09-26 :
+  `test_on_message_rejects_bc_with_missing_user_number`,
+  `test_on_message_rejects_bc_with_unparsable_user_number`,
+  `test_build_event_frame_omits_address_for_out_of_range_user_number`
 - `tests/level2/test_ipc_daemon_wiring.py` — TC-IPC6 réécrit (`disarm`→BC, `disarm`→OP,
   `alarmReset`→BC, `sia_code` invalide, frame adressée par `user_number`)
 - `tests/level2/test_sm2_alarm_event_suite.py` — label BC/OP au format `(utilisateur N)`,
@@ -415,3 +452,4 @@ Claude Sonnet 5 (bmad-dev-story workflow, persona Amelia)
 | 2026-09-25 | **Tasks 1-9 closes** (rescope de code, cette session). `burglaryCancel`/`_fanOutBurglaryCancel()`/`_closeOpenAlarm()` retirés de `siaDC09Cmd.class.php` ; `disarm`/`alarmReset` ajoutés (PHP : `postSave()`, `execute()` avec `_hasOpenAlarm()`/`_purgeOpenAlarms()`/`_resolveSiaUserNumber()` ; config `sia_user_number` assistant étape 3 ; démon : `SiaEventCode` + `'OP'`, dispatch `on_message()` à `sia_code` variable via `_VARIABLE_SIA_CODE_COMMANDS` — déviation documentée dans `daemon-design.md`, `_EVENT_SIA_CODES` n'exprimait pas BC-puis-OP sous un même nom de commande —, adresse `user_number` dans `_build_event_frame()`/`_event_context_prefix()` ; `error_handler.py` : `event_type_fr('OP')`, wording EVENT_FAILED nommant l'annulation/désarmement au lieu d'« alarme », adressé par utilisateur (constat #4) ; `siaDC09_update()` implémentée (constat #2) ; documentation assistant + `.claude/skills/jeedom-alarm/SKILL.md` réécrites, insistant sur le câblage des deux commandes ; design docs (Task 1) relus et corrigés pour cohérence avec le code livré. Tests : `test_burglary_cancel_behavior.py` réécrit (11 tests), `test_php_eqlogic_stub.py` (7 tests structurels remplacent les tests d'éventail), `test_error_handler.py` (+3 tests), `test_ipc_daemon_wiring.py` TC-IPC6 réécrit (5 tests), `test_sm2_alarm_event_suite.py` (labels BC/OP). Aucune régression : 1611 passed / 9 failed, identique à la baseline (2/6/1) sur level1/level2/level2.5. `php -l` propre sur tout `core/`+`desktop/`. `pylint resources/siadc09d/` : 8.85/10. Task 10 (validation IHM réelle) reste ouverte — hors de portée de cette session |
 | 2026-09-25 | **Correction post-implémentation.** `_purgeOpenAlarms()` videait la table `sia_open_alarms` **entière** sur un BC, y compris les entrées `FA`/`PA` concurrentes — contraire à l'intention documentée (« FA/PA restent mémorisées pour la story 13-3 ») et non couverte par un test. `_purgeOpenAlarms(string $siaCode)` retire désormais uniquement les entrées du code passé (`'BA'` aux deux points d'appel) ; un test de régression ajouté (`test_disarm_with_ba_and_fire_open_purges_only_ba`) couvre le cas BA+FA concurrents. Aucune régression (1188 passed / 2 niveau 1, 6 niveau 2, 1 niveau 2.5 — identique à la baseline, un test de plus qu'avant) |
 | 2026-09-25 | **Commit + push** (`16aaef1` docs, `1c5a36b` code+tests) sur `master`, sur demande explicite d'Herve. Puis **Task 10 close** : validation live sur `test-jeedom.lehoux.net` (compte réel, centrale interne réelle), exécutée par l'agent directement via l'API Jeedom (`core/api/jeeApi.php`, clés scopées par plugin fournies par Herve) après qu'Herve a fait le `git pull`, la sauvegarde de l'équipement (commandes `disarm`/`alarmReset` créées) et le câblage manuel (`disarm`→`release`, `alarmReset`→`raz`). AC1 capturé avec horodatage précis (BC confirmé à t=0.035s, OP à t=0.052s, 17ms d'écart, session HTTP à interrogation continue) ; AC3/AC4 confirmé via la chaîne physique réelle (capteur virtuel → délai de déclenchement réel ~31s → `Statut` sonnant) avec preuve directe que le système reste armé (`Actif` reste à 1) pendant la réinitialisation ; AC2 confirmé (rien envoyé sans alarme ouverte). Nettoyage complet après chaque scénario (désarmement, détecteurs à 0). La survie d'une entrée `FA`/`PA` concurrente (le bug corrigé ci-dessus) et la création des commandes par `siaDC09_update()` spécifiquement ne sont pas observables via cette API et restent couvertes par les seuls tests unitaires PHP. Statut : in-progress → review |
+| 2026-09-26 | Code review (`/bmad-code-review`, diff `300b02a..ed8af11` scopé code+tests, 3 couches adversariales). 4 patches appliqués et testés : `_resolveSiaUserNumber()` clampé 1-999 (aucune validation serveur n'existait, seul le `min`/`max` HTML) ; `siaDC09_update()` isole désormais chaque `postSave()` dans son propre try/catch (une erreur sur un équipement n'abortait plus la migration des autres) ; `daemon.py::on_message()` rejette maintenant un `user_number` manquant/invalide pour un code adressé utilisateur (BC/OP/CL) au lieu d'envoyer silencieusement une trame sans adresse (comblait un écart AC5 latent) — plus un garde-fou de plage 0-999 en défense en profondeur dans `_build_event_frame()` ; correction d'un bug `dict.get(key, default)`/`None` dans `error_handler.py` qui affichait littéralement "(utilisateur: None)" dans une notification EVENT_FAILED. 3 de ces items recoupent des constats déjà notés en différé sous 13-4 (D-65/D-68/D-71) — désormais marqués résolus dans `deferred-work.md`. 5 nouveaux items différés (D-72 à D-76 : atomicité BC/OP, course concurrente disarm/alarmReset, adresse utilisateur globale, log debug-only, genre grammatical français codé en dur). 3 rejetés comme bruit après vérification contre le code réel. 7 nouveaux tests, 0 régression (baseline exacte : level1 2, level2 6, level2_5 1). Statut : review → done |

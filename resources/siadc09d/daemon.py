@@ -1726,7 +1726,12 @@ class SIADaemon(BaseDaemon):
             # Note: _sia_seq is incremented once by _send_with_retry before the loop.
             extended_data = {}
             if event_item.sia_code in _USER_ADDRESSED_SIA_CODES:
-                if event_item.user_number is not None:
+                # Defense in depth (code review 2026-09-26): on_message() already rejects a
+                # missing user_number for these codes, but a value outside the DC-03 Annex B
+                # 3-digit range (e.g. a saved config value that bypassed PHP's own clamp)
+                # must never reach f"{n:03d}" unchecked — a negative number or 4+ digits would
+                # silently break the fixed-width address-field contract.
+                if event_item.user_number is not None and 0 <= event_item.user_number <= 999:
                     extended_data['zone'] = f"{event_item.user_number:03d}"
             elif event_item.zone_number is not None:
                 extended_data['zone'] = f"{event_item.zone_number:03d}"
@@ -2190,10 +2195,18 @@ class SIADaemon(BaseDaemon):
             try:
                 user_number = int(raw_user_number)
             except (TypeError, ValueError):
-                self._logger.warning(
-                    f"on_message: unusable user_number {raw_user_number!r} — "
-                    "frame will be sent without a user address"
-                )
+                self._logger.warning(f"on_message: unusable user_number {raw_user_number!r}")
+
+        # Unlike zone_number (BA/FA/PA: a missing zone is a normal, allowed outcome), the AC
+        # for BC/OP/CL is that the address field is NEVER empty (code review 2026-09-26) — a
+        # user-addressed code with no resolvable user_number is rejected outright, same as an
+        # invalid sia_code above, rather than silently sent with no address field at all.
+        if sia_code in _USER_ADDRESSED_SIA_CODES and user_number is None:
+            self._logger.warning(
+                f"on_message: {cmd} ({sia_code}) missing/invalid user_number "
+                f"{raw_user_number!r} — ignored, address field must never be empty"
+            )
+            return
 
         self._logger.debug(
             f"on_message: cmd={cmd} → sia_code={sia_code}, zone={zone}, "

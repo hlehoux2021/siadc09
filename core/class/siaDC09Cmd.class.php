@@ -170,7 +170,12 @@ class siaDC09Cmd extends cmd {
         if ($eqLogic === null) {
             return 1;
         }
-        return (int) $eqLogic->getConfiguration('sia_user_number', 1);
+        // Wizard input has min="1" max="999" (DC-03 Annex B: 3 zero-padded digits), but that
+        // is HTML-only — nothing enforced the range server-side (code review 2026-09-26). A
+        // saved 0/negative/>999 value would otherwise reach f"{n:03d}" on the daemon side
+        // unclamped, breaking the fixed-width address-field contract.
+        $n = (int) $eqLogic->getConfiguration('sia_user_number', 1);
+        return ($n >= 1 && $n <= 999) ? $n : 1;
     }
 
     /**
