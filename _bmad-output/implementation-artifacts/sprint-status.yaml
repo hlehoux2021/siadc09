@@ -29,7 +29,7 @@
 # - SM typically creates next story ONLY after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then Dev runs code-review (fresh context, ideally different LLM)
 
-last_updated: "2026-09-26" # 14-3 Tasks 1-5 implemented + tested, Task 6.1/6.2 clean (0 regressions), Task 6.3-6.6 live validation BLOCKED (no network access) — ready-for-dev → in-progress
+last_updated: "2026-09-26" # 14-3 deployed + live-validated against the real receiver 192.168.100.15:10002 on test-jeedom.lehoux.net — dual-URL [V...] field confirmed end-to-end; in-progress → review
 generated: "2026-05-04"
 project: "my-project"
 project_key: "NOKEY"
@@ -141,14 +141,14 @@ development_status:
   13-1-burglary-restore-cancel-events: review  # rescoped 2026-09-25 (sprint-change-proposal-2026-09-25.md): DC-03 addresses BC by user number, not zone -- the 2026-09-25 per-zone fan-out was non-conformant. New design: `disarm` (on `release`) sends BC+OP, `alarmReset` (on `raz`) sends BC alone for a mode-change reset while staying armed. burglaryCancel/fan-out/mono-zone-override/account-fallback dropped, never shipped outside this session. Committed+pushed (16aaef1 docs, 1c5a36b code+tests). Task 10 (live validation) closed same day: driven directly via the Jeedom API (plugin-scoped keys) against the real receiver on test-jeedom.lehoux.net, after Herve did the git pull, equipment save, and manual release/raz wiring. AC1 (BC then OP, 17ms apart) and AC3/AC4 (mode-change reset, system stays armed) captured with live timestamps; AC2 (no-op) confirmed. in-progress -> review
   13-2-burglary-restore-event: backlog  # parked 2026-09-18, no blocker but no SOURCE: no alarm-plugin action expresses "a detector returned to normal"; `reenableTrigger` is not a substitute. Three unparking conditions recorded in the story
   13-3-fire-panic-cancel-events: backlog  # registered 2026-09-25 (sprint-change-proposal-2026-09-25.md): FC/PC cancels for fire/panic, DC-03-conformant successors to Story 13.1's BC. Blocked on the FC/PC address-field definition and on which alarm-plugin action ends a fire/panic alarm
-  13-4-arm-disarm-closing-opening-reports: backlog  # registered 2026-09-25 (sprint-change-proposal-2026-09-25.md): CL on arming (`activationImmediateOk`), OP on a normal disarm (fills the `else` branch of 13-1's `disarm` command), both by configured user number
+  13-4-arm-disarm-closing-opening-reports: in-progress  # dev-story started 2026-09-26: CL on arming (`activationImmediateOk`, never `activationOk`), OP fills the `else` branch of 13-1's `disarm` command, both by configured user number. New fixed-mapping `arm` command (like burglarAlarm/fireAlarm/panicAlarm) — not `_VARIABLE_SIA_CODE_COMMANDS` like disarm/alarmReset
   epic-13-retrospective: optional
 
   # Epic 14: Camera Snapshot Attachment (Frigate Integration)
   epic-14: in-progress  # registered 2026-09-22 per ADR-17 (architecture.md) — Option A, majority-case-only. Superseded 2026-09-24 by 14-2's Option D (ADR-17 Amendment 3) for the at-alarm-time data source
   14-1-attach-frigate-snapshot-alarm-frame: in-progress  # Tasks 1-7 done. Task 4 live validation: 4.1/4.3/4.8/4.9/4.10/4.11 done (AC3/AC7/AC8 confirmed on real host); 4.2/4.4 still open. Superseded at-alarm-time data source by 14-2 (ADR-17 Amendment 3) — Task 1's wizard mapping stays, Task 2/6's info_detect_person/info_id read does not
   14-2-frigate-event-prefetch-immediate-action: done  # registered 2026-09-24 per ADR-17 Amendment 3 (Option D) — party-mode review (Winston/Amelia/John) after two confirmed problems with 14-1's Option A: info_detect_person staleness, info_id has no label filter (any tracked class can hijack it). Tasks 1-6 implemented via TDD + live validation on test-jeedom.lehoux.net: hit path confirmed (real Frigate snapshot URL attached to a real BA frame end-to-end) and miss path confirmed (wrong-label event correctly excluded, no delay). Two live bugs found and fixed along the way (prefetchEvent subType 'other'→'message' for the #zone# Titre field; in_progress filter dropped + after-buffer tuned 15s→60s→30s). Code-reviewed 2026-09-24: 5 patches applied, 3 deferred (D-49/D-50/D-51), 2 decisions deferred as-is (D-52/D-53), 2 dismissed. Task 6.7 (hit-then-miss-in-quick-succession) left open as optional, covered by existing test + individual live confirmations. review → done
-  14-3-attach-frigate-clip-alongside-snapshot: in-progress  # registered 2026-09-26 per ADR-17 Amendment 3 — clip support confirmed architecturally compatible with 14-2's Option D prefetch/cache (measured 0.53-11.49s latency, no wait-for-end), extends that cache with a clip URL. Both snapshot+clip attached in one space-separated [V...] block when both available (V is free-form per spec; repeating the identifier is not reliably parsed by real CSRs) — decision made after consulting sia-dc09-expert skill, no public Ajax Systems reference found (no web search tool available, local plugin-ajaxSystem has nothing on this). Story file created 2026-09-26 — story-created gap in epics' own ADR-prose ("daemon constructs clip URL via frigate_media_url_template") corrected during story creation: daemon only confirms clip readiness (new clip_found on prefetch_result), PHP builds both URLs (zero Jeedom dependency preserved in the daemon). 2026-09-26 dev session: Tasks 1-5 implemented and tested (TDD, all green), Task 6.1/6.2 (regression + lint) clean, 0 regressions vs baseline. Task 6.3-6.6 (deploy + live validation against test-jeedom.lehoux.net / real receiver 192.168.100.15:10002) BLOCKED — no network access from this sandboxed session; deferred, not skipped. Status stays in-progress until live validation runs.
+  14-3-attach-frigate-clip-alongside-snapshot: review  # registered 2026-09-26 per ADR-17 Amendment 3 — clip support confirmed architecturally compatible with 14-2's Option D prefetch/cache (measured 0.53-11.49s latency, no wait-for-end), extends that cache with a clip URL. Both snapshot+clip attached in one space-separated [V...] block when both available (V is free-form per spec; repeating the identifier is not reliably parsed by real CSRs) — decision made after consulting sia-dc09-expert skill, no public Ajax Systems reference found (no web search tool available, local plugin-ajaxSystem has nothing on this). Story file created 2026-09-26 — story-created gap in epics' own ADR-prose ("daemon constructs clip URL via frigate_media_url_template") corrected during story creation: daemon only confirms clip readiness (new clip_found on prefetch_result), PHP builds both URLs (zero Jeedom dependency preserved in the daemon). 2026-09-26 dev session: Tasks 1-5 implemented and tested (TDD, all green), Task 6.1/6.2 (regression + lint) clean, 0 regressions vs baseline. Deployed (commit eb4ac8f) + live-validated via the Jeedom API against the real receiver 192.168.100.15:10002 on test-jeedom.lehoux.net (daemon needed a restart, was stopped): person in front of vigi_sud-est/Zone2 at prefetchEvent time → found=1/clip_found=1 → received frame carried [Vsnapshot.jpg-url clip.mp4-url] verbatim, no truncation/rejection (AC5/AC6 confirmed). Task 6.6 (live snapshot-only race) not reproduced — Herve's call: found/clip_found resolve together in this deployment, not reliably splittable on demand; snapshot-only path stays unit-test-validated only (Task 5.4). in-progress → review.
   epic-14-retrospective: optional
 
 # Summary Statistics
@@ -228,6 +228,10 @@ development_status:
 # Updated: 2026-09-26 (14-3 dev session: Tasks 1-5 implemented/tested, Task 6.1/6.2 clean,
 # Task 6.3-6.6 live validation blocked — no network access from this sandboxed session;
 # ready-for-dev → in-progress; stories_ready_for_dev 2→1, stories_in_progress 1→2)
+# Updated: 2026-09-26 (14-3 deployed + live-validated on test-jeedom.lehoux.net against the real
+# receiver 192.168.100.15:10002: dual-URL [V...] field confirmed end-to-end for the both-available
+# case; snapshot-only race not live-reproduced by explicit call, unit-test coverage accepted for
+# that sub-case; in-progress → review; stories_in_progress 2→1, stories_review 2→3)
 summary:
   total_epics: 14
   total_stories: 58
@@ -236,6 +240,6 @@ summary:
   epics_done: 10
   stories_backlog: 7
   stories_ready_for_dev: 1
-  stories_in_progress: 2
-  stories_review: 2
+  stories_in_progress: 1
+  stories_review: 3
   stories_done: 46

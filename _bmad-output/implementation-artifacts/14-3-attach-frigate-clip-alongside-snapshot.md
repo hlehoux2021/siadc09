@@ -3,14 +3,15 @@ story_id: "14-3"
 story_key: "14-3-attach-frigate-clip-alongside-snapshot"
 epic_id: "epic-14"
 epic_name: "Camera Snapshot Attachment (Frigate Integration)"
-status: "in-progress"
+status: "review"
 created: "2026-09-26"
 ---
 
 # Story 14.3: Attach Frigate Video Clip Alongside Snapshot in Alarm Frame
 
-Status: in-progress — Tasks 1-5 complete and tested; Task 6.1/6.2 (regression + lint) clean;
-Task 6.3-6.6 (deploy + live validation) BLOCKED, no network access from this dev session
+Status: review — Tasks 1-6 complete. Live-validated 2026-09-26 on test-jeedom.lehoux.net against the real
+receiver 192.168.100.15:10002: dual-URL [V...] field confirmed end-to-end (Zone2/vigi_sud-est). Task 6.6
+(snapshot-only live case) covered by unit tests only, live repro not attempted — see Dev Notes.
 
 ## Story
 
@@ -205,21 +206,30 @@ per the V-field format decision above, revisit only if AC6's live receiver valid
   - [x] 6.2 `pylint --disable=all --enable=E` clean on `resources/siadc09d/daemon.py` and
         `resources/siadc09d/frigate_prefetch.py`; full `tests/level1/`+`tests/level2/`+`tests/level2_5/`
         Python suites compared against baseline (same `git stash -u` method) — 0 regressions.
-  - [ ] 6.3 **BLOCKED** — Deploy (git push, then pull on the host — memory `jeedom-test-host-deploy`). No
-        network access from this sandboxed dev session; deferred to a session with connectivity to the
-        real host, not silently skipped.
-  - [ ] 6.4 **BLOCKED** (depends on 6.3) — Trigger a real alarm on a zone with a mapped Frigate camera, with
-        a real person event whose clip becomes ready inside the trigger-delay window. Confirm via the
-        protocol inspector (story 9-2) that the received frame's `[V...]` field carries both URLs,
-        space-separated, in `snapshot.jpg`/`clip.mp4` order.
-  - [ ] 6.5 **BLOCKED** (depends on 6.3) — Confirm, by direct observation against the real receiver
-        (`192.168.100.15:10002` — memory `sia-test-server-endpoint`), what actually happens with a dual-URL
-        `[V...]` field: does the CSR display/log both, one, truncate, or reject the frame. This exact shape
-        has never been sent to that receiver before — an assumed pass would be a fabrication, not a
-        validation.
-  - [ ] 6.6 **BLOCKED** (depends on 6.3) — Confirm at least one snapshot-only run (clip not ready in time)
-        still produces a single-URL `[V...]` field, matching 14-2's existing miss-path contract for the
-        clip specifically.
+  - [x] 6.3 Deployed via `git push` (commit `eb4ac8f`) + `git pull` on `test-jeedom.lehoux.net` (Herve).
+        Daemon required a manual restart post-deploy (was stopped — `supervision_label` read "ARRÊTÉ",
+        matching memory `jeedom-daemon-down-looks-like-frozen-label`); confirmed running before proceeding.
+  - [x] 6.4 Triggered via the Jeedom API (`prefetchEvent` id 282, then `burglarAlarm` id 279, both with
+        `title=Zone2` — matching the real zone name, not a synthetic id; a first attempt using a
+        synthetic unique title broke zone→camera resolution and is documented as a mistake below) with a
+        real person in front of `vigi_sud-est` (Zone2, `frigate_camera_eqlogic_id=4`) at the moment of the
+        `prefetchEvent` call. Daemon log confirms `{"found":1,"event_id":"1790433219.456768-lndwmp","clip_found":1}`.
+        Received frame (`192.168.100.15:10002`, 2026-09-26 14:34:39 UTC):
+        `[#001234|BA 002][Vhttps://<user>:<password>@frigate.lehoux.net/api/events/1790433219.456768-lndwmp/snapshot.jpg https://<user>:<password>@frigate.lehoux.net/api/events/1790433219.456768-lndwmp/clip.mp4]`
+        — both URLs present, space-separated, `snapshot.jpg` before `clip.mp4`. AC5/AC6 confirmed live.
+  - [x] 6.5 Confirmed by direct observation of the receiver's own log line above: the generic receiver at
+        `192.168.100.15:10002` accepts and logs the full dual-URL `[V...]` field verbatim — no truncation,
+        no rejection, no NAK. It does not itself interpret or render the two URLs (it is a generic
+        line-logging receiver, not a monitoring-center client) — what a real operator console does with
+        this exact shape remains unverified beyond "the receiver accepts the frame."
+  - [x] 6.6 **Not live-reproduced, by Herve's explicit call** — in this deployment, `clip_found` is
+        confirmed synchronously with person-event confirmation inside the same `prefetchEvent` REST
+        round-trip (both live runs returned `found`/`clip_found` as the same value at the same timestamp,
+        never one true and the other false), so a live snapshot-only race is not reliably producible on
+        demand — forcing it would depend on Frigate's own recording-segment flush timing, not on anything
+        this story's code controls. The snapshot-only code path (AC5's second bullet) is proven at the unit
+        level by Task 5.4's cache-state test matrix (snapshot-only case passing, unchanged by this session's
+        live work). Accepted as sufficient live-validation closure for this sub-case.
 
 ## Dev Notes
 
@@ -465,3 +475,4 @@ Claude Sonnet 5 (eu.anthropic.claude-sonnet-5), via the bmad-dev-story workflow,
 |------|--------|
 | 2026-09-26 | Story file created from epics.md Story 14.3, extending 14-2's prefetch/cache mechanism. Corrected the epics AC's "daemon constructs a clip URL via frigate_media_url_template" framing during story creation: the daemon has zero Jeedom dependencies by design and cannot read that config field — resolved design has the daemon only confirm clip readiness (new `clip_found` on the existing `prefetch_result` callback), with PHP constructing both URLs via the existing `_buildFrigateMediaUrl()` (parameterized for snapshot vs clip), matching 14-2's own precedent for the same class of ADR-prose-vs-architecture mismatch. |
 | 2026-09-26 | Dev session (TDD, red-green-refactor per task): Tasks 1-5 implemented and fully tested (AC1-AC5). Daemon's `_check_clip_ready()`/`_poll_clip_ready()` added to `frigate_prefetch.py`, sharing the person-event poll's single `deadline`; `daemon.py`'s callback payload extended with `clip_found`; IPC schema (`ipc_schema.py`/`test_callback_schema.py`) extended; PHP `_handlePrefetchResult()` caches `clip_found`; PHP `_buildFrigateMediaUrl()` parameterized, new `_resolveFrigateClipUrl()` added, `execute()`'s `burglarAlarm` case space-joins both URLs. Full regression run: `tests/level1/` 1214 passed/2 failed, `tests/level2/` 350 passed/6 failed, `tests/level2_5/` 77 passed/1 failed — identical to the known pre-existing baseline (memory `level1-test-baseline-failures`), 0 regressions. `php -l` clean, `pylint --disable=all --enable=E` 10.00/10. Task 6.3-6.6 (deploy + live validation on test-jeedom.lehoux.net / real receiver) BLOCKED — no network access from this sandboxed session; deferred, not skipped, not fabricated as a pass. Status stays `in-progress`; sprint-status.yaml updated to match. |
+| 2026-09-26 | Deployed (`git push` commit `eb4ac8f` + `git pull` on `test-jeedom.lehoux.net`) and live-validated via the Jeedom API against the real receiver `192.168.100.15:10002`. Daemon had to be restarted post-deploy (found stopped — memory `jeedom-daemon-down-looks-like-frozen-label`). First live attempt used a synthetic unique `title` param for `prefetchEvent`/`burglarAlarm`, which broke zone→camera resolution (title IS the zone name for mapping lookup) — corrected to the real zone name (`Zone2`). Second attempt (no person in frame at prefetch time) returned `found=0`/`clip_found=0`, confirming the "neither" fallback (no `[V...]` field at all) but not the dual-media case. Third attempt (person physically in front of `vigi_sud-est` at the exact `prefetchEvent` call) succeeded: daemon returned `found=1`/`clip_found=1`, PHP resolved and space-joined both URLs, and the real receiver logged the frame with `[Vsnapshot.jpg-url clip.mp4-url]` verbatim — AC5/AC6 confirmed end-to-end (Task 6.3/6.4/6.5). Task 6.6 (live snapshot-only case) not reproduced — Herve's call: `clip_found` resolves synchronously with person confirmation in this deployment (both live runs showed `found`/`clip_found` matching, never split), so the race is not reliably producible on demand; the snapshot-only path stays validated at the unit level only (Task 5.4). Status: in-progress → review. |
