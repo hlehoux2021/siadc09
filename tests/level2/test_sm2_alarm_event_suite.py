@@ -274,6 +274,21 @@ class TestSM2StateHelpers:
             == "Désarmement (utilisateur 1) : Confirmée par la centrale"
         )
 
+    def test_event_label_from_sm2_confirmed_closing_report(self, mock_daemon):
+        """Story 13-4 AC8 (ADR-18): a confirmed CL (arm) names itself "Armement", addressed
+        by the configured user number.
+
+        - CL → event_type_fr() → "armement" → "Armement"
+        - Label: "Armement (utilisateur 1) : Confirmée par la centrale"
+        """
+        mock_daemon._sm2_state = SM2State.CONFIRMED
+        mock_daemon._event_sia_code = "CL"
+        mock_daemon._event_user_number = 1
+        assert (
+            mock_daemon._event_label_from_sm2()
+            == "Armement (utilisateur 1) : Confirmée par la centrale"
+        )
+
     def test_event_label_from_sm2_bc_ignores_zone_uses_user_number(self, mock_daemon):
         """Story 13-1 (ADR-18): even if a stray _event_zone were set, BC/OP must never show
         a zone clause — the address is always the configured user number.

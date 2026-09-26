@@ -49,6 +49,7 @@ from .error_handler import (
     SM1NakCtx,
     SM1TimeoutCtx,
     TransportPermanentCtx,
+    USER_ADDRESSED_SIA_CODES,
     event_type_fr,
 )
 from .messages import (
@@ -171,9 +172,10 @@ class EventItem:
         timestamp: Event timestamp from make_timestamp()
         zone_number: Zone order number resolved by PHP against the zone table (None when the
                      label matched no entry). Address source for BA/FA/PA only (story 13-1,
-                     ADR-18) — ignored by _build_event_frame() for BC/OP.
-        user_number: Configured SIA user number (wizard step 3, `sia_user_number`) for BC/OP —
-                     DC-03 addresses these by user, never by zone (story 13-1, ADR-18).
+                     ADR-18) — ignored by _build_event_frame() for BC/OP/CL.
+        user_number: Configured SIA user number (wizard step 3, `sia_user_number`) for
+                     BC/OP/CL — DC-03 addresses these by user, never by zone (stories
+                     13-1/13-4, ADR-18).
         media_url: Optional camera/media URL for the SIA [V...] extended field, or None
                    (story 14-1) — reaches the frame via _build_event_frame()'s extended_data
         callback: Optional callback function called when event completes (signature: callback(success: bool))
@@ -182,7 +184,7 @@ class EventItem:
     zone: str | None  # Zone name or None — logs, notifications, inspector
     timestamp: str  # SIA protocol timestamp HH:MM:SS,MM-DD-YYYY
     zone_number: int | None = None  # Reaches the SIA frame as the Annex B zone digits (BA/FA/PA)
-    user_number: int | None = None  # Reaches the SIA frame as the address digits (BC/OP)
+    user_number: int | None = None  # Reaches the SIA frame as the address digits (BC/OP/CL)
     media_url: str | None = None  # Reaches the SIA frame as the [V...] extended-data block
     callback: Any | None = None  # Callback function(success: bool) when send completes
 
@@ -282,7 +284,7 @@ class EventQueuePayload(TypedDict):
     sia_code: SiaEventCode
     zone: str | None      # Zone name from PHP #zone# tag, or None
     zone_number: int | None  # Zone order number for the SIA frame, or None
-    user_number: int | None  # Configured SIA user, address field for BC/OP (story 13-1)
+    user_number: int | None  # Configured SIA user, address field for BC/OP/CL (13-1/13-4)
     media_url: str | None # Verification media URL for SIA [V...] field, or None
     retries_left: int        # Retry budget; reset to MAX_RETRY_DEFAULT on TCP reconnect
 
@@ -322,12 +324,16 @@ _EVENT_SIA_CODES: Final[dict[str, SiaEventCode]] = {
 # release").
 _VARIABLE_SIA_CODE_COMMANDS: Final[frozenset[str]] = frozenset({"disarm", "alarmReset"})
 
-# User-addressed SIA codes (ADR-18): address by configured sia_user_number, never a zone.
-# Also the only codes disarm/alarmReset are allowed to declare via params["sia_code"] — CL
-# (story 13-4) reaches this set via the fixed _EVENT_SIA_CODES mapping instead, since "arm"
-# is not in _VARIABLE_SIA_CODE_COMMANDS, but is still user-addressed for framing purposes
-# (_build_event_frame(), _event_context_prefix()).
-_USER_ADDRESSED_SIA_CODES: Final[frozenset[str]] = frozenset({"BC", "OP", "CL"})
+# The only codes disarm/alarmReset are allowed to declare via params["sia_code"] (story 13-1).
+# Deliberately narrower than _USER_ADDRESSED_SIA_CODES: CL (story 13-4) is user-addressed too,
+# but only ever reaches the queue via the fixed "arm" → CL mapping — a disarm/alarmReset
+# payload declaring CL is rejected, never framed as an arm report.
+_VARIABLE_ALLOWED_SIA_CODES: Final[frozenset[str]] = frozenset({"BC", "OP"})
+
+# User-addressed SIA codes (ADR-18): address by configured sia_user_number, never a zone —
+# BC/OP/CL. Framing only (_build_event_frame(), _event_context_prefix()); defined once in
+# error_handler.py, which also uses it for the EVENT_FAILED address clause.
+_USER_ADDRESSED_SIA_CODES: Final[frozenset[str]] = USER_ADDRESSED_SIA_CODES
 
 
 # ===== TASK 2: STRIKE COUNTER AND SM1 STATE MANAGEMENT =====
@@ -360,10 +366,10 @@ class SIADaemon(BaseDaemon):
         Instance Variables (SM2 state machine - alarm events):
             _sm2_state: Current SM2 state (IDLE, PENDING, CONFIRMED, FAILED)
             _event_sia_code: Latest event SIA code (BA=burglary, FA=fire, PA=panic, BC=cancel,
-                             OP=disarm)
+                             OP=disarm, CL=arm)
             _event_zone: Latest zone name from alarm command #zone# tag
-            _event_user_number: Latest configured SIA user number (BC/OP address field,
-                             story 13-1, ADR-18)
+            _event_user_number: Latest configured SIA user number (BC/OP/CL address field,
+                             stories 13-1/13-4, ADR-18)
             _event_attempt_count: Current send attempt count for in-flight event
             Note: event_state/event_label are derived via _event_state_from_sm2() /
                   _event_label_from_sm2() helpers — not stored as separate instance vars
@@ -416,9 +422,9 @@ class SIADaemon(BaseDaemon):
 
         # SM2 state machine (alarm event delivery)
         self._sm2_state: SM2State = SM2State.IDLE  # Startup-only state
-        self._event_sia_code: SiaEventCode | None = None  # Latest event code (BA|FA|PA|BC|OP)
+        self._event_sia_code: SiaEventCode | None = None  # Latest code (BA|FA|PA|BC|OP|CL)
         self._event_zone: str | None = None  # Latest zone from command #zone# tag
-        self._event_user_number: int | None = None  # Latest user number (BC/OP, story 13-1)
+        self._event_user_number: int | None = None  # Latest user number (BC/OP/CL)
         self._event_attempt_count: int = 0  # Track send attempts for current event
         # Why FAILED was reached, for _event_label_from_sm2()'s wording split:
         # 'nak' = the CSR explicitly rejected the event; 'no_response' = no answer at
@@ -2093,6 +2099,7 @@ class SIADaemon(BaseDaemon):
 
         Args:
             cmd: Command name from PHP — "burglarAlarm", "fireAlarm", "panicAlarm",
+                "arm" (Story 13-4 — fixed mapping to CL via _EVENT_SIA_CODES),
                 "disarm"/"alarmReset" (Story 13-1 — sia_code comes from params, not a
                 fixed mapping; see _VARIABLE_SIA_CODE_COMMANDS), or
                 "prefetchEvent" (Story 14-2, ADR-17 Amendment 3)
@@ -2101,8 +2108,8 @@ class SIADaemon(BaseDaemon):
                 - "zone_number": int — zone order number PHP resolved against the zone
                   table (None when the label matched no entry: frame sent without zone)
                 - "sia_code": str — required for "disarm"/"alarmReset" only: "BC" or "OP"
-                - "user_number": int — configured SIA user (story 13-1), address field
-                  for "disarm"/"alarmReset" frames
+                - "user_number": int — configured SIA user (stories 13-1/13-4), address
+                  field for "disarm"/"alarmReset"/"arm" frames
                 - "media_url": str — camera/media URL (None if absent)
                 - "camera_eqlogic_id"/"camera_name"/"frigate_host" — prefetchEvent only
 
@@ -2147,7 +2154,7 @@ class SIADaemon(BaseDaemon):
             # Story 13-1 (ADR-18): disarm/alarmReset carry their own sia_code per call —
             # one sendToDaemon() per frame — rather than a fixed cmd→code mapping.
             raw_sia_code = params.get("sia_code")
-            if raw_sia_code not in _USER_ADDRESSED_SIA_CODES:
+            if raw_sia_code not in _VARIABLE_ALLOWED_SIA_CODES:
                 self._logger.warning(
                     f"on_message: {cmd} missing/invalid sia_code {raw_sia_code!r} — ignored"
                 )
@@ -2175,7 +2182,7 @@ class SIADaemon(BaseDaemon):
                     "frame will be sent without zone"
                 )
 
-        # Story 13-1: user_number is the address field for BC/OP (ADR-18) — same defensive
+        # Stories 13-1/13-4: user_number is the address field for BC/OP/CL (ADR-18) — same defensive
         # int coercion as zone_number, so a JSON string never breaks the f"{n:03d}" format.
         raw_user_number = params.get("user_number")
         user_number: int | None = None

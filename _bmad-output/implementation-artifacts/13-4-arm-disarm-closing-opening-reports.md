@@ -3,7 +3,7 @@ story_id: "13-4"
 story_key: "13-4-arm-disarm-closing-opening-reports"
 epic_id: "epic-13"
 epic_name: "Alarm Event Vocabulary Extension (v1.1)"
-status: "review"
+status: "done"
 created: "2026-09-26"
 ---
 
@@ -65,10 +65,12 @@ so that it can check openings/closings against my schedule.
 
 9. **And** la question ouverte de l'épic (« reporter un armement avec zones dérogées
    [`activationKo`] différemment ou non ») est réglée par construction : `arm` n'est câblée que
-   sur `activationImmediateOk`, jamais sur `activationKo`. Un armement avec dérogation reste
-   silencieux côté SIA — pas de CL avant l'AC1 de `activationImmediateOk` réel, pas de code
-   spécial pour signaler une dérogation. Aucune action supplémentaire n'est nécessaire pour
-   clore cette question dans le cadre de cette story.
+   sur `activationImmediateOk` (`alarm.class.php:743`, avant le scan des détecteurs), jamais sur
+   `activationKo` (`:794`) ni `activationOk` (`:808-809`). Un armement avec dérogation envoie
+   donc bien son CL, comme tout armement réussi ; seule la dérogation elle-même n'est pas
+   signalée côté SIA — pas de code spécial pour elle. Aucune action supplémentaire n'est
+   nécessaire pour clore cette question dans le cadre de cette story. *(Amendé en revue de
+   code 2026-09-26 : la version initiale disait à tort « reste silencieux côté SIA ».)*
 
 10. **And** validation en direct sur `test-jeedom.lehoux.net`, compte réel, centrale interne
     `192.168.100.15:10002` : armer puis désarmer (hors contexte d'alarme), lire CL puis OP dans
@@ -136,6 +138,30 @@ so that it can check openings/closings against my schedule.
       l'eqLogic `alarm` via `type=fullData` : `activationImmediateOk` → cmd `#289#` (`arm`),
       `release` → cmd `#287#` (`disarm`), `raz` → cmd `#288#` (`alarmReset`), tous
       `enable: "1"`). Voir Dev Agent Record pour le détail.
+
+### Review Findings
+
+Code review 2026-09-26 (Blind Hunter + Edge Case Hunter + Acceptance Auditor, diff `ba780fe`).
+
+- [x] [Review][Decision] Repeated `OP` on every "Désactiver", even when already disarmed — `alarm.class.php:700-703` (`released`) has no "already disarmed" guard (unlike `armed`, `:729-731` "Alarme déjà active"), and sets `enable=0` *before* `doAction('release')`, so siaDC09 can't tell a real disarm from a repeat by reading the alarm state. **Resolved by Herve (2026-09-26): accept and document** (OP is idempotent for the CSR) — becomes the patch below.
+- [x] [Review][Decision] AC10 evidence doesn't prove "CL then OP" / "OP alone, never BC" — Task 7 validated through `event_label` via `jeeApi.php`, not in the protocol inspector. **Resolved by Herve (2026-09-26): accepted** — the real-PHP level-1 harness (`test_disarm_with_no_open_ba_emits_op`) already proves OP-alone; no re-run.
+- [x] [Review][Patch] Document that a repeated "Désactiver" sends a repeated OP (accepted behavior, D1) [core/class/siaDC09Cmd.class.php:124, docs/design/php-core-design.md, .claude/skills/jeedom-alarm/SKILL.md]
+- [x] [Review][Patch] `_USER_ADDRESSED_SIA_CODES` now does two jobs: framing, and the allow-list for disarm/alarmReset's `sia_code`. Adding CL means `disarm`/`alarmReset` with `sia_code=CL` now passes validation. Split into an allow-list `{BC, OP}` and the framing set `{BC, OP, CL}`, and add a rejection test [resources/siadc09d/daemon.py:2150]
+- [x] [Review][Patch] `error_handler.py` still hardcodes `("BC", "OP", "CL")`, which contradicts the "one place to extend" claim in daemon-design.md. Define the constant once in error_handler (daemon.py already imports from it) [resources/siadc09d/error_handler.py:427]
+- [x] [Review][Patch] Missing i18n: "Armement" is absent from `en_US.json`, while its siblings "Désarmement" and "Réinitialisation alarme" are translated [core/i18n/en_US.json:37]
+- [x] [Review][Patch] The AC9 wording contradicts the plugin source: `activationImmediateOk` runs at `alarm.class.php:743`, before the detector scan and `activationKo` (`:794`). An arm with a bypass therefore **does** send CL, and only the bypass itself goes unreported. Correct AC9, and add the `alarm.class.php` line references to the SKILL/daemon-design claims [13-4 story:66-71, .claude/skills/jeedom-alarm/SKILL.md:26, docs/design/daemon-design.md:130]
+- [x] [Review][Patch] The wizard help and docs name non-existent UI labels ("Activation OK (immédiate)/(standard)"). The alarm plugin shows a single "Activation OK" tab with the buttons "Ajouter action immediate lors de l'activation" and "Ajouter action lors de l'activation" (`plugin-alarm/desktop/php/alarm.php:175`) [desktop/php/siaDC09.php:331]
+- [x] [Review][Patch] Some docstrings and comments still say BC/OP only and don't mention CL/`arm`: daemon.py `EventItem`/`EventQueuePayload`/`_event_user_number`, the `on_message()` docstring and the `:2178` comment; also `_resolveSiaUserNumber()`'s docblock [resources/siadc09d/daemon.py:175, core/class/siaDC09Cmd.class.php:161]
+- [x] [Review][Patch] Test gaps. There is no test for the CL `event_label` (AC8, `Armement (utilisateur 1) : Confirmée par la centrale`), none for a CL frame with a stray `zone_number` (AC6), and `test_arm_emits_cl_unconditionally` never seeds an open BA to show the "unconditional" claim [tests/level2/test_sm2_alarm_event_suite.py:251, tests/level2/test_ipc_daemon_wiring.py:845, tests/level1/test_burglary_cancel_behavior.py:526]
+- [x] [Review][Defer] CL is sent at the start of the exit delay (`armedDelay`), not when arming completes; cancelling during the delay gives CL then OP within seconds [core/class/siaDC09Cmd.class.php:131] — deferred, consequence of the spec'd `activationImmediateOk` choice (D-63)
+- [x] [Review][Defer] A mode change while armed reports nothing: no OP, no new CL, no partial-arm code [core/class/siaDC09Cmd.class.php:131] — deferred, new scope (D-64)
+- [x] [Review][Defer] `sia_user_number` is never range-checked on the server side (0, negative or >999 break the 3-digit address), and it is now used on every arm/disarm [core/class/siaDC09Cmd.class.php:170] — deferred, pre-existing (13-1) (D-65)
+- [x] [Review][Defer] `arm` doesn't purge stale `sia_open_alarms` BA entries left by a previous session [core/class/siaDC09Cmd.class.php:131] — deferred, pre-existing TTL design (13-1) (D-66)
+- [x] [Review][Defer] A routine CL/OP overwrites the widget's FAILED state from an earlier alarm, and `event_state==1` now fires on every arm/disarm [resources/siadc09d/daemon.py:1451] — deferred, pre-existing single-slot SM2 design (D-67)
+- [x] [Review][Defer] The EVENT_FAILED notification can print "(utilisateur: None)" [resources/siadc09d/error_handler.py:428] — deferred, pre-existing (13-1) (D-68)
+- [x] [Review][Defer] Feminine "Confirmée" on masculine labels (Armement/Désarmement) [resources/siadc09d/daemon.py:789] — deferred, pre-existing (13-1 OP) (D-69)
+- [x] [Review][Defer] Nothing warns when `arm` isn't wired after an upgrade, so upgraded installs send OP without CL [core/class/siaDC09Cmd.class.php:131] — deferred, same pattern as 13-1 wiring (D-70)
+- [x] [Review][Defer] The `siaDC09_update()` loop has no error handling if a `cmd->save()` throws (e.g. a name collision) [plugin_info/install.php:27] — deferred, pre-existing (D-71)
 
 ## Dev Notes
 
@@ -286,3 +312,4 @@ Claude Sonnet 5 (bmad-dev-story workflow)
 | 2026-09-26 | Story créée (contexte déjà largement conçu par le rescope de 13-1 / sprint-change-proposal-2026-09-25.md) |
 | 2026-09-26 | Tasks 1-6 closes. `arm` (Armement, mapping fixe → CL) ajoutée ; `disarm`'s branche `else` envoie désormais OP (13-4 AC3) au lieu du silence de 13-1. Démon et error_handler généralisés à CL via `_USER_ADDRESSED_SIA_CODES`. 4 tests de 13-1 réécrits (silence → OP), 2+3 tests ajoutés (arm). Aucune régression (baseline inchangée : level1 2, level2 6, level2.5 1 échecs pré-existants). Documentation (assistant, skill, 4 design docs) réconciliée avec le code livré. Commit `ba780fe` + push sur `master` |
 | 2026-09-26 | **Task 7 close.** Validation live sur `test-jeedom.lehoux.net`, compte réel, centrale interne réelle, via l'API Jeedom (clés scopées par plugin). Câblage manuel d'Herve confirmé par lecture de la config (`activationImmediateOk`→`arm`, `release`→`disarm`, `raz`→`alarmReset`, tous actifs). Premier essai bloqué par le démon arrêté (`supervision_state=0`) — résolu par Herve, délai de démarrage de supervision habituel (~55s) observé avant `HEALTHY`. Armement confirmé CL (`event_label` = "Armement (utilisateur 1) : Confirmée par la centrale") ; désarmement sans BA ouverte confirmé OP seul. État final propre. Statut : ready-for-dev → review |
+| 2026-09-26 | **Revue de code.** 2 décisions tranchées (D1 : OP répété sur « Désactiver » accepté et documenté ; D2 : preuve AC10 acceptée), 8 correctifs appliqués, 9 différés (D-63..D-71), 7 écartés. **Amendement AC9** : un armement avec dérogation envoie bien CL (`activationImmediateOk` à `alarm.class.php:743`, avant le scan des détecteurs) — seule la dérogation n'est pas signalée. Code : allow-list `_VARIABLE_ALLOWED_SIA_CODES = {BC, OP}` séparée du jeu de cadrage `USER_ADDRESSED_SIA_CODES = {BC, OP, CL}` (défini une seule fois dans error_handler.py) — un `disarm` déclarant CL est rejeté. i18n « Armement », libellés UI réels du plugin Alarme dans l'aide assistant/docs, docstrings BC/OP → BC/OP/CL. 4 tests ajoutés. Baseline inchangée (level1 2, level2 6, level2.5 1). Statut : review → done |

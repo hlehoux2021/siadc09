@@ -347,6 +347,13 @@ NotificationContext = (
 )
 
 
+# DC-03 user-addressed SIA codes (ADR-18): addressed by the configured sia_user_number, never
+# a zone — BC/OP (story 13-1) and CL (story 13-4). Single source of truth: daemon.py imports
+# it for framing (_build_event_frame(), _event_context_prefix()), build_notification() uses
+# it for the "(utilisateur: N)" address clause.
+USER_ADDRESSED_SIA_CODES: Final[frozenset[str]] = frozenset({"BC", "OP", "CL"})
+
+
 class NotificationPayload(TypedDict):
     """Typed return value of build_notification()."""
     tier: Literal[1, 2, 3]
@@ -424,7 +431,7 @@ def build_notification(code: ErrorCode, context: dict[str, Any]) -> Notification
         _event_subject = "L'alarme " + event_type_fr(_event_sia_code)
         _event_object, _event_gender_e = "l'alarme", "e"
 
-    if _event_sia_code in ("BC", "OP", "CL"):
+    if _event_sia_code in USER_ADDRESSED_SIA_CODES:
         _event_address_clause = f"(utilisateur: {context.get('user_number', '<inconnu>')})"
     else:
         _event_address_clause = (
@@ -751,6 +758,7 @@ __all__ = [
     "EventFailedCtx",
     "NotificationContext",
     "NotificationPayload",
+    "USER_ADDRESSED_SIA_CODES",
     "build_notification",
     "event_type_fr",
     "_notify",

@@ -302,6 +302,27 @@ def test_arm_uses_the_configured_sia_user_number() -> None:
     assert arm_frames[0]["user_number"] == 7
 
 
+def test_arm_emits_cl_even_with_open_ba() -> None:
+    """
+    Story 13-4 AC6 (review 13-4): an open burglary alarm must not change what arm does —
+    arm never reads or touches sia_open_alarms, and never sends BC/OP.
+
+    Expected result:
+    - exactly one arm frame is sent
+    - no disarm/alarmReset (BC/OP) frame is sent
+    - the open BA entry is still in sia_open_alarms afterwards
+    """
+    cache = {"sia_open_alarms": {"BA|3": _open_alarm_seed("BA", "Salon", 3)}}
+    out = _run([{"logical_id": "arm"}], cache=cache)
+    arm_frames = [p for p in out["sent"] if p.get("cmd") == "arm"]
+    # Assert: exactly one arm frame, open BA or not
+    assert len(arm_frames) == 1
+    # Assert: arm never emits a cancel/disarm frame
+    assert _cancel_frames(out["sent"]) == []
+    # Assert: the open-alarm table is left untouched
+    assert set(_open_alarms(out["cache"])) == {"BA|3"}
+
+
 def test_disarm_with_only_fire_or_panic_open_emits_op_not_bc() -> None:
     """
     AC2 (13-1) / AC3 (13-4): BC closes a burglary alarm only — an open fire or panic alarm

@@ -29,7 +29,7 @@
 # - SM typically creates next story ONLY after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then Dev runs code-review (fresh context, ideally different LLM)
 
-last_updated: "2026-09-26" # 12-5 code-reviewed and closed (docs/reasoning-trail review — no code exists for this manual-testing story; 1 decision resolved, 2 patches applied, 2 dismissed) — review → done. Summary counters recomputed from development_status directly (drift corrected): backlog 7→5, ready-for-dev 1→2, review 2→2 (net unchanged, corrected mid-count then 12-5 review→done), done 47→48
+last_updated: "2026-09-26" # 13-4 code-reviewed and closed (2 decisions resolved, 8 patches applied, 9 deferred D-63..D-71, 7 dismissed) — review → done. Summary recomputed from development_status: review 2→1, done 48→49; epic-13 stays in-progress (13-1 review, 13-2/13-3 open)
 generated: "2026-05-04"
 project: "my-project"
 project_key: "NOKEY"
@@ -141,7 +141,7 @@ development_status:
   13-1-burglary-restore-cancel-events: review  # rescoped 2026-09-25 (sprint-change-proposal-2026-09-25.md): DC-03 addresses BC by user number, not zone -- the 2026-09-25 per-zone fan-out was non-conformant. New design: `disarm` (on `release`) sends BC+OP, `alarmReset` (on `raz`) sends BC alone for a mode-change reset while staying armed. burglaryCancel/fan-out/mono-zone-override/account-fallback dropped, never shipped outside this session. Committed+pushed (16aaef1 docs, 1c5a36b code+tests). Task 10 (live validation) closed same day: driven directly via the Jeedom API (plugin-scoped keys) against the real receiver on test-jeedom.lehoux.net, after Herve did the git pull, equipment save, and manual release/raz wiring. AC1 (BC then OP, 17ms apart) and AC3/AC4 (mode-change reset, system stays armed) captured with live timestamps; AC2 (no-op) confirmed. in-progress -> review
   13-2-burglary-restore-event: backlog  # parked 2026-09-18, no blocker but no SOURCE: no alarm-plugin action expresses "a detector returned to normal"; `reenableTrigger` is not a substitute. Three unparking conditions recorded in the story
   13-3-fire-panic-cancel-events: backlog  # registered 2026-09-25 (sprint-change-proposal-2026-09-25.md): FC/PC cancels for fire/panic, DC-03-conformant successors to Story 13.1's BC. Blocked on the FC/PC address-field definition and on which alarm-plugin action ends a fire/panic alarm
-  13-4-arm-disarm-closing-opening-reports: review  # implemented + live-validated 2026-09-26: CL on arming (`activationImmediateOk`, never `activationOk`), OP fills the `else` branch of 13-1's `disarm` command, both by configured user number. New fixed-mapping `arm` command (like burglarAlarm/fireAlarm/panicAlarm) — not `_VARIABLE_SIA_CODE_COMMANDS` like disarm/alarmReset. Live: armement confirmed CL, normal disarm confirmed OP alone, on test-jeedom.lehoux.net against the real receiver. Committed ba780fe + push; in-progress → review
+  13-4-arm-disarm-closing-opening-reports: done  # code-reviewed 2026-09-26 (2 decisions resolved, 8 patches applied, 9 deferred D-63..D-71, 7 dismissed) — review → done. Implemented + live-validated 2026-09-26: CL on arming (`activationImmediateOk`, never `activationOk`), OP fills the `else` branch of 13-1's `disarm` command, both by configured user number. New fixed-mapping `arm` command (like burglarAlarm/fireAlarm/panicAlarm) — not `_VARIABLE_SIA_CODE_COMMANDS` like disarm/alarmReset. Live: armement confirmed CL, normal disarm confirmed OP alone, on test-jeedom.lehoux.net against the real receiver. Committed ba780fe + push; in-progress → review
   epic-13-retrospective: optional
 
   # Epic 14: Camera Snapshot Attachment (Frigate Integration)
@@ -245,5 +245,5 @@ summary:
   stories_backlog: 5
   stories_ready_for_dev: 2
   stories_in_progress: 1
-  stories_review: 2
-  stories_done: 48
+  stories_review: 1
+  stories_done: 49

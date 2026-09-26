@@ -393,6 +393,26 @@ async def test_on_message_disarm_missing_sia_code_is_ignored(caplog):
     assert "sia_code" in caplog.text  # the anomaly is traceable
 
 
+@pytest.mark.asyncio
+async def test_on_message_disarm_declaring_cl_is_rejected(caplog):
+    """Review 13-4: CL is user-addressed but only reachable via the fixed "arm" mapping —
+    a disarm/alarmReset payload declaring sia_code "CL" must be rejected, never framed as
+    an arm report (_VARIABLE_ALLOWED_SIA_CODES is narrower than _USER_ADDRESSED_SIA_CODES).
+
+    Expected:
+    - no EVENT item is enqueued
+    - a warning is logged
+    """
+    daemon = _make_daemon()
+    daemon._logger = logging.getLogger("test_disarm_cl_sia_code")
+
+    with caplog.at_level(logging.WARNING, logger="test_disarm_cl_sia_code"):
+        await daemon.on_message("disarm", {"sia_code": "CL", "user_number": 1})
+
+    assert daemon._queue.qsize() == 0  # CL never enters the queue through disarm
+    assert "sia_code" in caplog.text  # the anomaly is traceable
+
+
 # ===== TC-IPC7: arm → CL by user number (story 13-4, ADR-18) =====
 
 
@@ -446,3 +466,8 @@ async def test_build_event_frame_bc_and_op_address_by_user_number():
     assert b"[#001234|CL 001]" in daemon._build_event_frame(cl)  # same contract for CL (13-4)
     # Assert: zone_number is ignored on BC/OP — the address always comes from user_number
     assert b"[#001234|BC 001]" in daemon._build_event_frame(bc_with_stray_zone)
+    # Assert: same for CL (review 13-4) — a stray zone_number never leaks into the arm report
+    cl_with_stray_zone = EventItem(
+        sia_code="CL", zone=None, timestamp="12:00:00,09-26-2026", zone_number=9, user_number=1
+    )
+    assert b"[#001234|CL 001]" in daemon._build_event_frame(cl_with_stray_zone)

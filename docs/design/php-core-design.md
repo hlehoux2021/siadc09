@@ -1398,11 +1398,19 @@ On the **alarm** equipment, in its actions configuration:
 |---|---|---|
 | *Désactivation OK* (`release`) | `Désarmement` (`disarm`) | sees every disarm; sends BC→OP when a BA is open, OP alone otherwise (13-4) |
 | *Réinitialisation* (`raz`) | `Réinitialisation alarme` (`alarmReset`) | sees the mode-change reset that `release` never ran for |
-| *Activation OK (immédiate)* (`activationImmediateOk`) | `Armement` (`arm`) | fires on every successful arm; sends CL unconditionally (13-4) |
+| *Activation OK* tab, « Ajouter action immediate lors de l'activation » (`activationImmediateOk`) | `Armement` (`arm`) | fires on every successful arm (`alarm.class.php:743`, before the detector scan); sends CL unconditionally, bypass or not (13-4) |
 
 **Wire all three.** An installer who wires only some loses the others' path — the mode-change
 reset (no `release`) if `alarmReset` isn't wired, the normal-disarm `OP` if `disarm` isn't
-wired, or every armament report if `arm` isn't wired. `arm` must go on *Activation OK
-(immédiate)*, never on *Activation OK (standard)* — the latter never fires after an *Activation
-KO* (a bypassed/open zone at arming time), so a bypassed armament would silently never report
-`CL`. The wizard help and `jeedom-alarm/SKILL.md` say so explicitly.
+wired, or every armament report if `arm` isn't wired. `arm` must go on « Ajouter action
+immediate lors de l'activation » (`activationImmediateOk`), never on « Ajouter action lors de
+l'activation » (`activationOk`) — the latter never fires after an *Activation KO*
+(`alarm.class.php:794`, a bypassed/open zone at arming time) and is delayed by any armed delay
+(`:808-809`), so a bypassed armament would silently never report `CL`. With the correct hook,
+a bypassed armament still sends `CL`; only the bypass itself goes unreported. The wizard help
+and `jeedom-alarm/SKILL.md` say so explicitly.
+
+**Repeated Désactiver → repeated OP (accepted, review 13-4 D1).** `released`
+(`alarm.class.php:700-703`) has no already-disarmed guard — unlike `armed`, which returns early
+with "Alarme déjà active" — so pressing Désactiver on an already-disarmed alarm runs `release`
+again and sends another `OP`. OP is idempotent for the CSR; no local dedup is added.

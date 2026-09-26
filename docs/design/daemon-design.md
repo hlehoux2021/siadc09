@@ -1433,14 +1433,20 @@ surgery).
 - `_event_context_prefix()` and `_build_event_frame()`'s two previously-hardcoded `("BC",
   "OP")` tuples are both replaced by the `_USER_ADDRESSED_SIA_CODES` constant (already extended
   to `CL`) — one place to extend if a future user-addressed code appears, instead of two.
+  Review 13-4: the set is defined once, as `USER_ADDRESSED_SIA_CODES` in `error_handler.py`
+  (which also uses it for the EVENT_FAILED address clause), and re-exported by `daemon.py` as
+  `_USER_ADDRESSED_SIA_CODES` for framing only. The `params["sia_code"]` allow-list for
+  `disarm`/`alarmReset` is now a separate, narrower `_VARIABLE_ALLOWED_SIA_CODES = {"BC",
+  "OP"}` — a disarm payload declaring `CL` is rejected, never framed as an arm report.
 - `error_handler.py`: `EventFailedCtx.sia_code` widens to include `'CL'`. `event_type_fr('CL')
   == 'armement'`. `build_notification()` gains a `CL` branch: subject `"L'armement"`/object
   `"l'armement"`, masculine agreement (no trailing `e` on "transmis", same as `OP`), address
-  clause `"(utilisateur: N)"` — the address-clause condition widens from `("BC", "OP")` to
-  `("BC", "OP", "CL")`.
+  clause `"(utilisateur: N)"` — the address-clause condition uses `USER_ADDRESSED_SIA_CODES`.
 - `siaDC09_update()` (13-1) needs no change: it already loops `postSave()` over every existing
   `siaDC09` eqLogic, so adding `arm` to `$actionCmds` is enough to reach existing installs.
-- The alarm plugin's `activationImmediateOk` fires on every successful arm; `activationOk`
-  never fires again once `activationKo` has fired for the current arming session (a bypassed
-  zone). `arm` is wired on `activationImmediateOk` for that reason — see
+- The alarm plugin's `activationImmediateOk` fires on every successful arm, right after
+  `enable=1` and before the detector scan (`alarm.class.php:743`); `activationOk` never fires
+  once `activationKo` (`:794`) has fired for the current arming session (a bypassed zone), and
+  runs only after the armed delay otherwise (`:808-809` / `armedComplete` cron). `arm` is wired
+  on `activationImmediateOk` for that reason — a bypassed arm still sends `CL` — see
   `php-core-design.md`'s wiring table and `jeedom-alarm/SKILL.md`.

@@ -123,7 +123,10 @@ class siaDC09Cmd extends cmd {
                     $this->_purgeOpenAlarms('BA');
                 } else {
                     // Story 13-4 — no BA was open: this is a normal disarm, outside any
-                    // alarm context. Sends the Opening Report alone.
+                    // alarm context. Sends the Opening Report alone. `released` has no
+                    // already-disarmed guard (alarm.class.php:700-703, unlike `armed`), so a
+                    // repeated "Désactiver" sends another OP — accepted: OP is idempotent
+                    // for the CSR (review 13-4, D1).
                     siaDC09::sendToDaemon(['cmd' => 'disarm', 'user_number' => $userNumber, 'sia_code' => 'OP']);
                 }
                 break;
@@ -159,7 +162,7 @@ class siaDC09Cmd extends cmd {
 
     /**
      * The configured SIA user number (wizard step 3, `sia_user_number`, default 1) — the
-     * address field for every DC-03 user-addressed code (BC, OP). The alarm plugin never
+     * address field for every DC-03 user-addressed code (BC, OP, CL). The alarm plugin never
      * forwards the Jeedom user to its actions, so this is a configured value, not read data.
      */
     private function _resolveSiaUserNumber(): int {
