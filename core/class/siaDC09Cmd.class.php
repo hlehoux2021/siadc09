@@ -95,8 +95,13 @@ class siaDC09Cmd extends cmd {
                 // alarm fired. Key is omitted entirely (not set to null) when unavailable, so a
                 // missing camera/plugin never changes the payload shape sent to the daemon.
                 $zoneEntry = $this->_findZoneEntry($zone, $this->_getZoneMapping()) ?? [];
-                $snapshotUrl = $this->_resolveFrigateSnapshotUrl($zoneEntry);
-                $clipUrl = $this->_resolveFrigateClipUrl($zoneEntry);
+                // Single shared cache read passed to both resolvers (code review 2026-09-26):
+                // closes a TOCTOU where two independent getCache() reads could straddle a
+                // concurrent _handlePrefetchResult() callback and join a snapshot URL from one
+                // event with a clip URL from a different, later one.
+                $cacheEntry = $this->_readPrefetchCacheEntry($zoneEntry);
+                $snapshotUrl = $this->_resolveFrigateSnapshotUrl($zoneEntry, $cacheEntry);
+                $clipUrl = $this->_resolveFrigateClipUrl($zoneEntry, $cacheEntry);
                 // Story 14-3: join both media (space-separated, one [V...] block) when both
                 // resolve; fall back to whichever one resolves alone; omit entirely when
                 // neither does — same fallback contract as 14-1/14-2, just for two URLs.
@@ -341,6 +346,37 @@ class siaDC09Cmd extends cmd {
     }
 
     /**
+     * Single read of `sia_prefetch_cache`, keyed by the zone's mapped camera eqLogic id —
+     * shared by execute() between _resolveFrigateSnapshotUrl() and _resolveFrigateClipUrl()
+     * (code review 2026-09-26) so both see the exact same entry, closing a TOCTOU where two
+     * independent reads could straddle a concurrent _handlePrefetchResult() callback. Returns
+     * the raw entry array (still subject to each resolver's own found/clip_found/TTL/event_id
+     * checks), or null if unavailable for any reason. Never throws.
+     */
+    private function _readPrefetchCacheEntry(array $zoneEntry): ?array {
+        try {
+            $eqLogicId = $zoneEntry['frigate_camera_eqlogic_id'] ?? null;
+            if (empty($eqLogicId)) {
+                return null;
+            }
+            $eqLogic = $this->getEqLogic();
+            if ($eqLogic === null) {
+                return null;
+            }
+            $raw = $eqLogic->getCache('sia_prefetch_cache', []);
+            $cache = is_string($raw) ? json_decode($raw, true) : $raw;
+            if (!is_array($cache)) {
+                return null;
+            }
+            $entry = $cache[(int) $eqLogicId] ?? null;
+            return is_array($entry) ? $entry : null;
+        } catch (\Throwable $e) {
+            log::add('siaDC09', 'warning', 'Lecture du cache de prefetch Frigate échouée : ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
      * ADR-17 Amendment 3 (Option D): reads the daemon's Frigate REST prefetch outcome from the
      * Jeedom-side cache (`sia_prefetch_cache`, written by `siaDC09::_handlePrefetchResult()` in
      * response to the immediate-action `prefetchEvent` trigger) — a synchronous, local,
@@ -350,9 +386,10 @@ class siaDC09Cmd extends cmd {
      * entry older than `PREFETCH_CACHE_TTL` all resolve to null — the same two-outcome contract
      * as before (AC6: no third fallback tier). Never reads `info_detect_person`, `info_id`,
      * `info_label`, or `info_url_snapshot` again for this decision (superseded by Amendment 3).
-     * Never throws.
+     * Never throws. Accepts an optional pre-read `$cacheEntry` (execute()'s single shared read)
+     * to avoid a second independent cache read for the same zone/camera.
      */
-    private function _resolveFrigateSnapshotUrl(array $zoneEntry): ?string {
+    private function _resolveFrigateSnapshotUrl(array $zoneEntry, ?array $cacheEntry = null): ?string {
         try {
             $eqLogicId = $zoneEntry['frigate_camera_eqlogic_id'] ?? null;
             if (empty($eqLogicId)) {
@@ -365,15 +402,23 @@ class siaDC09Cmd extends cmd {
                 log::add('siaDC09', 'debug', '_resolveFrigateSnapshotUrl: getEqLogic() a retourné null');
                 return null;
             }
-            $raw = $eqLogic->getCache('sia_prefetch_cache', []);
-            log::add('siaDC09', 'debug', '_resolveFrigateSnapshotUrl: getCache(sia_prefetch_cache) brut='
-                . json_encode($raw));
-            $cache = is_string($raw) ? json_decode($raw, true) : $raw;
-            if (!is_array($cache)) {
-                log::add('siaDC09', 'debug', '_resolveFrigateSnapshotUrl: cache décodé non-array');
-                return null;
+            // $cacheEntry, when provided by the caller (execute()'s single shared read — code
+            // review 2026-09-26, closes a TOCTOU between this and _resolveFrigateClipUrl()'s
+            // own read), is used as-is; otherwise this method reads the cache itself, same as
+            // before (standalone/test callers).
+            if ($cacheEntry !== null) {
+                $entry = $cacheEntry;
+            } else {
+                $raw = $eqLogic->getCache('sia_prefetch_cache', []);
+                log::add('siaDC09', 'debug', '_resolveFrigateSnapshotUrl: getCache(sia_prefetch_cache) brut='
+                    . json_encode($raw));
+                $cache = is_string($raw) ? json_decode($raw, true) : $raw;
+                if (!is_array($cache)) {
+                    log::add('siaDC09', 'debug', '_resolveFrigateSnapshotUrl: cache décodé non-array');
+                    return null;
+                }
+                $entry = $cache[(int) $eqLogicId] ?? null;
             }
-            $entry = $cache[(int) $eqLogicId] ?? null;
             log::add('siaDC09', 'debug', "_resolveFrigateSnapshotUrl: eqLogicId=$eqLogicId entry="
                 . json_encode($entry));
             if (!is_array($entry) || empty($entry['found'])) {
@@ -417,7 +462,7 @@ class siaDC09Cmd extends cmd {
      * partially-written one) resolves to null via the same !empty() defensive read as
      * 'found' — never a crash. Never throws.
      */
-    private function _resolveFrigateClipUrl(array $zoneEntry): ?string {
+    private function _resolveFrigateClipUrl(array $zoneEntry, ?array $cacheEntry = null): ?string {
         try {
             $eqLogicId = $zoneEntry['frigate_camera_eqlogic_id'] ?? null;
             if (empty($eqLogicId)) {
@@ -430,15 +475,23 @@ class siaDC09Cmd extends cmd {
                 log::add('siaDC09', 'debug', '_resolveFrigateClipUrl: getEqLogic() a retourné null');
                 return null;
             }
-            $raw = $eqLogic->getCache('sia_prefetch_cache', []);
-            log::add('siaDC09', 'debug', '_resolveFrigateClipUrl: getCache(sia_prefetch_cache) brut='
-                . json_encode($raw));
-            $cache = is_string($raw) ? json_decode($raw, true) : $raw;
-            if (!is_array($cache)) {
-                log::add('siaDC09', 'debug', '_resolveFrigateClipUrl: cache décodé non-array');
-                return null;
+            // $cacheEntry, when provided by the caller (execute()'s single shared read — code
+            // review 2026-09-26, closes a TOCTOU between this and _resolveFrigateSnapshotUrl()'s
+            // own read), is used as-is; otherwise this method reads the cache itself, same as
+            // before (standalone/test callers).
+            if ($cacheEntry !== null) {
+                $entry = $cacheEntry;
+            } else {
+                $raw = $eqLogic->getCache('sia_prefetch_cache', []);
+                log::add('siaDC09', 'debug', '_resolveFrigateClipUrl: getCache(sia_prefetch_cache) brut='
+                    . json_encode($raw));
+                $cache = is_string($raw) ? json_decode($raw, true) : $raw;
+                if (!is_array($cache)) {
+                    log::add('siaDC09', 'debug', '_resolveFrigateClipUrl: cache décodé non-array');
+                    return null;
+                }
+                $entry = $cache[(int) $eqLogicId] ?? null;
             }
-            $entry = $cache[(int) $eqLogicId] ?? null;
             log::add('siaDC09', 'debug', "_resolveFrigateClipUrl: eqLogicId=$eqLogicId entry="
                 . json_encode($entry));
             if (!is_array($entry) || empty($entry['clip_found'])) {

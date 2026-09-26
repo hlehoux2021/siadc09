@@ -2412,7 +2412,11 @@ field carries both URLs space-separated in the protocol inspector, and confirm w
 `192.168.100.15:10002` actually does with a dual-URL `[V...]` field (generic receiver, behavior not
 previously verified for this shape — document the observed result even if the receiver only shows/uses one)
 
-**Explicitly out of scope:** PA/FA clip attachment (14.2's BA-only scope carries forward); any new wizard/config
+**Note on scope (corrected 2026-09-26, code review):** media resolution has been shared across
+`burglarAlarm`/`fireAlarm`/`panicAlarm` since 14.1/14.2 for the snapshot; this story's clip attachment follows
+the same existing shared dispatch, it does not newly scope clip to BA only.
+
+**Explicitly out of scope:** any new wizard/config
 UI (reuses 14.1's existing camera mapping and URL template); a structured multi-media format (JSON, MIME tags) —
 space-separated free-form text is the chosen convention, revisit only if the live receiver validation above shows
 it doesn't work.

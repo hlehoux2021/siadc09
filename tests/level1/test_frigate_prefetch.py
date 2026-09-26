@@ -294,3 +294,39 @@ async def test_total_elapsed_time_across_both_checks_stays_bounded_by_max_wait_s
     # Assert: total elapsed time (person-event confirmation, immediate, + clip polling)
     # stays close to the single shared max_wait_s budget, not double it
     assert elapsed < 0.4 + 1.0, f"elapsed={elapsed}s exceeded the shared budget by too much"
+
+
+@pytest.mark.asyncio
+async def test_clip_poll_attempt_timeout_bounded_by_remaining_deadline_not_full_http_timeout() -> None:
+    """
+    Regression for the deadline-overrun bug found in code review (2026-09-26): a clip-check
+    attempt starting near the shared deadline must be bounded by the REMAINING time, not by
+    the full http_timeout_s + slack window — otherwise one attempt can push total elapsed
+    time well past PREFETCH_MAX_WAIT_S, doubling the worst-case overrun on top of the
+    person-event poll's own identical shape.
+
+    Expected result:
+    - with only 0.1s left on the deadline and a slow `_check_clip_ready` (simulates a
+      Frigate call that takes as long as the timeout it's given), `_poll_clip_ready`
+      returns within roughly the remaining 0.1s, NOT within the full http_timeout_s (5.0s)
+    """
+    def _slow_check_clip_ready(base_url: str, event_id: str, timeout: float) -> bool:
+        # Simulates a real HTTP call honoring the timeout it was given — if the caller
+        # correctly caps `timeout` to the remaining deadline, this sleeps only that long.
+        time.sleep(timeout)
+        return False
+
+    start = time.monotonic()
+    with patch.object(frigate_prefetch, "_check_clip_ready", side_effect=_slow_check_clip_ready):
+        result = await frigate_prefetch._poll_clip_ready(
+            "http://192.168.100.18:5000",
+            "evt123",
+            deadline=time.monotonic() + 0.1,
+            poll_interval_s=0.05,
+            http_timeout_s=5.0,
+        )
+    elapsed = time.monotonic() - start
+    # Assert: clip never confirmed ready within the tiny remaining budget
+    assert result is False
+    # Assert: bounded by the remaining deadline (~0.1s), not by the full 5.0s http_timeout_s
+    assert elapsed < 1.0, f"elapsed={elapsed}s — attempt was not capped to the remaining deadline"

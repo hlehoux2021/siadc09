@@ -3,15 +3,17 @@ story_id: "14-3"
 story_key: "14-3-attach-frigate-clip-alongside-snapshot"
 epic_id: "epic-14"
 epic_name: "Camera Snapshot Attachment (Frigate Integration)"
-status: "review"
+status: "done"
 created: "2026-09-26"
 ---
 
 # Story 14.3: Attach Frigate Video Clip Alongside Snapshot in Alarm Frame
 
-Status: review — Tasks 1-6 complete. Live-validated 2026-09-26 on test-jeedom.lehoux.net against the real
+Status: done — Tasks 1-6 complete. Live-validated 2026-09-26 on test-jeedom.lehoux.net against the real
 receiver 192.168.100.15:10002: dual-URL [V...] field confirmed end-to-end (Zone2/vigi_sud-est). Task 6.6
-(snapshot-only live case) covered by unit tests only, live repro not attempted — see Dev Notes.
+(snapshot-only live case) covered by unit tests only, live repro not attempted — see Dev Notes. Code review
+2026-09-26: 1 decision resolved (doc correction, no code change), 2 patches applied and tested (clip-poll
+deadline overrun fixed; cache-read TOCTOU closed), 6 items deferred (D-57..D-62), 5 dismissed as noise.
 
 ## Story
 
@@ -108,7 +110,14 @@ in-memory intent and the Jeedom-side cache are not the same thing").
    dual-URL `[V...]` field (a generic receiver; this exact shape has not been sent to it before). Document
    the observed result even if the receiver only surfaces one URL or truncates the field.
 
-**Explicitly out of scope:** PA/FA clip attachment (14-2's BA-only scope carries forward unchanged); any new
+**Note on scope (corrected 2026-09-26, code review):** media resolution (`_resolveFrigateSnapshotUrl`/
+`_resolveFrigateClipUrl`) has never been gated to `burglarAlarm` — it has been shared across
+`burglarAlarm`/`fireAlarm`/`panicAlarm` via the same `execute()` case fallthrough since 14-1/14-2, for
+snapshot. This story's clip attachment simply follows that same existing, shared pattern; it does not newly
+scope clip attachment to BA only. Herve's explicit call (code review 2026-09-26): leave the shared dispatch
+as-is, correct this doc rather than add a new BA-only gate.
+
+**Explicitly out of scope:** any new
 wizard/config UI (reuses 14-1's existing camera mapping and `frigate_media_url_template` field verbatim);
 a structured multi-media format (JSON, MIME tags) — space-separated free-form text is the chosen convention
 per the V-field format decision above, revisit only if AC6's live receiver validation shows it doesn't work.
@@ -230,6 +239,34 @@ per the V-field format decision above, revisit only if AC6's live receiver valid
         this story's code controls. The snapshot-only code path (AC5's second bullet) is proven at the unit
         level by Task 5.4's cache-state test matrix (snapshot-only case passing, unchanged by this session's
         live work). Accepted as sufficient live-validation closure for this sub-case.
+
+### Review Findings
+
+Code review 2026-09-26 (`ed8af11..HEAD`, commits `eb4ac8f`+`6f64203`), three parallel adversarial layers
+(Blind Hunter, Edge Case Hunter, Acceptance Auditor). All findings below verified against the actual code,
+not taken at face value from the reviewers.
+
+- [x] [Review][Decision] Clip attachment (like snapshot before it) reaches `fireAlarm`/`panicAlarm`
+  frames, not just `burglarAlarm` — the story's own "Explicitly out of scope: PA/FA clip attachment
+  (14-2's BA-only scope carries forward unchanged)" claim was factually inaccurate. Verified against
+  `ed8af11` (pre-14-3): snapshot resolution was already shared across all three actions via the same
+  `case 'burglarAlarm': case 'fireAlarm': case 'panicAlarm':` fallthrough (`siaDC09Cmd.class.php`) — there
+  has never been a BA-only gate. **Resolved by Herve (2026-09-26): option 2 — corrected the doc, no code
+  change.** Scope text in this story and in epics.md Story 14.3 updated to reflect the existing shared
+  dispatch; no new BA-only gate added.
+
+- [x] [Review][Patch] Clip-readiness poll can overrun the shared prefetch deadline [`resources/siadc09d/frigate_prefetch.py:174-186`] — `_poll_clip_ready()` fires its `_check_clip_ready` attempt unconditionally before checking `time.monotonic() >= deadline`, so an attempt starting near the deadline still consumes a full `http_timeout_s + PREFETCH_WAIT_FOR_SLACK_S` past it — stacking on top of the pre-existing person-event poll's identical shape and roughly doubling the worst-case overrun beyond `PREFETCH_MAX_WAIT_S`. Violates AC2 ("never blocks beyond the existing bounded `max_wait_s` budget"). The guard test (`test_total_elapsed_time_across_both_checks_stays_bounded_by_max_wait_s`, `tests/level1/test_frigate_prefetch.py:273-296`) mocks `_check_clip_ready` to return synchronously, so it never exercises the real `asyncio.wait_for(...)` timeout path and provides no actual protection against this. Flagged independently by all three review layers. **Fixed:** `_poll_clip_ready()` now computes `remaining = deadline - time.monotonic()` before every attempt, returns `False` immediately if exhausted, and caps the attempt's own timeout to `min(http_timeout_s, remaining)`. New regression test `test_clip_poll_attempt_timeout_bounded_by_remaining_deadline_not_full_http_timeout` (`tests/level1/test_frigate_prefetch.py`) actually exercises the real timeout path with a slow mock and would fail without the fix. 0 regressions (`tests/level1/` 1222 passed/2 failed, matching baseline exactly).
+
+- [x] [Review][Patch] Cache read TOCTOU between snapshot and clip resolution [`core/class/siaDC09Cmd.class.php:98-99`] — `_resolveFrigateSnapshotUrl()` and `_resolveFrigateClipUrl()` each independently call `$eqLogic->getCache('sia_prefetch_cache', [])`, two separate reads of the same logical entry within one `execute()` call. A concurrent `_handlePrefetchResult()` callback landing between the two reads could join a snapshot URL from one event with a clip URL from a different, later event. Low practical likelihood (microsecond window, same PHP request) but the fix is trivial: decode the cache entry once and pass it to both resolvers. **Fixed:** new `_readPrefetchCacheEntry()` helper does the single read in `execute()`; both resolvers gained an optional `?array $cacheEntry = null` parameter — used as-is when provided (execute()'s call site), falling back to each method's own original internal read when not (preserves every existing static-analysis test's assumption that the read logic still lives inside each resolver's own body). `php -l` clean; `tests/level1/test_frigate_snapshot_resolution.py`/`test_php_eqlogic_stub.py` all green, 0 regressions.
+
+- [x] [Review][Defer] No backoff/circuit-breaker on repeated `_check_clip_ready` HTTP polls if Frigate is slow/degraded [`resources/siadc09d/frigate_prefetch.py`] — deferred, pre-existing pattern (same shape as 14-2's person-event poll, not newly introduced by this story)
+- [x] [Review][Defer] `_resolveFrigateClipUrl()` is a copy-paste of `_resolveFrigateSnapshotUrl()` rather than a shared parameterized helper [`core/class/siaDC09Cmd.class.php:420-468`] — deferred, real duplication-maintenance risk but low severity, a refactor not a defect
+- [x] [Review][Defer] Evidence-permanently-understated risk: a clip that becomes ready just after the deadline is recorded `clip_found=false` forever for that alarm — deferred, already an accepted scope boundary of this design (same class of gap as the pre-existing miss-path contract), worth a doc note only
+- [x] [Review][Defer] Bespoke space-separated dual-URL `[V...]` convention unverified against any real monitoring-center CSR parser — deferred, already transparently documented as an accepted risk in this story's own Task 6.5/6.6 notes
+- [x] [Review][Defer] Test-quality gaps: `_run_execute_burglar_alarm` harness checks only `returncode==0` not `stderr` empty; stale-cache test only checks the fake `log` stub not real PHP stderr — deferred, matches this test suite's pre-existing harness pattern, not newly introduced by 14-3
+- [x] [Review][Defer] sprint-status.yaml summary counter drift — deferred, matches known pre-existing project pattern (memory: sprint-status summary drift), not a 14-3-specific defect
+
+Dismissed as noise (verified false against the actual code, not applied): `_buildFrigateMediaUrl` "empty-string join" edge case (method only ever returns `null` or a well-formed non-empty URL); `urllib.parse` "unconfirmed import" (it is imported at `frigate_prefetch.py:22`); `<user>:<password>` "looks like a leaked credential" (established placeholder-template convention, memory `media-url-template-never-real-secret`); duplicated AC text between epics.md and the story file (standard BMad convention, every story does this); Task 6.6 "declared sufficient by fiat" (already transparently documented as a deliberate call in this story, not a hidden gap).
 
 ## Dev Notes
 

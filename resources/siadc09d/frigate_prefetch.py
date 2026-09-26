@@ -171,10 +171,15 @@ async def _poll_clip_ready(
         never raises.
     """
     while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            _logger.debug("_poll_clip_ready: deadline exhausted, clip not ready — clip_found=False")
+            return False
+        attempt_timeout = min(http_timeout_s, remaining)
         try:
             ready = await asyncio.wait_for(
-                asyncio.to_thread(_check_clip_ready, base_url, event_id, http_timeout_s),
-                timeout=http_timeout_s + PREFETCH_WAIT_FOR_SLACK_S,
+                asyncio.to_thread(_check_clip_ready, base_url, event_id, attempt_timeout),
+                timeout=attempt_timeout + PREFETCH_WAIT_FOR_SLACK_S,
             )
         except (asyncio.TimeoutError, TimeoutError):
             _logger.debug("_poll_clip_ready: poll attempt timed out")
@@ -182,10 +187,11 @@ async def _poll_clip_ready(
         if ready:
             _logger.debug(f"_poll_clip_ready: clip confirmed ready for event_id={event_id!r}")
             return True
-        if time.monotonic() >= deadline:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
             _logger.debug("_poll_clip_ready: deadline exhausted, clip not ready — clip_found=False")
             return False
-        await asyncio.sleep(poll_interval_s)
+        await asyncio.sleep(min(poll_interval_s, remaining))
 
 
 async def prefetch_person_event(
