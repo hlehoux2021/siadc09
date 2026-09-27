@@ -13,7 +13,7 @@ Steps to publish siaDC09 on the Jeedom Market. The **files** are prepared in the
 - [x] Internal documents (design docs, protocol spec, simulator/logging guides) live in `internal-docs/`, outside the `/docs` folder that GitHub Pages publishes
 - [ ] 👤 **Icon design**: the current icon is a generated placeholder (shield + signal arcs + "SIA DC-09"). Replace it with a final design if you want one: 309 × 348 PNG, rounded corners, coloured background, transparency, avoid the official Jeedom palette.
 - [x] **aiodemo template leftovers removed** (D-83): `core/ajax/aiodemo.ajax.php`, `core/class/aiodemo.class.php`, `core/php/jeeaiodemo.php`, `desktop/js/aiodemo.js`, `desktop/php/aiodemo.php`, `resources/aiodemod/`, the `plugins/aiodemo/...` sections of `core/i18n/{de_DE,en_US,es_ES,it_IT,pt_PT}.json`, `plugin_info/pre_install.php` (only an empty `aiodemo_pre_update()`) and `install.png` were deleted.
-- [ ] **Non-French translations**: `info.json` declares `en_US` and `de_DE`, but only `en_US.json` has siaDC09 strings and `de_DE.json` does not exist yet. Let `.github/workflows/translations.yml` generate the siaDC09 sections (or reduce `language` to what is really translated).
+- [x] **Languages**: `info.json` declares `fr_FR` and `en_US` only (`de_DE` removed: no German file, and `translations.yml` does not work). `en_US.json` is partial (22 of 169 strings), so English users see mostly French.
 - [ ] 👤 **Forum link** (optional but recommended): once a topic exists on community.jeedom.com, add `"link": {"forum": "<topic URL>"}` to `info.json`.
 - [ ] Run the full regression: `python3 -m pytest tests/level1/ tests/level2/ tests/level2_5/`, `find core/ desktop/ -name "*.php" | xargs -n1 php -l`, `python3 -m pylint resources/siadc09d/`.
 
@@ -23,7 +23,6 @@ Steps to publish siaDC09 on the Jeedom Market. The **files** are prepared in the
 
 - [ ] 👤 Enable **GitHub Pages** for `hlehoux2021/siadc09` (Settings → Pages → deploy from branch, folder `/docs`).
 - [ ] 👤 Open `https://hlehoux2021.github.io/siadc09/fr_FR/` and `…/fr_FR/changelog` in a browser and check that both render. If Pages needs `.md`-less URLs, keep the default Jekyll build (it serves `index.md` → `/fr_FR/`, `changelog.md` → `/fr_FR/changelog`).
-- [ ] 👤 `de_DE` has no documentation page yet. Either add `docs/de_DE/` or accept the 404 for German users.
 
 ## 3. Market account and publication (👤)
 

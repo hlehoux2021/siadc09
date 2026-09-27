@@ -37,8 +37,8 @@ core/
 ├── php/
 │   └── jeesiaDC09.php               ← Daemon → PHP callback endpoint (F5)
 └── i18n/
-    ├── en_US.json                   ← English translations (Market requirement)
-    └── de_DE.json                   ← German translations (optional, community)
+    ├── fr_FR.json                   ← Source language (identity mapping)
+    └── en_US.json                   ← English translations (partial, maintained by hand)
 
 desktop/
 └── php/
