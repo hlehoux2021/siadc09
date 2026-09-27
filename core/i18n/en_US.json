@@ -1,29 +1,4 @@
 {
-    "plugins\/aiodemo\/core\/ajax\/aiodemo.ajax.php": {
-        "401 - Accès non autorisé": "",
-        "Aucune méthode correspondante à": ""
-    },
-    "plugins\/aiodemo\/core\/class\/aiodemo.class.php": {
-        "Impossible de lancer le démon": "",
-        "Veuillez vérifier la configuration": ""
-    },
-    "plugins\/aiodemo\/core\/php\/jeeaiodemo.php": {
-        "Vous n\\'etes pas autorisé à effectuer cette action": ""
-    },
-    "plugins\/aiodemo\/desktop\/js\/aiodemo.js": {
-        "Afficher": "",
-        "Aucune": "",
-        "Choisir une icône": "",
-        "Commande info liée": "",
-        "Historiser": "",
-        "Inverser": "",
-        "Max": "",
-        "Min": "",
-        "Nom de la commande": "",
-        "Supprimer la commande": "",
-        "Tester": "",
-        "Unité": ""
-    },
     "plugins\/siaDC09\/core\/class\/siaDC09.class.php": {
         "Impossible de lancer le démon": "Unable to start daemon",
         "Veuillez vérifier la configuration": "Please check configuration",
@@ -54,38 +29,5 @@
     "plugins\/siaDC09\/core\/ajax\/siaDC09.ajax.php": {
         "401 - Accès non autorisé": "401 - Unauthorized access",
         "Aucune méthode correspondante à": "No matching method for"
-    },
-    "plugins\/aiodemo\/desktop\/php\/aiodemo.php": {
-        "401 - Accès non autorisé": "",
-        "Actions": "",
-        "Activer": "",
-        "Ajouter": "",
-        "Aucun": "",
-        "Aucun équipement aiodemo trouvé, cliquer sur \"Ajouter\" pour commencer": "",
-        "Catégorie": "",
-        "Commandes": "",
-        "Community": "",
-        "Configuration": "",
-        "Configuration avancée": "",
-        "Créer un post Community": "",
-        "Description": "",
-        "Dupliquer": "",
-        "Equipement": "",
-        "Equipement non visible": "",
-        "Equipement visible": "",
-        "Etat": "",
-        "Gestion": "",
-        "Informations": "",
-        "Mes aiodemos": "",
-        "Nom": "",
-        "Nom de l'équipement": "",
-        "Objet parent": "",
-        "Options": "",
-        "Paramètres généraux": "",
-        "Rechercher": "",
-        "Sauvegarder": "",
-        "Supprimer": "",
-        "Type": "",
-        "Visible": ""
     }
 }
