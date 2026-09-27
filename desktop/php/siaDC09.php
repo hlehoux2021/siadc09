@@ -244,7 +244,7 @@ $scenarios = scenario::all();
 										<label class="col-sm-4 control-label">{{URL media Frigate}}</label>
 										<div class="col-sm-6">
 											<input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="frigate_media_url_template" placeholder="https://<user>:<pass>@host/ ou https://host/?accesstoken=<token>">
-											<p class="help-block">{{Utilisez des placeholders littéraux (ex: <user>, <pass>) — jamais un identifiant réel.}}</p>
+											<p class="help-block">{{Optionnel — voir}} <a href="https://hlehoux2021.github.io/siadc09/fr_FR/#photos-et-vidéos-frigate-optionnel" target="_blank" rel="noopener">{{la documentation Frigate}}</a>.</p>
 										</div>
 									</div>
 									<div class="table-responsive">
@@ -261,7 +261,7 @@ $scenarios = scenario::all();
 										</table>
 									</div>
 									<p class="text-muted">
-										<i class="fas fa-info-circle"></i> {{Pour chaque zone avec caméra : ajoutez la commande "Prefetch événement Frigate" aux actions immédiates de la zone, avec Titre = <code>#zone#</code>.}}
+										<i class="fas fa-info-circle"></i> {{Prefetch événement Frigate : à câbler aux actions immédiates de déclenchement (globales, recommandé), Titre =}} <code>#zone#</code> — <a href="https://hlehoux2021.github.io/siadc09/fr_FR/#câbler-le-plugin-alarme" target="_blank" rel="noopener">{{voir la documentation de câblage}}</a>.
 									</p>
 									<div class="form-group">
 										<label class="col-sm-4 control-label">{{Numéro utilisateur SIA}}</label>
@@ -271,7 +271,7 @@ $scenarios = scenario::all();
 										</div>
 									</div>
 									<p class="text-muted">
-										<i class="fas fa-info-circle"></i> {{Câblez les trois actions dans le plugin Alarme : "Désactivation OK", "Réinitialisation" et "Activation OK" (action immédiate).}}
+										<i class="fas fa-info-circle"></i> {{Trois commandes à câbler dans le plugin Alarme —}} <a href="https://hlehoux2021.github.io/siadc09/fr_FR/#câbler-le-plugin-alarme" target="_blank" rel="noopener">{{voir la documentation de câblage}}</a>.
 									</p>
 									<div class="form-group" style="margin-top:15px;">
 										<div class="col-sm-12" style="text-align:right;">
