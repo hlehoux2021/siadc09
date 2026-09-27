@@ -144,18 +144,6 @@ def test_show_step_loads_zone_data_on_step3(js_source: str) -> None:
     assert re.search(pattern, js_source, re.DOTALL)
 
 
-def test_show_step_applies_readonly_on_step1(js_source: str) -> None:
-    """
-    Entering step 1 must apply readonly to preset-controlled fields.
-
-    Expected result:
-    - siaDC09_applyReadonly() call inside step==1 branch
-    """
-    pattern = r'step\s*===?\s*1.*?siaDC09_applyReadonly'
-    # Assert: step 1 applies readonly
-    assert re.search(pattern, js_source, re.DOTALL)
-
-
 def test_show_step_3_fetches_persisted_eqlogic_via_byid(js_source: str) -> None:
     """
     Task 4.2 live-test finding (2026-09-26): sia_zone_mappings has no corresponding
@@ -460,33 +448,7 @@ def test_print_eq_logic_shows_wizard_when_incomplete(js_source: str) -> None:
     assert re.search(r"siaDC09-wizard.*?\.show\(\)", js_source, re.DOTALL)
 
 
-def test_print_eq_logic_restores_card_selection(js_source: str) -> None:
-    """
-    printEqLogic must restore the selected provider card state from config.
-    Without this, reloading the page loses the visual card selection.
-
-    Expected result:
-    - siaDC09_selectCard call with provider from config
-    """
-    pattern = r'printEqLogic.*?siaDC09_selectCard'
-    # Assert: card selection restored on load
-    assert re.search(pattern, js_source, re.DOTALL)
-
-
 # ── Config Summary Population ─────────────────────────────────────────────────
-
-
-def test_config_summary_displays_provider_label(js_source: str) -> None:
-    """
-    populateConfigSummary must translate csr_provider to a human label
-    (IMA Protect vs Personnalisé).
-
-    Expected result:
-    - 'IMA Protect' and 'Personnalisé' strings in summary function
-    """
-    # Assert: provider labels present
-    assert "IMA Protect" in js_source
-    assert "Personnalisé" in js_source
 
 
 def test_config_summary_displays_connection_info(js_source: str) -> None:
@@ -526,8 +488,7 @@ def test_config_summary_encryption_never_bare_truthy_check(js_source: str) -> No
     Task 4.2 live-test finding (2026-09-26): persisted checkbox config comes back as the
     string "0" when unchecked (not absent), and a bare `cfg.encryption_enabled ?` check
     treats "0" as truthy in JS — the summary always showed "activé" regardless of the
-    real saved state. Must compare against an explicit on-value, same convention already
-    used by siaDC09_fillFromPreset() for the same field.
+    real saved state. Must compare against an explicit on-value.
 
     Expected result:
     - no bare `cfg.encryption_enabled ?` ternary anywhere in the source

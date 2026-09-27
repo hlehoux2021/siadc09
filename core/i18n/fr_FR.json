@@ -118,8 +118,6 @@
         "Objet parent": "Objet parent",
         "Options": "Options",
         "Paramètres généraux": "Paramètres généraux",
-        "Personnaliser": "Personnaliser",
-        "Personnalisé": "Personnalisé",
         "Port": "Port",
         "Pour chaque zone reliée à une caméra Frigate ci-dessus : dans le plugin Alarme, ajoutez la commande \"Prefetch événement Frigate\" de cet équipement aux actions immédiates de la zone correspondante — pas aux actions temporisées — et renseignez son champ Titre avec exactement <code>#zone#</code>. C'est ce champ Titre qui permet à siaDC09 de savoir quelle zone a déclenché et donc quelle caméra interroger dès le déclenchement, avant l'envoi de la trame BA. Sans <code>#zone#</code> dans le Titre, le prefetch ne peut jamais résoudre de caméra.": "Pour chaque zone reliée à une caméra Frigate ci-dessus : dans le plugin Alarme, ajoutez la commande \"Prefetch événement Frigate\" de cet équipement aux actions immédiates de la zone correspondante — pas aux actions temporisées — et renseignez son champ Titre avec exactement <code>#zone#</code>. C'est ce champ Titre qui permet à siaDC09 de savoir quelle zone a déclenché et donc quelle caméra interroger dès le déclenchement, avant l'envoi de la trame BA. Sans <code>#zone#</code> dans le Titre, le prefetch ne peut jamais résoudre de caméra.",
         "Rechercher": "Rechercher",

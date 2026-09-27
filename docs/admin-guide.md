@@ -37,7 +37,6 @@ All set by the wizard; stored in the Jeedom database with the equipment.
 
 | Key | Default | Wizard step | Meaning | Passed to daemon as |
 |-----|---------|-------------|---------|---------------------|
-| `csr_provider` | — | 1 | Preset id or `manual` (UI only: which card is selected, fields locked or not) | — |
 | `csr_ip` | `''` | 1 | Receiver IP. Must not be empty or `TBD` | `--host` |
 | `csr_port` | `0` | 1 | Receiver port, 1-65535 | `--port` |
 | `transport` | `udp` | 1 | `udp` or `tcp` | `--transport` |

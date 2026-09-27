@@ -12,7 +12,6 @@ Reference: internal-docs/design/wizard-design.md
 Reference: internal-docs/design/daemon-design.md
 """
 
-import json
 import re
 from pathlib import Path
 
@@ -22,7 +21,6 @@ _PROJECT_ROOT = Path(__file__).parent.parent.parent
 _PHP_PAGE = _PROJECT_ROOT / "desktop/php/siaDC09.php"
 _JS_FILE = _PROJECT_ROOT / "desktop/js/siaDC09.js"
 _PYTHON_ENTRY = _PROJECT_ROOT / "resources/siadc09d/siadc09d.py"
-_PRESETS_JSON = _PROJECT_ROOT / "resources/siadc09d/csr_presets.json"
 _AJAX_FILE = _PROJECT_ROOT / "core/ajax/siaDC09.ajax.php"
 
 
@@ -42,12 +40,6 @@ def js_source() -> str:
 def python_source() -> str:
     assert _PYTHON_ENTRY.exists(), f"Python entry not found: {_PYTHON_ENTRY}"
     return _PYTHON_ENTRY.read_text(encoding="utf-8")
-
-
-@pytest.fixture(scope="module")
-def presets_data() -> dict:
-    assert _PRESETS_JSON.exists(), f"Presets JSON not found: {_PRESETS_JSON}"
-    return json.loads(_PRESETS_JSON.read_text(encoding="utf-8"))
 
 
 # ── CSR config keys: PHP ↔ Python ─────────────────────────────────────────────
@@ -139,74 +131,6 @@ def test_csr_key_in_js_validation(js_source: str, key: str) -> None:
     # Assert: JS references this key via data-l2key selector
     assert f'data-l2key="{key}"' in js_source, (
         f"Config key '{key}' not referenced in JS — validation may be incomplete"
-    )
-
-
-# ── Preset fields: JSON ↔ PHP rendering ───────────────────────────────────────
-
-_PRESET_RENDERED_FIELDS = [
-    "csr_ip",
-    "csr_port",
-    "transport",
-    "encryption_enabled",
-    "supervision_interval",
-    "retry_count",
-    "reconnect_delay",
-]
-
-
-@pytest.mark.parametrize("field", _PRESET_RENDERED_FIELDS)
-def test_preset_field_rendered_as_data_attribute(php_page: str, field: str) -> None:
-    """
-    Each preset field that siaDC09_fillFromPreset() reads must be rendered
-    as a data-preset-<field> attribute on the IMA Protect card. If missing,
-    the JS fillFromPreset() reads undefined for that field.
-
-    Expected result:
-    - data-preset-<field> present in PHP page source
-    """
-    # Assert: preset data attribute rendered server-side
-    assert f'data-preset-{field}' in php_page, (
-        f"Preset field '{field}' not rendered as data-preset-{field} "
-        "on the IMA Protect card — siaDC09_fillFromPreset() will read undefined"
-    )
-
-
-@pytest.mark.parametrize("field", _PRESET_RENDERED_FIELDS)
-def test_preset_field_read_by_js_fill(js_source: str, field: str) -> None:
-    """
-    siaDC09_fillFromPreset() must reference each preset field in its
-    field array. If a field is rendered in PHP but not in the JS array,
-    it is never applied to the form.
-
-    Expected result:
-    - Field name present in fillFromPreset's fields array
-    """
-    # Assert: JS fillFromPreset reads this field
-    assert f"'{field}'" in js_source or f'"{field}"' in js_source, (
-        f"Preset field '{field}' not in siaDC09_fillFromPreset() array — "
-        "rendered but never applied"
-    )
-
-
-@pytest.mark.parametrize("field", _PRESET_RENDERED_FIELDS)
-def test_preset_field_exists_in_json(presets_data: dict, field: str) -> None:
-    """
-    Each rendered preset field must exist in the actual csr_presets.json
-    ima_protect entry. Otherwise PHP renders an empty data attribute.
-
-    Expected result:
-    - Field present in the ima_protect preset object
-    """
-    ima_preset = None
-    for p in presets_data.get("presets", []):
-        if p.get("id") == "ima_protect":
-            ima_preset = p
-            break
-    assert ima_preset is not None, "ima_protect preset not found in JSON"
-    # Assert: field exists in preset JSON
-    assert field in ima_preset, (
-        f"Preset field '{field}' missing from ima_protect in csr_presets.json"
     )
 
 
@@ -325,43 +249,6 @@ def test_ajax_action_handled_in_php(action: str) -> None:
     assert f"'{action}'" in ajax_source, (
         f"AJAX action '{action}' not handled in PHP — JS call will get 'no method' error"
     )
-
-
-# ── csr_provider key: PHP ↔ JS ↔ Python ───────────────────────────────────────
-
-
-def test_csr_provider_key_in_php(php_page: str) -> None:
-    """
-    csr_provider must be a hidden field in PHP for Jeedom persistence.
-    PHP testConnection reads it to decide preset vs manual mode.
-
-    Expected result:
-    - data-l2key="csr_provider" present in PHP page
-    """
-    # Assert: provider key bound in PHP
-    assert 'data-l2key="csr_provider"' in php_page
-
-
-def test_csr_provider_key_in_js(js_source: str) -> None:
-    """
-    JS must read/write csr_provider for card selection state.
-
-    Expected result:
-    - data-l2key="csr_provider" selector present in JS
-    """
-    # Assert: JS references provider key
-    assert 'data-l2key="csr_provider"' in js_source
-
-
-def test_csr_provider_key_in_python(python_source: str) -> None:
-    """
-    Python run_connection_test() reads csr_provider to decide preset vs manual.
-
-    Expected result:
-    - "csr_provider" string present in Python source
-    """
-    # Assert: Python reads provider key
-    assert '"csr_provider"' in python_source
 
 
 # ── Supervision config keys: PHP ↔ JS ↔ Python CLI ────────────────────────────

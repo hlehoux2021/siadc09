@@ -133,7 +133,6 @@ def test_wizard_step_field_is_hidden_input(php_page: str) -> None:
 
 
 _STEP1_CONFIG_FIELDS = [
-    "csr_provider",
     "csr_ip",
     "csr_port",
     "transport",
@@ -161,82 +160,6 @@ def test_step1_config_field_binding(php_page: str, field: str) -> None:
         f"Config field '{field}' missing data-l2key binding — "
         "value will not be saved by Jeedom framework"
     )
-
-
-def test_step1_csr_fields_have_readonly_class(php_page: str) -> None:
-    """
-    CSR preset-controlled fields must have class="siaDC09-csr-field" so
-    siaDC09_applyReadonly() can target them via jQuery selector.
-    account_number and encryption_key are NOT in this class (always editable).
-
-    Expected result:
-    - Multiple elements have the siaDC09-csr-field class
-    """
-    matches = re.findall(r'siaDC09-csr-field', php_page)
-    # Assert: at least 4 fields have the readonly-targetable class
-    assert len(matches) >= 4, (
-        f"Expected >= 4 elements with 'siaDC09-csr-field' class, found {len(matches)}"
-    )
-
-
-def test_account_number_not_csr_field_class(php_page: str) -> None:
-    """
-    account_number must NOT have class siaDC09-csr-field — it is always
-    editable regardless of preset mode (subscriber-specific, not preset value).
-
-    Expected result:
-    - The line containing data-l2key="account_number" does NOT also contain
-      siaDC09-csr-field
-    """
-    for line in php_page.split('\n'):
-        if 'data-l2key="account_number"' in line:
-            # Assert: account_number is not in the readonly-targetable class
-            assert 'siaDC09-csr-field' not in line, (
-                "account_number must NOT have siaDC09-csr-field class — "
-                "it should always be editable"
-            )
-            return
-    pytest.fail("data-l2key='account_number' not found in page")
-
-
-# ── Step 1: Preset cards ────────────────────────────────────────────────────
-
-
-def test_ima_protect_card_has_data_provider(php_page: str) -> None:
-    """
-    IMA Protect card must have data-provider="ima_protect" for the click
-    handler to identify which preset was selected.
-
-    Expected result:
-    - data-provider="ima_protect" present on a card element
-    """
-    # Assert: data-provider attribute present
-    assert 'data-provider="ima_protect"' in php_page
-
-
-def test_manual_card_has_data_provider(php_page: str) -> None:
-    """
-    Personnalisé card must have data-provider="manual" for the click handler.
-
-    Expected result:
-    - data-provider="manual" present on a card element
-    """
-    # Assert: data-provider attribute present
-    assert 'data-provider="manual"' in php_page
-
-
-def test_ima_preset_data_attributes_rendered(php_page: str) -> None:
-    """
-    The IMA Protect card must render data-preset-* attributes from the preset
-    JSON loaded server-side. These attributes are read by siaDC09_fillFromPreset()
-    to populate CSR fields without an AJAX call.
-
-    Expected result:
-    - data-preset-csr_port and data-preset-transport attributes present
-    """
-    # Assert: preset data attributes are rendered server-side
-    assert 'data-preset-csr_port' in php_page
-    assert 'data-preset-transport' in php_page
 
 
 # ── Step 2: Connection test UI elements ─────────────────────────────────────
@@ -442,7 +365,6 @@ def test_step4_error_div_exists(php_page: str) -> None:
     "bt_step3Next",
     "bt_step4Finish",
     "bt_restartWizard",
-    "bt_personnaliser",
 ])
 def test_navigation_button_exists(php_page: str, btn_id: str) -> None:
     """

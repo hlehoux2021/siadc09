@@ -13,7 +13,6 @@ import asyncio
 import errno
 import json
 import socket
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -31,7 +30,6 @@ from resources.siadc09d.siadc09d import (
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 _VALID_MANUAL_CONFIG = {
-    "csr_provider": "manual",
     "csr_ip": "192.168.1.100",
     "csr_port": "5000",  # string — PHP always passes strings
     "transport": "udp",
@@ -39,22 +37,6 @@ _VALID_MANUAL_CONFIG = {
     "encryption_enabled": False,
     "account_number": "001234",
 }
-
-_PRESETS_DATA = {
-    "version": 1,
-    "presets": [{
-        "id": "ima_protect",
-        "label": "IMA Protect",
-        "csr_ip": "192.168.1.200",
-        "csr_port": 5000,
-        "transport": "udp",
-        "crc_format": "hex",
-        "encryption_enabled": False,
-        "supervision_interval": 60,
-        "retry_count": 3,
-    }],
-}
-
 
 def _run(coro):
     """Run a coroutine synchronously."""
@@ -388,7 +370,7 @@ def test_run_connection_test_timeout_prints_fail(capsys, monkeypatch):
 def test_run_connection_test_tbd_ip_prints_error(capsys, monkeypatch):
     """
     run_connection_test() prints {"status": "error"} when csr_ip is "TBD" —
-    the placeholder value from the IMA Protect preset before real IP is configured.
+    the placeholder IP left by the removed IMA Protect preset in older configs.
 
     Expected result:
     - stdout JSON has status == "error" (no DNS lookup attempted)
@@ -468,147 +450,6 @@ def test_run_connection_test_string_port_parses_correctly(capsys, monkeypatch):
     out = json.loads(capsys.readouterr().out.strip())
     # Assert: string port is accepted and parsed correctly
     assert out["status"] == "ok"
-
-
-def test_run_connection_test_preset_crc_format_used(capsys, monkeypatch, tmp_path):
-    """
-    run_connection_test() reads crc_format from the preset JSON when
-    provider != "manual". The builder must use the preset's crc_format,
-    not a hardcoded value.
-
-    Patches the presets JSON path at module level so no real file I/O touches
-    the production csr_presets.json.
-
-    Expected result:
-    - _send_raw_once is called (crc_format was read from preset without error)
-    - stdout JSON has status == "ok"
-    """
-    monkeypatch.setenv("SIA_ENCRYPTION_KEY", "")
-    presets_file = tmp_path / "csr_presets.json"
-    presets_file.write_text(json.dumps(_PRESETS_DATA), encoding="utf-8")
-
-    config = {
-        "csr_provider": "ima_protect",
-        "account_number": "001234",
-    }
-
-    call_count = []
-
-    async def fake_send(*args, **kwargs):
-        call_count.append(1)
-        return {"status": "ack"}
-
-    # Patch Path so that Path(__file__).parent / "csr_presets.json" resolves to tmp_path file.
-    # Production code: presets_path = Path(__file__).parent / "csr_presets.json"
-    real_path = Path
-    def patched_path(arg):
-        p = real_path(arg)
-        # Replace the module-file path with tmp_path so that .parent / "csr_presets.json" works
-        if str(p).endswith("siadc09d.py"):
-            return real_path(str(tmp_path) + "/siadc09d.py")
-        return p
-
-    with patch("resources.siadc09d.siadc09d._send_raw_once", new=fake_send), \
-         patch("resources.siadc09d.siadc09d.Path", side_effect=patched_path):
-        _run(run_connection_test(config, timeout=5))
-
-    out = json.loads(capsys.readouterr().out.strip())
-    # Assert: preset was loaded and _send_raw_once was called
-    assert call_count, "_send_raw_once must be called when preset is valid"
-    # Assert: ack maps to ok
-    assert out["status"] == "ok"
-
-
-def _patch_presets_path(tmp_path: Path):
-    """Return a Path side_effect that redirects __file__ lookups to tmp_path."""
-    real_path = Path
-    def patched(arg):
-        p = real_path(arg)
-        if str(p).endswith("siadc09d.py"):
-            return real_path(str(tmp_path) + "/siadc09d.py")
-        return p
-    return patched
-
-
-def test_run_connection_test_preset_tbd_ip_rejected(capsys, monkeypatch, tmp_path):
-    """
-    run_connection_test() rejects csr_ip == "TBD" even when it comes from the
-    preset JSON (not the manual config). The ima_protect preset ships with
-    csr_ip="TBD" as a placeholder — the guard must fire in preset mode too.
-
-    Expected result:
-    - stdout JSON has status == "error"
-    """
-    monkeypatch.setenv("SIA_ENCRYPTION_KEY", "")
-    preset_with_tbd = {
-        "version": 1,
-        "presets": [{
-            "id": "ima_protect",
-            "label": "IMA Protect",
-            "csr_ip": "TBD",
-            "csr_port": 5000,
-            "transport": "udp",
-            "crc_format": "hex",
-            "encryption_enabled": False,
-            "supervision_interval": 60,
-            "retry_count": 3,
-        }],
-    }
-    (tmp_path / "csr_presets.json").write_text(json.dumps(preset_with_tbd), encoding="utf-8")
-
-    config = {"csr_provider": "ima_protect", "account_number": "001234"}
-
-    with patch("resources.siadc09d.siadc09d.Path", side_effect=_patch_presets_path(tmp_path)):
-        _run(run_connection_test(config, timeout=5))
-
-    out = json.loads(capsys.readouterr().out.strip())
-    # Assert: TBD from preset is rejected just like TBD from manual config
-    assert out["status"] == "error"
-
-
-def test_run_connection_test_unknown_preset_prints_error(capsys, monkeypatch, tmp_path):
-    """
-    run_connection_test() prints {"status": "error"} when csr_provider names a
-    preset that does not exist in csr_presets.json.
-
-    Expected result:
-    - stdout JSON has status == "error"
-    - stdout JSON has a "detail" key mentioning the missing preset
-    """
-    monkeypatch.setenv("SIA_ENCRYPTION_KEY", "")
-    (tmp_path / "csr_presets.json").write_text(json.dumps(_PRESETS_DATA), encoding="utf-8")
-
-    config = {"csr_provider": "nonexistent_csr", "account_number": "001234"}
-
-    with patch("resources.siadc09d.siadc09d.Path", side_effect=_patch_presets_path(tmp_path)):
-        _run(run_connection_test(config, timeout=5))
-
-    out = json.loads(capsys.readouterr().out.strip())
-    # Assert: missing preset is rejected with error
-    assert out["status"] == "error"
-    # Assert: detail mentions the preset id
-    assert "detail" in out
-
-
-def test_run_connection_test_corrupted_presets_file_prints_error(capsys, monkeypatch, tmp_path):
-    """
-    run_connection_test() prints {"status": "error"} when csr_presets.json
-    contains malformed JSON (e.g., truncated file during update).
-
-    Expected result:
-    - stdout JSON has status == "error" (no json.JSONDecodeError propagated)
-    """
-    monkeypatch.setenv("SIA_ENCRYPTION_KEY", "")
-    (tmp_path / "csr_presets.json").write_text("{not valid json", encoding="utf-8")
-
-    config = {"csr_provider": "ima_protect", "account_number": "001234"}
-
-    with patch("resources.siadc09d.siadc09d.Path", side_effect=_patch_presets_path(tmp_path)):
-        _run(run_connection_test(config, timeout=5))
-
-    out = json.loads(capsys.readouterr().out.strip())
-    # Assert: JSON parse failure is handled gracefully
-    assert out["status"] == "error"
 
 
 def test_run_connection_test_encryption_sends_frame(capsys, monkeypatch):

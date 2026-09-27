@@ -1453,7 +1453,8 @@ def test_guard3_blocks_tbd_ip(deamon_info_body: str) -> None:
     """
     Guard 3 in deamon_info() must explicitly compare csr_ip against the quoted
     string 'TBD'. Without this guard, a daemon start would be attempted against
-    the literal hostname 'TBD' (IMA Protect preset placeholder).
+    the literal hostname 'TBD' — the removed preset's placeholder, which can
+    still be persisted on an equipment configured before the preset was dropped.
 
     Expected result:
     - The quoted string 'TBD' or "TBD" appears inside a comparison in deamon_info()

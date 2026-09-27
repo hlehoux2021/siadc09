@@ -12,7 +12,6 @@ Reference: _bmad-output/implementation-artifacts/8-1-wizard-steps-1-2-csr-preset
 
 import asyncio
 import json
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -31,7 +30,6 @@ from resources.siadc09d.sia_transport import (
 
 
 _VALID_MANUAL_CONFIG = {
-    "csr_provider": "manual",
     "csr_ip": "192.168.1.100",
     "csr_port": "5000",
     "transport": "udp",
@@ -39,22 +37,6 @@ _VALID_MANUAL_CONFIG = {
     "encryption_enabled": False,
     "account_number": "001234",
 }
-
-_PRESETS_DATA = {
-    "version": 1,
-    "presets": [{
-        "id": "ima_protect",
-        "label": "IMA Protect",
-        "csr_ip": "192.168.1.200",
-        "csr_port": 5000,
-        "transport": "udp",
-        "crc_format": "hex",
-        "encryption_enabled": False,
-        "supervision_interval": 60,
-        "retry_count": 3,
-    }],
-}
-
 
 class FakeTransport(SIABaseTransport):
     """Minimal async transport for integration testing.
@@ -453,48 +435,6 @@ async def test_run_connection_test_passes_correct_host_port_transport(
     assert call_args[0][1] == 5000
     # Assert: transport from config
     assert call_args[0][2] == "udp"
-
-
-@pytest.mark.asyncio
-async def test_run_connection_test_preset_mode_reads_host_from_preset(
-    capsys, monkeypatch, tmp_path
-):
-    """
-    run_connection_test() in preset mode reads csr_ip/csr_port from the preset
-    JSON, not from the config dict.
-
-    Expected result:
-    - _send_raw_once receives host from preset (192.168.1.200)
-    - _send_raw_once receives port from preset (5000)
-    """
-    monkeypatch.setenv("SIA_ENCRYPTION_KEY", "")
-    (tmp_path / "csr_presets.json").write_text(
-        json.dumps(_PRESETS_DATA), encoding="utf-8"
-    )
-
-    config = {"csr_provider": "ima_protect", "account_number": "001234"}
-    call_args: list[tuple] = []
-
-    async def capturing_send(host, port, transport, frame, *, timeout):
-        call_args.append((host, port, transport))
-        return {"status": "ack"}
-
-    real_path = Path
-
-    def patched_path(arg):
-        p = real_path(arg)
-        if str(p).endswith("siadc09d.py"):
-            return real_path(str(tmp_path) + "/siadc09d.py")
-        return p
-
-    with patch("resources.siadc09d.siadc09d._send_raw_once", new=capturing_send), \
-         patch("resources.siadc09d.siadc09d.Path", side_effect=patched_path):
-        await run_connection_test(config, timeout=5)
-
-    # Assert: host from preset JSON (not config dict)
-    assert call_args[0][0] == "192.168.1.200"
-    # Assert: port from preset JSON
-    assert call_args[0][1] == 5000
 
 
 @pytest.mark.asyncio

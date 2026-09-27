@@ -9,23 +9,6 @@ sendVarToJS('eqType', $plugin->getId());
 siaDC09::ensureAutoEquipment();
 $eqLogics = eqLogic::byType($plugin->getId());
 
-$presetsPath = __DIR__ . '/../../resources/siadc09d/csr_presets.json';
-$presetsData = json_decode(file_get_contents($presetsPath), true);
-$imaPreset = null;
-
-$requiredFields = ['id', 'label', 'csr_ip', 'csr_port', 'transport', 'encryption_enabled', 'supervision_interval', 'retry_count'];
-foreach ($presetsData['presets'] ?? [] as $p) {
-	$missingFields = array_diff($requiredFields, array_keys($p));
-	if (!empty($missingFields)) {
-		log::add('siaDC09', 'error', 'Preset ' . ($p['id'] ?? 'unknown') . ' missing fields: ' . implode(', ', $missingFields));
-		continue;
-	}
-	if ($p['id'] === 'ima_protect') {
-		$imaPreset = $p;
-		break;
-	}
-}
-
 // Step 4 offers the internal action `scenario`, whose target is picked from a plain <select>
 // rendered here — no AJAX endpoint needed, the wizard page is already admin-only.
 $scenarios = scenario::all();
@@ -145,64 +128,27 @@ $scenarios = scenario::all();
 
 							<!-- WIZARD MODE -->
 							<div id="siaDC09-wizard" style="display:none;">
-								<!-- Step 1: CSR Preset Selection -->
+								<!-- Step 1: CSR connection parameters -->
 								<div id="siaDC09-step1" class="siaDC09-step" style="display:none;">
 									<legend><i class="fas fa-satellite-dish"></i> {{Étape 1 — Centrale de télésurveillance}}</legend>
-
-									<!-- Provider cards -->
-									<div class="row" style="margin-bottom:15px;">
-										<div class="col-sm-6">
-											<div class="panel panel-default siaDC09-preset-card" id="card-ima-protect"
-												data-provider="ima_protect"
-												<?php if ($imaPreset): ?>
-												data-preset-csr_ip="<?= htmlspecialchars($imaPreset['csr_ip']) ?>"
-												data-preset-csr_port="<?= (int) $imaPreset['csr_port'] ?>"
-												data-preset-transport="<?= htmlspecialchars($imaPreset['transport']) ?>"
-												data-preset-encryption_enabled="<?= $imaPreset['encryption_enabled'] ? '1' : '0' ?>"
-												data-preset-supervision_interval="<?= (int) $imaPreset['supervision_interval'] ?>"
-												data-preset-retry_count="<?= (int) $imaPreset['retry_count'] ?>"
-												data-preset-reconnect_delay="<?= (int) $imaPreset['reconnect_delay'] ?>"
-												<?php endif; ?>
-												style="cursor:pointer;text-align:center;padding:15px;">
-												<i class="fas fa-shield-alt fa-2x"></i>
-												<br><strong>IMA Protect</strong>
-											</div>
-										</div>
-										<div class="col-sm-6">
-											<div class="panel panel-default siaDC09-preset-card" id="card-manual"
-												data-provider="manual"
-												style="cursor:pointer;text-align:center;padding:15px;">
-												<i class="fas fa-sliders-h fa-2x"></i>
-												<br><strong>{{Personnalisé}}</strong>
-											</div>
-										</div>
-									</div>
-
-									<!-- Personnaliser button (visible only in IMA mode) -->
-									<div id="siaDC09-personnaliser-row" style="display:none;margin-bottom:10px;">
-										<a class="btn btn-xs btn-default" id="bt_personnaliser"><i class="fas fa-edit"></i> {{Personnaliser}}</a>
-									</div>
-
-									<!-- Hidden provider field -->
-									<input type="hidden" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="csr_provider">
 
 									<!-- CSR fields -->
 									<div class="form-group">
 										<label class="col-sm-4 control-label">{{Adresse IP}}</label>
 										<div class="col-sm-6">
-											<input type="text" class="eqLogicAttr form-control siaDC09-csr-field" data-l1key="configuration" data-l2key="csr_ip" placeholder="192.168.x.x">
+											<input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="csr_ip" placeholder="192.168.x.x">
 										</div>
 									</div>
 									<div class="form-group">
 										<label class="col-sm-4 control-label">{{Port}}</label>
 										<div class="col-sm-6">
-											<input type="number" class="eqLogicAttr form-control siaDC09-csr-field" data-l1key="configuration" data-l2key="csr_port" placeholder="5000">
+											<input type="number" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="csr_port" placeholder="5000">
 										</div>
 									</div>
 									<div class="form-group">
 										<label class="col-sm-4 control-label">{{Transport}}</label>
 										<div class="col-sm-6">
-											<select class="eqLogicAttr form-control siaDC09-csr-field" data-l1key="configuration" data-l2key="transport">
+											<select class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="transport">
 												<option value="udp">UDP</option>
 												<option value="tcp">TCP</option>
 											</select>
@@ -229,19 +175,19 @@ $scenarios = scenario::all();
 									<div class="form-group">
 										<label class="col-sm-4 control-label">{{Intervalle supervision (s)}}</label>
 										<div class="col-sm-6">
-											<input type="number" class="eqLogicAttr form-control siaDC09-csr-field" data-l1key="configuration" data-l2key="supervision_interval" placeholder="60">
+											<input type="number" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="supervision_interval" placeholder="60">
 										</div>
 									</div>
 									<div class="form-group">
 										<label class="col-sm-4 control-label">{{Tentatives}}</label>
 										<div class="col-sm-6">
-											<input type="number" class="eqLogicAttr form-control siaDC09-csr-field" data-l1key="configuration" data-l2key="retry_count" placeholder="6">
+											<input type="number" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="retry_count" placeholder="6">
 										</div>
 									</div>
 									<div class="form-group">
 										<label class="col-sm-4 control-label">{{Délai de reconnexion (s)}}</label>
 										<div class="col-sm-6">
-											<input type="number" class="eqLogicAttr form-control siaDC09-csr-field" data-l1key="configuration" data-l2key="reconnect_delay" placeholder="30">
+											<input type="number" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="reconnect_delay" placeholder="30">
 										</div>
 									</div>
 

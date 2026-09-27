@@ -7,7 +7,7 @@ This guide is the map, not the territory: it tells you where things are and how 
 1. [Repository map](#repository-map)
 2. [Runtime flow](#runtime-flow)
 3. [IPC contracts](#ipc-contracts)
-4. [Adding a CSR preset](#adding-a-csr-preset)
+4. [CSR configuration](#csr-configuration)
 5. [Internationalisation](#internationalisation)
 6. [Tests and tooling](#tests-and-tooling)
 7. [Versioning and release](#versioning-and-release)
@@ -36,7 +36,7 @@ This guide is the map, not the territory: it tells you where things are and how 
 | `resources/siadc09d/frigate_prefetch.py` | Forced Frigate event + best-event polling and ranking | ADR-17 in `architecture.md` |
 | `resources/siadc09d/messages.py` | French INFO/WARNING/ERROR log messages | [logging-design.md](../internal-docs/design/logging-design.md) |
 | `resources/siadc09d/logging_config.py` | Log setup; INFO French / DEBUG English | [logging-developer-guide.md](../internal-docs/logging-developer-guide.md) |
-| `resources/siadc09d/presets.py`, `csr_presets.json` | `CSRPreset` dataclass; preset catalogue used by the wizard | [below](#adding-a-csr-preset) |
+| `resources/siadc09d/presets.py` | `CSRPreset` dataclass, built from CLI args | [below](#csr-configuration) |
 | `resources/siadc09d/ring_buffer.py` | Bounded buffers behind the diagnostic lists | [debug-ui-design.md](../internal-docs/design/debug-ui-design.md) |
 | `resources/siadc09d/csr_simulator.py`, `simulate_frames.py`, `extract_frames_from_pcap.py` | Dev tools: fake receiver, frame generator, pcap extractor | [simulator-tools.md](../internal-docs/simulator-tools.md) |
 
@@ -79,33 +79,11 @@ Every message carries `apikey` and `cmd`. Typed as `OnMessageParams` in `daemon.
 
 The contract is enforced on both sides by `tests/level2_5/test_callback_schema.py` and `tests/level2_5/test_ipc_integration.py`. Change it in one place only together with those tests and `php-core-design.md`.
 
-## Adding a CSR preset
+## CSR configuration
 
-Today there is exactly one preset, and the UI is hard-wired to it. `csr_presets.json` is read **only by the PHP page**, not by the daemon: the daemon always builds its `CSRPreset` from CLI arguments (`csr_provider="cli"`). Adding a preset is therefore mostly UI work.
+Step 1 of the wizard has a single mode: manual entry of the receiver's IP, port, transport, account number, encryption and supervision parameters. There used to be a built-in "IMA Protect" preset card next to it (`resources/siadc09d/csr_presets.json`, a `siaDC09-preset-card` in `desktop/php/siaDC09.php`, `siaDC09_selectCard()`/`siaDC09_fillFromPreset()` in `desktop/js/siaDC09.js`); it was removed (D-84, 2026-09-27) because IMA Protect is not the first target CSR. The daemon side was never preset-aware — it always builds its `CSRPreset` from CLI arguments (`csr_provider="cli"`) regardless of how the wizard filled the form.
 
-1. **Catalogue** — add an entry to `resources/siadc09d/csr_presets.json`:
-
-   ```json
-   {
-     "id": "my_csr",
-     "label": "My CSR",
-     "csr_ip": "TBD",
-     "csr_port": 5000,
-     "transport": "tcp",
-     "encryption_enabled": false,
-     "crc_format": "hex",
-     "supervision_interval": 60,
-     "retry_count": 6,
-     "reconnect_delay": 30
-   }
-   ```
-
-   Required keys (checked by `desktop/php/siaDC09.php`, the preset is skipped with an error log otherwise): `id`, `label`, `csr_ip`, `csr_port`, `transport`, `encryption_enabled`, `supervision_interval`, `retry_count`. Use `"TBD"` when the receiver IP is per-customer: both the JS validation and `deamon_info()` refuse it.
-2. **PHP card** — `desktop/php/siaDC09.php` currently picks the built-in preset by its hard-coded `id` and renders one hard-coded card (fixed element ID, `data-provider`, `data-preset-*` attributes). Generalise it into a loop over `$presetsData['presets']` (one card per preset, id-based element IDs) — or add a second card following the same pattern.
-3. **JS** — `desktop/js/siaDC09.js`: `siaDC09_selectCard(provider)` and `siaDC09_fillFromPreset()` are keyed on the built-in preset's id and card element; so is the Configuration active summary (around line 667). Make them read the clicked card's `data-preset-*` attributes instead.
-4. **Texts** — some notification texts in `error_handler.py` name a specific monitoring centre; make them provider-neutral or pass the label.
-5. **Tests** — extend `tests/level1/test_csr_presets_json.py` and `test_csr_preset_validation.py` (catalogue schema), `test_wizard_php_structure.py` / `test_wizard_js_logic.py` (card and fill logic), and `test_wizard_config_key_consistency.py`. Add the new `{{…}}` strings to `core/i18n/fr_FR.json` (`test_i18n_roundtrip.py` will tell you which).
-6. **Daemon** — nothing to change unless the preset needs a field the CLI does not carry yet; then add the argument in `siadc09d.py`, the value in `deamon_start()`, and the field in `CSRPreset` with validation in `__post_init__`.
+If a preset mechanism is reintroduced later, `git log` for the D-84 commit shows what to re-add (catalogue file, PHP card loop, JS fill/readonly logic, provider label in the Configuration summary, matching tests).
 
 ## Internationalisation
 
@@ -131,7 +109,7 @@ PHP-side hard-coded French outside `__()`/`{{…}}`: the Configuration active su
 
 | Level | Folder | Scope | Run |
 |-------|--------|-------|-----|
-| 1 | `tests/level1/` | Sync unit tests: protocol, CRC, crypto, presets, PHP/JS structure (via stubs/regex), i18n, Market files | `python3 -m pytest tests/level1/` |
+| 1 | `tests/level1/` | Sync unit tests: protocol, CRC, crypto, PHP/JS structure (via stubs/regex), i18n, Market files | `python3 -m pytest tests/level1/` |
 | 2 | `tests/level2/` | Async daemon: SM1/SM2, transports, queue, prefetch | `python3 -m pytest tests/level2/` |
 | 2.5 | `tests/level2_5/` | IPC contract (callback schema, wizard config) | `python3 -m pytest tests/level2_5/` |
 | 3 | `tests/level3/` | Live Jeedom required (`requires_jeedom`) | `pytest -m requires_jeedom` |
@@ -150,14 +128,13 @@ PHP-side hard-coded French outside `__()`/`{{…}}`: the Configuration active su
 
 ## Known gaps and discrepancies
 
-Behaviour that differs from what the UI, the presets or the design docs suggest. IDs refer to `_bmad-output/implementation-artifacts/deferred-work.md`.
+Behaviour that differs from what the UI or the design docs suggest. IDs refer to `_bmad-output/implementation-artifacts/deferred-work.md`.
 
 | Area | Gap |
 |------|-----|
-| **Encryption** | `SIACipher` is never called in production and `_encryption_key` is unused. With encryption on, supervision frames get the `*` marker but a plaintext body (`daemon.py` ≈ 957, `siadc09d.py` ≈ 287); event frames are always built with `encryption=False` (`daemon.py` ≈ 1765). The built-in preset has `encryption_enabled: true` (D-17). |
+| **Encryption** | `SIACipher` is never called in production and `_encryption_key` is unused. With encryption on, supervision frames get the `*` marker but a plaintext body (`daemon.py` ≈ 957, `siadc09d.py` ≈ 287); event frames are always built with `encryption=False` (`daemon.py` ≈ 1765). |
 | CRC format | `crc_format = bin` is accepted but ignored on send: the daemon always emits ASCII hex CRC. |
 | Retries | Alarm retries are fixed (`MAX_RETRY_DEFAULT = 3`, i.e. 4 attempts, 10 s timeout, 1 s apart); `retry_count` only drives TCP reconnection. An alarm NAK is not retried. |
-| Presets | One built-in preset (UDP 5000, `csr_ip: "TBD"`, so the user must switch to the custom card), hard-wired in PHP/JS; see [Adding a CSR preset](#adding-a-csr-preset). |
 | Missing UI | `crc_format`, `receiver_prefix`, `account_prefix`, `socketport` have no field. |
 | Daemon lifecycle | Config changes need a restart (D-40); first supervision after one interval (D-42). The "stop daemon" confirmation dialogs do not actually stop it. |
 | Event label | Single last-event slot (D-67). |

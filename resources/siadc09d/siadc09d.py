@@ -255,8 +255,9 @@ def _test_verdict(status: str, context: dict[str, object]) -> dict[str, str]:
 async def run_connection_test(config: dict, timeout: int) -> None:
     """Run a standalone connection test and print JSON result to stdout.
 
-    Reads CSR parameters from config dict (or preset JSON if not manual mode).
-    Builds a NULL frame, sends it via _send_raw_once(), prints result.
+    Reads CSR parameters from config dict (populated by the wizard, preset or
+    manual — the daemon does not distinguish). Builds a NULL frame, sends it
+    via _send_raw_once(), prints result.
 
     Args:
         config: Configuration dict from PHP (eqLogic configuration minus encryption_key).

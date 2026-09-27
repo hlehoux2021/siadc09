@@ -32,9 +32,6 @@ function printEqLogic(_eqLogic) {
     var step = Math.max(1, wizardStep)
     siaDC09_showStep(step)
   }
-  // Restore card selection state
-  var provider = _eqLogic.configuration && _eqLogic.configuration.csr_provider || ''
-  siaDC09_selectCard(provider)
 }
 
 function saveEqLogic(_eqLogic) {
@@ -77,9 +74,6 @@ function siaDC09_showStep(step) {
   $('.siaDC09-step').hide()
   $('#siaDC09-step' + step).show()
 
-  if (step === 1) {
-    siaDC09_applyReadonly()
-  }
   if (step === 2) {
     siaDC09_populateStep2Summary()
     siaDC09_runConnectionTest()
@@ -110,76 +104,6 @@ function siaDC09_showStep(step) {
 function siaDC09_setWizardStep(step) {
   $('.eqLogicAttr[data-l2key="sia_wizard_step"]').val(step)
 }
-
-// ===== STEP 1: PRESET CARD SELECTION =====
-
-function siaDC09_selectCard(provider) {
-  $('.siaDC09-preset-card').removeClass('panel-primary').addClass('panel-default')
-  if (provider === 'ima_protect') {
-    $('#card-ima-protect').removeClass('panel-default').addClass('panel-primary')
-    $('#siaDC09-personnaliser-row').show()
-    siaDC09_fillFromPreset()
-    siaDC09_applyReadonly()
-  } else if (provider === 'manual') {
-    $('#card-manual').removeClass('panel-default').addClass('panel-primary')
-    $('#siaDC09-personnaliser-row').hide()
-    siaDC09_removeReadonly()
-  } else {
-    $('#siaDC09-personnaliser-row').hide()
-  }
-}
-
-function siaDC09_fillFromPreset() {
-  var $card = $('#card-ima-protect')
-  var fields = ['csr_ip', 'csr_port', 'transport', 'encryption_enabled', 'supervision_interval', 'retry_count', 'reconnect_delay']
-  fields.forEach(function(key) {
-    var val = $card.data('preset-' + key)
-    if (val !== undefined) {
-      var $field = $('.eqLogicAttr[data-l2key="' + key + '"]')
-      if ($field.is(':checkbox')) {
-        $field.prop('checked', val === '1' || val === true || val === 1)
-      } else {
-        $field.val(String(val))
-      }
-    }
-  })
-}
-
-function siaDC09_applyReadonly() {
-  var provider = $('.eqLogicAttr[data-l2key="csr_provider"]').val()
-  if (provider && provider !== 'manual') {
-    $('.siaDC09-csr-field').each(function() {
-      var $f = $(this)
-      if ($f.is(':checkbox')) {
-        $f.on('click.presetLock', function(e) { e.preventDefault() })
-      } else if ($f.is('select')) {
-        $f.prop('disabled', true)
-      } else {
-        $f.attr('readonly', true)
-      }
-    })
-  }
-}
-
-function siaDC09_removeReadonly() {
-  $('.siaDC09-csr-field').each(function() {
-    var $f = $(this)
-    $f.removeAttr('readonly').prop('disabled', false).off('click.presetLock')
-  })
-}
-
-// Card click handlers
-$('.siaDC09-preset-card').on('click', function() {
-  var provider = $(this).data('provider')
-  $('.eqLogicAttr[data-l2key="csr_provider"]').val(provider)
-  siaDC09_selectCard(provider)
-})
-
-// Personnaliser button
-$('#bt_personnaliser').on('click', function() {
-  $('.eqLogicAttr[data-l2key="csr_provider"]').val('manual')
-  siaDC09_selectCard('manual')
-})
 
 // ===== STEP 1 VALIDATION =====
 
@@ -664,13 +588,7 @@ function siaDC09_populateConfigSummary(eqLogic) {
   var cfg = (eqLogic && eqLogic.configuration) || {}
 
   // Connection summary
-  var provider = cfg.csr_provider === 'ima_protect' ? 'IMA Protect' : 'Personnalisé'
   var $conn = $('#siaDC09-summary-connection').empty()
-  $('<div>').append(
-    $('<strong>').text('Opérateur : ')
-  ).append(
-    $('<span>').text(provider)
-  ).appendTo($conn)
   $('<div>').append(
     $('<strong>').text('Centrale : ')
   ).append(
@@ -683,8 +601,7 @@ function siaDC09_populateConfigSummary(eqLogic) {
   ).appendTo($conn)
   // Persisted checkbox config comes back as the string "0" when unchecked, not absent —
   // a bare truthy check on cfg.encryption_enabled treats "0" as truthy and always shows
-  // "activé" (bug found live 2026-09-26). Compare explicitly, same convention already used
-  // by siaDC09_fillFromPreset() for the same field.
+  // "activé" (bug found live 2026-09-26). Compare explicitly.
   var encryptionOn = cfg.encryption_enabled === true || cfg.encryption_enabled === '1' || cfg.encryption_enabled === 1
   $('<div>').append(
     $('<strong>').text('Chiffrement : ')

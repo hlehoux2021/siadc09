@@ -479,7 +479,7 @@ def build_notification(code: ErrorCode, context: dict[str, Any]) -> Notification
             T3_PREFIX
             + "La supervision vers la centrale est perdue\n"
             "(3 tentatives sans réponse). La centrale de télésurveillance ne reçoit plus\n"
-            "les signaux de vie. Vérifiez votre connexion réseau et le service IMA Protect.\n"
+            "les signaux de vie. Vérifiez votre connexion réseau et le service de la centrale de télésurveillance.\n"
             f"Centrale: {csr_address} ({transport})."
         ),
         ErrorCode.EVENT_FAILED: (
@@ -491,7 +491,7 @@ def build_notification(code: ErrorCode, context: dict[str, Any]) -> Notification
             + str(context.get("attempts_made", context.get("retry_count", "?")))
             + " tentative(s). La centrale de\ntélésurveillance n'a PAS reçu "
             + _event_object + ".\n"
-            "Vérifiez votre connexion réseau et le service IMA Protect.\n"
+            "Vérifiez votre connexion réseau et le service de la centrale de télésurveillance.\n"
             f"Centrale: {csr_address} ({transport})."
         ),
         ErrorCode.TRANSPORT_PERMANENT: (

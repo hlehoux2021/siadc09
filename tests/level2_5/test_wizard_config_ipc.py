@@ -39,7 +39,7 @@ def _make_wizard_preset(
 ) -> CSRPreset:
     """Create a CSRPreset mimicking wizard config from PHP deamon_start()."""
     return CSRPreset(
-        csr_provider="ima_protect",
+        csr_provider="cli",
         schema_version=1,
         host=host,
         port=port,
@@ -56,7 +56,7 @@ def _make_wizard_preset(
 
 @pytest.fixture
 def wizard_preset() -> CSRPreset:
-    """Default wizard preset (IMA Protect defaults)."""
+    """Default wizard preset."""
     return _make_wizard_preset()
 
 
