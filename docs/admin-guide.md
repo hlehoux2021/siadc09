@@ -143,7 +143,7 @@ Two numbers must move together before every Market publish:
 - `plugin_info/info.json` → `pluginVersion`
 - `resources/siadc09d/__init__.py` → `DAEMON_VERSION`
 
-`tests/level1/test_daemon_version.py` fails if they differ or if either is not `MAJOR.MINOR.PATCH`. Update the changelog (`docs/fr_FR/changelog.md`, French only) in the same commit. The publishing steps are in the [Market submission checklist](market-submission-checklist.md).
+`tests/level1/test_daemon_version.py` fails if they differ or if either is not `MAJOR.MINOR.PATCH`. Update the changelog (`docs/fr_FR/changelog.md`, French only) in the same commit. The publishing steps are in the [Market submission checklist](../internal-docs/market-submission-checklist.md).
 
 ## Security notes
 

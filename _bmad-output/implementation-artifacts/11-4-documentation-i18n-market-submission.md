@@ -170,7 +170,7 @@ eu.anthropic.claude-opus-5-5 (Claude Code, dev-story run autonomously at Herve's
   - 5.2 failed, though: French user strings also live outside `messages.py`. Task 5 and 5.2 are left unchecked; the fix is D-82.
 - **AC5**: `core/i18n/fr_FR.json` was created. It maps every `__()` and `{{…}}` key of the plugin's own files to itself, and the new round-trip test keeps it complete.
 - **AC11 / AC12 — manual, not executed**:
-  - `docs/market-submission-checklist.md` lists every step. Items marked 👤 are Herve's: Market dev account, GitHub token, add the plugin, beta/stable branch mapping, listing, review, GitHub Pages, icon design, forum link, publishing the GitHub release.
+  - `internal-docs/market-submission-checklist.md` lists every step. Items marked 👤 are Herve's: Market dev account, GitHub token, add the plugin, beta/stable branch mapping, listing, review, GitHub Pages, icon design, forum link, publishing the GitHub release.
   - A `docs/release-notes-1.0.0.md` draft was written, then **removed at Herve's request**: the project is at the early-tester stage and must not announce a 1.0.0 release. AC12's release notes are therefore not delivered; they will be written once a first release is decided (checklist § 4). **Nothing was submitted or published.**
 - **Findings made while writing the docs** (not fixed here, logged as deferred):
   - **D-81 — AES encryption is not implemented on the send path.** `encryption=True` only adds the `*` to the ID token, and alarm frames are always sent in plain text. This is now the first "Known limitation" in every document. The key is also stored in plain text and passed on the command line.
@@ -190,7 +190,7 @@ eu.anthropic.claude-opus-5-5 (Claude Code, dev-story run autonomously at Herve's
 - internal-docs/ (moved from docs/: design/, SIA-DC-09 spec + page images, SIA codes PDF, experimentation.md, logging-developer-guide.md, simulator-tools.md) + path references updated repo-wide (CLAUDE.md, .claude/skills/sia-dc09-expert, resources/siadc09d/*, tests/*, _bmad-output/*)
 - docs/admin-guide.md (new)
 - docs/developer-guide.md (new)
-- docs/market-submission-checklist.md (new)
+- internal-docs/market-submission-checklist.md (new)
 - docs/release-notes-1.0.0.md (created, then removed — no 1.0.0 release communication, per Herve)
 - core/i18n/fr_FR.json (new)
 - plugin_info/info.json (modified)

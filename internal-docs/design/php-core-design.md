@@ -1067,7 +1067,7 @@ try {
 CSRF token in one call. Without it, all endpoints in the file are reachable without
 authentication — including `testConnection` (which spawns a subprocess and opens a socket
 to the CSR) and the debug panel "Vider" handlers (which wipe `last_errors`/`last_messages`).
-The reference plugin (`core/ajax/jeeaiodemo.ajax.php`) uses this exact structure.
+The reference plugin ([aiodemo](https://github.com/mips2648/jeedom-aiodemo), `core/ajax/aiodemo.ajax.php`) uses this exact structure.
 
 **Endpoints needed (detail in Component 3 and 5c):**
 
@@ -1146,7 +1146,7 @@ Based on the reference plugin template (`plugin_info/install.php`) — all three
 
 **What:** HTTP endpoint called by the daemon via `send_to_jeedom()`. Verifies the API key, handles the test ping, then dispatches the JSON payload to `siaDC09::message()`.
 
-Based directly on the reference plugin (`core/php/jeeaiodemo.php` in this repo — siaDC09 will have `core/php/jeesiaDC09.php`):
+Based directly on the reference plugin ([aiodemo](https://github.com/mips2648/jeedom-aiodemo), `core/php/jeeaiodemo.php` — siaDC09 has `core/php/jeesiaDC09.php`):
 
 ```php
 <?php

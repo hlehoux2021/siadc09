@@ -146,7 +146,7 @@ PHP-side hard-coded French outside `__()`/`{{…}}`: the Configuration active su
 
 - `plugin_info/info.json` `pluginVersion` and `resources/siadc09d/__init__.py` `DAEMON_VERSION` must be equal (`tests/level1/test_daemon_version.py`). Bump both, plus `docs/fr_FR/changelog.md` (the only changelog, in French), in one commit.
 - `packages.json` pins every pip3 dependency to an exact version (`test_packages_json_pip3_all_pinned`).
-- Market and GitHub release steps: [market-submission-checklist.md](market-submission-checklist.md).
+- Market and GitHub release steps: [market-submission-checklist.md](../internal-docs/market-submission-checklist.md).
 
 ## Known gaps and discrepancies
 
@@ -167,4 +167,3 @@ Behaviour that differs from what the UI, the presets or the design docs suggest.
 | Environment | Python path with spaces (D-26). |
 | Texts | Some notifications hard-code a monitoring-centre name; daemon strings outside `messages.py` (see [i18n](#internationalisation)). |
 | Validation | TCP / unencrypted / hex CRC validated against a real test receiver (keep-alive, BA with zone, BC/OP/CL, Frigate `[V…]`). UDP validated against the simulator only; real-receiver error-path validation (story 12-7) not executed. |
-| Template leftovers | `core/ajax/aiodemo.ajax.php`, `core/class/aiodemo.class.php`, `core/php/jeeaiodemo.php`, `desktop/js/aiodemo.js`, `desktop/php/aiodemo.php`, `resources/aiodemod/`; `aiodemo` sections in the non-French i18n files; `aiodemo_pre_update()` in `plugin_info/pre_install.php`. |
