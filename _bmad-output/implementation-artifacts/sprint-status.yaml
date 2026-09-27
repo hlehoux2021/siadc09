@@ -29,7 +29,7 @@
 # - SM typically creates next story ONLY after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then Dev runs code-review (fresh context, ideally different LLM)
 
-last_updated: "2026-09-27" # 11-4 dev-story done (in-progress → review): README rewritten, FR user guide + EN admin/developer guides, FR/EN changelogs, fr_FR.json + round-trip test, info.json pluginVersion/beta URLs/siadc09 Pages URLs, jeedomdaemon pinned, DAEMON_VERSION, placeholder icon, Market checklist + release notes draft. AC4 partial (Task 5.2 open, D-82); D-81 AES encryption not implemented, D-83 aiodemo leftovers. Market submission / GitHub release / Pages / icon design left to Herve. Summary recomputed: in_progress 1→0, review 0→1. Previous: 11-4 dev-story started (ready-for-dev → in-progress). Summary recomputed: ready_for_dev 3→2, in_progress 0→1. Previous: 11-4 story file created (backlog → ready-for-dev): documentation/i18n/market-submission story scoped, README.md rewrite (currently the leftover aiodemo template) flagged as Task 1, missing core/i18n/fr_FR.json and unversioned info.json/packages.json flagged as verified gaps. 11-1 stays deferred per Herve's real-CSR-testing call. Summary recomputed: backlog 5→4, ready_for_dev 2→3. Previous: 14-4 code-reviewed a second time (scoped to Task 6's live-validation evidence): 4 patches applied (attribution consistency, account reconciliation note, timestamp wording, Review Findings continuity), 0 decisions, 0 new deferrals, 13 dismissed as noise — review → done. epic-14 closed again (all 4 stories done). Summary recomputed: review 1→0, done 51→52, epics_in_progress 4→3, epics_done 10→11. Previous: 14-4 Task 6 live validation completed same day (cases a/b/d confirmed on test-jeedom.lehoux.net against the real receiver; case (c) not staged, Task 6.4 clip-timing not captured, both Herve's explicit call). in-progress → review. Summary recomputed: in_progress 1→0, review 0→1. Previous: 14-4 dev session (Tasks 1-5 via TDD, 40 new tests, 0 regressions; Task 6 live validation BLOCKED — no SSH to test-jeedom.lehoux.net from this session, commit e9d5332 pushed regardless). ready-for-dev → in-progress. Summary recomputed: ready_for_dev 3→2, in_progress 0→1. Previous: 13-1 code-reviewed and closed (4 patches applied+tested, 5 deferred D-72..D-76, 3 dismissed; 3 items overlapped and resolved 13-4's D-65/D-68/D-71) — review → done. Summary recomputed: review 1→0, done 50→51
+last_updated: "2026-09-27" # 11-4 code-reviewed (scoped to code+tests, commit add27af): 1 decision resolved (AC8 icon 309x348 kept), 4 patches applied (i18n extractor word-boundary, orphan-key crash guard, PHP escape handling, stale comment), 6 deferred (D-87..D-92), 3 dismissed as noise — review → done. epic-11 stays in-progress (11-1/11-2 still open). Summary recomputed: stories_review 1→0, stories_done 52→53. Previous: 1-5 story file created (new → ready-for-dev): DC-09-conformant send-path encryption for D-81 (SIACipher rewrite to § 5.4.3-5.4.7, encode_message encryption, daemon key wiring, encrypted-NAK retry, simulator as encrypting receiver, spec-independent test oracle, live validation may be BLOCKED). epic-1 reopened done → in-progress; D-85 retry seq bug logged. Decisions settled with Herve the same day: closing `]` after the hex, encrypted supervision = `*NULL` (unencrypted stays SIA-DCS/0000, D-86), NAK → immediate retry with updated timestamp in both modes, live validation in a later session. Summary recomputed: total_stories 59→60, ready_for_dev 2→3, epics_in_progress 3→4, epics_done 11→10. Previous: 11-4 dev-story done (in-progress → review): README rewritten, FR user guide + EN admin/developer guides, FR/EN changelogs, fr_FR.json + round-trip test, info.json pluginVersion/beta URLs/siadc09 Pages URLs, jeedomdaemon pinned, DAEMON_VERSION, placeholder icon, Market checklist + release notes draft. AC4 partial (Task 5.2 open, D-82); D-81 AES encryption not implemented, D-83 aiodemo leftovers. Market submission / GitHub release / Pages / icon design left to Herve. Summary recomputed: in_progress 1→0, review 0→1. Previous: 11-4 dev-story started (ready-for-dev → in-progress). Summary recomputed: ready_for_dev 3→2, in_progress 0→1. Previous: 11-4 story file created (backlog → ready-for-dev): documentation/i18n/market-submission story scoped, README.md rewrite (currently the leftover aiodemo template) flagged as Task 1, missing core/i18n/fr_FR.json and unversioned info.json/packages.json flagged as verified gaps. 11-1 stays deferred per Herve's real-CSR-testing call. Summary recomputed: backlog 5→4, ready_for_dev 2→3. Previous: 14-4 code-reviewed a second time (scoped to Task 6's live-validation evidence): 4 patches applied (attribution consistency, account reconciliation note, timestamp wording, Review Findings continuity), 0 decisions, 0 new deferrals, 13 dismissed as noise — review → done. epic-14 closed again (all 4 stories done). Summary recomputed: review 1→0, done 51→52, epics_in_progress 4→3, epics_done 10→11. Previous: 14-4 Task 6 live validation completed same day (cases a/b/d confirmed on test-jeedom.lehoux.net against the real receiver; case (c) not staged, Task 6.4 clip-timing not captured, both Herve's explicit call). in-progress → review. Summary recomputed: in_progress 1→0, review 0→1. Previous: 14-4 dev session (Tasks 1-5 via TDD, 40 new tests, 0 regressions; Task 6 live validation BLOCKED — no SSH to test-jeedom.lehoux.net from this session, commit e9d5332 pushed regardless). ready-for-dev → in-progress. Summary recomputed: ready_for_dev 3→2, in_progress 0→1. Previous: 13-1 code-reviewed and closed (4 patches applied+tested, 5 deferred D-72..D-76, 3 dismissed; 3 items overlapped and resolved 13-4's D-65/D-68/D-71) — review → done. Summary recomputed: review 1→0, done 50→51
 generated: "2026-05-04"
 project: "my-project"
 project_key: "NOKEY"
@@ -38,11 +38,12 @@ story_location: "/Users/herve.lehoux/Dev/my-project/_bmad-output/implementation-
 
 development_status:
   # Epic 1: SIA DC-09 Protocol Engine
-  epic-1: done
+  epic-1: in-progress # reopened 2026-09-27 for 1-5 (D-81)
   1-1-sia-protocol-message-builder: done
   1-2-aes-128-cbc-encryption-module: done
   1-3-ack-nak-response-parser: done
   1-4-csr-simulator-framework: done
+  1-5-dc09-conformant-send-path-encryption: ready-for-dev
   epic-1-retrospective: done
 
   # Epic 2: CSR Simulator (Standalone Tool)
@@ -121,7 +122,7 @@ development_status:
   11-1-protocol-conformance-capture-compare-ajax-frames: ready-for-dev
   11-2-csr-response-validation-real-ima-vs-simulator: backlog
   11-3-full-workflow-integration-testing: done
-  11-4-documentation-i18n-market-submission: review
+  11-4-documentation-i18n-market-submission: done
   epic-11-retrospective: optional
 
   # Epic 12: Jeedom VM Integration Testing
@@ -242,12 +243,12 @@ development_status:
 # total_stories 58→59, stories_ready_for_dev 2→3, epics_in_progress 3→4, epics_done 11→10)
 summary:
   total_epics: 14
-  total_stories: 59
+  total_stories: 60
   epics_backlog: 0
-  epics_in_progress: 3
-  epics_done: 11
+  epics_in_progress: 4
+  epics_done: 10
   stories_backlog: 4
-  stories_ready_for_dev: 2
+  stories_ready_for_dev: 3
   stories_in_progress: 0
-  stories_review: 1
-  stories_done: 52
+  stories_review: 0
+  stories_done: 53

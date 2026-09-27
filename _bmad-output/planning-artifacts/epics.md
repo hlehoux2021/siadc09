@@ -225,6 +225,32 @@ So that I can distinguish successful delivery from errors.
 
 ---
 
+### Story 1.5: DC-09-Conformant AES Encryption on the Send Path
+
+*Added 2026-09-27 from D-81. It supersedes Story 1.2's ACs: the random IV, PKCS#7 padding and 128-bit-only keys it specified contradict DC-09-2021 § 5.4.*
+
+As a Jeedom user whose monitoring station requires DC-09 encryption,
+I want alarm and supervision frames actually encrypted per DC-09 § 5.4,
+So that an encrypting receiver accepts them.
+
+**Acceptance Criteria:**
+
+**Given** encryption is enabled with a 128, 192 or 256-bit hex key
+**When** the daemon sends an event or supervision frame
+**Then** the region after the first `[` is AES-CBC encrypted with a zero IV, a random front pad terminated by `|`, and a mandatory timestamp, and is sent as hex ASCII
+
+**And** CRC and length are computed on the transmitted hex form
+
+**And** encrypted supervision is sent as a `*NULL` Null Message (§ 5.5.2.1)
+
+**And** any NAK triggers an immediate retry with an updated timestamp (§ 5.6.1.2)
+
+**And** conformance is proven by tests independent of `SIACipher`, then validated against a real receiver
+
+Story file: `_bmad-output/implementation-artifacts/1-5-dc09-conformant-send-path-encryption.md`
+
+---
+
 ## Epic 2: CSR Simulator (Standalone Tool)
 
 **⚠️ SCOPE CLARIFICATION (2026-04-07):** This is **Internal Testing Infrastructure**, not a v1.0 user-facing epic. It provides developer and QA tools for protocol validation. Can be implemented in parallel with or after Epic 1 based on resource availability. Core v1.0 implementation (Epics 1, 5-10) can proceed with mock CSR responses if simulator is deferred.

@@ -10,7 +10,7 @@ analysis_completed: "2026-09-27"
 
 # Story 11.4: Documentation, i18n & Market Submission
 
-Status: review
+Status: done
 
 ## Story
 
@@ -208,6 +208,20 @@ eu.anthropic.claude-opus-5-5 (Claude Code, dev-story run autonomously at Herve's
 - _bmad-output/implementation-artifacts/deferred-work.md (modified — D-81, D-82, D-83, D-84)
 - _bmad-output/implementation-artifacts/sprint-status.yaml (modified)
 
+### Review Findings
+
+- [x] [Review][Decision] AC8 icon size 309×348 — Herve's call 2026-09-27: keep 309×348 as-is. It's a placeholder icon anyway; the exact-match test can be revisited once the real icon is designed.
+- [x] [Review][Patch] i18n extractor regex missing word boundary before `__(` [tests/level1/test_i18n_roundtrip.py]
+- [x] [Review][Patch] `test_fr_fr_has_no_orphan_keys` could crash with a raw `FileNotFoundError` on a malformed section instead of a clean assertion [tests/level1/test_i18n_roundtrip.py]
+- [x] [Review][Patch] `_unescape_double` didn't handle `\n`/`\t`/`\r`/`\v`/`\f`/`\e` PHP escapes, so a future `__("a\nb", __FILE__)` call would silently extract the wrong key [tests/level1/test_i18n_roundtrip.py]
+- [x] [Review][Patch] "Logged once by on_start()" comment is inaccurate — `on_start()` is idempotent and re-runs on every daemon restart [resources/siadc09d/messages.py:35]
+- [x] [Review][Defer] `DAEMON_VERSION` duplicates `info.json`'s `pluginVersion`; kept in sync only by a test, not at runtime/import [resources/siadc09d/__init__.py] — deferred, pre-existing
+- [x] [Review][Defer] Version log line isn't validated against a semver shape at runtime — a hand-edited malformed `DAEMON_VERSION` would still log and ship [resources/siadc09d/daemon.py:2314] — deferred, pre-existing
+- [x] [Review][Defer] `SOURCE_FILES` in the i18n round-trip test is a hand-maintained whitelist with no reverse check for new PHP/JS files carrying `__()`/`{{}}` calls [tests/level1/test_i18n_roundtrip.py] — deferred, pre-existing
+- [x] [Review][Defer] `description.fr_FR` sits exactly at the 80-char Market-minimum boundary tested by `>= 80`, zero margin [plugin_info/info.json; tests/level1/test_info_json.py] — deferred, pre-existing
+- [x] [Review][Defer] Duplicate keys in `fr_FR.json` would be silently dropped by `json.loads`, invisible to all round-trip tests [core/i18n/fr_FR.json; tests/level1/test_i18n_roundtrip.py] — deferred, pre-existing
+- [x] [Review][Defer] `changelog_beta`/`documentation_beta` are byte-identical to the stable keys — harmless while there's no beta channel content yet [plugin_info/info.json] — deferred, pre-existing
+
 ## Change Log
 
 | Date | Change |
@@ -217,3 +231,4 @@ eu.anthropic.claude-opus-5-5 (Claude Code, dev-story run autonomously at Herve's
 | 2026-09-27 | Herve's decisions applied (status stays review):<br>• Single French changelog: `docs/en_US/changelog.md` removed; both `info.json` changelog URLs now point to `fr_FR/changelog`; test split accordingly.<br>• Frigate plugin authors (Sagitaz, Noodom) credited.<br>• Market install marked "future / not available yet", with manual GitHub install as the current path.<br>• All IMA Protect references removed from the public docs (the code still carries the preset).<br>• Internal docs moved from `docs/` to `internal-docs/`, so the Pages-published `docs/` holds only public docs. |
 | 2026-09-27 | Herve: the docs are for **early testers**; no 1.0.0 release is to be announced.<br>• Changelog entry retitled "Version de test — premiers testeurs (non publiée)".<br>• "in 1.0" wording removed from README and the user, admin and EN guides.<br>• Early-tester status banner added to README and the user guide.<br>• `docs/release-notes-1.0.0.md` deleted; checklist § 4 made version-neutral and marked "not now".<br>• `pluginVersion` / `DAEMON_VERSION` set to `0.1.0` (Herve, same day). |
 | 2026-09-27 | Herve's review, round 3.<br>• Wiring table recommends the **global** "Déclenchement" tab actions. Verified in `plugin-alarm/core/class/alarm.class.php:583,605`: `outbreak`/`outbreakImmediate` receive `#zone#`.<br>• New `docs/fr_FR/frigate.md`: exposure, recordings, tracked objects/labels, timings, checks.<br>• "for support" wording removed from the user and admin guides; Herve does not commit to support.<br>• IMA code remnants tracked as D-84 (to do).<br>• Alarm-plugin wiring screenshots (4, by Herve) added to the user guide "Exemples de câblage"; the step-3 wizard screenshot was dropped (not Alarm-related). |
+| 2026-09-27 | Code review (scoped to code+tests, commit `add27af`; docs/README/changelog content out of scope): 3 layers (Blind Hunter, Edge Case Hunter, Acceptance Auditor). 1 decision resolved (AC8 icon size — keep 309×348), 4 patches applied (i18n extractor word-boundary, orphan-key crash guard, PHP escape handling, stale "logged once" comment), 6 deferred (DAEMON_VERSION dual source of truth ×2, i18n SOURCE_FILES whitelist gap, Market description length boundary, fr_FR.json duplicate-key blind spot, beta URL duplication), 3 dismissed as noise (single-FR-changelog and apt-pinning are deliberate/out-of-scope, Pages resolution already tracked in the checklist). `python3 -m pytest tests/level1/` clean after patches (1240 passed; one pre-existing flaky `sia_crypto` pad-length test, unrelated, going away with story 1-5). Status stays `review` — no story status change requested. |

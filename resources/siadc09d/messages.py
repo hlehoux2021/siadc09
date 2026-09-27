@@ -32,7 +32,9 @@ SIA_NULL_CODE: Final[str] = "NULL"
 # Test: SIA_NULL_CODE not in any SM2 messages
 
 DAEMON_VERSION_INFO: Final[str] = "Démon SIA DC-09 version {version}"
-# Logged once by on_start() (architecture.md § Versioning Strategy → Observability)
+# Logged by on_start() (architecture.md § Versioning Strategy → Observability).
+# on_start() is idempotent and re-runs on every daemon restart, so this line
+# is emitted once per start, not once per process lifetime.
 
 # ===== SM1 STATE INFO LABELS =====
 # Supervision state labels for INFO commands (ref: supervision-design.md)

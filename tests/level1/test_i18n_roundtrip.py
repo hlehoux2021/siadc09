@@ -40,16 +40,41 @@ SOURCE_FILES = [
 ]
 
 _BRACES_RE = re.compile(r"{{(.*?)}}", re.S)
-_SINGLE_RE = re.compile(r"__\(\s*'((?:[^'\\]|\\.)*)'\s*,\s*__FILE__")
-_DOUBLE_RE = re.compile(r'__\(\s*"((?:[^"\\]|\\.)*)"\s*,\s*__FILE__')
+# \b before __( so a call like foo__('x', __FILE__) can't false-match.
+_SINGLE_RE = re.compile(r"\b__\(\s*'((?:[^'\\]|\\.)*)'\s*,\s*__FILE__")
+_DOUBLE_RE = re.compile(r'\b__\(\s*"((?:[^"\\]|\\.)*)"\s*,\s*__FILE__')
 
 
 def _unescape_single(s: str) -> str:
     return re.sub(r"\\([\\'])", r"\1", s)
 
 
+_DOUBLE_ESCAPES = {
+    "\\": "\\",
+    '"': '"',
+    "$": "$",
+    "n": "\n",
+    "t": "\t",
+    "r": "\r",
+    "v": "\v",
+    "f": "\f",
+    "e": "\x1b",
+}
+
+
 def _unescape_double(s: str) -> str:
-    return re.sub(r'\\([\\"$])', r"\1", s)
+    # PHP double-quoted strings also interpret \n \t \r \v \f \e as control
+    # characters at runtime; without this, a __("a\nb", __FILE__) call would
+    # extract the literal backslash-n key instead of the real newline Jeedom
+    # looks up, and the roundtrip test would pass on the wrong key. One
+    # single-pass regex (not sequential substitutions) so an escaped
+    # backslash immediately followed by a literal "n" (\\n, two escapes)
+    # isn't misread as a newline escape (\n, one escape).
+    return re.sub(
+        r"\\(.)",
+        lambda m: _DOUBLE_ESCAPES.get(m.group(1), "\\" + m.group(1)),
+        s,
+    )
 
 
 def extract_strings(rel_path: str) -> set:
@@ -181,7 +206,13 @@ def test_fr_fr_has_no_orphan_keys(fr: dict) -> None:
     - every fr_FR key is still extracted from its source file
     """
     for section, entries in fr.items():
+        # Assert: plugin-scoped section (mirrors test_fr_fr_has_only_siadc09_sections;
+        # checked again here so a malformed section fails cleanly instead of
+        # slicing into a garbage `rel` path and crashing extract_strings()
+        # with a raw FileNotFoundError).
+        assert section.startswith(f"plugins/{PLUGIN_ID}/"), section
         rel = section[len(f"plugins/{PLUGIN_ID}/"):]
+        assert (_PROJECT_ROOT / rel).is_file(), f"fr_FR.json section for missing file {rel}"
         orphans = sorted(set(entries) - extract_strings(rel))
         # Assert: no orphan
         assert not orphans, f"{rel}: orphan keys {orphans[:10]}"
