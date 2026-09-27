@@ -223,6 +223,44 @@ ever being delayed.
   - [ ] 6.4 Case (a): open the clip URL right after the frame and again at about t0 + 45 s. Record HTTP 400 → partial
         → full, and what the receiver shows.
 
+### Review Findings
+
+Reviewed diff: `66efeec..HEAD` (commits `e9d5332`, `4a7ea4f`). Layers: Blind Hunter (diff-only),
+Edge Case Hunter (diff + project access), Acceptance Auditor (diff + this story + ADR-17 Amendment 4).
+Acceptance Auditor: **no AC violations found** across AC1-AC12 (AC13/Task 6 correctly excluded as an
+honestly-disclosed blocker).
+
+- [x] [Review][Defer] Double-failure gap: a failed `_writePrefetchPlaceholder()` write combined with a
+  failed daemon create (no callback ever sent for the run) leaves a stale hit from an earlier, unrelated
+  trigger sitting in the cache indefinitely — exactly the class of bug AC8's placeholder was built to close.
+  `core/class/siaDC09Cmd.class.php`, `_writePrefetchPlaceholder()`. Deferred (Herve's call, 2026-09-27): needs
+  two independent failures at once; same acceptance pattern as D-77 (single shared cache key).
+- [x] [Review][Patch] `run_id` generated via bare `(string) microtime(true))` risks precision-truncation
+  collisions under PHP's default `precision` ini (14 significant figures can truncate below microsecond
+  resolution) — two near-simultaneous same-camera triggers could get an identical/misordered `run_id`.
+  `core/class/siaDC09Cmd.class.php`, `prefetchEvent` case.
+- [x] [Review][Patch] `siaDC09::_handlePrefetchResult()`'s incoming `rank` isn't validated/clamped — a
+  malformed non-numeric `rank` casts to `0` via `(int)`, which beats every real rank (1-4) and would always
+  win the replace check regardless of actual priority. `core/class/siaDC09.class.php:_handlePrefetchResult`.
+- [x] [Review][Patch] `_create_forced_capture()`'s create-call timeout isn't capped to the remaining budget
+  before `deadline`, unlike every other call in the any-label search loop (which uses
+  `min(http_timeout_s, remaining)`) — inconsistent, and a latent NFR1 risk if the constants are ever tuned
+  such that `http_timeout_s` exceeds the remaining budget. `resources/siadc09d/frigate_prefetch.py:_create_forced_capture`.
+- [x] [Review][Patch] `_post_json()`'s generic exception handler conflates "200 response with malformed JSON"
+  with "total network failure" — both return `(None, None)`, losing the real HTTP status and weakening AC9's
+  "warning with the status when there is one" diagnostic. `resources/siadc09d/frigate_prefetch.py:_post_json`.
+- [x] [Review][Patch] `architecture.md`'s Amendment 4 Trade-offs table states "there is always media while
+  Frigate is up" as a Pro of the chosen design, but AC9/R1 explicitly allow a rank-4 (no media) outcome even
+  while Frigate is fully up, whenever the configured port lacks the admin role and no real event is found —
+  internally inconsistent with the risk analysis two sections later in the same doc.
+- [x] [Review][Patch] The three independent `PREFETCH_RANK_NONE`/`RANK_NONE` = 4 constants
+  (`frigate_prefetch.py`, `siaDC09.class.php`, `siaDC09Cmd.class.php`) have no test asserting they agree —
+  a future rank-scheme change in one file could silently desync the others.
+- [x] [Review][Defer] `EVENTS_QUERY_LIMIT = 20` with no server-side label filter could theoretically let a
+  saturation of manual "alarm" events (many trips within the 30s window) crowd a real detection out of the
+  fetched page before client-side filtering ever sees it — deferred, low-likelihood edge case, no test
+  exercises it. `resources/siadc09d/frigate_prefetch.py:_query_candidate_events`.
+
 ## Dev Notes
 
 ### What changes, file by file (current state → change → preserve)
@@ -400,7 +438,18 @@ Claude Sonnet 5 (eu.anthropic.claude-sonnet-5)
 
 ### Debug Log References
 
-- Full regression run (2026-09-27): `tests/level1/ tests/level2/ tests/level2_5/` → 1705 passed, 9 failed —
+- Code review (2026-09-27, 3-layer adversarial: Blind Hunter, Edge Case Hunter, Acceptance Auditor): 1
+  decision-needed (double-failure gap in `_writePrefetchPlaceholder()` — deferred as D-79, Herve's call), 6
+  patches applied and tested (`run_id` precision-truncation collision risk; `rank` clamping against a
+  malformed non-numeric value; `_create_forced_capture()`'s create-call timeout not capped to the remaining
+  budget; `_post_json()` losing the HTTP status on a malformed-but-successful body; `architecture.md`'s
+  overclaiming Trade-offs wording; a cross-file consistency test for the `RANK_NONE`/`PREFETCH_RANK_NONE`
+  constants), 1 deferred (D-78, `EVENTS_QUERY_LIMIT` saturation edge case), 6 dismissed as noise (verified
+  against the code: a style nit matching an existing convention, a negligible budget micro-optimization, the
+  already-disclosed D-77 race, the already-accepted never-delete design, the already-disclosed Task 6 blocker,
+  and a general non-actionable observation). Post-review regression: 1710 passed, 9 failed (same baseline),
+  `pylint` 8.90/10 (was 8.89/10 pre-review), `php -l` clean.
+- Full regression run (2026-09-27, pre-review): `tests/level1/ tests/level2/ tests/level2_5/` → 1705 passed, 9 failed —
   identical to the known pre-existing baseline (memory `level1-test-baseline-failures`: level1 2, level2 6,
   level2_5 1). 40 new tests added, 0 regressions.
 - `python3 -m pylint resources/siadc09d/` → 8.89/10 (baseline before this story: 8.85/10 — no new findings;
@@ -442,17 +491,32 @@ Claude Sonnet 5 (eu.anthropic.claude-sonnet-5)
 - Sprint-status.yaml: `epic-14` reopened `done` → `in-progress` for this story (registered before this dev
   session); left as `in-progress` here since Task 6 is still open. `14-4-...` stays `in-progress`, not moved to
   `review`.
+- Code review (2026-09-27): 6 patches applied — `run_id` now `sprintf('%.6f', microtime(true)) . '-' .
+  bin2hex(random_bytes(3))` (a bare `(string) microtime(true)` cast is truncated by PHP's `precision` ini to
+  ~0.1ms resolution, not true microsecond resolution); `_handlePrefetchResult()`'s incoming `rank` clamped to
+  `[PREFETCH_RANK_PERSON, PREFETCH_RANK_NONE]`; `_create_forced_capture()`'s create-call timeout now capped to
+  the remaining budget like every other call in the loop; `_post_json()` now preserves the HTTP status on a
+  malformed-but-successful (200) body instead of losing it to `None`; `architecture.md`'s Trade-offs table
+  wording corrected; a new cross-file test asserts `RANK_NONE`/`PREFETCH_RANK_NONE` stay in sync across the
+  three files. 1 decision (double-failure placeholder gap) deferred as D-79. 1 new deferred item (D-78,
+  `EVENTS_QUERY_LIMIT` saturation edge case). Regression: 1710 passed (was 1705), same 9 pre-existing failures.
 
 ### File List
 
-- `resources/siadc09d/frigate_prefetch.py` (rewritten: forced capture, any-label ranking, orchestration)
+- `resources/siadc09d/frigate_prefetch.py` (rewritten: forced capture, any-label ranking, orchestration; code
+  review: `_post_json()` status-preservation fix, `_create_forced_capture()` timeout capped to remaining budget)
 - `resources/siadc09d/daemon.py` (`_run_prefetch()` incremental callbacks; `Params` TypedDict `run_id`;
   `on_message()` validates/forwards `run_id`)
 - `core/class/siaDC09.class.php` (`_handlePrefetchResult()` monotonic replace rule; new
-  `_prefetchResultShouldReplace()`; new `PREFETCH_RANK_NONE` constant)
+  `_prefetchResultShouldReplace()`; new `PREFETCH_RANK_NONE`/`PREFETCH_RANK_PERSON` constants; code review:
+  incoming `rank` clamped to a valid range)
 - `core/class/siaDC09Cmd.class.php` (`prefetchEvent` case generates `run_id` and writes the placeholder; new
-  `_writePrefetchPlaceholder()`; new `PREFETCH_RANK_NONE` constant)
-- `tests/level1/test_frigate_prefetch.py` (rewritten for `prefetch_alarm_media()` and its helpers)
+  `_writePrefetchPlaceholder()`; new `PREFETCH_RANK_NONE` constant; code review: `run_id` generation hardened
+  against PHP `precision`-ini truncation)
+- `_bmad-output/planning-artifacts/architecture.md` (code review: corrected the Amendment 4 Trade-offs table's
+  overclaiming "always media" wording; corrected the `run_id` generation description)
+- `tests/level1/test_frigate_prefetch.py` (rewritten for `prefetch_alarm_media()` and its helpers; code review:
+  4 new regression tests — timeout-cap, malformed-200-body, cross-file rank-constant consistency)
 - `tests/level1/test_frigate_prefetch_trigger.py` (extended: `run_id`/placeholder source-shape + new real-execution
   class `TestExecutePrefetchEventRealRun`)
 - `tests/level1/test_frigate_prefetch_cache_replace.py` (new: AC6 replace-rule matrix, real PHP execution)

@@ -82,7 +82,16 @@ class siaDC09Cmd extends cmd {
                 // call that fails on the daemon side (Frigate refused/unreachable, no
                 // callback ever sent for this run) still can't leave a stale hit from an
                 // earlier, unrelated trigger sitting in the cache.
-                $runId = (string) microtime(true);
+                // Code review (2026-09-27): a bare (string) microtime(true) is truncated
+                // by PHP's `precision` ini (default 14 significant figures) to roughly
+                // 0.1ms resolution, not true microsecond resolution — two triggers close
+                // enough together (e.g. two zones mapped to the same camera) could collide
+                // on an identical run_id. sprintf('%.6f', ...) forces full microsecond
+                // digits regardless of `precision`, and the random suffix guarantees
+                // uniqueness even within the same microsecond; (float) casts of the result
+                // still parse only the leading numeric part, so the run_id/rank ordering
+                // rule in siaDC09::_prefetchResultShouldReplace() is unaffected.
+                $runId = sprintf('%.6f', microtime(true)) . '-' . bin2hex(random_bytes(3));
                 $this->_writePrefetchPlaceholder((int) $target['camera_eqlogic_id'], $runId);
                 siaDC09::sendToDaemon([
                     'cmd'               => 'prefetchEvent',

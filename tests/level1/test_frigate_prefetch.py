@@ -16,6 +16,7 @@ fits.
 Reference: _bmad-output/implementation-artifacts/14-4-best-effort-alarm-media-forced-capture.md
 Reference: ADR-17, Amendment 4, _bmad-output/planning-artifacts/architecture.md
 """
+import re
 import sys
 import urllib.error
 from pathlib import Path
@@ -582,7 +583,62 @@ async def test_budget_respected_including_create_call_latency() -> None:
     assert elapsed < 0.3 + 1.0, f"elapsed={elapsed}s — create-call latency was not counted against the budget"
 
 
+@pytest.mark.asyncio
+async def test_create_call_timeout_capped_to_remaining_budget_not_full_http_timeout() -> None:
+    """
+    Code review (2026-09-27): the create call's own timeout must be capped to whatever
+    budget remains at entry, exactly like every call in the any-label search loop already
+    does (`min(http_timeout_s, remaining)`) — otherwise a tiny max_wait_s (smaller than
+    http_timeout_s) would let a single slow/hanging create call blow well past the
+    configured run budget by itself.
+
+    Expected result:
+    - with max_wait_s=0.2 and the default http_timeout_s=5.0, _create_manual_event is
+      called with a timeout close to 0.2s, never the full 5.0s
+    """
+    captured_timeouts: list[float] = []
+
+    def _capture_create(base_url: str, camera: str, timeout: float) -> tuple[str | None, int | None]:
+        captured_timeouts.append(timeout)
+        return _manual_fail()
+
+    with patch.object(
+        frigate_prefetch, "_create_manual_event", side_effect=_capture_create
+    ), patch.object(frigate_prefetch, "_query_candidate_events", return_value=[]):
+        await frigate_prefetch.prefetch_alarm_media(
+            "http://192.168.100.18:5000", "vigi_sud-est", _ResultCollector(),
+            max_wait_s=0.2, poll_interval_s=0.05,
+        )
+    assert len(captured_timeouts) == 1
+    # Assert: capped to ~max_wait_s, not the full default http_timeout_s (5.0)
+    assert captured_timeouts[0] <= 0.2 + 0.01, f"create timeout={captured_timeouts[0]}s not capped to the budget"
+
+
 # ── Source-scan test: never a mutating Frigate call ─────────────────────────────
+
+
+def test_rank_none_constant_agrees_across_python_and_both_php_classes() -> None:
+    """
+    Code review (2026-09-27): RANK_NONE (frigate_prefetch.py) and the two independent
+    PREFETCH_RANK_NONE constants (siaDC09.class.php, siaDC09Cmd.class.php) have no shared
+    source of truth — nothing but this test would catch one of them silently drifting out
+    of sync with a future rank-scheme change.
+
+    Expected result:
+    - RANK_NONE == 4 in the Python module
+    - PREFETCH_RANK_NONE == 4 in both PHP class files
+    """
+    project_root = Path(__file__).parent.parent.parent
+    assert frigate_prefetch.RANK_NONE == 4
+    for php_file in ("core/class/siaDC09.class.php", "core/class/siaDC09Cmd.class.php"):
+        source = (project_root / php_file).read_text(encoding="utf-8")
+        match = re.search(r"PREFETCH_RANK_NONE\s*=\s*(\d+)\s*;", source)
+        assert match, f"PREFETCH_RANK_NONE constant not found in {php_file}"
+        # Assert: every rank-scheme "nothing found" constant agrees with the Python module
+        assert int(match.group(1)) == frigate_prefetch.RANK_NONE, (
+            f"{php_file}'s PREFETCH_RANK_NONE ({match.group(1)}) drifted from "
+            f"frigate_prefetch.RANK_NONE ({frigate_prefetch.RANK_NONE})"
+        )
 
 
 def test_module_source_never_deletes_ends_or_retains_events() -> None:
@@ -706,6 +762,33 @@ def test_post_json_network_error_returns_none_none() -> None:
     with patch("urllib.request.urlopen", side_effect=_raise):
         status, body = frigate_prefetch._post_json("http://x/create", {"duration": 30}, 5.0)
     assert status is None
+    assert body is None
+
+
+def test_post_json_success_status_with_malformed_body_preserves_status() -> None:
+    """
+    Code review (2026-09-27): a genuinely successful response (status known) with a body
+    that doesn't parse as JSON must not be conflated with a total network failure — the
+    status must survive so the caller's warning log stays precise (AC9).
+
+    Expected result:
+    - (200, None) — the real status, not (None, None)
+    """
+    class _FakeResp:
+        status = 200
+
+        def read(self) -> bytes:
+            return b"not json at all"
+
+        def __enter__(self) -> "_FakeResp":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+    with patch("urllib.request.urlopen", return_value=_FakeResp()):
+        status, body = frigate_prefetch._post_json("http://x/create", {"duration": 30}, 5.0)
+    assert status == 200
     assert body is None
 
 

@@ -40,6 +40,11 @@ class siaDC09 extends eqLogic {
      */
     private const PREFETCH_RANK_NONE = 4;
 
+    // Best possible rank (a confirmed person event) — the lower clamp bound for an
+    // incoming 'rank' field (code review 2026-09-27: a non-numeric rank casts to 0 via
+    // (int), which would otherwise always win the replace check regardless of priority).
+    private const PREFETCH_RANK_PERSON = 1;
+
     private static function getPython3(): string {
         if (method_exists('system', 'getCmdPython3')) {
             return system::getCmdPython3(__CLASS__);
@@ -620,7 +625,13 @@ class siaDC09 extends eqLogic {
             }
 
             $incomingRunId = (string) ($data['run_id'] ?? '');
-            $incomingRank = (int) ($data['rank'] ?? self::PREFETCH_RANK_NONE);
+            // Clamped to the valid [PREFETCH_RANK_PERSON, PREFETCH_RANK_NONE] range (code
+            // review 2026-09-27): a malformed, non-numeric 'rank' would otherwise cast to 0
+            // via (int), beating every real rank and always winning the replace check below.
+            $incomingRank = max(
+                self::PREFETCH_RANK_PERSON,
+                min(self::PREFETCH_RANK_NONE, (int) ($data['rank'] ?? self::PREFETCH_RANK_NONE))
+            );
             $incomingClipFound = !empty($data['clip_found']);
 
             $existing = $cache[$camKey] ?? null;

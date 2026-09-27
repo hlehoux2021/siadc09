@@ -134,15 +134,24 @@ def _post_json(
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.status, json.loads(resp.read())
+            status = resp.status
+            raw = resp.read()
     except urllib.error.HTTPError as e:
         # HTTPError is a URLError subclass — must be caught first to keep e.code.
         try:
             return e.code, json.loads(e.read())
         except (json.JSONDecodeError, ValueError):
             return e.code, None
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError):
+    except (urllib.error.URLError, TimeoutError):
         return None, None
+    # Code review (2026-09-27): decoding is split from the request itself, so a genuinely
+    # successful response (status known) with a malformed body is distinguishable from a
+    # total network failure — the status is never lost to None just because the body
+    # didn't parse (weakened the AC9 "warning with the status when there is one" diagnostic).
+    try:
+        return status, json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        return status, None
 
 
 def _create_manual_event(
@@ -314,21 +323,26 @@ async def _run_with_deadline_timeout(
 
 
 async def _create_forced_capture(
-    base_url: str, camera: str, http_timeout_s: float
+    base_url: str, camera: str, deadline: float, http_timeout_s: float
 ) -> PrefetchResult | None:
     """Step 1 (FR1): create the manual "alarm" event. Logs one warning on failure.
 
     Args:
         base_url: e.g. "http://192.168.100.18:5000"
         camera: Frigate-native camera name.
+        deadline: Absolute `time.monotonic()` deadline for the whole run — the timeout
+            passed to the create call is capped to whatever budget remains at entry (code
+            review 2026-09-27: kept consistent with every other call in the any-label
+            search loop, which already caps to `min(http_timeout_s, remaining)`).
         http_timeout_s: Per-request timeout in seconds.
 
     Returns:
         A rank-RANK_MANUAL `PrefetchResult` with `clip_found=True` (Decision 6) on success,
         or None on any refusal/timeout/error — never raises.
     """
+    create_timeout = min(http_timeout_s, max(deadline - time.monotonic(), 0.0))
     result = await _run_with_deadline_timeout(
-        _create_manual_event, base_url, camera, http_timeout_s, timeout=http_timeout_s
+        _create_manual_event, base_url, camera, create_timeout, timeout=create_timeout
     )
     event_id, status = result if result is not None else (None, None)
     if event_id:
@@ -431,7 +445,7 @@ async def prefetch_alarm_media(  # pylint: disable=too-many-arguments,too-many-l
             _logger.warning("prefetch_alarm_media: on_result callback failed", exc_info=True)
 
     # Step 1 (FR1/FR2): forced capture first, before any polling.
-    forced_capture = await _create_forced_capture(base_url, camera, http_timeout_s)
+    forced_capture = await _create_forced_capture(base_url, camera, deadline, http_timeout_s)
     if forced_capture is not None:
         best = forced_capture
         await _emit(best)

@@ -169,16 +169,31 @@ class TestPrefetchEventCase:
         # Assert: uses the existing fire-and-forget transport, no new IPC primitive
         assert "siaDC09::sendToDaemon(" in prefetch_case_body
 
-    def test_run_id_generated_via_microtime(self, prefetch_case_body: str) -> None:
+    def test_run_id_generated_via_microtime_full_precision_with_unique_suffix(
+        self, prefetch_case_body: str
+    ) -> None:
         """
         Story 14-4 (ADR-17 Amendment 4, R2): run_id is generated here, by the process that
         owns the cache, as a numeric string — no clock-sync question with the daemon.
 
+        Code review (2026-09-27): a bare (string) microtime(true) is truncated by PHP's
+        `precision` ini (default 14 significant figures) to roughly 0.1ms resolution, not
+        true microsecond resolution — two triggers close enough together (e.g. two zones
+        mapped to the same camera) could collide on an identical run_id. sprintf('%.6f', ...)
+        forces full microsecond digits regardless of `precision`, and a random suffix
+        guarantees uniqueness even within the same microsecond.
+
         Expected result:
-        - runId is assigned from (string) microtime(true)
+        - runId is assigned from sprintf('%.6f', microtime(true)) with a random-bytes suffix,
+          never a bare (string) microtime(true) cast
         """
-        # Assert: the documented generation shape
-        assert re.search(r"\$runId\s*=\s*\(string\)\s*microtime\(true\)", prefetch_case_body)
+        # Assert: full-precision generation with a uniqueness suffix
+        assert re.search(
+            r"\$runId\s*=\s*sprintf\(\s*['\"]%\.6f['\"]\s*,\s*microtime\(true\)\s*\)", prefetch_case_body
+        )
+        assert "random_bytes(" in prefetch_case_body
+        # Assert: the precision-truncatable bare cast is gone
+        assert not re.search(r"\$runId\s*=\s*\(string\)\s*microtime\(true\)", prefetch_case_body)
 
     def test_placeholder_written_before_send_to_daemon(self, prefetch_case_body: str) -> None:
         """
@@ -470,9 +485,12 @@ class TestExecutePrefetchEventRealRun:
         result = _run_execute_prefetch_event(camera_eqlogic_id=42, initial_cache={"42": older_entry})
         entry = result["cache"]["sia_prefetch_cache"]["42"]
         # Assert: the placeholder overwrote the older entry with a numerically newer run_id
+        # (run_id now carries a non-numeric uniqueness suffix — code review 2026-09-27 — so
+        # only its leading numeric prefix is comparable, matching PHP's own (float) cast
+        # behavior, which parses a leading numeric prefix and ignores trailing garbage)
         assert entry["rank"] == 4
         assert entry["event_id"] is None
-        assert float(entry["run_id"]) > float(older_entry["run_id"])
+        assert float(entry["run_id"].split("-")[0]) > float(older_entry["run_id"])
 
     def test_no_placeholder_or_send_when_target_unresolved(self) -> None:
         """

@@ -243,3 +243,30 @@ class TestPrefetchResultMonotonicReplace:
             "found": True, "event_id": "evt-new", "clip_found": True, "rank": 1,
             "run_id": "2000.0", "ts": cache["42"]["ts"],
         }
+
+    def test_non_numeric_rank_is_clamped_not_cast_to_zero(self) -> None:
+        """
+        Code review (2026-09-27): a malformed, non-numeric 'rank' would otherwise cast to
+        0 via PHP's (int) cast, beating every real rank (1-4) and always winning the
+        replace check regardless of actual priority.
+
+        Expected result:
+        - a string 'rank' that PHP casts to 0 is clamped to 1 (PREFETCH_RANK_PERSON),
+          not stored as 0
+        """
+        incoming = _incoming("1000.0", rank=1, clip_found=False)
+        incoming["rank"] = "not-a-number"
+        cache = _run_handle_prefetch_result({}, incoming)["cache"]
+        # Assert: clamped to the valid minimum, never 0
+        assert cache["42"]["rank"] == 1
+
+    def test_out_of_range_rank_is_clamped_to_valid_bounds(self) -> None:
+        """
+        Expected result:
+        - a rank below 1 clamps to 1, a rank above 4 clamps to 4
+        """
+        low = _run_handle_prefetch_result({}, _incoming("1000.0", rank=-5, clip_found=False))["cache"]
+        high = _run_handle_prefetch_result({}, _incoming("1000.0", rank=99, clip_found=False))["cache"]
+        # Assert: both clamped into [1, 4]
+        assert low["42"]["rank"] == 1
+        assert high["42"]["rank"] == 4
