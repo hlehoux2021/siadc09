@@ -244,7 +244,7 @@ $scenarios = scenario::all();
 										<label class="col-sm-4 control-label">{{URL media Frigate}}</label>
 										<div class="col-sm-6">
 											<input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="frigate_media_url_template" placeholder="https://<user>:<pass>@host/ ou https://host/?accesstoken=<token>">
-											<p class="help-block">{{Modèle d'URL avec des placeholders littéraux pour vos identifiants (ex: <user>, <pass>, <token>) — n'entrez jamais un identifiant réel ici, le centre de surveillance fait lui-même le remplacement à la réception de la trame.}}</p>
+											<p class="help-block">{{Utilisez des placeholders littéraux (ex: <user>, <pass>) — jamais un identifiant réel.}}</p>
 										</div>
 									</div>
 									<div class="table-responsive">
@@ -261,20 +261,17 @@ $scenarios = scenario::all();
 										</table>
 									</div>
 									<p class="text-muted">
-										<i class="fas fa-info-circle"></i> {{Le N° est le numéro de zone transmis à la centrale : communiquez-lui cette correspondance N° / zone.}}
-									</p>
-									<p class="text-muted">
-										<i class="fas fa-info-circle"></i> {{Pour chaque zone reliée à une caméra Frigate ci-dessus : dans le plugin Alarme, ajoutez la commande "Prefetch événement Frigate" de cet équipement aux actions immédiates de la zone correspondante — pas aux actions temporisées — et renseignez son champ Titre avec exactement <code>#zone#</code>. C'est ce champ Titre qui permet à siaDC09 de savoir quelle zone a déclenché et donc quelle caméra interroger dès le déclenchement, avant l'envoi de la trame BA. Sans <code>#zone#</code> dans le Titre, le prefetch ne peut jamais résoudre de caméra.}}
+										<i class="fas fa-info-circle"></i> {{Pour chaque zone avec caméra : ajoutez la commande "Prefetch événement Frigate" aux actions immédiates de la zone, avec Titre = <code>#zone#</code>.}}
 									</p>
 									<div class="form-group">
 										<label class="col-sm-4 control-label">{{Numéro utilisateur SIA}}</label>
 										<div class="col-sm-6">
 											<input type="number" min="1" max="999" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="sia_user_number" placeholder="1">
-											<p class="help-block">{{Déclarez ce numéro à votre centrale de télésurveillance comme étant l'utilisateur Jeedom. Le plugin Alarme ne transmet jamais l'identité de l'utilisateur Jeedom qui désarme : ce numéro configuré est utilisé à sa place pour toute annulation ou désarmement signalé à la centrale.}}</p>
+											<p class="help-block">{{Numéro déclaré à la centrale pour identifier l'utilisateur Jeedom lors d'une annulation/désarmement.}}</p>
 										</div>
 									</div>
 									<p class="text-muted">
-										<i class="fas fa-info-circle"></i> {{Annulation / désarmement / armement : trois commandes distinctes, à câbler <strong>toutes les trois</strong> dans le plugin Alarme, sous peine de perdre l'un des cas. "Désarmement" — sur l'action "Désactivation OK" — signale à la centrale l'annulation (BC) puis le désarmement (OP) d'une intrusion en cours, ou le désarmement seul (OP) hors contexte d'alarme ; toujours adressé par le numéro utilisateur ci-dessus, jamais par zone. "Réinitialisation alarme" — sur l'action "Réinitialisation" — signale la même annulation (BC seul) quand l'alarme est réinitialisée par un changement de mode sans désarmer (le système reste armé) : sans cette commande câblée, ce cas ne serait jamais rapporté à la centrale. "Armement" — onglet « Activation OK », bouton « Ajouter action immediate lors de l'activation », <strong>jamais</strong> « Ajouter action lors de l'activation » qui ne se déclenche plus après une dérogation — signale chaque armement réussi (CL) à la centrale, y compris avec une dérogation.}}
+										<i class="fas fa-info-circle"></i> {{Câblez les trois actions dans le plugin Alarme : "Désactivation OK", "Réinitialisation" et "Activation OK" (action immédiate).}}
 									</p>
 									<div class="form-group" style="margin-top:15px;">
 										<div class="col-sm-12" style="text-align:right;">
