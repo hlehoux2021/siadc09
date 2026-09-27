@@ -9,7 +9,7 @@ Two modes:
                exits. Never initializes Jeedom socket or supervision loop.
   Normal:      Starts the full SIADaemon via jeedomdaemon framework.
 
-Reference: docs/design/wizard-design.md §Task 3.10
+Reference: internal-docs/design/wizard-design.md §Task 3.10
 """
 
 import asyncio

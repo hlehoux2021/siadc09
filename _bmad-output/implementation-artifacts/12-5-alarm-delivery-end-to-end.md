@@ -497,8 +497,8 @@ T3 (EVENT_FAILED) entries: `"CRITIQUE — "` prefix, logicalId = `'event_failed'
 - [Source: `resources/siadc09d/daemon.py:645`] — `_event_label_from_sm2()`: state → French label
 - [Source: `resources/siadc09d/daemon.py:1690`] — Ring buffer alarm entry: `dialog_type: "alarm"`
 - [Source: `resources/siadc09d/error_handler.py`] — `ErrorCode.BAD_CSR_RESPONSE` (T2), `ErrorCode.EVENT_FAILED` (T3)
-- [Source: `docs/design/daemon-design.md`] — SM2 state machine, retry logic, `_EVENT_SIA_CODES`
-- [Source: `docs/design/error-handler-design.md`] — T2/T3 dispatch, notify channels
+- [Source: `internal-docs/design/daemon-design.md`] — SM2 state machine, retry logic, `_EVENT_SIA_CODES`
+- [Source: `internal-docs/design/error-handler-design.md`] — T2/T3 dispatch, notify channels
 - [Source: `_bmad-output/implementation-artifacts/12-4-supervision-loop-strike-recovery.md`] — Story 12-4 bug fix: double T3_PREFIX resolved
 
 ## Dev Agent Record

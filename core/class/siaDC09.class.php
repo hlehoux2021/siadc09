@@ -769,7 +769,7 @@ class siaDC09 extends eqLogic {
             // subType MUST be 'message', not 'other': the alarm plugin only exposes a *Titre*
             // field (where #zone# gets substituted into $_options['title']) for 'message'-subtype
             // action commands, per the general tag mechanism described in
-            // docs/design/php-core-design.md:424-441 — 'other' has no options field at all, so
+            // internal-docs/design/php-core-design.md:424-441 — 'other' has no options field at all, so
             // the zone would never reach execute(). Confirmed empirically via live testing,
             // 2026-09-24 (prefetchEvent fired but $_options['title'] was always empty).
             'prefetchEvent' => ['name' => __('Prefetch événement Frigate', __FILE__), 'subType' => 'message'],

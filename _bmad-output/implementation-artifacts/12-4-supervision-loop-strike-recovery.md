@@ -428,9 +428,9 @@ foreach (\$msgs as \$m) {
 - [Source: `resources/siadc09d/error_handler.py`] — `ErrorCode`, `ERROR_TIERS`, `T3_PREFIX`, `SM1TimeoutCtx`, typed context dataclasses
 - [Source: `core/class/siaDC09.class.php:259`] — `cron5()` and `_checkSupervisionFreshness()`
 - [Source: `core/class/siaDC09.class.php:370`] — `message()` dispatch for `message_center`, `notify`, `error_update`, `message_trace`
-- [Source: `docs/design/supervision-design.md`] — Groups A/B/C, SM1 state mapping table, `_supervision_value()` formula
-- [Source: `docs/design/error-handler-design.md`] — T1/T2/T3 tiers, ErrorCode enum, `_notify()` and `_dispatch_notify()` design, `sia_last_errors` persistence
-- [Source: `docs/design/logging-design.md`] — ring buffer throttle rules (routine ACK 10-min), dual-line logging pattern
+- [Source: `internal-docs/design/supervision-design.md`] — Groups A/B/C, SM1 state mapping table, `_supervision_value()` formula
+- [Source: `internal-docs/design/error-handler-design.md`] — T1/T2/T3 tiers, ErrorCode enum, `_notify()` and `_dispatch_notify()` design, `sia_last_errors` persistence
+- [Source: `internal-docs/design/logging-design.md`] — ring buffer throttle rules (routine ACK 10-min), dual-line logging pattern
 - [Source: `_bmad-output/implementation-artifacts/12-3-daemon-lifecycle-jeedom-controls.md`] — Story 12-3 learnings (watchdog timing, log level format, postSave behavior)
 - [Source: `tests/level3/test_supervision_e2e.py`] — E2E supervision tests with real simulator for reference test patterns
 
@@ -481,10 +481,10 @@ claude-sonnet-4-6 (eu.anthropic.claude-sonnet-4-6)
 ### File List
 
 - `resources/siadc09d/error_handler.py` — Bug fix: removed T3_PREFIX from T3 title_map entries in `build_notification()`
-- `docs/design/supervision-design.md` — Config key fixes: `notify_cmd_id` → `sia_notify_cmd_id` (8 occurrences), `wizard_step` → `sia_wizard_step` (1 occurrence)
-- `docs/design/error-handler-design.md` — Config key fix: `notify_cmd_id` → `sia_notify_cmd_id`
-- `docs/design/daemon-design.md` — Config key fix: `notify_cmd_id` → `sia_notify_cmd_id`
-- `docs/design/php-core-design.md` — Added `crc_format` row to config key table; config key fix: `notify_cmd_id` → `sia_notify_cmd_id`
+- `internal-docs/design/supervision-design.md` — Config key fixes: `notify_cmd_id` → `sia_notify_cmd_id` (8 occurrences), `wizard_step` → `sia_wizard_step` (1 occurrence)
+- `internal-docs/design/error-handler-design.md` — Config key fix: `notify_cmd_id` → `sia_notify_cmd_id`
+- `internal-docs/design/daemon-design.md` — Config key fix: `notify_cmd_id` → `sia_notify_cmd_id`
+- `internal-docs/design/php-core-design.md` — Added `crc_format` row to config key table; config key fix: `notify_cmd_id` → `sia_notify_cmd_id`
 
 ### Change Log
 

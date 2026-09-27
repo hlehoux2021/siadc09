@@ -22,7 +22,7 @@ Privacy rules for logs:
 - CSR IP:port: Always shown
 - Zone name: Always shown
 
-Reference: docs/design/logging-design.md § Tasks 5b.1–5b.3
+Reference: internal-docs/design/logging-design.md § Tasks 5b.1–5b.3
 
 Module functions:
 - _get_logger(name: str) -> logging.Logger

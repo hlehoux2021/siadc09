@@ -5,7 +5,7 @@ Validates that plugin_info/install.php has the three mandatory Jeedom hook
 functions and that siaDC09_remove() properly cleans up daemon processes
 without referencing the removed sentinel file pattern.
 
-Reference: docs/design/php-core-design.md § Task 2.11
+Reference: internal-docs/design/php-core-design.md § Task 2.11
 Reference: _bmad-output/implementation-artifacts/6-5-jeedom-dependency-manager-installation.md
 """
 from pathlib import Path

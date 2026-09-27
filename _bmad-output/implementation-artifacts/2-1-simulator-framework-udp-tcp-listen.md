@@ -216,8 +216,8 @@ __main__.py (CLI wrapper)
 2. **CREATED:** `tests/level1/test_csr_simulator.py` (pytest unit tests)
 3. **REFERENCE (read-only):** `resources/siadc09d/sia_protocol.py` (protocol parsing, validation)
 4. **REFERENCE (read-only):** `resources/siadc09d/sia_crypto.py` (decryption for encrypted frames)
-5. **REFERENCE (read-only):** `docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md` (spec)
-6. **REFERENCE (read-only):** `docs/design/daemon-design.md` (architecture patterns)
+5. **REFERENCE (read-only):** `internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md` (spec)
+6. **REFERENCE (read-only):** `internal-docs/design/daemon-design.md` (architecture patterns)
 
 **Dependencies on Other Stories:**
 

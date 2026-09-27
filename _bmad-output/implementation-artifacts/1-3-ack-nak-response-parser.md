@@ -46,7 +46,7 @@ So that I can distinguish successful delivery from errors.
 - [x] Create or update `resources/siadc09d/sia_protocol.py` module
   - [x] Import required modules: `struct`, `datetime`, `timezone` from stdlib; `SIACipher` from `sia_crypto`
   - [x] Define exception class `SIAProtocolError(Exception)` if not already present (from Story 1.1)
-  - [x] [Source: docs/design/daemon-design.md § Component 0 Exception Hierarchy]
+  - [x] [Source: internal-docs/design/daemon-design.md § Component 0 Exception Hierarchy]
 
 ### Task 1: ACK Frame Structure Constants & Frame Parsing Helpers
 - [x] Define module-level constants for ACK/NAK frame structure
@@ -63,7 +63,7 @@ So that I can distinguish successful delivery from errors.
   - [x] Returns: `(crc_bytes, message_str, expected_length_bytes, trailing_byte)` on success
   - [x] Returns `None` if any structural check fails (missing leader, incomplete length field, missing trailer)
   - [x] Does not raise exceptions — callers handle `None` returns gracefully
-  - [x] [Source: docs/design/daemon-design.md § Component 0 — wrap_frame() and frame envelope]
+  - [x] [Source: internal-docs/design/daemon-design.md § Component 0 — wrap_frame() and frame envelope]
 
 ### Task 3: CRC Validation Helper
 - [x] Implement `_validate_crc(crc_bytes: bytes, message_str: str, crc_format: str = 'hex') -> bool`
@@ -74,7 +74,7 @@ So that I can distinguish successful delivery from errors.
   - [x] For 'hex' format: CRC is 4 ASCII hex characters (e.g., "A3F2")
   - [x] For 'bin' format: CRC is 2 binary bytes (little-endian)
   - [x] **CRC Format Selection (v1.0):** CRC format is preset-configured via caller parameter. Default to `crc_format='hex'`.
-  - [x] [Source: docs/design/daemon-design.md § compute_crc(); architecture.md § ADR-06 CRC Format]
+  - [x] [Source: internal-docs/design/daemon-design.md § compute_crc(); architecture.md § ADR-06 CRC Format]
 
 ### Task 4: ACK/NAK Type Detection & Sequence Extraction
 - [x] Implement `_parse_ack_nak_type_and_seq(message_str: str) -> tuple[str, int | None]`
@@ -99,7 +99,7 @@ So that I can distinguish successful delivery from errors.
     7. For NAK: populate `raw_nak` with full frame bytes (for timestamp extraction)
     8. Return dict with parsed values
   - [x] **Error handling:** Catch all exceptions and return unknown — zero exception propagation
-  - [x] [Source: docs/design/daemon-design.md § decode_ack_nak() specification]
+  - [x] [Source: internal-docs/design/daemon-design.md § decode_ack_nak() specification]
 
 ### Task 6: NAK Timestamp Extraction — `parse_nak_timestamp(nak_data: bytes) -> datetime`
 - [x] Implement function to extract CSR timestamp from NAK frame data
@@ -119,7 +119,7 @@ So that I can distinguish successful delivery from errors.
 ### Task 7: Golden Frame Test Fixtures & Test Data
 - [x] Test fixtures not required for Level 1 unit tests (all tests use synthetic frames via build_frame helper)
   - [x] Golden fixtures deferred to Level 2/3 integration testing with real CSR/simulator
-  - [x] [Source: docs/design/daemon-design.md § Component 0 Test Fixtures]
+  - [x] [Source: internal-docs/design/daemon-design.md § Component 0 Test Fixtures]
 
 ### Task 8: Unit Tests (pytest) — Comprehensive Test Suite
 - [x] Created `tests/level1/test_sia_protocol_ack_nak.py` with pytest function-based tests
@@ -144,27 +144,27 @@ So that I can distinguish successful delivery from errors.
 
 **Module Purpose:** Pure protocol layer — no Jeedom, no asyncio, no state. Single responsibility: SIA DC-09-2021 message construction, encryption support, and response parsing.
 
-[Source: docs/design/daemon-design.md — Component 0: sia_protocol.py + code-style.md § Classes vs Functions]
+[Source: internal-docs/design/daemon-design.md — Component 0: sia_protocol.py + code-style.md § Classes vs Functions]
 
 **Key Architectural Patterns:**
 
 1. **Defensive Parsing:** `decode_ack_nak()` never raises exceptions. All malformed input returns `type='unknown'` — call sites never crash on garbage from the network. This is critical for daemon stability.
-   - [Source: docs/design/daemon-design.md § Zero Silent Failures]
+   - [Source: internal-docs/design/daemon-design.md § Zero Silent Failures]
 
 2. **Windows-1252 Encoding:** Message strings in SIA DC-09 frames use Windows-1252 encoding (section 5.5.1.1). ASCII-only content (account numbers, event codes, sequence) is unaffected; non-ASCII characters (media URLs) must be pre-validated by callers.
    - [Source: SIA DC-09-2021 spec § 5.5.1.1]
 
 3. **CRC-16/MODBUS Validation:** Every frame (ACK, NAK, alarm) must have valid CRC. Polynomial `0xA001` (bit-reversed). CRC is computed over `message_string` only — not leader, not CRC field itself, not length field, not trailer.
-   - [Source: SIA DC-09-2021 spec § 5.5.1.2; docs/design/daemon-design.md § compute_crc()]
+   - [Source: SIA DC-09-2021 spec § 5.5.1.2; internal-docs/design/daemon-design.md § compute_crc()]
 
 4. **Sequence Number Matching:** ACK/NAK responses echo the sequence number of the original outbound frame. Parser extracts this for SM1/SM2 state machine transitions.
    - [Source: SIA DC-09-2021 spec § 5.5.3 (ACK/NAK format)]
 
 5. **NAK Timestamp for v1.1 Auto-Heal:** NAK responses optionally include CSR timestamp (section 5.5.3.2). In v1.0, extracted timestamp is validated (any parse error → `BAD_CSR_RESPONSE`). In v1.1, timestamp will drive clock synchronization retry.
-   - [Source: docs/design/daemon-design.md § parse_nak_timestamp(); logging-design.md § SM1_NAK_TIMESTAMP event]
+   - [Source: internal-docs/design/daemon-design.md § parse_nak_timestamp(); logging-design.md § SM1_NAK_TIMESTAMP event]
 
 6. **Plaintext vs. Encrypted:** ACK/NAK can be plaintext or encrypted. Decryption is handled by caller (`sia_crypto.decrypt_frame()` in `_send_raw_tcp()/_send_raw_udp()`) before passing to `decode_ack_nak()`. Parser never sees ciphertext directly.
-   - [Source: docs/design/daemon-design.md § Message Flow]
+   - [Source: internal-docs/design/daemon-design.md § Message Flow]
 
 ### Technical Stack
 
@@ -261,8 +261,8 @@ sia_protocol.py (existing from Story 1.1, now extended with Story 1.3)
 
 ## References
 
-- **Protocol Spec:** docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md (complete standard reference)
-- **Architecture:** docs/design/daemon-design.md § Component 0 (sia_protocol.py API surface)
+- **Protocol Spec:** internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md (complete standard reference)
+- **Architecture:** internal-docs/design/daemon-design.md § Component 0 (sia_protocol.py API surface)
 - **Code Style:** .claude/rules/code-style.md (type hints, error handling, function vs. class design)
 - **Testing:** .claude/rules/testing.md (pytest standards, three-element test documentation)
 - **Previous Story:** _bmad-output/implementation-artifacts/1-2-aes-128-cbc-encryption-module.md (testing patterns, code structure)

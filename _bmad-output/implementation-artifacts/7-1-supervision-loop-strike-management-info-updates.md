@@ -251,9 +251,9 @@ New files (Story 7.1):
 
 ### References
 
-- [Source: docs/design/supervision-design.md — Task A.1 (on_start), A.2 (on_stop), B.1 (_update_sm1_from_strike), B.2 (_send_supervision), C.2 (deamon_info), C.3 (cron5), C.4 (_checkSupervisionFreshness)]
-- [Source: docs/design/error-handler-design.md — T1/T2/T3 tiers, SUPERVISION_TIMEOUT, SUPERVISION_DISCONNECTED]
-- [Source: docs/design/logging-design.md — SM1 Supervision logging table, ring buffer throttle]
+- [Source: internal-docs/design/supervision-design.md — Task A.1 (on_start), A.2 (on_stop), B.1 (_update_sm1_from_strike), B.2 (_send_supervision), C.2 (deamon_info), C.3 (cron5), C.4 (_checkSupervisionFreshness)]
+- [Source: internal-docs/design/error-handler-design.md — T1/T2/T3 tiers, SUPERVISION_TIMEOUT, SUPERVISION_DISCONNECTED]
+- [Source: internal-docs/design/logging-design.md — SM1 Supervision logging table, ring buffer throttle]
 - [Source: resources/siadc09d/daemon.py — full SM1 implementation (lines 714–1238)]
 - [Source: core/class/siaDC09.class.php:60 — current deamon_info() to replace]
 - [Source: _bmad-output/implementation-artifacts/6-6-php-core-integration-ipc-tests.md — recording shim test pattern, 848 test baseline]

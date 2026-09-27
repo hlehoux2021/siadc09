@@ -247,11 +247,11 @@ if (self::isConnect()) {
 
 - [Source: core/class/siaDC09.class.php:60–270] — `deamon_info()`, `deamon_start()`, `deamon_stop()`, `cron5()`, `_checkSupervisionFreshness()`, `isConnect()`
 - [Source: core/class/siaDC09.class.php:529] — `postSave()` daemon restart on config change
-- [Source: docs/design/supervision-design.md] — SM1 state→supervision_state mapping table, watchdog mechanism, Group A lifecycle tasks
-- [Source: docs/design/supervision-design.md#Task A.1] — `on_start()` code: pushes INITIALIZING, starts tasks, enqueues first supervision
-- [Source: docs/design/supervision-design.md#Task A.2] — `on_stop()` code: pushes STOPPED, drains queue, cancels tasks
-- [Source: docs/design/supervision-design.md#Task C.2] — `deamon_info()` guard chain (6 guards)
-- [Source: docs/design/supervision-design.md#Task C.3] — `cron5()` — freshness check only (no restart logic)
+- [Source: internal-docs/design/supervision-design.md] — SM1 state→supervision_state mapping table, watchdog mechanism, Group A lifecycle tasks
+- [Source: internal-docs/design/supervision-design.md#Task A.1] — `on_start()` code: pushes INITIALIZING, starts tasks, enqueues first supervision
+- [Source: internal-docs/design/supervision-design.md#Task A.2] — `on_stop()` code: pushes STOPPED, drains queue, cancels tasks
+- [Source: internal-docs/design/supervision-design.md#Task C.2] — `deamon_info()` guard chain (6 guards)
+- [Source: internal-docs/design/supervision-design.md#Task C.3] — `cron5()` — freshness check only (no restart logic)
 - [Source: _bmad-output/implementation-artifacts/12-2-wizard-flow-connection-test.md] — prior story infrastructure, bugs fixed, daemon auto-start confirmation
 - [Source: _bmad-output/implementation-artifacts/12-1-manual-plugin-installation-dependency-setup.md] — VM infrastructure, bind mount, venv location
 

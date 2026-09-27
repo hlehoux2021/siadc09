@@ -5,7 +5,7 @@ This module reads hex dump files containing frame data and sends them to a runni
 CSR simulator instance, capturing and displaying responses. Supports both UDP and TCP
 protocols with configurable timeouts and delays.
 
-Reference: docs/design/daemon-design.md § "Transport Layer Patterns"
+Reference: internal-docs/design/daemon-design.md § "Transport Layer Patterns"
 """
 
 import argparse

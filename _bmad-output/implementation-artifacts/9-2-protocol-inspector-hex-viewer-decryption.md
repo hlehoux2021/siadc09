@@ -102,10 +102,10 @@ So that I can verify the exact data being sent/received without needing terminal
 
 ### Architecture Constraints
 
-- **Single AJAX call for list:** `getDiagnosticData` already returns `messages` array (story 9-1). No new list endpoint needed — just render the data. [Source: docs/design/debug-ui-design.md#Task-5c.4]
-- **Separate AJAX for decode:** `decodeFrame` is a NEW endpoint called per-row on expand. It invokes a Python subprocess to decode a single hex frame. [Source: docs/design/debug-ui-design.md#Task-5c.3]
-- **Subprocess security:** Key passed via `SIA_ENCRYPTION_KEY` env var (same as testConnection), never in argv. Hex input sanitized (`ctype_xdigit()`). `set_time_limit(10)` + `exec()` (standard Jeedom pattern). 4096 char max. [Source: docs/design/debug-ui-design.md § subprocess constraints]
-- **No auto-refresh:** All panels are manual-only. No polling. [Source: docs/design/debug-ui-design.md#Task-5c.4]
+- **Single AJAX call for list:** `getDiagnosticData` already returns `messages` array (story 9-1). No new list endpoint needed — just render the data. [Source: internal-docs/design/debug-ui-design.md#Task-5c.4]
+- **Separate AJAX for decode:** `decodeFrame` is a NEW endpoint called per-row on expand. It invokes a Python subprocess to decode a single hex frame. [Source: internal-docs/design/debug-ui-design.md#Task-5c.3]
+- **Subprocess security:** Key passed via `SIA_ENCRYPTION_KEY` env var (same as testConnection), never in argv. Hex input sanitized (`ctype_xdigit()`). `set_time_limit(10)` + `exec()` (standard Jeedom pattern). 4096 char max. [Source: internal-docs/design/debug-ui-design.md § subprocess constraints]
+- **No auto-refresh:** All panels are manual-only. No polling. [Source: internal-docs/design/debug-ui-design.md#Task-5c.4]
 - **Bootstrap 3:** Jeedom 4.x. Use `panel`, `table-condensed`, `label-*` classes. [Source: story 9-1 dev notes]
 - **Inspector panel already exists:** Story 9-1 created the panel shell with Actualiser/Vider buttons already wired. This story fills in the content rendering. [Source: story 9-1 file list]
 
@@ -525,7 +525,7 @@ Test vectors for `decode()`:
 
 ### References
 
-- [Source: docs/design/debug-ui-design.md — Task 5c.3 (Protocol Inspector)]
+- [Source: internal-docs/design/debug-ui-design.md — Task 5c.3 (Protocol Inspector)]
 - [Source: resources/siadc09d/sia_protocol.py — _extract_frame_components, _validate_crc, _compute_crc_modbus]
 - [Source: resources/siadc09d/sia_crypto.py — SIACipher.decrypt()]
 - [Source: resources/siadc09d/daemon.py — _log_sm1_supervision(), _log_sm2_event(), _send_raw()]

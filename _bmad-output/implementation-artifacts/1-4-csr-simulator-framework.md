@@ -47,7 +47,7 @@ So that I can test the daemon without connecting to a real Central Station Recei
   - [x] Import required modules: `asyncio`, `socket`, `logging`, `datetime`, `timezone`
   - [x] Import from existing modules: `SIAMessageBuilder` from `sia_protocol`, `SIACipher` from `sia_crypto`, `decode_ack_nak` from `sia_protocol`
   - [x] Define exception class `CSRSimulatorError(Exception)` for simulator-specific errors
-  - [x] [Source: docs/design/daemon-design.md § Component 0 Exception Hierarchy]
+  - [x] [Source: internal-docs/design/daemon-design.md § Component 0 Exception Hierarchy]
 
 ### Task 0b: Preset Validation
 - [x] Implement `def _validate_preset(preset: dict) -> None`
@@ -378,11 +378,11 @@ csr_simulator.py (NEW — Story 1.4)
 
 ## References
 
-- **Protocol Spec:** docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md (§ 5.5)
+- **Protocol Spec:** internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md (§ 5.5)
 - **Story 1.1:** _bmad-output/implementation-artifacts/1-1-sia-protocol-message-builder.md
 - **Story 1.2:** _bmad-output/implementation-artifacts/1-2-aes-128-cbc-encryption-module.md
 - **Story 1.3:** _bmad-output/implementation-artifacts/1-3-ack-nak-response-parser.md
-- **Architecture:** docs/design/daemon-design.md § Component 0 (protocol layer)
+- **Architecture:** internal-docs/design/daemon-design.md § Component 0 (protocol layer)
 - **Code Style:** .claude/rules/code-style.md (type hints, error handling, asyncio patterns)
 - **Testing:** .claude/rules/testing.md (pytest standards, test documentation)
 

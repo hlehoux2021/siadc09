@@ -4,7 +4,7 @@ Defines the CSRPreset frozen dataclass used by the daemon to store CSR
 connection parameters. Preset values are loaded from JSON config at startup
 and passed to transport constructors.
 
-Reference: docs/design/daemon-design.md § CSRPreset dataclass
+Reference: internal-docs/design/daemon-design.md § CSRPreset dataclass
 """
 
 from dataclasses import dataclass

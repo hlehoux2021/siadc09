@@ -47,14 +47,14 @@ so that the daemon can send properly formatted frames to the CSR.
   - [x] Algorithm: CRC-16 MODBUS (polynomial 0xA001)
   - [x] Input: plaintext bytes from first quote to CR (excluding CR)
   - [x] Output: integer CRC value
-  - [x] [Source: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.2]
+  - [x] [Source: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.2]
 - [x] Implement `_calculate_crc(data: bytes) -> str` private method:
   - [x] Output: 4-character ASCII hex CRC (uppercase)
   - [x] Uses `crc_format` set at builder initialization
 - [x] Implement `_calculate_length(data: bytes) -> str` private method:
   - [x] Format: "0" + 3-digit hex length (e.g., "0123" = 291 bytes)
   - [x] Count only CRC-included bytes (first quote to CR)
-  - [x] [Source: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.3]
+  - [x] [Source: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.3]
 
 ### Task 3: Sequence Number Management
 - [x] Create class `SequenceTracker`:
@@ -65,7 +65,7 @@ so that the daemon can send properly formatted frames to the CSR.
   - [x] Method: `current_seq(account_number: str) -> str` — returns without incrementing
   - [x] Method: `reset(account_number: Optional[str]) -> None` — reset single account or all
   - [x] Create backward-compatibility alias `SequenceManager = SequenceTracker`
-  - [x] [Source: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.5]
+  - [x] [Source: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.5]
 
 ### Task 4: Account Identification Fields
 - [x] Implement `_format_account_id(account_number: str, account_prefix: str = "L0", receiver_number: Optional[str] = None) -> str` private method:
@@ -75,14 +75,14 @@ so that the daemon can send properly formatted frames to the CSR.
   - [x] Return combined string (e.g., `"R2L0#001234"`)
   - [x] Validate hex characters using `_validate_hex()` helper
   - [x] Raise `ValueError` for invalid input
-  - [x] [Source: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.6]
+  - [x] [Source: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.6]
 
 ### Task 5: Message Data Field (Unencrypted)
 - [x] Implement `_format_data_field(account_number: str, event_code: str, extended_data: Optional[Dict] = None) -> str` private method:
   - [x] Structure: `[#{account}|{event_code}...]` (brackets included)
   - [x] Event code: 4 ASCII hex characters (e.g., "1130" for burglary, "2130" for fire)
   - [x] Framework for optional extended data fields (v1.0 uses basic format only)
-  - [x] [Source: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.7]
+  - [x] [Source: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.7]
 
 ### Task 6: Timestamp Field
 - [x] Implement `_format_timestamp(ts: Optional[datetime] = None) -> Optional[str]` static method:
@@ -90,7 +90,7 @@ so that the daemon can send properly formatted frames to the CSR.
   - [x] Format: `_HH:MM:SS,MM-DD-YYYY` (exactly 20 characters)
   - [x] Example: `_22:49:34,04-07-2026`
   - [x] Zero-filled components (single-digit months/days/times → padded)
-  - [x] [Source: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.9]
+  - [x] [Source: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.9]
 
 ### Task 7: Core SIAMessageBuilder Class with encode_message()
 - [x] Create `SIAMessageBuilder` class initialized with `crc_format: Literal["SIA", "ADM"]`:
@@ -113,7 +113,7 @@ so that the daemon can send properly formatted frames to the CSR.
   - [x] Calculate CRC over bytes from first quote through CR
   - [x] Calculate length over same CRC range
   - [x] Return complete frame as bytes
-  - [x] [Source: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1 (full template)]
+  - [x] [Source: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1 (full template)]
 
 ### Task 8: Supervision NULL Message Helper
 - [x] Implement `make_supervision_message(account_number: str, account_prefix: str = "L0", receiver_number: Optional[str] = None, encryption: bool = False) -> bytes` method:
@@ -121,11 +121,11 @@ so that the daemon can send properly formatted frames to the CSR.
   - [x] Inherits CRC format from builder initialization
   - [x] No extended data
   - [x] Timestamp included (current time)
-  - [x] [Source: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.2.1.1 (NULL message)]
+  - [x] [Source: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.2.1.1 (NULL message)]
 
 ### Task 9: Unit Tests (pytest)
 - [x] Test CRC calculation with `_compute_crc_modbus()` and `_calculate_crc()`
-  - [x] [Source: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md Annex B (Example Message Frames)]
+  - [x] [Source: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md Annex B (Example Message Frames)]
 - [x] Test length calculation with `_calculate_length()`
 - [x] Test `SequenceTracker` wrap-around (9999 → 0001)
 - [x] Test `_format_account_id()` with valid/invalid hex
@@ -150,13 +150,13 @@ so that the daemon can send properly formatted frames to the CSR.
 
 **File Location:** `resources/siadc09d/sia_protocol.py`
 **Module Purpose:** Pure protocol layer—no Jeedom, no asyncio, no encryption (crypto is separate module)
-[Source: docs/design/daemon-design.md — Component 0: sia_protocol.py]
+[Source: internal-docs/design/daemon-design.md — Component 0: sia_protocol.py]
 
 **Key Architectural Patterns:**
 
 1. **SIAMessageBuilder Class Pattern:** Encapsulates all message building with integrated per-account sequence tracking. CRC format is set once at initialization, preventing configuration errors. No global state.
 2. **Preset-Driven CRC:** `crc_format` parameter set at builder initialization (`SIAMessageBuilder("SIA")` or `SIAMessageBuilder("ADM")`), enforcing explicit preset configuration. Resolved from CSR preset JSON at daemon startup.
-   [Source: docs/design/daemon-design.md § "Daemon Initialization: CSR Preset Loading"]
+   [Source: internal-docs/design/daemon-design.md § "Daemon Initialization: CSR Preset Loading"]
 3. **Account-Per-Sequence:** Sequence numbers are automatically tracked per account_number via integrated `SequenceTracker`. Each builder instance maintains its own sequence state—no global counters.
 4. **Timestamp as Formatted String:** Timestamps are formatted as `_HH:MM:SS,MM-DD-YYYY` (20 characters, UTC). NOT Unix epoch hex or ISO 8601.
    [Corrected per expert validation: sia-dc09-expert (2026-04-07)]
@@ -225,7 +225,7 @@ sia_protocol.py
   - Timestamp edge cases (epoch 0, year 2100+)
   - Empty extended data dict
 
-[Source: docs/design/daemon-design.md § "Testing Approach"]
+[Source: internal-docs/design/daemon-design.md § "Testing Approach"]
 
 ### File Structure & Dependencies
 
@@ -233,8 +233,8 @@ sia_protocol.py
 
 1. **CREATED:** `resources/siadc09d/sia_protocol.py` (main module with `SIAMessageBuilder` class)
 2. **CREATED:** `tests/level1/test_sia_protocol.py` (96 pytest unit tests)
-3. **REFERENCE (read-only):** `docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md` (spec)
-4. **REFERENCE (read-only):** `docs/design/daemon-design.md` (architecture)
+3. **REFERENCE (read-only):** `internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md` (spec)
+4. **REFERENCE (read-only):** `internal-docs/design/daemon-design.md` (architecture)
 
 **Dependencies on Other Stories:**
 
@@ -279,7 +279,7 @@ builder.reset_sequence("001234")
 
 ## References
 
-- **SIA DC-09-2021 Protocol Spec:** [docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md](../../../docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md)
+- **SIA DC-09-2021 Protocol Spec:** [internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md](../../../internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md)
   - § 5.5 Messages — Complete frame structure
   - § 5.5.1.2 — CRC calculation
   - § 5.5.1.3 — Length field format
@@ -291,7 +291,7 @@ builder.reset_sequence("001234")
   - Annex B — Example message frames (for test data)
   - Annex G — Checklist of major requirements
 
-- **Architecture Document:** [docs/design/daemon-design.md](../../../docs/design/daemon-design.md)
+- **Architecture Document:** [internal-docs/design/daemon-design.md](../../../internal-docs/design/daemon-design.md)
   - Component 0: `sia_protocol.py` module design
   - CSR Preset Loading & CRC format resolution
   - Message Construction State Machine

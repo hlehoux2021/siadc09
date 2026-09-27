@@ -235,7 +235,7 @@ camera missed the person), clip/video attachment, and the independent MQTT/REST 
     `_format_data_field()` (`sia_protocol.py:391-414`) has no code path for it.
   - **Spec correction vs. the zone precedent**: `[V...]` is NOT embedded inside the same brackets as
     `[#account|code zone]` the way `zone` is. Per the protocol spec
-    (`docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md:609-671`), `zone` lives in §5.5.1.7 [Data]
+    (`internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md:609-671`), `zone` lives in §5.5.1.7 [Data]
     (legacy DC-07 Annex B convention — account+eventcode+zone in one bracket), while `V` is one of the
     §5.5.1.8 "[x…data…] Optional Extended Data" identifiers (line 651: `[Vhttp://verify.com/34AC4DE3446]`) —
     its own separate `[V...]` bracket block. Message field order per §5.5.1 subsections is Data (5.5.1.7) →
@@ -500,7 +500,7 @@ be re-added then with a real caller.
 **Task 5** (added 2026-09-23, after two live validation attempts on Tasks 1-3/4 surfaced a second gap): strict
 TDD, consulted `/sia-dc09-expert` against the spec text before touching code rather than trusting the
 zone-in-`[Data]` precedent by analogy. Confirmed via the spec's own message template
-(`docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md:538`,
+(`internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md:538`,
 `<"id"><seq><Rrcvr><Lpref><#acct>[<pad>|...data...][x…data…]<timestamp>`) that `[V...]` is its own bracket
 block (§5.5.1.8), never merged into `[Data]` (§5.5.1.7) the way the existing `zone` handling does — a
 pre-existing deferred test block in `test_sia_protocol.py` (`test_extended_data_mac_address_structure` et al.,

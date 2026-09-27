@@ -520,9 +520,9 @@ No other files need changes. `sia_transport.py`, `presets.py`, `sia_protocol.py`
 
 ### References
 
-- [Source: docs/design/daemon-design.md § Component 1 Task 1.2 — `_notify()` synchronous wrapper]
-- [Source: docs/design/daemon-design.md § Component 1 Task 1.11 — `on_stop()` shutdown sequence]
-- [Source: docs/design/daemon-design.md § Component 1 — `_track_task()` done-callback pattern]
+- [Source: internal-docs/design/daemon-design.md § Component 1 Task 1.2 — `_notify()` synchronous wrapper]
+- [Source: internal-docs/design/daemon-design.md § Component 1 Task 1.11 — `on_stop()` shutdown sequence]
+- [Source: internal-docs/design/daemon-design.md § Component 1 — `_track_task()` done-callback pattern]
 - [Source: _bmad-output/implementation-artifacts/5-4-udp-tcp-transport-layer.md — `_track_task()` initial implementation, ON_STOP_TASK_TIMEOUT_S]
 - [Source: _bmad-output/implementation-artifacts/5-3-priorityqueue-task-coordination.md — task tracking pattern established]
 - [Source: .claude/rules/code-style.md — All instance variables must be initialized in `__init__`]

@@ -157,7 +157,7 @@ class SIACipher:
 
         Reference:
             SIA DC-09-2021 spec § 5.5.1.10 - Encryption Support
-            docs/design/daemon-design.md § Encryption Contract
+            internal-docs/design/daemon-design.md § Encryption Contract
         """
         try:
             # Apply PKCS#7 padding
@@ -205,7 +205,7 @@ class SIACipher:
 
         Reference:
             SIA DC-09-2021 spec § 5.5.1.10 - Encryption Support
-            docs/design/daemon-design.md § Decryption Contract
+            internal-docs/design/daemon-design.md § Decryption Contract
         """
         try:
             # Validate ciphertext length is multiple of AES block size
@@ -263,7 +263,7 @@ class SIACipher:
             AESEncryptionError: If encryption fails
 
         Reference:
-            docs/design/daemon-design.md § Message Flow: Plaintext → Encrypt → Send
+            internal-docs/design/daemon-design.md § Message Flow: Plaintext → Encrypt → Send
             Story 1.1: SIA Protocol Message Builder
         """
         return self.encrypt(plaintext_frame)
@@ -290,7 +290,7 @@ class SIACipher:
             AESDecryptionError: If decryption fails
 
         Reference:
-            docs/design/daemon-design.md § ACK/NAK Handling
+            internal-docs/design/daemon-design.md § ACK/NAK Handling
             Story 1.3: ACK/NAK Response Parser (dependency)
         """
         return self.decrypt(encrypted_frame)

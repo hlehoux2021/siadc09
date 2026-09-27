@@ -230,7 +230,7 @@ def test_prefetch_event_command_uses_message_subtype(postsave_body: str) -> None
     bucket. It MUST use subType 'message', not 'other': the alarm plugin only
     exposes a *Titre* field (where #zone# gets substituted into
     $_options['title']) for 'message'-subtype action commands
-    (docs/design/php-core-design.md:1264) — 'other' has no options field at
+    (internal-docs/design/php-core-design.md:1264) — 'other' has no options field at
     all, so the zone would never reach execute(). Confirmed as a real bug on
     the live host (2026-09-24): prefetchEvent fired but $_options['title']
     was always empty, so no camera could ever be resolved.

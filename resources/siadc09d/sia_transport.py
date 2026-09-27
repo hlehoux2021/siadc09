@@ -4,7 +4,7 @@ Separates socket I/O and SIA frame boundary handling from daemon state
 machine logic. Used exclusively by SIADaemon._send_raw().
 
 Reference:
-    docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.3, § 5.5.1.10
+    internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.3, § 5.5.1.10
 """
 
 import asyncio
@@ -290,7 +290,7 @@ class SIATCPTransport(SIABaseTransport):
     send_frame().
 
     Reference:
-        docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.3
+        internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.3
         "The PE may optionally close the socket connection."
     """
 

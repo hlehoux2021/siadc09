@@ -4,7 +4,7 @@ Tests the full integration path: real transport → real protocol → real SM1 s
 → real ring buffer → real callbacks. Only send_to_jeedom is mocked (no PHP required).
 
 Reference: _bmad-output/implementation-artifacts/7-3-supervision-integration-testing.md
-Reference: docs/design/supervision-design.md — Groups A/B/C, SM1 state mapping
+Reference: internal-docs/design/supervision-design.md — Groups A/B/C, SM1 state mapping
 """
 import asyncio
 from contextlib import suppress

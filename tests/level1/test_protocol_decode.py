@@ -4,7 +4,7 @@ Level 1 tests for sia_protocol.decode() function and CLI --decode mode.
 Validates the ParsedMessage dataclass fields, CRC validation, malformed-input
 handling and the __main__ CLI entry point — no external dependencies.
 
-Reference: docs/design/debug-ui-design.md § 5c.3
+Reference: internal-docs/design/debug-ui-design.md § 5c.3
 Reference: _bmad-output/implementation-artifacts/9-2-protocol-inspector-hex-viewer-decryption.md
 """
 

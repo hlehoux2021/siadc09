@@ -10,8 +10,8 @@ Key contract: when the daemon starts with wizard-configured values, it must:
 2. NOT include event_state/event_label in the initial push (retained across restarts)
 3. Use preset values for transport creation (host, port, crc_format)
 
-Reference: docs/design/wizard-design.md
-Reference: docs/design/daemon-design.md § on_start()
+Reference: internal-docs/design/wizard-design.md
+Reference: internal-docs/design/daemon-design.md § on_start()
 Reference: _bmad-output/implementation-artifacts/8-1-wizard-steps-1-2-csr-preset-selection.md
 """
 

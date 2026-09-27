@@ -614,8 +614,8 @@ _dispatch_notify(ErrorCode.SUPERVISION_TIMEOUT, ctx)  # Full logic
 
 **Reference Files (Read-Only):**
 
-- `docs/design/error-handler-design.md` (context field requirements)
-- `docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md` (protocol reference)
+- `internal-docs/design/error-handler-design.md` (context field requirements)
+- `internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md` (protocol reference)
 - `.claude/rules/code-style.md` (type hints, naming conventions)
 - `.claude/rules/testing.md` (test writing standards)
 
@@ -690,7 +690,7 @@ All tasks specify:
 - `tests/level1/test_error_handler.py` — EXTEND (add context + integration tests)
 
 **Reference Files (Read-Only):**
-- `docs/design/error-handler-design.md` (context field requirements)
-- `docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md` (protocol spec)
+- `internal-docs/design/error-handler-design.md` (context field requirements)
+- `internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md` (protocol spec)
 - `.claude/rules/code-style.md` (Python typing conventions)
 - `.claude/rules/testing.md` (pytest standards)

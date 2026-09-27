@@ -5,7 +5,7 @@ Validates PHP structure (AJAX actions, tab HTML) and JS logic (badge rendering,
 error panel, button rate limiting) by parsing source files — no Jeedom instance
 required.
 
-Reference: docs/design/debug-ui-design.md
+Reference: internal-docs/design/debug-ui-design.md
 Reference: _bmad-output/implementation-artifacts/9-1-status-badge-error-panel.md
 """
 

@@ -41,7 +41,7 @@ one root cause:
   bound to the changed command, so it has nothing to touch. The only inline JS
   (`siaDC09.html:31-79`) is the one-shot stale check from story 10-2; it does not subscribe
   to `cmd::update`.
-- `docs/design/widget-design.md:20-22,66-70` assumed the full-tile re-render path fires
+- `internal-docs/design/widget-design.md:20-22,66-70` assumed the full-tile re-render path fires
   automatically ("no custom JS required"); epics.md Story 10.1 AC accepted **reload-only**
   refresh. Live push was never actually wired.
 - Secondary: `toHtml()` reads INFO values via `execCmd()` (`siaDC09.class.php:589-591`),
@@ -155,7 +155,7 @@ one root cause:
   `jeedom.eqLogic.byId({id, getCmdState:1})` call (10-2 review F2/F3 replaced the
   non-existent `jeedom.cmd.getStatsByEqLogicId`), the Safari-safe date parse, and the
   "What NOT To Do" list. **Note 10-2 review F1 (`getValue()`→`execCmd()`) — Task 3 revisits it.**
-- `docs/design/widget-design.md:20-22,66-70,199-202` — the (partly incorrect) live-update
+- `internal-docs/design/widget-design.md:20-22,66-70,199-202` — the (partly incorrect) live-update
   and value-source assumptions this story corrects.
 - `12-6-widget-debug-ui-rendering.md` "Field Observations — 2026-09-18" — the source report.
 
@@ -345,7 +345,7 @@ fresh 30s keeps server badge), and AC5 (dashboard/mobile byte-identical). **10 p
 | `tests/level2/test_sm2_alarm_event_suite.py` | Code review (2026-09-25): split `test_event_label_from_sm2_failed` into `..._nak` (explicit CSR rejection) and `..._no_response` (timeout/transport/no reply) cases. |
 | `core/template/dashboard/siaDC09.html` | Code review (2026-09-25): guard each `jeedom.cmd.addUpdateFunction()` call against an empty cmd-id (partial/legacy eqLogic missing a command). |
 | `core/template/mobile/siaDC09.html` | Code review (2026-09-25): identical guard, kept byte-for-byte with dashboard. |
-| `docs/design/widget-design.md` | Code review (2026-09-25): corrected the disproven `getValue()`-is-correct claim (Task 6.3 section + comparison table) back to `execCmd()`, matching the story's own Correction note and memory `jeedom-info-cmd-execcmd-vs-getvalue`. |
+| `internal-docs/design/widget-design.md` | Code review (2026-09-25): corrected the disproven `getValue()`-is-correct claim (Task 6.3 section + comparison table) back to `execCmd()`, matching the story's own Correction note and memory `jeedom-info-cmd-execcmd-vs-getvalue`. |
 
 ## Review Findings
 
@@ -375,7 +375,7 @@ same branch).
       guard against an empty cmd-id (eqLogic missing a command). **Applied:** guarded
       each registration behind `if (id) { ... }` in both dashboard and mobile templates
       (kept byte-identical).
-- [x] [Review][Patch] `docs/design/widget-design.md` (Task 6.3 section + comparison
+- [x] [Review][Patch] `internal-docs/design/widget-design.md` (Task 6.3 section + comparison
       table) still asserted the disproven "`getValue()` is correct" claim that caused
       the AC4 regression once already. **Applied:** corrected both spots to `execCmd()`
       with the same rationale as the story's Correction note, referencing memory

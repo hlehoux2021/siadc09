@@ -195,7 +195,7 @@ All constants must be named (no bare strings or numbers). Examples:
 
 ### Error Handler Design Document
 
-**Alignment:** [Source: docs/design/error-handler-design.md]
+**Alignment:** [Source: internal-docs/design/error-handler-design.md]
 
 This story implements the **API surface** and **core classification layer** of Component 5a. The full module structure (including notification contexts and message builder functions) is defined in the design doc.
 
@@ -412,13 +412,13 @@ Before implementing, verify:
 ## References & Source Documents
 
 **Protocol Specification:**
-- [SIA DC-09-2021.17 Protocol](docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md)
+- [SIA DC-09-2021.17 Protocol](internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md)
 - Section 5.5.3.2: NAK response format (no sub-codes in protocol)
 
 **Design Documents:**
-- [Error Handler Design](docs/design/error-handler-design.md) — Component 5a, ErrorCode enum § API surface
-- [Supervision Design](docs/design/supervision-design.md) — SM1 strike counter logic, T3 notification policy
-- [Logging Design](docs/design/logging-design.md) — French user-facing messages, dual-line logging pattern
+- [Error Handler Design](internal-docs/design/error-handler-design.md) — Component 5a, ErrorCode enum § API surface
+- [Supervision Design](internal-docs/design/supervision-design.md) — SM1 strike counter logic, T3 notification policy
+- [Logging Design](internal-docs/design/logging-design.md) — French user-facing messages, dual-line logging pattern
 
 **Epics & Stories:**
 - [Epics Breakdown](\_bmad-output/planning-artifacts/epics.md) § Epic 3: Error Handler

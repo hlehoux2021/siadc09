@@ -528,10 +528,10 @@ This keeps transport classes free of `CSRPreset` dependency (clean layer boundar
 
 ### References
 
-- [Source: docs/design/daemon-design.md § Task 1.3 — `_send_raw()`] — UDP persistent transport, TCP per-frame rules, OS errno classification
-- [Source: docs/design/daemon-design.md § Task 1.11 — `on_stop()`] — 5-step shutdown sequence
-- [Source: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.10] — `0x0D` CR frame terminator
-- [Source: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.3] — TCP socket close is optional
+- [Source: internal-docs/design/daemon-design.md § Task 1.3 — `_send_raw()`] — UDP persistent transport, TCP per-frame rules, OS errno classification
+- [Source: internal-docs/design/daemon-design.md § Task 1.11 — `on_stop()`] — 5-step shutdown sequence
+- [Source: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.10] — `0x0D` CR frame terminator
+- [Source: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.3] — TCP socket close is optional
 - [Source: _bmad-output/implementation-artifacts/5-3-priorityqueue-task-coordination.md] — `_track_task()`, test fixture patterns, `daemon_factory`
 
 ---
@@ -545,8 +545,8 @@ Claude Sonnet 4.6 (1M context)
 ### Debug Log References
 
 - Sprint status: `_bmad-output/implementation-artifacts/sprint-status.yaml`
-- Daemon design: `docs/design/daemon-design.md` Tasks 1.2, 1.3, 1.11
-- Supervision design: `docs/design/supervision-design.md` Group A
+- Daemon design: `internal-docs/design/daemon-design.md` Tasks 1.2, 1.3, 1.11
+- Supervision design: `internal-docs/design/supervision-design.md` Group A
 - Architecture: `_bmad-output/planning-artifacts/architecture.md` ADR-01, ADR-02
 - Previous story: `_bmad-output/implementation-artifacts/5-3-priorityqueue-task-coordination.md`
 

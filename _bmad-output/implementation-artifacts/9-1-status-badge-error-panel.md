@@ -103,10 +103,10 @@ So that I can understand what went wrong without opening Jeedom logs.
 
 ### Architecture Constraints
 
-- **Tab location:** Third tab in equipment page, after "Commandes" — only visible when `sia_wizard_step >= 4` (wizard complete). [Source: docs/design/debug-ui-design.md#Tab-integration]
-- **Single AJAX call pattern:** `getDiagnosticData` returns ALL diagnostic data (badge + errors + messages) in one call. All panels refresh together. [Source: docs/design/debug-ui-design.md#Task-5c.4]
-- **Plugin-level config keys:** `sia_last_errors` and `sia_last_messages` are stored via `config::byKey(..., 'siaDC09')` — NOT eqLogic configuration. This avoids triggering `postSave()`. [Source: docs/design/debug-ui-design.md#Task-5c.5]
-- **No auto-refresh:** All panels are manual-only. No `setInterval`, no WebSocket, no polling. [Source: docs/design/debug-ui-design.md#Task-5c.4]
+- **Tab location:** Third tab in equipment page, after "Commandes" — only visible when `sia_wizard_step >= 4` (wizard complete). [Source: internal-docs/design/debug-ui-design.md#Tab-integration]
+- **Single AJAX call pattern:** `getDiagnosticData` returns ALL diagnostic data (badge + errors + messages) in one call. All panels refresh together. [Source: internal-docs/design/debug-ui-design.md#Task-5c.4]
+- **Plugin-level config keys:** `sia_last_errors` and `sia_last_messages` are stored via `config::byKey(..., 'siaDC09')` — NOT eqLogic configuration. This avoids triggering `postSave()`. [Source: internal-docs/design/debug-ui-design.md#Task-5c.5]
+- **No auto-refresh:** All panels are manual-only. No `setInterval`, no WebSocket, no polling. [Source: internal-docs/design/debug-ui-design.md#Task-5c.4]
 - **Bootstrap 3 panels:** Jeedom 4.x uses Bootstrap 3. Use `panel panel-default`, `panel-heading`, `panel-body`. Do NOT use Bootstrap 4/5 classes.
 - **AJAX authentication:** All actions go through the existing `siaDC09.ajax.php` file which already has `isConnect('admin')` + `ajax::init()` at the top — no per-action auth needed.
 
@@ -261,8 +261,8 @@ Follow the same testing patterns used in stories 8-1/8-2/8-3 — see `tests/leve
 
 ### References
 
-- [Source: docs/design/debug-ui-design.md — Task 5c.1, 5c.2, 5c.4, 5c.5]
-- [Source: docs/design/php-core-design.md — Task 2.10 (AJAX skeleton)]
+- [Source: internal-docs/design/debug-ui-design.md — Task 5c.1, 5c.2, 5c.4, 5c.5]
+- [Source: internal-docs/design/php-core-design.md — Task 2.10 (AJAX skeleton)]
 - [Source: _bmad-output/planning-artifacts/epics.md — Epic 9, Story 9.1]
 - [Source: core/class/siaDC09.class.php — error_update/message_trace callbacks, lines 411–457]
 - [Source: desktop/php/siaDC09.php — existing tab structure, lines 86–90]

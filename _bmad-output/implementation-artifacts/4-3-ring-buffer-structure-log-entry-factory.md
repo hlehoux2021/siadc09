@@ -153,7 +153,7 @@ So that users can see recent activity and diagnose issues.
 
 ### Architecture Constraints
 
-**Ring Buffer Design Reference:** `docs/design/logging-design.md` § Ring Buffer Structure (ADR-17)
+**Ring Buffer Design Reference:** `internal-docs/design/logging-design.md` § Ring Buffer Structure (ADR-17)
 - Max 50 entries (memory-efficient for Jeedom)
 - Routine supervision: throttled to 10-min intervals (prevents info spam)
 - State-changing events: logged immediately (unthrottled)
@@ -254,7 +254,7 @@ So that users can see recent activity and diagnose issues.
 
 **Files Created:**
 - `resources/siadc09d/logging_config.py` — logger setup + asyncio pin
-- `docs/logging-developer-guide.md` — 2,500+ chars with examples, SM1/SM2 tables, privacy rules
+- `internal-docs/logging-developer-guide.md` — 2,500+ chars with examples, SM1/SM2 tables, privacy rules
 - `tests/level1/test_logging_config.py` — 23 comprehensive test cases
 
 **Patterns to Reuse (Ring Buffer Context):**
@@ -267,16 +267,16 @@ So that users can see recent activity and diagnose issues.
 
 ## References
 
-- **Logging Design:** `docs/design/logging-design.md` § Ring Buffer Structure (ADR-17)
+- **Logging Design:** `internal-docs/design/logging-design.md` § Ring Buffer Structure (ADR-17)
   - Supervision logging table: routine ACKs (DEBUG only), state changes (immediate)
   - Ring buffer capacity and throttling rules
   - Entry format: `{timestamp, level, message, context_dict}`
 
-- **Error Handler Context:** `docs/design/error-handler-design.md`
+- **Error Handler Context:** `internal-docs/design/error-handler-design.md`
   - T1/T2/T3 error classification (influences log level in ring buffer entries)
   - Callback contract: ring buffer entries may be pushed by error handler
 
-- **Daemon Design Reference:** `docs/design/daemon-design.md`
+- **Daemon Design Reference:** `internal-docs/design/daemon-design.md`
   - SM1 state machine logging contexts (calls `ring_buffer.push_supervision_entry()`)
   - SM2 event state machine logging contexts
   - Helper methods: `_log_sm1_supervision()`, `_log_sm2_event()` (future stories)

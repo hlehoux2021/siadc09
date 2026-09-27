@@ -4,7 +4,7 @@ Level 1 tests for Protocol Inspector JS logic (Story 9-2 Tasks 4–7).
 Validates siaDC09.js source text for CSS classes, data attributes, French
 labels and clipboard button presence — no browser required.
 
-Reference: docs/design/debug-ui-design.md § 5c.3
+Reference: internal-docs/design/debug-ui-design.md § 5c.3
 Reference: _bmad-output/implementation-artifacts/9-2-protocol-inspector-hex-viewer-decryption.md
 """
 

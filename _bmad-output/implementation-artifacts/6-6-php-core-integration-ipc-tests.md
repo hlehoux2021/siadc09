@@ -267,9 +267,9 @@ Unchanged (reference only):
 
 ### References
 
-- [Source: docs/design/daemon-design.md § Component 1 — _notify() synchronous wrapper, _send_callback() contract]
-- [Source: docs/design/error-handler-design.md § T1/T2/T3 dispatch — tier classification]
-- [Source: docs/design/logging-design.md § SM1 Supervision Table — message_trace emission points]
+- [Source: internal-docs/design/daemon-design.md § Component 1 — _notify() synchronous wrapper, _send_callback() contract]
+- [Source: internal-docs/design/error-handler-design.md § T1/T2/T3 dispatch — tier classification]
+- [Source: internal-docs/design/logging-design.md § SM1 Supervision Table — message_trace emission points]
 - [Source: _bmad-output/planning-artifacts/architecture.md § Communication Patterns — IPC payload rules]
 - [Source: _bmad-output/planning-artifacts/architecture.md § Level 2.5 — IPC Contract Tests — recording shim pattern]
 - [Source: tests/fixtures/ipc_schema.py — authoritative callback schemas]

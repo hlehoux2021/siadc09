@@ -49,7 +49,7 @@ In this project, BMAD was used as a **design accelerator** — replacing weeks o
 
 Rather than generating a formal PRD and architecture document via BMAD workflows, the project adopted a **custom component-by-component design process** directly guided by the brainstorming outcomes. Each component was designed interactively with dedicated domain-expert AI skills (`/sia-dc09-expert`, `/jeedom-plugin`).
 
-**Design documents produced** (all in [`docs/design/`](design/)):
+**Design documents produced** (all in [`internal-docs/design/`](design/)):
 
 | Component | Document | Scope |
 |-----------|----------|-------|

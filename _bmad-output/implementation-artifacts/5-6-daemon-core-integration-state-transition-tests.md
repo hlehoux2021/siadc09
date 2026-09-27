@@ -289,13 +289,13 @@ After `on_start()`, SM1 is INITIALIZING. The first supervision ACK transitions t
 
 ### References
 
-- [Source: docs/design/daemon-design.md § Component 1 — SM1/SM2 state machines, _track_task()]
-- [Source: docs/design/supervision-design.md ADR-11 — SM1 state transition table, strike counter]
-- [Source: docs/design/error-handler-design.md — T1/T2/T3 error tiers, ErrorCode enum]
-- [Source: docs/design/logging-design.md — SM1/SM2 dual-line logging tables]
+- [Source: internal-docs/design/daemon-design.md § Component 1 — SM1/SM2 state machines, _track_task()]
+- [Source: internal-docs/design/supervision-design.md ADR-11 — SM1 state transition table, strike counter]
+- [Source: internal-docs/design/error-handler-design.md — T1/T2/T3 error tiers, ErrorCode enum]
+- [Source: internal-docs/design/logging-design.md — SM1/SM2 dual-line logging tables]
 - [Source: _bmad-output/implementation-artifacts/5-5-async-task-lifecycle-management.md — _track_task pattern, fixture patterns, review learnings]
 - [Source: .claude/rules/testing.md — pytest patterns, async drain rule, caplog]
-- [Source: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.5 — sequence number rules]
+- [Source: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.5 — sequence number rules]
 
 ---
 

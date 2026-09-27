@@ -72,7 +72,7 @@
 ---
 
 ### Task 4: Document logging standards for developers (4.2.4)
-- [x] 4.1 Create or update `docs/logging-developer-guide.md`:
+- [x] 4.1 Create or update `internal-docs/logging-developer-guide.md`:
   - [x] 4.1.1 When to use INFO/WARNING/ERROR (user-visible, French, significant events)
   - [x] 4.1.2 When to use DEBUG (technical, English, detailed traces, routine cycles)
   - [x] 4.1.3 Dual-line example: one French user-friendly, one DEBUG technical detail
@@ -94,7 +94,7 @@
 
 ### Architecture Constraints
 
-- **Logging Design Reference:** `docs/design/logging-design.md` § Tasks 5b.1–5b.3 define logging architecture
+- **Logging Design Reference:** `internal-docs/design/logging-design.md` § Tasks 5b.1–5b.3 define logging architecture
   - Single root logger (no per-module configuration)
   - Python CRITICAL → ERROR level (Jeedom compatibility)
   - Dual-line pattern (French INFO/WARNING/ERROR + English DEBUG)
@@ -122,7 +122,7 @@
   - All used in logging context (not directly in logging_config.py)
 
 **Documentation to create:**
-- `docs/logging-developer-guide.md` ← NEW
+- `internal-docs/logging-developer-guide.md` ← NEW
   - Developer reference for logging conventions
   - Examples and best practices
 
@@ -169,7 +169,7 @@
 | **TC20** | **MEDIUM** | **Error Handling** | **test_get_logger_type_checking** | **Rejects non-string names** |
 | **TC21** | **MEDIUM** | **Error Handling** | **test_get_logger_with_very_long_name** | **Deeply nested package names work** |
 | **TC22** | **HIGH** | **Documentation** | **test_logging_config_docstring_covers_requirements** | **Docstring covers v1.0, dual-line, French, DEBUG, framework** |
-| **TC23** | **MEDIUM** | **Documentation** | **test_logging_developer_guide_file_exists** | **docs/logging-developer-guide.md exists & non-trivial** |
+| **TC23** | **MEDIUM** | **Documentation** | **test_logging_developer_guide_file_exists** | **internal-docs/logging-developer-guide.md exists & non-trivial** |
 
 #### Baseline Test Cases (TC1-TC8)
 
@@ -400,9 +400,9 @@
 23. **TC23 — Developer guide exists** (MEDIUM)
     ```python
     def test_logging_developer_guide_file_exists():
-        """docs/logging-developer-guide.md should exist and be comprehensive."""
+        """internal-docs/logging-developer-guide.md should exist and be comprehensive."""
         from pathlib import Path
-        guide_path = Path("docs/logging-developer-guide.md")
+        guide_path = Path("internal-docs/logging-developer-guide.md")
         assert guide_path.exists(), "Developer guide not found"
         content = guide_path.read_text()
         assert len(content) > 500, "Developer guide too brief"
@@ -443,16 +443,16 @@
 
 ## References
 
-- **Architecture:** `docs/design/logging-design.md` § Tasks 5b.1–5b.3
+- **Architecture:** `internal-docs/design/logging-design.md` § Tasks 5b.1–5b.3
   - Task 5b.1: Logger architecture (single root logger)
   - Task 5b.2: Log level mapping and dual-line pattern
   - Task 5b.3: State machine event logging (SM1/SM2 transitions)
 
-- **Error Handler Context:** `docs/design/error-handler-design.md`
+- **Error Handler Context:** `internal-docs/design/error-handler-design.md`
   - T1/T2/T3 error classification used in logging patterns
   - Notification patterns (message center, user-actionable, critical)
 
-- **Daemon Design Reference:** `docs/design/daemon-design.md`
+- **Daemon Design Reference:** `internal-docs/design/daemon-design.md`
   - SM1 state transitions and logging contexts
   - SM2 event transitions and logging contexts
   - Helper methods: `_log_sm1_supervision()`, `_log_sm2_event()`
@@ -481,7 +481,7 @@ Claude Haiku 4.5 (claude-haiku-4-5-20251001)
   - Zero circular imports (only logging, typing)
   - Comprehensive module docstring with usage examples and privacy rules
   
-- Created `docs/logging-developer-guide.md` (2,500+ chars)
+- Created `internal-docs/logging-developer-guide.md` (2,500+ chars)
   - Quick start guide with code examples
   - Logging level reference table
   - Dual-line logging pattern explained with examples
@@ -519,7 +519,7 @@ Claude Haiku 4.5 (claude-haiku-4-5-20251001)
 ### File List
 
 - `resources/siadc09d/logging_config.py` ✅ CREATED
-- `docs/logging-developer-guide.md` ✅ CREATED
+- `internal-docs/logging-developer-guide.md` ✅ CREATED
 - `tests/level1/test_logging_config.py` ✅ CREATED (23 comprehensive test cases)
 - `resources/siadc09d/messages.py` (reference only, created in Story 4-1)
 

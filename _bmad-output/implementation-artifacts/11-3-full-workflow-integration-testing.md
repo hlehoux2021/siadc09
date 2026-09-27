@@ -342,8 +342,8 @@ sim_preset = {
 
 - [Source: tests/level3/conftest.py] — E2E daemon factory, fixtures, helpers
 - [Source: tests/level3/test_supervision_e2e.py] — Complete E2E test patterns (12 tests covering SM1 lifecycle)
-- [Source: docs/design/supervision-design.md] — SM1 state machine spec
-- [Source: docs/design/daemon-design.md] — SM2 alarm lifecycle
+- [Source: internal-docs/design/supervision-design.md] — SM1 state machine spec
+- [Source: internal-docs/design/daemon-design.md] — SM2 alarm lifecycle
 - [Source: _bmad-output/planning-artifacts/architecture.md#L366-443] — Testing strategy pyramid
 - [Source: resources/siadc09d/daemon.py] — SIADaemon class, SM1State/SM2State enums
 

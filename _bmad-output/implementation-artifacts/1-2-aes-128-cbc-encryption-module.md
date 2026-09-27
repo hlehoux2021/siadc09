@@ -40,7 +40,7 @@ So that communication with the CSR is secure.
   - [x] Import typing utilities: `from typing import ClassVar, Optional`
   - [x] Define error classes: `AESKeyError`, `AESEncryptionError`, `AESDecryptionError` (inherit from `Exception`)
   - [x] Create `SIACipher` class to encapsulate encryption operations per SIA DC-09 standard
-  - [x] [Source: docs/design/daemon-design.md § Component 0: sia_crypto.py + code-style.md § Classes vs Functions Case 1]
+  - [x] [Source: internal-docs/design/daemon-design.md § Component 0: sia_crypto.py + code-style.md § Classes vs Functions Case 1]
 
 ### Task 1: `SIACipher` Class Constants
 - [x] Implement class constants as `ClassVar` annotations:
@@ -81,7 +81,7 @@ So that communication with the CSR is secure.
   - [x] Encrypt padded plaintext
   - [x] Return: `ciphertext` (IV is implicit/fixed, NOT prepended)
   - [x] Catch `cryptography` exceptions: wrap in `AESEncryptionError` with context
-  - [x] [Source: docs/design/daemon-design.md § Encryption Contract]
+  - [x] [Source: internal-docs/design/daemon-design.md § Encryption Contract]
   - [x] [SIA DC-09 Standard: § 5.5.1.10]
 
 ### Task 6: Core Decryption Method
@@ -94,7 +94,7 @@ So that communication with the CSR is secure.
   - [x] Remove PKCS#7 padding via `_remove_pkcs7_padding()`
   - [x] Return plaintext
   - [x] Catch exceptions: wrap in `AESDecryptionError` with diagnostic (e.g., "Invalid ciphertext length")
-  - [x] [Source: docs/design/daemon-design.md § Decryption Contract]
+  - [x] [Source: internal-docs/design/daemon-design.md § Decryption Contract]
   - [x] [SIA DC-09 Standard: § 5.5.1.10]
 
 ### Task 7: SIA Protocol Frame Integration Methods
@@ -102,13 +102,13 @@ So that communication with the CSR is secure.
   - [x] Thin alias over `encrypt()` with semantic intent (call-site clarity that frame is being encrypted)
   - [x] Input: plaintext SIA frame from `SIAMessageBuilder.encode_message()`
   - [x] Return ciphertext ready for wire transmission (IV is implicit per SIA DC-09 standard)
-  - [x] [Source: docs/design/daemon-design.md § Message Flow]
+  - [x] [Source: internal-docs/design/daemon-design.md § Message Flow]
   
 - [x] Implement `decrypt_frame(self, encrypted_frame: bytes) -> bytes` method
   - [x] Thin alias over `decrypt()` with semantic intent (call-site clarity that frame is being decrypted)
   - [x] Input: encrypted ACK/NAK ciphertext from CSR (IV is implicit per SIA DC-09)
   - [x] Return plaintext frame for ACK/NAK parser (Story 1.3) to validate
-  - [x] [Source: docs/design/daemon-design.md § ACK/NAK Handling]
+  - [x] [Source: internal-docs/design/daemon-design.md § ACK/NAK Handling]
 
 ### Task 8: Private Module-Level Helper
 - [x] Implement `_validate_key(key: Optional[bytes]) -> None` private function (not static method)
@@ -170,7 +170,7 @@ So that communication with the CSR is secure.
 
 **Module Purpose:** Pure cryptography layer — no Jeedom, no asyncio, no protocol state. Single responsibility: AES-128 CBC encryption/decryption.
 
-[Source: docs/design/daemon-design.md — Component 0: sia_crypto.py + code-style.md § Classes vs Functions]
+[Source: internal-docs/design/daemon-design.md — Component 0: sia_crypto.py + code-style.md § Classes vs Functions]
 
 **Key Architectural Patterns:**
 
@@ -207,7 +207,7 @@ So that communication with the CSR is secure.
 **Key Generation:** `secrets.token_bytes()` for cryptographically strong randomness (IV generation)
 
 **Standard:** AES-128 CBC per SIA DC-09-2021 spec
-- [Source: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.10]
+- [Source: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.10]
 
 ### Code Structure Requirements
 
@@ -353,7 +353,7 @@ def test_encrypt_decrypt_roundtrip_16_byte_plaintext(cipher):
 
 **Key Scrubbing:** Deferred to daemon integration (Story 5 and beyond). This module does not cache keys.
 
-[Source: docs/design/daemon-design.md § Encryption Contract; architecture.md ADR-07]
+[Source: internal-docs/design/daemon-design.md § Encryption Contract; architecture.md ADR-07]
 
 ### Troubleshooting Common Issues
 
@@ -461,8 +461,8 @@ Claude Haiku 4.5 (claude-haiku-4-5-20251001)
 
 ## References
 
-- **SIA DC-09-2021 Spec:** docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.10 (Encryption Support)
-- **Daemon Design:** docs/design/daemon-design.md § Component 0: sia_crypto.py
+- **SIA DC-09-2021 Spec:** internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.10 (Encryption Support)
+- **Daemon Design:** internal-docs/design/daemon-design.md § Component 0: sia_crypto.py
 - **Architecture ADR-07:** Encryption Key Lifecycle — architecture.md
 - **Cryptography Library:** https://cryptography.io/ (version ≥41.0.0)
 - **PKCS#7 RFC:** RFC 5652 Section 6.3

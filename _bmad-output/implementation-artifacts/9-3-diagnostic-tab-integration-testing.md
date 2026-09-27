@@ -77,10 +77,10 @@ So that it's reliable for user troubleshooting when all panels work together.
 
 ### Architecture Constraints
 
-- **Single AJAX call:** `getDiagnosticData` returns ALL diagnostic data in one call. All panels refresh from the same response. There is NO per-panel endpoint. [Source: docs/design/debug-ui-design.md#Task-5c.4]
-- **No auto-refresh:** Zero polling, zero `setInterval`. Only manual "Actualiser" buttons. The only `setTimeout` allowed is the 2000ms rate-limit on buttons. [Source: docs/design/debug-ui-design.md#Task-5c.4]
-- **Plugin-level config keys:** `sia_last_errors` and `sia_last_messages` use `config::byKey(..., 'siaDC09')` NOT `eqLogic->getConfiguration()`. This avoids triggering `postSave()`. [Source: docs/design/debug-ui-design.md#Task-5c.5]
-- **Clear isolation:** "Vider" on errors clears ONLY `sia_last_errors`. "Vider" on inspector clears ONLY `sia_last_messages`. Neither affects the daemon ring buffer. [Source: docs/design/debug-ui-design.md#Task-5c.5]
+- **Single AJAX call:** `getDiagnosticData` returns ALL diagnostic data in one call. All panels refresh from the same response. There is NO per-panel endpoint. [Source: internal-docs/design/debug-ui-design.md#Task-5c.4]
+- **No auto-refresh:** Zero polling, zero `setInterval`. Only manual "Actualiser" buttons. The only `setTimeout` allowed is the 2000ms rate-limit on buttons. [Source: internal-docs/design/debug-ui-design.md#Task-5c.4]
+- **Plugin-level config keys:** `sia_last_errors` and `sia_last_messages` use `config::byKey(..., 'siaDC09')` NOT `eqLogic->getConfiguration()`. This avoids triggering `postSave()`. [Source: internal-docs/design/debug-ui-design.md#Task-5c.5]
+- **Clear isolation:** "Vider" on errors clears ONLY `sia_last_errors`. "Vider" on inspector clears ONLY `sia_last_messages`. Neither affects the daemon ring buffer. [Source: internal-docs/design/debug-ui-design.md#Task-5c.5]
 - **Tab visibility:** Diagnostic tab hidden when `sia_wizard_step < 4`. Controlled by `siaDC09_initDiagnosticTab(step)` called from `printEqLogic`. [Source: 9-1 story, debug-ui-design.md]
 - **Bootstrap 3:** Jeedom 4.x. Use `panel panel-default`, `panel-heading`, `panel-body`, `table-condensed`, `label-*`. No Bootstrap 4/5. [Source: all Jeedom UI conventions]
 
@@ -236,7 +236,7 @@ from fixtures.ipc_schema import SAMPLE_ERROR_UPDATE, SAMPLE_MESSAGE_TRACE
 
 ### References
 
-- [Source: docs/design/debug-ui-design.md — Task 5c.1, 5c.2, 5c.3, 5c.4, 5c.5]
+- [Source: internal-docs/design/debug-ui-design.md — Task 5c.1, 5c.2, 5c.3, 5c.4, 5c.5]
 - [Source: _bmad-output/implementation-artifacts/9-1-status-badge-error-panel.md — all implementation details]
 - [Source: _bmad-output/implementation-artifacts/9-2-protocol-inspector-hex-viewer-decryption.md — message rendering]
 - [Source: tests/fixtures/ipc_schema.py — callback schema definitions]

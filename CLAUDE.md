@@ -13,7 +13,7 @@ SIA DC-09-2021.17 protocol implementation (Internet Protocol Event Reporting).
 - Plugin: `core/` + `desktop/` (PHP/JS, Jeedom framework)
 
 ## Key References (read on demand, not pre-loaded)
-- Protocol spec: `docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md`
+- Protocol spec: `internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md`
 - Architecture decisions: `_bmad-output/planning-artifacts/architecture.md`
 - PRD (product goals): `_bmad-output/planning-artifacts/prd.md`
 - Sprint status: `_bmad-output/implementation-artifacts/sprint-status.yaml`
@@ -28,11 +28,11 @@ SIA DC-09-2021.17 protocol implementation (Internet Protocol Event Reporting).
 ## Design Docs (load the relevant one for the task)
 | Component | File |
 |-----------|------|
-| Daemon core + protocol | `docs/design/daemon-design.md` |
-| PHP plugin core | `docs/design/php-core-design.md` |
-| Supervision & health | `docs/design/supervision-design.md` |
-| Error handler | `docs/design/error-handler-design.md` |
-| Logging | `docs/design/logging-design.md` |
-| Config wizard | `docs/design/wizard-design.md` |
-| Widget | `docs/design/widget-design.md` |
-| Debug UI | `docs/design/debug-ui-design.md` |
+| Daemon core + protocol | `internal-docs/design/daemon-design.md` |
+| PHP plugin core | `internal-docs/design/php-core-design.md` |
+| Supervision & health | `internal-docs/design/supervision-design.md` |
+| Error handler | `internal-docs/design/error-handler-design.md` |
+| Logging | `internal-docs/design/logging-design.md` |
+| Config wizard | `internal-docs/design/wizard-design.md` |
+| Widget | `internal-docs/design/widget-design.md` |
+| Debug UI | `internal-docs/design/debug-ui-design.md` |

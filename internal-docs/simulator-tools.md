@@ -423,7 +423,7 @@ python3 -m pytest tests/level1/test_harness.py -v
 
 ## Protocol Reference
 
-**Full spec:** `docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md`
+**Full spec:** `internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md`
 
 ### Frame Structure (§ 5.5)
 

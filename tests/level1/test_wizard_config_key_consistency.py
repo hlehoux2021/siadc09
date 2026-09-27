@@ -8,8 +8,8 @@ and Python daemon (config dict access / CLI args).
 A config key mismatch means the value is silently lost between layers —
 saved in PHP but never read in Python, or displayed in JS but never persisted.
 
-Reference: docs/design/wizard-design.md
-Reference: docs/design/daemon-design.md
+Reference: internal-docs/design/wizard-design.md
+Reference: internal-docs/design/daemon-design.md
 """
 
 import json

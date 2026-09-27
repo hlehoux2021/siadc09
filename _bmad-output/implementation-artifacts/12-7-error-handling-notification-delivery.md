@@ -18,7 +18,27 @@ As a Jeedom user,
 I want errors properly classified and delivered through Jeedom's message center and configured notification command,
 So that I am informed of issues proportionally to their severity, with no spam and no silent failures.
 
-## Acceptance Criteria
+## Rescope (2026-09-27)
+
+**Herve has no real UDP receiver — only TCP** (the real receiver is `192.168.100.15:10002`, see memory
+`sia-test-server-endpoint`). The original AC1-11/Task 0-13 below targeted the old VM (`192.168.5.103`) and its
+local CSR simulator over **UDP**, which Herve has never personally run and cannot upgrade to real validation
+(no UDP target exists to test against — memory `udp-simulator-not-real-validation`). A prior session
+mischaracterized 12-4/12-5's simulator-based UDP task evidence as "live-validated" — corrected: that evidence
+is simulator-only, real but not equivalent to field validation, and is being left as a **permanent, unclosable
+gap**, not a to-do.
+
+**Rescoped focus:** this story now targets **`test-jeedom.lehoux.net`** against the **real TCP receiver**
+(`192.168.100.15:10002`, or whichever account is currently live on that eqLogic — see memory
+`udp-simulator-not-real-validation` for why account numbers vary across sessions), dropping the old VM and its
+UDP tasks entirely. AC1-10 below are **kept as historical record** (substantially exercised via 12-4/12-5's
+UDP-simulator evidence, cited for behavior expectations only, not claimed as done here) — the new Tasks
+section below is what this story actually executes. Since the real receiver won't misbehave on demand, T1/T2
+NAK/timeout conditions are provoked the same way Task 12's original dev notes already proposed: an
+undeclared/wrong `account_number` for a NAK, or a closed local port for a timeout — no simulator needed on
+this host.
+
+## Acceptance Criteria (original — UDP/VM-targeted, kept as historical record, not executed by this story)
 
 1. **T1 SUPERVISION_TIMEOUT — message center only:** Given daemon HEALTHY, when CSR simulator is stopped (silent drop) so that strike escalates to 1, then a Jeedom message center entry is created with `logicalId=supervision_timeout`, French French text matches `SM1_TIMEOUT_WARNING` template (`"Timeout supervision (strike 1/3) — nouvelle tentative"` style), AND the configured notification command (`sia_notify_cmd_id`) is **NOT** triggered (no SMS/push event in the notification cmd's event log/log file).
 
@@ -42,6 +62,18 @@ So that I am informed of issues proportionally to their severity, with no spam a
 
 11. **TRANSPORT_PERMANENT — T3, TCP-only, daemon self-stops:** Given daemon configured with TCP transport and TCP reconnect loop exhausted (NO_NETWORK state), then a message center entry is created with `logicalId=transport_permanent`, message starts with `"CRITIQUE — "` (T3_PREFIX), AND the configured notification command IS triggered, AND the title in the `notify` callback payload contains `"CRITIQUE"` (AC8 equivalent for TCP), AND the daemon process exits cleanly (`pgrep -f siadc09d` → no output, PID file absent or stale). Jeedom watchdog then restarts the daemon.
 
+## Acceptance Criteria (rescoped — TCP, test-jeedom.lehoux.net, real receiver)
+
+12. **T1 TCP SUPERVISION_TIMEOUT / T3 TCP SUPERVISION_DISCONNECTED — real receiver, network-level provocation:** Given the daemon HEALTHY over TCP against the real receiver, when outbound access to the receiver is blocked at the network level (not by touching receiver-side config) so supervision frames get no response, then strike escalates 1→3, `supervision_label` shows the TCP-specific text (NOT "PERDUE" — that's the UDP label), a `supervision_timeout` message-center entry appears at strike 1 (no notification), and a `supervision_disconnected` message-center entry appears at strike 3 with a "CRITIQUE — " prefix and the notification command triggered, firing only once even across further cycles.
+
+13. **T2 TCP BAD_CSR_RESPONSE — real receiver, NAK provocation via wrong account:** Given the eqLogic temporarily configured with an account number the real receiver doesn't recognize, when `burglarAlarm` is triggered, then the receiver NAKs, `event_state=2`, a `bad_csr_response` message-center entry appears (no CRITIQUE prefix), and the notification command fires exactly once. Revert the account immediately after.
+
+14. **T3 TCP EVENT_FAILED — real receiver, timeout provocation via unreachable port:** Given the eqLogic's `csr_port` temporarily pointed at a closed local port (not the receiver's real port), when `burglarAlarm` is triggered, then all 3 retries time out, `event_state=2`, an `event_failed` message-center entry appears with a "CRITIQUE —" prefix and the correct zone/attempt-count text, and the notification command fires exactly once (no per-retry spam). Revert `csr_port` immediately after.
+
+15. **TRANSPORT_PERMANENT — real network exhaustion, daemon self-stops:** Given the TCP reconnect loop from AC12 is left running until all reconnect attempts exhaust (not just strike 3), then the daemon enters NO_NETWORK, a `transport_permanent` message-center entry appears with "CRITIQUE — ", the notification command fires, and the daemon process exits cleanly; Jeedom's watchdog restarts it once network access is restored.
+
+16. **French language audit:** Every message-center entry and notification title created by AC12-15 is in French, with no English fragments, no untranslated `ErrorCode` enum names, and no unresolved `{placeholder}` literals.
+
 ## Pass/Fail Protocol
 
 For each "Verify" step:
@@ -49,7 +81,67 @@ For each "Verify" step:
 - **FAIL:** Mismatch → stop. Document observed vs. expected, check daemon log `tail -100 /var/www/html/log/siaDC09_daemon` and PHP log `tail -100 /var/www/html/log/siaDC09`, file bug in Dev Agent Record, then assess whether remaining tasks are still meaningful.
 - **BLOCKED:** Precondition from prior task not met → skip, note as BLOCKED with reason.
 
-## Tasks / Subtasks
+## Tasks / Subtasks (rescoped — this is what the story now executes)
+
+- [ ] Task A: Baseline (AC: 12-16)
+  - [ ] A.1 Confirm daemon HEALTHY over TCP on `test-jeedom.lehoux.net` against the real receiver (via Jeedom
+        API `type=cmd&id=<supervision_state cmd>`, or the eqLogic's Diagnostic tab).
+  - [ ] A.2 Confirm `sia_notify_cmd_id` is configured and note the `Notify` equipment's current
+        history/event-log entry count as a baseline (checked via Jeedom UI — no SSH needed for this).
+  - [ ] A.3 Set daemon log level to DEBUG if a session with SSH/host access is available this run (optional —
+        message-center/notify verification below works from the Jeedom UI alone; DEBUG log is a nice-to-have
+        cross-check, not a requirement).
+  - [ ] A.4 Note the current message-center entry count for `siaDC09` via Jeedom's native UI (Analyse →
+        Messages), NOT PHP CLI — this story no longer assumes SSH access.
+
+- [ ] Task B: T1/T3 TCP supervision loss (AC: 12)
+  - [ ] B.1 Provoke a network-level outage to the real receiver (e.g., a temporary firewall rule blocking
+        outbound to `192.168.100.15:10002` on the Jeedom host, if Herve can apply one — do NOT touch the
+        receiver's own config). Requires Herve's action; the agent cannot reach host-level firewall rules via
+        the Jeedom API.
+  - [ ] B.2 Wait for strike=1 (~60s per the supervision interval). **Verify** via API/UI: `supervision_state=1`,
+        a `supervision_timeout` message-center entry exists, no new `Notify` entry.
+  - [ ] B.3 Wait for strike=3 (~180s). **Verify**: `supervision_label` shows the TCP-specific text (NOT
+        "PERDUE"), a `supervision_disconnected` message-center entry with "CRITIQUE — " prefix, one new
+        `Notify` entry.
+  - [ ] B.4 Wait one more supervision cycle. **Verify** no second `supervision_disconnected` entry/notify
+        (dedup via `_sm1_t3_fired`).
+  - [ ] B.5 Restore network access. **Verify** recovery to HEALTHY, and that T1 entries clear from
+        `sia_last_errors` (if visible via UI) while the T3 entry may persist.
+
+- [ ] Task C: T2 TCP BAD_CSR_RESPONSE via wrong account (AC: 13)
+  - [ ] C.1 Temporarily set the eqLogic's account number to one the real receiver won't recognize (Herve's
+        action, via wizard/UI — the agent can trigger `burglarAlarm` via API but account reconfiguration is a
+        session-gated eqLogic save, per memory `jeedom-api-e2e-testing`).
+  - [ ] C.2 Trigger `burglarAlarm` (zone parameter) via the Jeedom API.
+  - [ ] C.3 **Verify**: `event_state=2`, a `bad_csr_response` message-center entry (no CRITIQUE), one new
+        `Notify` entry.
+  - [ ] C.4 Revert the account number immediately (Herve's action). Verify normal operation resumes.
+
+- [ ] Task D: T3 TCP EVENT_FAILED via unreachable port (AC: 14)
+  - [ ] D.1 Temporarily point `csr_port` at a closed local port on the Jeedom host (Herve's action, same
+        session-gating caveat as Task C.1).
+  - [ ] D.2 Trigger `burglarAlarm` via the API.
+  - [ ] D.3 Wait for 3 retries to time out. **Verify**: `event_state=2`, an `event_failed` message-center entry
+        with "CRITIQUE —" prefix, correct zone + "3 tentative(s)" text, exactly one new `Notify` entry (no
+        per-retry spam).
+  - [ ] D.4 Revert `csr_port` immediately (Herve's action). Verify normal operation resumes.
+
+- [ ] Task E: TRANSPORT_PERMANENT — full reconnect exhaustion (AC: 15)
+  - [ ] E.1 Extend Task B's network outage past strike 3 until the TCP reconnect loop exhausts all attempts
+        (longer wait — depends on configured reconnect backoff schedule).
+  - [ ] E.2 **Verify**: daemon enters NO_NETWORK, a `transport_permanent` message-center entry with
+        "CRITIQUE — ", one new `Notify` entry, and the daemon process has exited (needs a way to check —
+        either Herve confirms via the host, or the supervision cmd simply stops updating entirely).
+  - [ ] E.3 Restore network access. **Verify** Jeedom's watchdog restarts the daemon and it recovers to
+        HEALTHY.
+
+- [ ] Task F: French language audit (AC: 16)
+  - [ ] F.1 Review every message-center entry and `Notify` history entry created by Tasks B-E via Jeedom's UI.
+        **Verify** all-French text, no English fragments, no raw `ErrorCode` names, no unresolved
+        `{placeholder}` literals.
+
+## Tasks / Subtasks (original — UDP/VM-targeted, kept as historical record, NOT executed by this story)
 
 - [ ] Task 0: Prepare environment (AC: all)
   - [ ] 0.1 SSH to VM: `sshpass -p "login" ssh -o StrictHostKeyChecking=no login@192.168.5.103`
@@ -312,7 +404,18 @@ The dev agent's role:
 
 If a bug is found that requires daemon or PHP code changes, fix it in the existing files (`resources/siadc09d/error_handler.py`, `resources/siadc09d/daemon.py`, `resources/siadc09d/messages.py`, `core/class/siaDC09.class.php`). Do NOT add abstractions, do NOT refactor, do NOT add tests beyond what's needed to verify the fix.
 
-### Infrastructure (from Stories 12-1 through 12-6)
+### Infrastructure (rescoped — test-jeedom.lehoux.net, real receiver)
+
+| Component | Location | Notes |
+|---|---|---|
+| Jeedom host | `test-jeedom.lehoux.net` | Reachable over HTTPS from an agent session; SSH not reliably available — Herve does host-level actions (network blocking, config edits) manually |
+| Real receiver | `192.168.100.15:10002` (TCP) | See memory `sia-test-server-endpoint`; account varies by session, see memory `udp-simulator-not-real-validation` |
+| Trigger path | Jeedom API (`jeeApi.php`, plugin-scoped key) | `type=cmd&id=<action cmd>` to fire `burglarAlarm` etc.; see memory `jeedom-api-e2e-testing` |
+| Message-center check | Jeedom native UI, Analyse → Messages | No SSH/PHP CLI needed — Herve reads this directly |
+| Notification cmd | `sia_notify_cmd_id` (see memory `jeedom-test-instance-cmd-ids` for current IDs on this instance) | Checked via the `Notify` equipment's history in the UI |
+| Daemon log | Only reachable if a session has SSH this run | Optional cross-check, not required for this story's Tasks A-F |
+
+### Infrastructure (original, VM-targeted — historical record, from Stories 12-1 through 12-6)
 
 | Component | Location | Notes |
 |---|---|---|
@@ -329,7 +432,7 @@ If a bug is found that requires daemon or PHP code changes, fix it in the existi
 
 ### 3-Tier Error Model — Authoritative Reference
 
-(From `docs/design/error-handler-design.md` — read this file fully if any AC is unclear.)
+(From `internal-docs/design/error-handler-design.md` — read this file fully if any AC is unclear.)
 
 | Tier | Codes | Channels | CRITIQUE prefix | error_update | Dedup |
 |---|---|---|---|---|---|
@@ -462,9 +565,9 @@ echo 'done'.PHP_EOL;
 
 ### Reference Files
 
-- `docs/design/error-handler-design.md` — full 3-tier model + message catalog + privacy rules
-- `docs/design/logging-design.md` — message externalization rules
-- `docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md` §5.5.3.2 — NAK protocol semantics
+- `internal-docs/design/error-handler-design.md` — full 3-tier model + message catalog + privacy rules
+- `internal-docs/design/logging-design.md` — message externalization rules
+- `internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md` §5.5.3.2 — NAK protocol semantics
 - `_bmad-output/implementation-artifacts/12-4-supervision-loop-strike-recovery.md` — supervision/T1/T3 supervision context
 - `_bmad-output/implementation-artifacts/12-5-alarm-delivery-end-to-end.md` — alarm/T2/T3 event context
 - `_bmad-output/implementation-artifacts/12-6-widget-debug-ui-rendering.md` — diagnostic UI surface for `sia_last_errors`
@@ -496,6 +599,10 @@ This is a Level 3 (`tests/level3/`) integration test executed manually on the re
 (empty unless bug fixes required)
 
 ## Change Log
+
+| Date | Change |
+|------|--------|
+| 2026-09-27 | Rescoped (Herve's explicit call): the original AC1-11/Task 0-14 targeted the old VM (`192.168.5.103`) and its local CSR simulator over UDP, which Herve has never run and has no real UDP receiver to validate against (memory `udp-simulator-not-real-validation` — corrects an earlier session's overstatement that 12-4/12-5's simulator evidence was "live-validated"). Kept AC1-11/Task 0-14 as a historical record only. Added AC12-16/Task A-F, retargeting TCP-path validation to `test-jeedom.lehoux.net` against the real receiver (`192.168.100.15:10002`), using network-level/config-level provocation (blocked outbound, wrong account, closed port) instead of a simulator, and Jeedom's native UI (Analyse → Messages) instead of SSH/PHP CLI where possible. Status stays `ready-for-dev` — not yet executed.
 
 | Date | Change |
 |------|--------|

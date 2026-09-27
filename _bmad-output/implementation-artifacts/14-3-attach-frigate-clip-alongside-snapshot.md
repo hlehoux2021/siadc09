@@ -407,7 +407,7 @@ by direct observation, not inferred as a pass.
   as-is, only parameterized)
 - `scripts/frigate_latency_probe.py` — clip-readiness probing methodology (`has_clip` field, guessable-URL
   status check) this story's Task 1.2 promotes into production code
-- SIA DC-09 protocol spec — `docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md` §5.5.1.8 (free-form
+- SIA DC-09 protocol spec — `internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md` §5.5.1.8 (free-form
   Verification field)
 - Memory: `frigate-detect-person-staleness-risk`, `jeedom-ui-validation-over-reflection`,
   `jeedom-test-host-deploy`, `sia-test-server-endpoint`, `level1-test-baseline-failures`,

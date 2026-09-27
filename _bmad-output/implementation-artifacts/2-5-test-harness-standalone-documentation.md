@@ -60,9 +60,9 @@ So that other alarm systems can adopt them for their own testing.
 - [x] Test: `test_harness_mixed_sequence_ordering()` — `frames_mixed_sequence.hex` processed in order with correct seq numbers
 - [x] Test: `test_harness_pcap_to_replay_pipeline()` — extract from golden pcap → replay → all ACK (full pipeline E2E)
 
-### Task 4: Standalone Documentation — `docs/simulator-tools.md` (AC: 1, 3)
+### Task 4: Standalone Documentation — `internal-docs/simulator-tools.md` (AC: 1, 3)
 
-- [x] Create `docs/simulator-tools.md` as the primary standalone documentation
+- [x] Create `internal-docs/simulator-tools.md` as the primary standalone documentation
 - [x] Section: **Overview** — what the tool suite does, architecture diagram (text-based)
 - [x] Section: **Quick Start** — 3-command getting started (clone, install, run)
 - [x] Section: **Installation** — `python3 -m pip install -r tests/requirements-dev.txt` + Python 3.10+ requirement
@@ -83,7 +83,7 @@ So that other alarm systems can adopt them for their own testing.
 
 ### Task 5: Update `tests/simulator/README.md` (AC: 1)
 
-- [x] Add cross-reference to `docs/simulator-tools.md` for full documentation
+- [x] Add cross-reference to `internal-docs/simulator-tools.md` for full documentation
 - [x] Add section linking to Frame Replay and PCAP Extractor tools (currently only covers simulator CLI)
 - [x] Add "Test Harness" section pointing to `tests/harness/run_harness.py`
 - [x] Keep existing content intact (it's accurate and complete for the simulator CLI)
@@ -99,7 +99,7 @@ So that other alarm systems can adopt them for their own testing.
   - `tests/fixtures/golden/capture_sia_example_extracted.hex` ✓
 - [x] Create `tests/fixtures/golden/frames_encrypted_alarm.hex` — encrypted burglary alarm (AES-128, fixed key `0123456789ABCDEF0123456789ABCDEF`)
 - [x] Create `tests/fixtures/golden/frames_malformed.hex` — 2-3 intentionally malformed frames (bad CRC, truncated, missing delimiter)
-- [x] Document all fixtures in `docs/simulator-tools.md` § Golden Test Fixtures
+- [x] Document all fixtures in `internal-docs/simulator-tools.md` § Golden Test Fixtures
 
 ### Task 7: Code Quality & Test Suite Regression (AC: 2)
 
@@ -119,7 +119,7 @@ So that other alarm systems can adopt them for their own testing.
 |-----------|------|------|
 | Test harness | `tests/harness/run_harness.py` | E2E orchestration script |
 | Harness tests | `tests/level1/test_harness.py` | Pytest tests for harness |
-| Standalone docs | `docs/simulator-tools.md` | Primary user-facing documentation |
+| Standalone docs | `internal-docs/simulator-tools.md` | Primary user-facing documentation |
 | Encrypted fixture | `tests/fixtures/golden/frames_encrypted_alarm.hex` | Encrypted test frame |
 | Malformed fixture | `tests/fixtures/golden/frames_malformed.hex` | NAK-triggering frames |
 | Simulator README | `tests/simulator/README.md` | Updated with cross-refs |
@@ -306,8 +306,8 @@ claude-sonnet-4-6
 - Created `tests/level1/test_harness.py`: 9 tests — 4 unit (helpers/constants) + 5 integration (plain, encrypted, malformed, mixed-sequence, pcap pipeline). All 9 pass.
 - Created `tests/fixtures/golden/frames_encrypted_alarm.hex`: encrypted burglary alarm with `*SIA-DCS` token, account 001234, AES-128 key `0123456789ABCDEF0123456789ABCDEF`.
 - Created `tests/fixtures/golden/frames_malformed.hex`: 3 frames with missing LF, unknown id_token, and garbled bytes.
-- Created `docs/simulator-tools.md`: full standalone tool guide — overview diagram, quick start, installation, tool reference (4 tools), Ajax panel walkthrough, golden fixture inventory, programmatic API examples, protocol reference.
-- Updated `tests/simulator/README.md`: added intro cross-reference to `docs/simulator-tools.md`, added "Related Tools" section with Frame Replay, PCAP Extractor, and Test Harness subsections.
+- Created `internal-docs/simulator-tools.md`: full standalone tool guide — overview diagram, quick start, installation, tool reference (4 tools), Ajax panel walkthrough, golden fixture inventory, programmatic API examples, protocol reference.
+- Updated `tests/simulator/README.md`: added intro cross-reference to `internal-docs/simulator-tools.md`, added "Related Tools" section with Frame Replay, PCAP Extractor, and Test Harness subsections.
 - Updated `tests/requirements-dev.txt`: added `pytest>=7.0` alongside existing `dpkt>=1.9.8`.
 - Full regression: 1037 tests passing (1028 pre-existing + 9 new).
 
@@ -318,7 +318,7 @@ claude-sonnet-4-6
 - `tests/level1/test_harness.py` (new)
 - `tests/fixtures/golden/frames_encrypted_alarm.hex` (new)
 - `tests/fixtures/golden/frames_malformed.hex` (new)
-- `docs/simulator-tools.md` (new)
+- `internal-docs/simulator-tools.md` (new)
 - `tests/simulator/README.md` (modified)
 - `tests/requirements-dev.txt` (modified)
 
@@ -345,7 +345,7 @@ Code review run: 2026-05-21. Sources: Blind Hunter + Edge Case Hunter + Acceptan
 - [x] [Review][Patch] P-5: Deadlock in cleanup ordering — `udp_task.cancel()` + `await udp_task` is called *before* `simulator.stop()` in all fixture/harness teardowns; `_handle_udp` uses `run_in_executor(recvfrom)` which is uninterruptible by cancel; socket close from `stop()` is what actually unblocks it — swap order: `stop()` first, then cancel+await task [`tests/harness/run_harness.py:155-160`, `tests/level1/test_harness.py:46-49`, `62-66`]
 - [x] [Review][Patch] P-6: `test_harness_malformed_frame_gets_nak` only checks `total_timeout == 0`; does not verify NAK was actually received — spec says "replay a corrupted frame, verify NAK" [`tests/level1/test_harness.py:189-195`]
 - [x] [Review][Patch] P-7: `test_harness_mixed_sequence_ordering` does not verify correct sequence numbers in responses — spec says "with correct seq numbers"; add `decode_ack_nak()` call on each response and assert seq echoed correctly [`tests/level1/test_harness.py:219-233`]
-- [x] [Review][Patch] P-8: Quick Start section in `docs/simulator-tools.md` conflates the manual (simulator+replay) workflow with the harness in 3 steps — clarify that steps 2–3 show the manual path and add a separate harness one-liner [`docs/simulator-tools.md:Quick Start`]
+- [x] [Review][Patch] P-8: Quick Start section in `internal-docs/simulator-tools.md` conflates the manual (simulator+replay) workflow with the harness in 3 steps — clarify that steps 2–3 show the manual path and add a separate harness one-liner [`internal-docs/simulator-tools.md:Quick Start`]
 
 #### Deferred
 

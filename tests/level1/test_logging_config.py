@@ -516,14 +516,14 @@ def test_logging_config_docstring_covers_requirements():
 # ===== TC23: Developer guide exists (NEW - QA CHALLENGE) ⭐ MEDIUM =====
 def test_logging_developer_guide_file_exists():
     """
-    Test that docs/logging-developer-guide.md exists and is comprehensive.
+    Test that internal-docs/logging-developer-guide.md exists and is comprehensive.
 
     Expected result:
-    - File exists at docs/logging-developer-guide.md
+    - File exists at internal-docs/logging-developer-guide.md
     - Content is non-trivial (>500 chars)
     - Developer reference available
     """
-    guide_path = Path("docs/logging-developer-guide.md")
+    guide_path = Path("internal-docs/logging-developer-guide.md")
 
     # Assert: File exists
     assert guide_path.exists(), "Developer guide not found"

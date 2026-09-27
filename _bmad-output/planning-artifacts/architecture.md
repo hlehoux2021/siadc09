@@ -5,15 +5,15 @@ completedAt: '2026-04-07'
 inputDocuments:
   - '_bmad-output/planning-artifacts/prd.md'
   - '_bmad-output/brainstorming/brainstorming-session-2026-02-17.md'
-  - 'docs/design/daemon-design.md'
-  - 'docs/design/php-core-design.md'
-  - 'docs/design/wizard-design.md'
-  - 'docs/design/supervision-design.md'
-  - 'docs/design/error-handler-design.md'
-  - 'docs/design/logging-design.md'
-  - 'docs/design/debug-ui-design.md'
-  - 'docs/design/widget-design.md'
-  - 'docs/experimentation.md'
+  - 'internal-docs/design/daemon-design.md'
+  - 'internal-docs/design/php-core-design.md'
+  - 'internal-docs/design/wizard-design.md'
+  - 'internal-docs/design/supervision-design.md'
+  - 'internal-docs/design/error-handler-design.md'
+  - 'internal-docs/design/logging-design.md'
+  - 'internal-docs/design/debug-ui-design.md'
+  - 'internal-docs/design/widget-design.md'
+  - 'internal-docs/experimentation.md'
 workflowType: 'architecture'
 project_name: 'my-project'
 user_name: 'Herve'
@@ -74,7 +74,7 @@ The plugin delivers 12 functional capabilities across four domains:
 - **Platform:** Jeedom 4.5+, PHP 8.x, Python 3.10+, Debian 12+
 - **Daemon framework:** `jeedom-daemon-py` (`jeedomdaemon` pip package) — asyncio base class,
   JSON callback protocol, packages.json Method 1 dependency management
-- **External protocol:** SIA DC-09-2021 (fixed; spec at `docs/SIA-DC-09-...`)
+- **External protocol:** SIA DC-09-2021 (fixed; spec at `internal-docs/SIA-DC-09-...`)
 - **Single CSR, no failover:** v1.0 architecture assumes one CSR endpoint; multi-CSR deferred to v1.5
 - **No epics/stories yet:** Architecture is derived from PRD + 8 component design documents;
   implementation stories to be created post-architecture

@@ -14,7 +14,7 @@ Story 13-1 was built on the premise that a **BC (Burglary Cancel) frame carries 
 that premise, it fans out one `[#001234|BC nnn]` per zone that alarmed. The fan-out is driven by a
 `sia_open_alarms` table and triggered by a `burglaryCancel` command wired on the alarm plugin's `raz` action.
 
-The premise is wrong. The SIA DC-03 event-code table (`docs/SIA Codes – Complete DC-03 Event Code List _
+The premise is wrong. The SIA DC-03 event-code table (`internal-docs/SIA Codes – Complete DC-03 Event Code List _
 Peoplecall Cloud.pdf`, p. 4) defines:
 
 | Code | Name | Address field |
@@ -108,10 +108,10 @@ Nothing is committed yet, so nothing is rolled back in git; the work is reshaped
 | `prd.md` §Growth v1.1+ (`:110`) | Says BC is "user cancelled from the abort window", zone-scoped | Rewrite the bullet (see §4.1) |
 | `epics.md` Epic 13 (`:2194-2228`) | Story 13.1 still describes BR+BC with zone correlation | Rewrite 13.1; add 13.3 and 13.4 (§4.2) |
 | `architecture.md` | No decision record for user-addressed codes / configured user | Add **ADR-18** (§4.3) |
-| `docs/design/php-core-design.md` (`:436`, `:535`, `:582`, `:1248-1360`) | Fan-out design, `burglaryCancel` spec | Rewrite the 13.1 section |
-| `docs/design/daemon-design.md` (`:1384-1417`) | BC-by-zone narrative | Rewrite: the address field comes from `user_number` for user-addressed codes |
-| `docs/design/widget-design.md` (13.1 section) | `event_label` examples by zone | `Annulation (utilisateur 1) : …`, `Désarmement (utilisateur 1) : …` |
-| `docs/design/wizard-design.md` | No user-number setting | Step 3 gains "Numéro utilisateur SIA" |
+| `internal-docs/design/php-core-design.md` (`:436`, `:535`, `:582`, `:1248-1360`) | Fan-out design, `burglaryCancel` spec | Rewrite the 13.1 section |
+| `internal-docs/design/daemon-design.md` (`:1384-1417`) | BC-by-zone narrative | Rewrite: the address field comes from `user_number` for user-addressed codes |
+| `internal-docs/design/widget-design.md` (13.1 section) | `event_label` examples by zone | `Annulation (utilisateur 1) : …`, `Désarmement (utilisateur 1) : …` |
+| `internal-docs/design/wizard-design.md` | No user-number setting | Step 3 gains "Numéro utilisateur SIA" |
 | UX | Wizard gains one field; the help text changes | Covered by wizard-design |
 | `sprint-status.yaml` | 13-3 / 13-4 missing | Add both as `backlog`; 13-1 stays `in-progress` |
 

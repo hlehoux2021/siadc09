@@ -671,8 +671,8 @@ async def test_udp_replay_single_alarm(csr_simulator_fixture):
 
 - `resources/siadc09d/sia_protocol.py` (Story 1.1 — `decode_ack_nak()`, `SIAMessageBuilder`)
 - `resources/siadc09d/csr_simulator.py` (Story 2.2 — CSRSimulator class, no changes)
-- `docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md` (protocol spec reference)
-- `docs/design/daemon-design.md` (architecture patterns, logging rules)
+- `internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md` (protocol spec reference)
+- `internal-docs/design/daemon-design.md` (architecture patterns, logging rules)
 
 ### Previous Story (2.2) Intelligence
 
@@ -836,5 +836,5 @@ Implemented **Tasks 9–11 COMPLETE** (integration testing):
 **Reference Files (Read-Only):**
 - `resources/siadc09d/sia_protocol.py` (Story 1.1)
 - `resources/siadc09d/csr_simulator.py` (Story 2.2)
-- `docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md` (protocol spec)
-- `docs/design/daemon-design.md` (architecture)
+- `internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md` (protocol spec)
+- `internal-docs/design/daemon-design.md` (architecture)

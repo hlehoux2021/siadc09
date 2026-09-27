@@ -24,9 +24,9 @@ Module design:
 - Ring buffer: routine ACKs throttled 10-min, strikes/transitions immediate
 - Type safety: SM1State enum, TypedDict contexts for logging
 
-Reference: docs/design/daemon-design.md Component 1
-Reference: docs/design/supervision-design.md ADR-11 SM1 State Machine
-Reference: docs/design/error-handler-design.md T1/T2/T3 error tiers
+Reference: internal-docs/design/daemon-design.md Component 1
+Reference: internal-docs/design/supervision-design.md ADR-11 SM1 State Machine
+Reference: internal-docs/design/error-handler-design.md T1/T2/T3 error tiers
 """
 
 import asyncio
@@ -52,7 +52,9 @@ from .error_handler import (
     USER_ADDRESSED_SIA_CODES,
     event_type_fr,
 )
+from . import DAEMON_VERSION
 from .messages import (
+    DAEMON_VERSION_INFO,
     SM1_DEGRADED_1_2_FR,
     SM1_DEGRADED_3_FR,
     SM1_HEALTHY_FR,
@@ -1298,7 +1300,7 @@ class SIADaemon(BaseDaemon):
             - 'nak_timestamp': DEBUG only (like timeout, treats NAK as timeout)
             - 'nak_bad': DEBUG only (unparseable NAK)
 
-        Reference: docs/design/logging-design.md § SM1 Supervision Table (ADR-16)
+        Reference: internal-docs/design/logging-design.md § SM1 Supervision Table (ADR-16)
         """
         try:
             if event == "ack":
@@ -2309,6 +2311,7 @@ class SIADaemon(BaseDaemon):
         self._sm1_t3_fired = False
 
         from . import messages
+        self._logger.info(DAEMON_VERSION_INFO.format(version=DAEMON_VERSION))
         self._logger.info(messages.SM1_STARTING)
 
         # Push INITIALIZING to PHP before any task starts — fail-fast if unreachable.

@@ -5,7 +5,7 @@ Validates that plugin_info/info.json contains correct metadata for Jeedom
 Market submission and runtime plugin registration. These tests catch drift
 in critical fields that would break installation or Market listing.
 
-Reference: docs/design/php-core-design.md § Task 2.1
+Reference: internal-docs/design/php-core-design.md § Task 2.1
 Reference: _bmad-output/implementation-artifacts/6-5-jeedom-dependency-manager-installation.md
 """
 import json
@@ -198,3 +198,96 @@ def test_info_json_author_present(info: dict) -> None:
     assert isinstance(info.get("author"), str) and len(info["author"]) > 0, (
         "info.json author must be a non-empty string"
     )
+
+
+# ===== Story 11.4 — Market submission readiness =====
+
+_ICON_FILE = _PROJECT_ROOT / "plugin_info/siaDC09_icon.png"
+_MARKET_ICON_SIZE = (309, 348)  # Jeedom plugin-template / official plugins icon size
+
+
+def test_info_json_has_plugin_version(info: dict) -> None:
+    """
+    pluginVersion is the Market-visible release version (plugin-template convention).
+
+    Expected result:
+    - pluginVersion is a non-empty string
+    """
+    # Assert: version declared
+    assert isinstance(info.get("pluginVersion"), str) and info["pluginVersion"], (
+        "info.json must declare a non-empty pluginVersion"
+    )
+
+
+def test_info_json_description_fr_market_length(info: dict) -> None:
+    """
+    Jeedom Market requires a description of at least 80 characters.
+
+    Expected result:
+    - len(description.fr_FR) >= 80
+    """
+    desc = info.get("description", {}).get("fr_FR", "")
+    # Assert: Market minimum description length
+    assert len(desc) >= 80, f"description.fr_FR is {len(desc)} chars, Market minimum is 80"
+
+
+@pytest.mark.parametrize("key", ["documentation", "documentation_beta"])
+def test_info_json_doc_urls_use_language_placeholder(info: dict, key: str) -> None:
+    """
+    Stable and beta documentation URLs are declared and language-aware.
+
+    Expected result:
+    - key present, https URL, contains #language#
+    """
+    url = info.get(key, "")
+    # Assert: URL present and https
+    assert url.startswith("https://"), f"info.json {key} must be an https URL, got {url!r}"
+    # Assert: Jeedom substitutes #language# with the user's locale
+    assert "#language#" in url, f"info.json {key} must contain #language#"
+
+
+@pytest.mark.parametrize("key", ["changelog", "changelog_beta"])
+def test_info_json_changelog_urls_point_to_french_changelog(info: dict, key: str) -> None:
+    """
+    Stable and beta changelog URLs target the single French changelog.
+
+    Only docs/fr_FR/changelog.md exists, so a #language# URL would 404
+    for every non-French locale.
+
+    Expected result:
+    - key present, https URL, ends with /fr_FR/changelog, no #language#
+    - the changelog file it resolves to exists in docs/
+    """
+    url = info.get(key, "")
+    # Assert: URL present and https
+    assert url.startswith("https://"), f"info.json {key} must be an https URL, got {url!r}"
+    # Assert: fixed French changelog page
+    assert url.endswith("/fr_FR/changelog"), (
+        f"info.json {key} must point to fr_FR/changelog, got {url!r}"
+    )
+    # Assert: no per-language substitution (there is no other changelog)
+    assert "#language#" not in url, f"info.json {key} must not use #language#"
+    # Assert: the target page exists in the repo
+    changelog = _PROJECT_ROOT / "docs" / "fr_FR" / "changelog.md"
+    assert changelog.is_file(), "docs/fr_FR/changelog.md missing"
+
+
+def test_plugin_icon_exists_with_market_size() -> None:
+    """
+    Jeedom core looks up plugin_info/<id>_icon.png (plugin::getPathImgIcon).
+
+    Expected result:
+    - plugin_info/siaDC09_icon.png exists and is a PNG
+    - size is 309x348 like the official template icon
+    - the leftover aiodemo_icon.png template asset is gone
+    """
+    import struct
+
+    data = _ICON_FILE.read_bytes()
+    # Assert: PNG signature
+    assert data[:8] == b"\x89PNG\r\n\x1a\n", "siaDC09_icon.png is not a PNG"
+    width, height = struct.unpack(">II", data[16:24])
+    # Assert: Market icon size
+    assert (width, height) == _MARKET_ICON_SIZE, f"icon is {width}x{height}, expected 309x348"
+    # Assert: template icon removed
+    assert not (_PROJECT_ROOT / "plugin_info/aiodemo_icon.png").exists(), "aiodemo_icon.png leftover"

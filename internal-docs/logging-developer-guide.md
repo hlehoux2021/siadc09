@@ -2,7 +2,7 @@
 
 **Version:** 1.0  
 **Date:** 2026-04-10  
-**Reference:** docs/design/logging-design.md
+**Reference:** internal-docs/design/logging-design.md
 
 ---
 
@@ -305,8 +305,8 @@ logger.debug("Frame encrypted with 128-bit key")
 
 ## Reference
 
-- **Logging Design:** docs/design/logging-design.md (Tasks 5b.1–5b.3)
-- **Error Handler:** docs/design/error-handler-design.md (T1/T2/T3 classification)
+- **Logging Design:** internal-docs/design/logging-design.md (Tasks 5b.1–5b.3)
+- **Error Handler:** internal-docs/design/error-handler-design.md (T1/T2/T3 classification)
 - **Messages:** resources/siadc09d/messages.py (All user-facing strings)
 - **State Machines:** daemon-design.md (SM1 and SM2 logging tables)
 

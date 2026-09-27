@@ -11,7 +11,7 @@ Validates that:
 
 No running daemon or Jeedom instance required — pure Python schema validation.
 
-Reference: docs/design/debug-ui-design.md § 5c.1, 5c.2, 5c.3, 5c.4, 5c.5
+Reference: internal-docs/design/debug-ui-design.md § 5c.1, 5c.2, 5c.3, 5c.4, 5c.5
 Reference: _bmad-output/implementation-artifacts/9-3-diagnostic-tab-integration-testing.md
 Reference: tests/fixtures/ipc_schema.py — canonical callback schemas
 """

@@ -388,12 +388,12 @@ Create `tests/level2/test_supervision_queue_integration.py`:
 
 **Daemon location:** `resources/siadc09d/daemon.py`
 
-**Protocol spec:** docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md
+**Protocol spec:** internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md
 
 **Design documents:**
-- [daemon-design.md](docs/design/daemon-design.md) § Priority Queue coordination
-- [error-handler-design.md](docs/design/error-handler-design.md) § ErrorCode and T1/T2/T3 tiers
-- [logging-design.md](docs/design/logging-design.md) § Ring buffer, French messages
+- [daemon-design.md](internal-docs/design/daemon-design.md) § Priority Queue coordination
+- [error-handler-design.md](internal-docs/design/error-handler-design.md) § ErrorCode and T1/T2/T3 tiers
+- [logging-design.md](internal-docs/design/logging-design.md) § Ring buffer, French messages
 
 ---
 
@@ -407,7 +407,7 @@ Claude Sonnet 4.6 (1M context)
 
 - Sprint status: `/Users/herve.lehoux/Dev/my-project/_bmad-output/implementation-artifacts/sprint-status.yaml`
 - Epic + story definitions: `/Users/herve.lehoux/Dev/my-project/_bmad-output/planning-artifacts/epics.md` (lines 787-810)
-- Daemon design: `/Users/herve.lehoux/Dev/my-project/docs/design/daemon-design.md` (lines 803-890)
+- Daemon design: `/Users/herve.lehoux/Dev/my-project/internal-docs/design/daemon-design.md` (lines 803-890)
 - Architecture: `/Users/herve.lehoux/Dev/my-project/_bmad-output/planning-artifacts/architecture.md` (ADR-02)
 
 ### Completion Notes List

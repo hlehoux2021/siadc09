@@ -470,16 +470,16 @@ Amendment 2026-09-17 (AC15–AC17, Task 8):
 
 ### References
 
-- [Source: docs/design/supervision-design.md — "TCP half-open stall at DEGRADED(strike=3)", TCP reconnect policy, Group B]
-- [Source: docs/design/daemon-design.md — Task 4 (TCP reconnect logic), CancelledError safety rule]
+- [Source: internal-docs/design/supervision-design.md — "TCP half-open stall at DEGRADED(strike=3)", TCP reconnect policy, Group B]
+- [Source: internal-docs/design/daemon-design.md — Task 4 (TCP reconnect logic), CancelledError safety rule]
 - [Source: resources/siadc09d/daemon.py:999–1096 — _handle_supervision_tcp_drop + _tcp_reconnect_loop implementation]
 - [Source: resources/siadc09d/daemon.py:714–764 — _update_sm1_from_strike with TCP_RECONNECTING transition]
 - [Source: resources/siadc09d/daemon.py:548–567 — _set_sm1_state with _sm1_state_changed event]
 - [Source: _bmad-output/implementation-artifacts/deferred-work.md — D-3 dual task race condition]
 - [Source: _bmad-output/implementation-artifacts/7-1-supervision-loop-strike-management-info-updates.md — Story 7.1 patterns and learnings]
 - [Source: tests/level2/test_supervision_loop_integration.py — test fixture pattern (_make_daemon)]
-- [Amendment 2026-09-17] [Source: docs/design/daemon-design.md:589,616,677,684 — `NO_NETWORK --> [*] : _notify() + self.stop()`; the authoritative recovery model this story now aligns to]
-- [Amendment 2026-09-17] [Source: docs/design/supervision-design.md:92 — `on_stop()` Push STOPPED before process exits; :641 — watchdog auto-restarts within ~1 min]
+- [Amendment 2026-09-17] [Source: internal-docs/design/daemon-design.md:589,616,677,684 — `NO_NETWORK --> [*] : _notify() + self.stop()`; the authoritative recovery model this story now aligns to]
+- [Amendment 2026-09-17] [Source: internal-docs/design/supervision-design.md:92 — `on_stop()` Push STOPPED before process exits; :641 — watchdog auto-restarts within ~1 min]
 - [Amendment 2026-09-17] [Source: _bmad-output/implementation-artifacts/3-3-error-handler-module-structure-callback-types.md — stub docstring: "TRANSPORT_PERMANENT: fire all callbacks, then call daemon.stop()" (contract, deferred to Epic 6, never wired)]
 - [Amendment 2026-09-17] [Source: _bmad-output/implementation-artifacts/12-7-error-handling-notification-delivery.md — AC11 / Task 10.5–10.6: VM validation that the daemon exits and the watchdog restarts it]
 - [Amendment 2026-09-17] [Source: jeedomdaemon.BaseDaemon.stop() — cancels `asyncio.all_tasks()` minus current, then run()'s finally removes PID + sys.exit(0); this is why self.stop() must be scheduled, not awaited]
@@ -533,7 +533,7 @@ Claude Opus 4.6 (1M context)
   removed the now-doubly-stale `TCP_RECONNECT_DELAY_S` constant; added `CSRPreset.__post_init__`
   validation (`reconnect_max_attempts >= 1`, `reconnect_delay_s >= 0`, mirroring the transport-validation
   precedent) + 3 new tests; strengthened `test_reconnect_loop_extra_attempts_reuse_cap` with terminal
-  `NO_NETWORK`/`TRANSPORT_PERMANENT` assertions; updated `docs/design/daemon-design.md` Task 1.2
+  `NO_NETWORK`/`TRANSPORT_PERMANENT` assertions; updated `internal-docs/design/daemon-design.md` Task 1.2
   pseudocode/parameters (was describing the pre-amendment 5-attempt/10s-fixed/~90s model); bumped the
   stale `desktop/js/siaDC09.js` config-summary fallback `retry_count || 3` → `|| 6`; corrected AC19's
   own "~15 min" claim to the actual ~18.5 min (1110s). 2 items deferred (daemon-restart-on-config-change
@@ -579,7 +579,7 @@ Claude Opus 4.6 (1M context)
 - `resources/siadc09d/presets.py` — modified: `CSRPreset.__post_init__` now validates `reconnect_max_attempts >= 1` and `reconnect_delay_s >= 0` (raises `ValueError`).
 - `tests/level1/test_csr_preset_validation.py` — modified: added `test_reconnect_max_attempts_below_one_raises` and `test_reconnect_delay_s_negative_raises`.
 - `tests/level2/test_tcp_reconnect_integration.py` — modified: `test_reconnect_loop_extra_attempts_reuse_cap` now also asserts terminal `SM1State.NO_NETWORK` and a single `TRANSPORT_PERMANENT` notify.
-- `docs/design/daemon-design.md` — modified: Task 1.2 pseudocode/parameters table updated to match the shipped 6-attempt/growing-backoff/~18.5min model (was describing the pre-amendment 5-attempt/10s-fixed/~90s model).
+- `internal-docs/design/daemon-design.md` — modified: Task 1.2 pseudocode/parameters table updated to match the shipped 6-attempt/growing-backoff/~18.5min model (was describing the pre-amendment 5-attempt/10s-fixed/~90s model).
 - `desktop/js/siaDC09.js` — modified: config-summary fallback `cfg.retry_count || 3` → `|| 6`.
 - `_bmad-output/implementation-artifacts/7-2-tcp-stall-detection-reconnect-ring-buffer-logging.md` — modified: corrected AC19's "~15 min" claim to ~18.5 min (1110s).
 
@@ -599,7 +599,7 @@ Claude Opus 4.6 (1M context)
 - [x] [Review][Patch] `TCP_RECONNECT_DELAY_S = 5` constant is now doubly stale — unused (superseded by `preset.reconnect_delay_s`) and holds the pre-amendment value (5, not the new default 30) — exactly the "logged/held value lies about the real one in effect" pattern AC21 fixes elsewhere in this same change [daemon.py:182]
 - [x] [Review][Patch] No validation that `reconnect_max_attempts >= 1` or `reconnect_delay_s >= 0` — a `0`/negative value from `--retry-count`/`--reconnect-delay` (CLI has no range check; PHP wizard number inputs have no `min` attribute) silently skips the reconnect loop entirely or passes a negative delay to `asyncio.sleep()`; `CSRPreset.__post_init__` already has a precedent for fail-fast validation (rejects invalid `transport` strings) that these two new fields don't follow [presets.py:45-53, daemon.py:189-205, siadc09d.py:382-383, core/class/siaDC09.class.php:242-246]
 - [x] [Review][Patch] `test_reconnect_loop_extra_attempts_reuse_cap` only asserts the sleep sequence and `mock_open.call_count` — unlike its sibling exhaustion test, it never asserts the terminal `SM1State.NO_NETWORK` transition or that `TRANSPORT_PERMANENT` was notified exactly once for the >6-attempt cap-reuse path [test_tcp_reconnect_integration.py: `test_reconnect_loop_extra_attempts_reuse_cap`]
-- [x] [Review][Patch] `docs/design/daemon-design.md` Task 1.2 pseudocode/parameters table still describes the pre-amendment model ("for attempt in range(1, 6): # max 5 attempts", "timeout=10.0", "Max attempts: 5 / Delay between attempts: 10 s fixed / Total window ~90 s") — contradicts the shipped 6-attempt/30-300s-growing/~18.5min-budget code [docs/design/daemon-design.md:1028-1062]
+- [x] [Review][Patch] `internal-docs/design/daemon-design.md` Task 1.2 pseudocode/parameters table still describes the pre-amendment model ("for attempt in range(1, 6): # max 5 attempts", "timeout=10.0", "Max attempts: 5 / Delay between attempts: 10 s fixed / Total window ~90 s") — contradicts the shipped 6-attempt/30-300s-growing/~18.5min-budget code [internal-docs/design/daemon-design.md:1028-1062]
 - [x] [Review][Patch] `desktop/js/siaDC09.js` config-summary fallback still reads the old default: `(cfg.retry_count || 3) + ' tentatives'` should be `|| 6` to match the new system default [desktop/js/siaDC09.js:674]
 - [x] [Review][Patch] AC19's own text claims "a ~15 min total budget" for the 30/60/120/300/300/300s schedule, but the sum is 1110s = 18.5 minutes, not 15 [7-2-tcp-stall-detection-reconnect-ring-buffer-logging.md, Amendment 2026-09-21, AC19]
 - [x] [Review][Defer] Changing an eqLogic's `retry_count`/`reconnect_delay` config does not restart the running daemon subprocess, so it keeps stale CLI args until a manual restart — pre-existing pattern across every config field in this plugin (host, port, account, etc. have the same limitation), not introduced by this change [core/class/siaDC09.class.php `deamon_start()`/`postSave()`] — deferred, pre-existing architecture

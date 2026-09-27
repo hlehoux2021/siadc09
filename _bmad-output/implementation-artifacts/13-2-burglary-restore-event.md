@@ -56,7 +56,7 @@ rédhibitoires :
 ### Rappel protocolaire
 
 DC-09 est un transport : grep de « restoral » / « cancel » dans
-`docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md` → **zéro occurrence**, aucun champ de
+`internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md` → **zéro occurrence**, aucun champ de
 référence arrière. Le numéro de zone est la seule clé de corrélation transportable (§ 5.5.1.5 : le
 numéro de séquence est un discriminant de doublon, pas un identifiant d'événement). Cela n'empêche
 pas BR techniquement — la trame `[#001234|BR 001]` se construit avec le code déjà en place — cela

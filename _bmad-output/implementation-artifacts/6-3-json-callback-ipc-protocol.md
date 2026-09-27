@@ -259,17 +259,17 @@ Possibly modified (Story 6.3):
 
 Reference files (DO NOT MODIFY):
   core/php/jeeaiodemo.php                          ← Template for jeesiaDC09.php
-  docs/design/php-core-design.md § Task 2.6, 2.12 ← message() and jeesiaDC09.php spec
-  docs/design/error-handler-design.md § PHP callbacks ← message_center/notify/error_update spec
-  docs/design/logging-design.md § message_trace    ← message_trace spec
+  internal-docs/design/php-core-design.md § Task 2.6, 2.12 ← message() and jeesiaDC09.php spec
+  internal-docs/design/error-handler-design.md § PHP callbacks ← message_center/notify/error_update spec
+  internal-docs/design/logging-design.md § message_trace    ← message_trace spec
 ```
 
 ### References
 
-- [Source: docs/design/php-core-design.md § Task 2.6 — message() full spec with all cases]
-- [Source: docs/design/php-core-design.md § Task 2.12 — jeesiaDC09.php spec]
-- [Source: docs/design/error-handler-design.md § PHP callback — new payload types]
-- [Source: docs/design/logging-design.md § message_trace PHP callback]
+- [Source: internal-docs/design/php-core-design.md § Task 2.6 — message() full spec with all cases]
+- [Source: internal-docs/design/php-core-design.md § Task 2.12 — jeesiaDC09.php spec]
+- [Source: internal-docs/design/error-handler-design.md § PHP callback — new payload types]
+- [Source: internal-docs/design/logging-design.md § message_trace PHP callback]
 - [Source: _bmad-output/planning-artifacts/architecture.md § IPC callback types (canonical list)]
 - [Source: _bmad-output/planning-artifacts/architecture.md § Communication Patterns (flat JSON mandate)]
 - [Source: core/php/jeeaiodemo.php — reference router shim to copy/adapt]

@@ -277,8 +277,8 @@ New files (Story 7.3):
 
 ### References
 
-- [Source: docs/design/supervision-design.md — Groups A/B/C, SM1 state mapping, testing strategy table]
-- [Source: docs/design/daemon-design.md — Task 1.1 (on_start), Task 1.11 (on_stop), Task 4 (TCP reconnect)]
+- [Source: internal-docs/design/supervision-design.md — Groups A/B/C, SM1 state mapping, testing strategy table]
+- [Source: internal-docs/design/daemon-design.md — Task 1.1 (on_start), Task 1.11 (on_stop), Task 4 (TCP reconnect)]
 - [Source: resources/siadc09d/csr_simulator.py — CSRSimulator class, _decide_response(), _handle_udp(), _handle_tcp_client()]
 - [Source: resources/siadc09d/sia_transport.py — SIATransportResult TypedDict, SIAUDPTransport, SIATCPTransport]
 - [Source: resources/siadc09d/daemon.py:768 — _send_supervision() full path]

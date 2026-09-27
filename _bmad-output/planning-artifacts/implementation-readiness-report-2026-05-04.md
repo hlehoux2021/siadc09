@@ -163,11 +163,11 @@ Three PRD-level features — Debug UI (Epic 9), Structured Logging (Epic 4), and
 
 ### UX Document Status
 
-**No formal UX document** found in `_bmad-output/planning-artifacts/`. However, this project does have **three component-level UI design documents** in `docs/design/`:
+**No formal UX document** found in `_bmad-output/planning-artifacts/`. However, this project does have **three component-level UI design documents** in `internal-docs/design/`:
 
-- `docs/design/wizard-design.md` — 4-step configuration wizard (FR-PRD-06, FR12)
-- `docs/design/widget-design.md` — Dashboard supervision health widget (FR-PRD-08, FR14)
-- `docs/design/debug-ui-design.md` — Diagnostic tab, error panel, protocol inspector (FR-PRD-10)
+- `internal-docs/design/wizard-design.md` — 4-step configuration wizard (FR-PRD-06, FR12)
+- `internal-docs/design/widget-design.md` — Dashboard supervision health widget (FR-PRD-08, FR14)
+- `internal-docs/design/debug-ui-design.md` — Diagnostic tab, error panel, protocol inspector (FR-PRD-10)
 
 These serve the role of UX specifications for their respective components. There is no centralized UX document covering user journeys, interaction flows, or overall design system — but this project is a Jeedom plugin, which inherits Jeedom's Bootstrap 3 design system and UI conventions. A standalone UX document would be redundant for this project type.
 
@@ -186,8 +186,8 @@ The architecture document (`architecture.md`) specifies the Jeedom PHP/JS plugin
 
 ### Warnings
 
-- ⚠️ **No centralized UX document in `planning-artifacts/`** — UX specs are component-level design docs in `docs/design/`. For a Jeedom plugin this is appropriate and sufficient. No action required.
-- ℹ️ **UX for Epics 8 (wizard), 9 (debug UI), and 10 (widget) is fully designed** in `docs/design/` — implementation of these backlog epics has the design specs it needs.
+- ⚠️ **No centralized UX document in `planning-artifacts/`** — UX specs are component-level design docs in `internal-docs/design/`. For a Jeedom plugin this is appropriate and sufficient. No action required.
+- ℹ️ **UX for Epics 8 (wizard), 9 (debug UI), and 10 (widget) is fully designed** in `internal-docs/design/` — implementation of these backlog epics has the design specs it needs.
 
 ---
 
@@ -307,7 +307,7 @@ The project is well into implementation (Epics 1–6 done, Epic 7 active). All p
 | 3 | Story 7.3 is a pure test/validation story, not a feature story | 🟡 Minor | Label it explicitly as an integration test gate in the story file |
 | 4 | Epic 11 requires real IMA Protect hardware and Wireshark captures | 🟠 External dependency | Ensure hardware/CSR access is arranged before Epic 11 starts; this cannot be done in isolation |
 | 5 | PRD has no formal numbered FR/NFR entries — they live in epics.md | 🟡 Minor | The epics.md FR1–FR15 list serves as the requirements baseline; no gap in traceability |
-| 6 | No centralized UX document in planning-artifacts | 🟡 Minor | Component-level design docs in `docs/design/` are sufficient for this Jeedom plugin type |
+| 6 | No centralized UX document in planning-artifacts | 🟡 Minor | Component-level design docs in `internal-docs/design/` are sufficient for this Jeedom plugin type |
 | 7 | Story 10.2 supervision_interval staleness coupling | 🟡 Minor | Documented in supervision-design.md; wizard should note restart required after interval change |
 
 ---

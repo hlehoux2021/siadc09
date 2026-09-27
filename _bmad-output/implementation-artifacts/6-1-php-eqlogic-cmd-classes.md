@@ -407,9 +407,9 @@ This story is PHP-only — no protocol encoding/decoding. The daemon (Python) ha
 
 ### References
 
-- [Source: docs/design/php-core-design.md § Plugin Identity, File Structure, INFO and ACTION Commands]
-- [Source: docs/design/php-core-design.md § Confirmed Design Decisions — deamon_start, postSave, dependancy_info]
-- [Source: docs/design/php-core-design.md § Configuration Keys — sia_ prefix table]
+- [Source: internal-docs/design/php-core-design.md § Plugin Identity, File Structure, INFO and ACTION Commands]
+- [Source: internal-docs/design/php-core-design.md § Confirmed Design Decisions — deamon_start, postSave, dependancy_info]
+- [Source: internal-docs/design/php-core-design.md § Configuration Keys — sia_ prefix table]
 - [Source: core/class/aiodemo.class.php — reference implementation for all Jeedom patterns]
 - [Source: plugin_info/info.json — current template to be updated]
 - [Source: plugin_info/packages.json — current pip3 deps]

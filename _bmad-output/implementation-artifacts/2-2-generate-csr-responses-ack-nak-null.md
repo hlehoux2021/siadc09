@@ -497,7 +497,7 @@ async def _handle_udp_frame(self) -> None:
 4. **REFERENCE (read-only):** `resources/siadc09d/sia_crypto.py` (Story 1.2)
    - Uses: `SIACipher(key).encrypt_frame()`
 
-5. **REFERENCE (read-only):** `docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md`
+5. **REFERENCE (read-only):** `internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md`
    - ACK/NAK format spec (§ 5.5.2, 5.5.3)
 
 **Dependencies on Other Stories:**
@@ -645,5 +645,5 @@ Story file created following established pattern from Story 2.1 and **refined wi
 **Reference Files (Read-Only):**
 - `resources/siadc09d/sia_protocol.py` (Story 1.1 — CRC helper, frame parser)
 - `resources/siadc09d/sia_crypto.py` (Story 1.2 — AES-128 encryption)
-- `docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md` (protocol spec)
-- `docs/design/daemon-design.md` (architecture patterns)
+- `internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md` (protocol spec)
+- `internal-docs/design/daemon-design.md` (architecture patterns)

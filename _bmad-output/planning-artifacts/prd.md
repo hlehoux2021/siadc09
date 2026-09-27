@@ -2,15 +2,15 @@
 stepsCompleted: ['step-01-init', 'step-02-discovery', 'step-02b-vision', 'step-02c-executive-summary', 'step-03-success']
 inputDocuments:
   - '_bmad-output/brainstorming/brainstorming-session-2026-02-17.md'
-  - 'docs/design/daemon-design.md'
-  - 'docs/design/php-core-design.md'
-  - 'docs/design/wizard-design.md'
-  - 'docs/design/supervision-design.md'
-  - 'docs/design/error-handler-design.md'
-  - 'docs/design/logging-design.md'
-  - 'docs/design/debug-ui-design.md'
-  - 'docs/design/widget-design.md'
-  - 'docs/experimentation.md'
+  - 'internal-docs/design/daemon-design.md'
+  - 'internal-docs/design/php-core-design.md'
+  - 'internal-docs/design/wizard-design.md'
+  - 'internal-docs/design/supervision-design.md'
+  - 'internal-docs/design/error-handler-design.md'
+  - 'internal-docs/design/logging-design.md'
+  - 'internal-docs/design/debug-ui-design.md'
+  - 'internal-docs/design/widget-design.md'
+  - 'internal-docs/experimentation.md'
 workflowType: 'prd'
 documentCounts:
   briefs: 0

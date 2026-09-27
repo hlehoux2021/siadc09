@@ -15,7 +15,7 @@ Rationale:
 - Python logs are read in Jeedom's log panel as plain text
 - Jeedom's __() i18n system is PHP-only and does not reach into daemon output
 
-Reference: docs/design/logging-design.md § Task 5b.6
+Reference: internal-docs/design/logging-design.md § Task 5b.6
 """
 
 from typing import Final
@@ -30,6 +30,9 @@ T3_PREFIX: Final[str] = "CRITIQUE — "
 SIA_NULL_CODE: Final[str] = "NULL"
 # Used for supervision NULL frames only. NOT in _EVENT_SIA_CODES.
 # Test: SIA_NULL_CODE not in any SM2 messages
+
+DAEMON_VERSION_INFO: Final[str] = "Démon SIA DC-09 version {version}"
+# Logged once by on_start() (architecture.md § Versioning Strategy → Observability)
 
 # ===== SM1 STATE INFO LABELS =====
 # Supervision state labels for INFO commands (ref: supervision-design.md)
@@ -73,7 +76,7 @@ SM2_FAILED_NO_NETWORK: Final[str] = T3_PREFIX + "Alarme {type} non transmise —
 
 # ===== ERROR NOTIFICATION MESSAGES =====
 # T1 (Auto-heal), T2 (User-actionable), T3 (Critical)
-# Reference: docs/design/error-handler-design.md
+# Reference: internal-docs/design/error-handler-design.md
 
 # T1 Auto-heal notifications (no dedicated constants in messages.py)
 # Used via SM1_TIMEOUT_WARNING (strike=1) and SM1_NAK_TIMESTAMP
@@ -99,7 +102,7 @@ WIZARD_TEST_FAILED: Final[str] = "✗ Connexion échouée: {reason}"
 # ===== PRESET VALIDATION MESSAGES =====
 # (Reserved for future preset validation errors)
 # Format: PRESET_ERROR_* constants
-# Reference: docs/design/wizard-design.md
+# Reference: internal-docs/design/wizard-design.md
 
 # ===== STRING COVERAGE TABLE =====
 # From logging-design.md § Message externalization (ADR-15):

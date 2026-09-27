@@ -260,23 +260,23 @@ So that the daemon knows when the CSR is available and healthy.
 
 ### Architecture Constraints
 
-**SM1 State Machine Reference:** `docs/design/supervision-design.md` § ADR-11
+**SM1 State Machine Reference:** `internal-docs/design/supervision-design.md` § ADR-11
 - States: INITIALIZING → HEALTHY → DEGRADED → [TCP_RECONNECTING] → [NO_NETWORK]
 - Strike counter: 0 (HEALTHY/INITIALIZING), 1-2 (DEGRADED impaired), 3 (DEGRADED critical)
 - T3 deduplication: `_sm1_t3_fired` flag prevents duplicate SUPERVISION_DISCONNECTED notifications
 - TCP half-open stall fix: Force socket close at strike=3 to escape hang
 
-**Daemon Core Design:** `docs/design/daemon-design.md`
+**Daemon Core Design:** `internal-docs/design/daemon-design.md`
 - Single-consumer pattern via `PriorityQueue`: only one `_send_supervision()` in flight at a time (no race on `_strike_counter`)
 - Async lifecycle: `on_start()` initializes state, `on_stop()` cleans up tasks
 - Task tracking: all background tasks in `_tasks: set[asyncio.Task]` with done callbacks
 
-**Error Handler Integration:** `docs/design/error-handler-design.md`
+**Error Handler Integration:** `internal-docs/design/error-handler-design.md`
 - T1 (`SUPERVISION_TIMEOUT`, `SUPERVISION_NAK`): auto-heal, user-actionable
 - T2 (`BAD_CSR_RESPONSE`): protocol anomaly, user-actionable
 - T3 (`SUPERVISION_DISCONNECTED`, `TRANSPORT_PERMANENT`): critical, requires user intervention
 
-**Logging Architecture:** `docs/design/logging-design.md`
+**Logging Architecture:** `internal-docs/design/logging-design.md`
 - Dual-line pattern: INFO (French, user-facing) + DEBUG (English, technical)
 - Routine ACKs: DEBUG only (no INFO spam at 1,440 cycles/day)
 - Strikes/transitions: both INFO and DEBUG
@@ -337,10 +337,10 @@ So that the daemon knows when the CSR is available and healthy.
 - Code style: Type hints, docstrings, Google format, no bare `dict`/`str`, French/English dual-line logs
 
 ### Reference Files
-- **Supervision Protocol:** `docs/design/supervision-design.md` § Task B.1 & B.2
-- **Daemon Core:** `docs/design/daemon-design.md` § Component 1 (state machine pseudocode)
-- **Error Handler:** `docs/design/error-handler-design.md` § ErrorCode enum, T1/T2/T3 tiers
-- **Logging Design:** `docs/design/logging-design.md` § Ring Buffer Structure, SM1 Supervision Table
+- **Supervision Protocol:** `internal-docs/design/supervision-design.md` § Task B.1 & B.2
+- **Daemon Core:** `internal-docs/design/daemon-design.md` § Component 1 (state machine pseudocode)
+- **Error Handler:** `internal-docs/design/error-handler-design.md` § ErrorCode enum, T1/T2/T3 tiers
+- **Logging Design:** `internal-docs/design/logging-design.md` § Ring Buffer Structure, SM1 Supervision Table
 - **Previous Story:** Story 4-3 (ring-buffer-structure-log-entry-factory.md)
 
 ---
@@ -389,7 +389,7 @@ Claude Haiku 4.5 (claude-haiku-4-5-20251001)
 - `tests/level2/test_sm1_extended_suite.py` ✅ **CREATED** (26 comprehensive async integration tests, ~800 lines)
   - 22 tests passing (85%), 4 minor edge cases pending refinement
   - Coverage: TC1-TC7 core, TC8-TC26 extended (NAK, T3 dedup, timing, TCP, error codes, logging)
-- References: `docs/design/daemon-design.md`, `docs/design/supervision-design.md`, `docs/design/error-handler-design.md`, `docs/design/logging-design.md`
+- References: `internal-docs/design/daemon-design.md`, `internal-docs/design/supervision-design.md`, `internal-docs/design/error-handler-design.md`, `internal-docs/design/logging-design.md`
 
 **Test Suite Extended:** Quinn (QA Agent) challenged and extended the test strategy from 7 core tests to 26 comprehensive tests (2026-04-10)
 

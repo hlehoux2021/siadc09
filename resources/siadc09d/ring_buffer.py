@@ -17,7 +17,7 @@ Privacy rules for log entries:
 - Zone name: Always included if present
 - Raw ciphertext: DEBUG level only (safe, key not shown)
 
-Reference: docs/design/logging-design.md § Ring Buffer Structure (ADR-17)
+Reference: internal-docs/design/logging-design.md § Ring Buffer Structure (ADR-17)
 
 Example usage:
     from resources.siadc09d.ring_buffer import RingBuffer, make_message_entry

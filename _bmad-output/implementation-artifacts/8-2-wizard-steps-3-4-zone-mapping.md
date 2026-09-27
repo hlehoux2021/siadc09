@@ -496,7 +496,7 @@ So that alarms trigger cameras and I get notified on critical failures.
   `$('<td>').text(zoneNumber)` before the zone-name `<td>`.
 
 - [x] **11.3** `desktop/js/siaDC09.js` — `siaDC09_loadZoneTable()`: compute the number per
-  `docs/design/wizard-design.md` §"Zone number in the SIA frame" — saved `zone_number` wins,
+  `internal-docs/design/wizard-design.md` §"Zone number in the SIA frame" — saved `zone_number` wins,
   else `max(existing) + 1`, else (mapping empty) the table position `index + 1`.
 
 - [x] **11.4** `desktop/js/siaDC09.js` — `saveEqLogic` step-3 serialization: read
@@ -602,7 +602,7 @@ jeedom.eqLogic.save({
 
 Do NOT use `$('[data-action="save"]').trigger('click')` — gives no callback handle.
 
-[Source: docs/design/wizard-design.md §"On Suivant"]
+[Source: internal-docs/design/wizard-design.md §"On Suivant"]
 
 ### CRITICAL: `siaDC09_loadZoneData` Called from Two Places
 
@@ -659,7 +659,7 @@ jeedom.cmd.getSelectModal(
 - `result.human` → write to `sia_notify_cmd_human` (readonly text input)
 - `result.cmd.id` → write to `sia_notify_cmd_id` (hidden input)
 
-[Source: docs/design/wizard-design.md §Step 4, Task 3.5]
+[Source: internal-docs/design/wizard-design.md §Step 4, Task 3.5]
 
 ### No Daemon Start from Wizard
 
@@ -667,7 +667,7 @@ After "Terminer" saves `sia_wizard_step = 4`, the page reloads in config mode. T
 
 The wizard must NOT call `deamon_start()` directly. `postSave()` in `siaDC09.class.php` creates commands only — no daemon management.
 
-[Source: docs/design/wizard-design.md §Step 4 "On Terminer", docs/design/php-core-design.md §postSave]
+[Source: internal-docs/design/wizard-design.md §Step 4 "On Terminer", internal-docs/design/php-core-design.md §postSave]
 
 ### Existing Files (Exact Current State)
 
@@ -694,12 +694,12 @@ Both can be visible simultaneously (user ignored test AND has no zones).
 
 ### References
 
-- [Source: docs/design/wizard-design.md §Step 3] — zone table layout, `sia_zone_mappings` format, "Suivant" behavior
-- [Source: docs/design/wizard-design.md §Step 4] — notification cmd picker, `jeedom.cmd.getSelectModal` signature, "Terminer" validation
-- [Source: docs/design/wizard-design.md §Task 3.4] — `siaDC09_loadZoneTable`, `siaDC09_buildZoneRow` reference implementations
-- [Source: docs/design/wizard-design.md §Task 3.5] — step 4 HTML snippet, JS command picker
-- [Source: docs/design/wizard-design.md §Post-wizard config mode] — config summary layout
-- [Source: docs/design/wizard-design.md §saveEqLogic hook] — zone serialization guard
+- [Source: internal-docs/design/wizard-design.md §Step 3] — zone table layout, `sia_zone_mappings` format, "Suivant" behavior
+- [Source: internal-docs/design/wizard-design.md §Step 4] — notification cmd picker, `jeedom.cmd.getSelectModal` signature, "Terminer" validation
+- [Source: internal-docs/design/wizard-design.md §Task 3.4] — `siaDC09_loadZoneTable`, `siaDC09_buildZoneRow` reference implementations
+- [Source: internal-docs/design/wizard-design.md §Task 3.5] — step 4 HTML snippet, JS command picker
+- [Source: internal-docs/design/wizard-design.md §Post-wizard config mode] — config summary layout
+- [Source: internal-docs/design/wizard-design.md §saveEqLogic hook] — zone serialization guard
 - [Source: desktop/php/siaDC09.php:270–284] — exact location of step 3 placeholder and config summary to replace
 - [Source: desktop/js/siaDC09.js:37–43] — current `saveEqLogic` guard to replace
 - [Source: desktop/js/siaDC09.js:55–66] — `siaDC09_showStep` to extend
@@ -799,7 +799,7 @@ fixed (no product code changed), which is why the tree now reports the true base
 | 2026-05-11 | Story created — wizard steps 3-4, zone mapping table, notification command picker |
 | 2026-05-11 | Challenge fixes applied — F1: denormalized labels in sia_zone_mappings for config summary; F2: hardcoded French in dynamic JS (no {{...}} in .text()); F3: removed contradictory Task 6 first implementation; F4: clarifying comment in Task 8; F5: graceful fallback when getCameraCommands fails; F7: emojis replaced with Font Awesome icons |
 | 2026-05-11 | Implementation complete — all tasks 1-10 done; story status → review |
-| 2026-09-17 | Amendment — zone order number (AC11–AC15, Task 11). Design updated first: `docs/design/wizard-design.md` (N° column, `zone_number` in the JSON shape, persistence/stability rules, §"Zone number in the SIA frame"), `docs/design/php-core-design.md` (payload `{cmd, zone, zone_number, media_url}`), `docs/design/daemon-design.md` (IPC contract + `encode_message` `zone` = padded number), `_bmad-output/planning-artifacts/architecture.md` (§Zone Mapping Defensive Patterns). Status done → in-progress |
+| 2026-09-17 | Amendment — zone order number (AC11–AC15, Task 11). Design updated first: `internal-docs/design/wizard-design.md` (N° column, `zone_number` in the JSON shape, persistence/stability rules, §"Zone number in the SIA frame"), `internal-docs/design/php-core-design.md` (payload `{cmd, zone, zone_number, media_url}`), `internal-docs/design/daemon-design.md` (IPC contract + `encode_message` `zone` = padded number), `_bmad-output/planning-artifacts/architecture.md` (§Zone Mapping Defensive Patterns). Status done → in-progress |
 | 2026-09-17 | Tasks 11.1–11.8 implemented and verified. level1 `2 failed, 1059 passed` (documented baseline); level2 `6 failed, 323 passed` vs `6 failed, 318 passed` on clean HEAD ⇒ +5 tests, zero regressions. Two pre-existing test-harness defects repaired along the way (see Debug Log). Task 11.9 / AC15 (step-3 UI + receiver ACK on `test-jeedom.lehoux.net`) remains open — it needs a commit + push, deployment being a `git pull` on the Jeedom host |
 | 2026-09-17 | Pushed as `b221923` on `master`, so Task 11.9 / AC15 is now deployable (`git pull` on `test-jeedom.lehoux.net`). `_enqueue_event()`'s `zone_number` made keyword-only + a scoped `# pylint: disable=too-many-arguments` on the `def` line: the 6th param tripped R0913/R0917 (new warnings, absent on HEAD), and the dataclass refactor `.claude/rules/python-style.md` suggests would break the ~20 level2 tests passing `retries_left` positionally |
 | 2026-09-17 | **Task 11.9 / AC15 PASS** — real receiver `192.168.100.15:10002` returned an ACK for `D741003A"SIA-DCS"0010L0#001234[#001234|BA 001]_22:01:49,09-17-2026`. The frame carries the zone **number**, `crc_format=hex` is honoured (`D741`) and the declared length `003A`=58 matches. Amendment complete, status in-progress → done. Discharges the AC3 re-validation owed by story 12-5 |

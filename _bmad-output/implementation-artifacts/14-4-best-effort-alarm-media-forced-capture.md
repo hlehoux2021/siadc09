@@ -1,6 +1,6 @@
 # Story 14.4: Best-Effort Alarm Media — Any-Label Ranking + Forced Frigate Capture
 
-Status: in-progress
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -209,19 +209,53 @@ ever being delayed.
   - [x] 5.1 `python3 -m pytest tests/level1/ tests/level2/ tests/level2_5/`. Compare against the baseline (level1 2,
         level2 6, level2_5 1) and name any new failure.
   - [x] 5.2 `python3 -m pylint resources/siadc09d/`; `php -l core/class/siaDC09.class.php core/class/siaDC09Cmd.class.php`.
-- [ ] **Task 6 — Live validation** (AC: 13) — **BLOCKED, 2026-09-27: no SSH access to
-      test-jeedom.lehoux.net from this session (port 22 times out; HTTPS to the Jeedom UI
-      itself is reachable). Commit `e9d5332` pushed to `origin/master`. Deferred, not
-      skipped, not fabricated as a pass — same precedent as 14-3's Task 6.3-6.6 blocker.**
-  - [ ] 6.1 Commit and push when Herve asks, then `git pull` on test-jeedom.lehoux.net and restart the daemon. Check
-        the daemon is actually running (memory `jeedom-daemon-down-looks-like-frozen-label`).
-  - [ ] 6.2 Confirm the Frigate plugin's configured port is 5000, since create needs the admin role (Amendment 4
-        R1). If it's 8971, expect case (a) to degrade to a plain BA plus a warning, and report that instead of
-        "fixing" it with credentials (the template-tokens-never-secrets rule).
-  - [ ] 6.3 Cases (a), (b), (d), plus (c) if available. For each one, record the received frame (protocol inspector),
-        the Frigate event list (label, `data.type`), and the daemon log's callback sequence.
-  - [ ] 6.4 Case (a): open the clip URL right after the frame and again at about t0 + 45 s. Record HTTP 400 → partial
-        → full, and what the receiver shows.
+- [ ] **Task 6 — Live validation** (AC: 13) — deployed and validated 2026-09-27 on `test-jeedom.lehoux.net`
+      against the real receiver (account `20881` — the siaDC09 eqLogic's currently-configured account on this
+      test instance, also the live account seen in 12-5/14-2's sessions; AC13's literal `001234` reflects the
+      reference config at the time the AC was written, not a requirement on this exact account number). Herve
+      did the `git pull` + daemon restart manually (this
+      session still has no SSH to the host). Cases (a), (b), (d) confirmed; case (c) and the clip-URL timing
+      sub-check (6.4) are open by Herve's explicit call — see 6.3/6.4 below. Left unchecked at the Task level
+      per the 14-3 Task 6 precedent (subtask-level [x] marks "addressed/decided", not "every sub-case
+      reproduced").
+  - [x] 6.1 Deployed via `git pull` (commit `e9d5332`) + manual daemon restart on `test-jeedom.lehoux.net`
+        (Herve). Confirmed running by the daemon log activity below, not by supervision_state alone (memory
+        `jeedom-daemon-down-looks-like-frozen-label`).
+  - [x] 6.2 Confirmed via evidence, not directly queried: every `_create_manual_event` POST returned
+        `status=200`/`success:true` (e.g. `event_id='1790502478.691199-tqjx6p'`), which requires the admin
+        role (Amendment 4 R1) — so port 5000 is in effect. Case (a)'s degrade-to-plain-BA path was never
+        exercised.
+  - [x] 6.3 Cases (a), (b), (d) confirmed live; case (c) explicitly **not staged** by Herve's call —
+        `scripts/frigate_latency_probe.py`'s `create_event()` uses the same manual-create endpoint as the
+        forced capture, so any event it creates would carry `data.type=="api"` and be excluded by AC3's own
+        rule regardless of `--label`; it can't exercise the rank-2 path, only a real Frigate object detection
+        can, and none was available this session.
+        - **(a) no person, run_id `1790502478.677253-aae37e`:** create → `event_id='...tqjx6p'` → rank-3 push
+          (`clip_found=1`) before the first poll → 12 polls (09:47:58–09:48:22) see only the manual event,
+          correctly excluded internally, no real candidate ever appears → no final miss sent (rank 3 already
+          held) → `burglarAlarm` at 09:48:28 resolves `media_url` to the rank-3 event
+          (`_resolveFrigateSnapshotUrl`/`_resolveFrigateClipUrl` PHP log confirms it), TCP frame sent, CRC
+          valid, declared/actual length 242/242 (independent proof the `[V...]` block is genuinely on the
+          wire even though the protocol inspector's decoder can't display it — see D-80). Frigate event list:
+          one `alarm`/`api` event, `has_snapshot`/`has_clip` both true.
+        - **(b) person in view, run_id `1790503982.078326-548fc1`:** create → rank-3 push, then a real `person`
+          event (`...12iu2a`, created 10:13:12 per its own event id) is first seen in the 10:13:14 poll,
+          alongside the still-present manual event → `_best_candidate`
+          picks the person row → rank-1 push (`clip_found=0`) → immediate `_check_clip_ready` finds
+          `has_clip=true` → second push (rank 1, `clip_found=1`) → run stops (rank 1 + clip ready, AC4).
+          `burglarAlarm` at 10:13:32 resolves `media_url` to the **person event's id**
+          (`1790503992.45437-12iu2a`), confirmed via the PHP log — AC11 holds. Both `person` and `alarm`
+          Frigate events still present afterward (AC10).
+        - **(d) disarm during entry delay, run_id `1790504332.695482-9d7f5c`:** `arm`(CL) at 10:18:48 →
+          `prefetchEvent` at 10:18:52 (create + rank-3 push, polling starts) → `disarm`(OP) arrives at
+          10:19:07 mid-poll → **no `burglarAlarm` ever fires**, exactly as AC13(d) expects; the background
+          prefetch task's eventual result is simply never consumed. Confirmed by Herve: the manual `alarm`
+          event created for this run still exists in Frigate afterward (AC10) — never deleted despite the
+          disarm.
+  - [x] 6.4 **Not captured this session, by Herve's explicit call** (same treatment as 14-3's Task 6.6) — the
+        clip URL's HTTP 400 → partial → full transition over ~45s was not timed/recorded. Case (a)'s frame
+        delivery, CRC/length integrity, and Frigate-side clip readiness (`has_clip=true`) are otherwise
+        confirmed by 6.3 above; only the specific partial-clip-window observation is missing.
 
 ### Review Findings
 
@@ -260,6 +294,39 @@ honestly-disclosed blocker).
   saturation of manual "alarm" events (many trips within the 30s window) crowd a real detection out of the
   fetched page before client-side filtering ever sees it — deferred, low-likelihood edge case, no test
   exercises it. `resources/siadc09d/frigate_prefetch.py:_query_candidate_events`.
+
+**Second review pass (2026-09-27), scoped to Task 6's live-validation evidence.** Reviewed diff: uncommitted
+changes to this story file, `deferred-work.md`, `sprint-status.yaml` only (doc/tracking, no application
+code). Layers: Blind Hunter (diff-only), Edge Case Hunter (diff + project access), Acceptance Auditor (diff +
+this story file). Edge Case Hunter: all 6 checked technical claims (decoder line numbers, `encode_message()`
+V-block concatenation, port-5000 admin-role inference, `frigate_latency_probe.py` exclusion behavior, D-80
+cross-file consistency, sprint-status.yaml summary arithmetic) confirmed accurate against source — 0
+findings. Acceptance Auditor: no fabricated evidence, cases (a)/(b)/(d) internally consistent with AC2/AC4/
+AC9/AC10/AC11, case (c)'s exclusion well-reasoned against AC3, the two honest gaps (case (c), AC13's R5
+clip-timing note) correctly flagged rather than glossed over, and the Task-6-header-unchecked/subtasks-checked
+pattern verified against the 14-3 precedent (not invented for this story).
+
+- [x] [Review][Patch] Debug Log List credits the `[V ...]` block solely to "story 14-1", while the new D-80
+  entry in `deferred-work.md` (written in the same session) correctly credits "14-1/14-3" (14-1 added the
+  block, 14-3 extended it to the space-separated dual-URL format) — an internal attribution inconsistency
+  between the two files for the same fact. `14-4-...md` Debug Log List. **Fixed**: Debug Log List reworded to
+  "14-1/14-3".
+- [x] [Review][Patch] Task 6's Case (a)/(b)/(d) preamble validates against account `20881` with no reconciling
+  note against AC13's own literal text, which still names the reference account `001234` — the diff discloses
+  the substitution but doesn't explain it, leaving a future reader to reconcile "what AC13 says" against "what
+  Task 6 did" unaided. `14-4-...md`, Task 6 preamble and AC13. **Fixed**: Task 6 preamble now clarifies `20881`
+  is the eqLogic's currently-configured account on this test instance (also seen live in 12-5/14-2), and that
+  AC13's `001234` reflects the reference config at write-time, not a hard requirement.
+- [x] [Review][Patch] Case (b)'s narrative states the person event "appears" at 10:13:14, but the event's own
+  id (`1790503992.45437-...`) decodes to 10:13:12 — a 2s gap between the event's creation timestamp and its
+  first-observed-in-poll timestamp (consistent with the 2s poll interval, not an error), stated in a way that
+  reads as more tightly reconstructed than it is. `14-4-...md`, Task 6.3 case (b). **Fixed**: reworded to
+  distinguish "created 10:13:12 per its own event id" from "first seen in the 10:13:14 poll".
+- [x] [Review][Patch] The pre-existing "### Review Findings" preamble ("Acceptance Auditor: no AC violations
+  found across AC1-AC12, AC13/Task 6 correctly excluded as an honestly-disclosed blocker") pre-dates this
+  session's Task 6 live-validation work and doesn't reflect that Task 6's own evidence has now been through an
+  adversarial pass — addressed by this second-pass preamble above, but noting it here so the two passes read
+  as sequential rather than the first one looking silently stale.
 
 ## Dev Notes
 
@@ -461,6 +528,19 @@ Claude Sonnet 5 (eu.anthropic.claude-sonnet-5)
   session; `curl https://test-jeedom.lehoux.net/` returns 200/302, so the Jeedom UI itself is reachable but
   `git pull` on the host is not possible from here. Commit `e9d5332` pushed to `origin/master` regardless, ready
   for a session with SSH access to deploy and validate.
+- Live validation (Task 6) completed 2026-09-27, second half of the session: Herve deployed manually (`git pull`
+  + daemon restart on `test-jeedom.lehoux.net`, this session still had no SSH). Cases (a)/(b)/(d) driven live
+  against the real receiver (account `20881`) and confirmed via daemon logs, PHP `_resolveFrigateSnapshotUrl`/
+  `_resolveFrigateClipUrl`/`sendToDaemon` logs, the protocol inspector's captured frame (case a: CRC valid,
+  declared/actual length 242/242), and direct Frigate observation (event lists, AC10 persistence after
+  disarm). Case (c) not staged (no real object detection available; the obvious substitute,
+  `scripts/frigate_latency_probe.py`, would only produce another `data.type=="api"` event, which AC3 excludes
+  regardless of label — it can't exercise the rank-2 path). Task 6.4's clip-URL 400→partial→full timing was
+  not captured — accepted as an open gap by Herve's explicit call, same treatment as 14-3's Task 6.6.
+  Discovered live in case (a): the protocol inspector's raw-frame decoder only captures the first `[...]`
+  bracket and never parses a second one, so it can't display the `[V...]` block even though it's genuinely on
+  the wire (confirmed via CRC/length) — logged as new deferred item D-80, not a 14-4 regression (the decoder,
+  story 9-2, was never updated when `encode_message()` gained V-block support in story 14-1/14-3).
 
 ### Completion Notes List
 
@@ -491,6 +571,13 @@ Claude Sonnet 5 (eu.anthropic.claude-sonnet-5)
 - Sprint-status.yaml: `epic-14` reopened `done` → `in-progress` for this story (registered before this dev
   session); left as `in-progress` here since Task 6 is still open. `14-4-...` stays `in-progress`, not moved to
   `review`.
+- Task 6 live validation (2026-09-27, same day, later session): cases (a)/(b)/(d) confirmed on
+  `test-jeedom.lehoux.net` against the real receiver. Case (c) not staged (no real object detection available;
+  the manual-create endpoint can't produce one — see Debug Log). Task 6.4's clip-URL timing check not
+  captured — accepted as an open gap, Herve's explicit call. New deferred item D-77...D-80: D-80 opened for a
+  pre-existing protocol-inspector decoder gap discovered during validation (single-bracket-only parsing, never
+  populates `extended_fields`) — not a 14-4 regression, the wire frame is correct (CRC/length confirm the
+  `[V...]` block is genuinely sent). `in-progress` → `review`.
 - Code review (2026-09-27): 6 patches applied — `run_id` now `sprintf('%.6f', microtime(true)) . '-' .
   bin2hex(random_bytes(3))` (a bare `(string) microtime(true)` cast is truncated by PHP's `precision` ini to
   ~0.1ms resolution, not true microsecond resolution); `_handlePrefetchResult()`'s incoming `rank` clamped to
@@ -525,6 +612,16 @@ Claude Sonnet 5 (eu.anthropic.claude-sonnet-5)
 - `tests/level2/test_frigate_prefetch_dispatch.py` (rewritten for `prefetch_alarm_media()`/`run_id`/`rank`)
 - `tests/level2_5/test_callback_schema.py` (new `rank`/`run_id` field tests)
 - `tests/fixtures/ipc_schema.py` (`prefetch_result` schema extended with `rank`/`run_id`)
-- `_bmad-output/implementation-artifacts/deferred-work.md` (D-52 resolved, D-53/D-54 annotated, D-77 opened)
-- `_bmad-output/implementation-artifacts/sprint-status.yaml` (14-4 registered/in-progress; epic-14 reopened)
+- `_bmad-output/implementation-artifacts/deferred-work.md` (D-52 resolved, D-53/D-54 annotated, D-77/D-78/D-79
+  opened during code review; D-80 opened during Task 6 live validation — protocol-inspector decoder gap)
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` (14-4 registered/in-progress; epic-14 reopened;
+  in-progress → review after Task 6 live validation)
 - `_bmad-output/implementation-artifacts/14-4-best-effort-alarm-media-forced-capture.md` (this story file)
+
+## Change Log
+
+| Date | Change |
+|------|--------|
+| 2026-09-27 | Dev session (TDD, red-green-refactor per task): Tasks 1-5 implemented and fully tested (AC1-12). 40 new tests, 0 regressions against the known baseline. Task 6 (live validation) BLOCKED — no SSH access to `test-jeedom.lehoux.net` from this sandboxed session; deferred, not skipped. Status stays `in-progress`. |
+| 2026-09-27 | Code review (3-layer adversarial): 6 patches applied and tested (`run_id` precision-truncation fix, `rank` clamping, create-call timeout cap, `_post_json` status-loss fix, architecture.md wording, rank-constant cross-file consistency test), 1 decision deferred (D-79), 1 new deferred item (D-78), 6 dismissed as noise. Regression: 1710 passed, same 9 pre-existing baseline failures. Status stays `in-progress` — Task 6 still open. |
+| 2026-09-27 | Task 6 live validation, same day: Herve deployed manually (`git pull` + daemon restart, this session still had no SSH). Cases (a) no-person, (b) person-in-view, (d) disarm-during-entry-delay confirmed live against the real receiver via daemon/PHP logs, the protocol inspector, and direct Frigate observation. Case (c) not staged (no real object detection available). Task 6.4's clip-URL timing check not captured — accepted as an open gap, Herve's explicit call, same precedent as 14-3's Task 6.6. Discovered and logged D-80 (protocol-inspector raw-frame decoder only parses the first `[...]` bracket, can't display `[V...]`) — confirmed a pre-existing gap, not a 14-4 regression, since the frame's CRC/length prove the V-block is genuinely on the wire. `in-progress` → `review`. |

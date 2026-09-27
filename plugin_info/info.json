@@ -1,6 +1,7 @@
 {
 	"id": "siaDC09",
 	"name": "Télésurveillance SIA DC-09",
+	"pluginVersion": "0.1.0",
 	"description": {
 		"fr_FR": "Transmission d'alarmes vers centrale de télésurveillance via protocole SIA DC-09"
 	},
@@ -8,8 +9,10 @@
 	"author": "Herve Lehoux",
 	"require": "4.5",
 	"category": "security",
-	"changelog": "https://hlehoux2021.github.io/my-project/#language#/changelog",
-	"documentation": "https://hlehoux2021.github.io/my-project/#language#/",
+	"changelog": "https://hlehoux2021.github.io/siadc09/fr_FR/changelog",
+	"documentation": "https://hlehoux2021.github.io/siadc09/#language#/",
+	"changelog_beta": "https://hlehoux2021.github.io/siadc09/fr_FR/changelog",
+	"documentation_beta": "https://hlehoux2021.github.io/siadc09/#language#/",
 	"hasDependency": true,
 	"hasOwnDeamon": true,
 	"maxDependancyInstallTime": 10,

@@ -14,7 +14,7 @@ Usage::
     python3 tests/harness/run_harness.py --encryption-key 0123456789ABCDEF0123456789ABCDEF
     python3 tests/harness/run_harness.py --crc-format bin --port 10002
 
-Reference: docs/simulator-tools.md § "Test Harness"
+Reference: internal-docs/simulator-tools.md § "Test Harness"
 """
 
 import argparse

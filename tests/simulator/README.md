@@ -4,7 +4,7 @@ Standalone command-line interface for the CSR (Central Station Receiver) Simulat
 
 Built on `CSRSimulator` — a reusable protocol testing framework.
 
-**For the full tool suite** (simulator + frame replay + PCAP extractor + test harness), see [docs/simulator-tools.md](../../docs/simulator-tools.md).
+**For the full tool suite** (simulator + frame replay + PCAP extractor + test harness), see [internal-docs/simulator-tools.md](../../internal-docs/simulator-tools.md).
 
 ---
 
@@ -223,7 +223,7 @@ Frame: 0A + [2-byte binary CRC] + 001C + "ACK"0001... + 0D
        (LF) (little-endian CRC) (4-char hex len)
 ```
 
-Reference: [SIA DC-09-2021 § 5.5.1-5.5.3](../../docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md)
+Reference: [SIA DC-09-2021 § 5.5.1-5.5.3](../../internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md)
 
 ---
 
@@ -403,7 +403,7 @@ async def test_daemon_integration():
 
 ## Related Tools
 
-The simulator is one of four cooperating tools. See [docs/simulator-tools.md](../../docs/simulator-tools.md) for the complete guide.
+The simulator is one of four cooperating tools. See [internal-docs/simulator-tools.md](../../internal-docs/simulator-tools.md) for the complete guide.
 
 ### Frame Replay
 
@@ -415,7 +415,7 @@ python3 resources/siadc09d/simulate_frames.py \
   --port 10001 --protocol udp
 ```
 
-Full reference: [docs/simulator-tools.md § Frame Replay](../../docs/simulator-tools.md#-frame-replay)
+Full reference: [internal-docs/simulator-tools.md § Frame Replay](../../internal-docs/simulator-tools.md#-frame-replay)
 
 ### PCAP Extractor
 
@@ -426,7 +426,7 @@ python3 resources/siadc09d/extract_frames_from_pcap.py \
   capture.pcap --output frames.hex --port 10001 --direction client
 ```
 
-Full reference: [docs/simulator-tools.md § PCAP Extractor](../../docs/simulator-tools.md#-pcap-extractor)
+Full reference: [internal-docs/simulator-tools.md § PCAP Extractor](../../internal-docs/simulator-tools.md#-pcap-extractor)
 
 ### Test Harness
 
@@ -437,13 +437,13 @@ python3 tests/harness/run_harness.py
 python3 tests/harness/run_harness.py --encryption-key 0123456789ABCDEF0123456789ABCDEF
 ```
 
-Full reference: [docs/simulator-tools.md § Test Harness](../../docs/simulator-tools.md#-test-harness)
+Full reference: [internal-docs/simulator-tools.md § Test Harness](../../internal-docs/simulator-tools.md#-test-harness)
 
 ---
 
 ## Reference
 
 - **Protocol:** SIA DC-09-2021.17 (Internet Protocol Event Reporting)
-- **Spec:** `docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md`
+- **Spec:** `internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md`
 - **Core Library:** `resources/siadc09d/csr_simulator.py`
-- **Full Tool Guide:** [docs/simulator-tools.md](../../docs/simulator-tools.md)
+- **Full Tool Guide:** [internal-docs/simulator-tools.md](../../internal-docs/simulator-tools.md)

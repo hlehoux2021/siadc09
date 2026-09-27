@@ -305,7 +305,7 @@ Platform/wizard keys (use `sia_` prefix — PHP/JS only):
 
 Preset-mode CSR fields must use the `readonly` HTML attribute, NOT `disabled`. Disabled inputs are excluded from form serialization — the eqLogic save would not persist their values. `readonly` inputs submit normally. The standard Jeedom save relies on `data-l2key` + `.eqLogicAttr` to write config — this only works if the field is in the DOM and not disabled.
 
-[Source: docs/design/wizard-design.md §"readonly not disabled"]
+[Source: internal-docs/design/wizard-design.md §"readonly not disabled"]
 
 ### CRITICAL: `siaDC09_nextStep()` Must Be Async-Safe
 
@@ -321,13 +321,13 @@ jeedom.eqLogic.save({
 
 Do NOT use `$('[data-action="save"]').trigger('click')` — that fires the save but gives no callback handle. The save is async; advancing the step before it completes risks `sia_wizard_step` being written at the wrong value on a slow server.
 
-[Source: docs/design/wizard-design.md §"On Suivant"]
+[Source: internal-docs/design/wizard-design.md §"On Suivant"]
 
 ### CRITICAL: `saveEqLogic` Zone Table Guard
 
 In `saveEqLogic`, check `siaDC09_currentStep() >= 3` before reading zone table rows and writing to `_eqLogic.configuration.sia_zone_mappings`. At steps 1–2, the zone table HTML is not loaded yet — iterating it yields an empty array. Writing that empty array would silently overwrite any previously saved zone mapping.
 
-[Source: docs/design/wizard-design.md §Task 3.4]
+[Source: internal-docs/design/wizard-design.md §Task 3.4]
 
 ### CRITICAL: Encryption Key via Env Var (Never CLI)
 
@@ -341,13 +341,13 @@ In `run_connection_test()` in Python, read via `os.environ.get('SIA_ENCRYPTION_K
 
 This pattern matches how `deamon_start()` already handles the key.
 
-[Source: docs/design/wizard-design.md §Task 3.6, docs/design/php-core-design.md §deamon_start]
+[Source: internal-docs/design/wizard-design.md §Task 3.6, internal-docs/design/php-core-design.md §deamon_start]
 
 ### CRITICAL: AJAX Timeout on testConnection
 
 The JS AJAX call for `testConnection` must set `timeout: 35000` (35 seconds). jQuery default is `0` (infinite). If PHP drops the connection on `set_time_limit` expiry without sending a response, the browser would hang indefinitely without an explicit timeout.
 
-[Source: docs/design/wizard-design.md §Task 3.3]
+[Source: internal-docs/design/wizard-design.md §Task 3.3]
 
 ### `--test-only` Entry Point Placement
 
@@ -365,7 +365,7 @@ if __name__ == '__main__':        ← EXISTING
     start(SIADaemon)
 ```
 
-[Source: docs/design/wizard-design.md §Task 3.10]
+[Source: internal-docs/design/wizard-design.md §Task 3.10]
 
 ### PHP Page Structure Reference
 
@@ -388,7 +388,7 @@ This is a thin async function — do NOT copy the full `_send_raw()` method (whi
 
 It does NOT write to the ring buffer, does NOT update SM1, does NOT log to Jeedom. It CAN use Python's root logger for debug output, but that output goes to stderr (redirected to `/dev/null` by the PHP caller).
 
-[Source: docs/design/wizard-design.md §Task 3.10]
+[Source: internal-docs/design/wizard-design.md §Task 3.10]
 
 ### `--notify-cmd-id` CLI Arg vs Design Spec
 
@@ -398,7 +398,7 @@ It does NOT write to the ring buffer, does NOT update SM1, does NOT log to Jeedo
 
 The IMA Protect IP address is not publicly documented and is under NDA. The placeholder `"TBD"` is intentional — the real value is injected during plugin packaging/installation. Do not attempt to resolve the correct IP during this story implementation.
 
-[Source: docs/design/wizard-design.md §CSR Presets Configuration File]
+[Source: internal-docs/design/wizard-design.md §CSR Presets Configuration File]
 
 ### Project Structure Notes
 
@@ -411,9 +411,9 @@ The IMA Protect IP address is not publicly documented and is under NDA. The plac
 
 ### References
 
-- [Source: docs/design/wizard-design.md — full page] — component design for all wizard tasks
-- [Source: docs/design/php-core-design.md §Configuration Keys table (line 76)] — authoritative config key naming
-- [Source: docs/design/php-core-design.md §deamon_start] — Python binary resolution, env var pattern
+- [Source: internal-docs/design/wizard-design.md — full page] — component design for all wizard tasks
+- [Source: internal-docs/design/php-core-design.md §Configuration Keys table (line 76)] — authoritative config key naming
+- [Source: internal-docs/design/php-core-design.md §deamon_start] — Python binary resolution, env var pattern
 - [Source: core/class/siaDC09.class.php:87] — Guard 2 `wizard_step` that needs fixing
 - [Source: core/class/siaDC09.class.php:193] — `deamon_start()` Python binary + env pattern to replicate
 - [Source: core/ajax/siaDC09.ajax.php] — existing skeleton (auth preamble + `ajax::init()`)

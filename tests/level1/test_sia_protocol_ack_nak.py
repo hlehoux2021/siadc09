@@ -5,7 +5,7 @@ Comprehensive unit tests for SIA DC-09 ACK/NAK response parsing.
 Tests defensive parsing (never raises), CRC validation, sequence extraction,
 timestamp handling, and integration with Stories 1.1 & 1.2.
 
-Reference: docs/design/daemon-design.md § Component 0 (decode_ack_nak, parse_nak_timestamp)
+Reference: internal-docs/design/daemon-design.md § Component 0 (decode_ack_nak, parse_nak_timestamp)
 Expert Validation: sia-dc09-expert (2026-04-09)
 """
 

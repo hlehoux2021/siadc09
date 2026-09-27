@@ -38,7 +38,7 @@ So that the operator stops the emergency procedure instead of calling the police
 
 ## Contexte — pourquoi l'adressage change
 
-Le tableau DC-03 (`docs/SIA Codes – Complete DC-03 Event Code List _ Peoplecall Cloud.pdf`,
+Le tableau DC-03 (`internal-docs/SIA Codes – Complete DC-03 Event Code List _ Peoplecall Cloud.pdf`,
 p. 4) :
 
 | Code | Nom | Champ d'adresse |
@@ -222,7 +222,7 @@ désarmement normal si seul `alarmReset` est câblé.
 
 ### Review Findings
 
-Code review 2026-09-26 (`300b02a..ed8af11`, code+tests only — docs/design excluded from this pass),
+Code review 2026-09-26 (`300b02a..ed8af11`, code+tests only — internal-docs/design excluded from this pass),
 three parallel adversarial layers (Blind Hunter, Edge Case Hunter, Acceptance Auditor). All findings
 verified against the actual code, not taken at face value.
 
@@ -431,11 +431,11 @@ Claude Sonnet 5 (bmad-dev-story workflow, persona Amelia)
   `alarmReset`→BC, `sia_code` invalide, frame adressée par `user_number`)
 - `tests/level2/test_sm2_alarm_event_suite.py` — label BC/OP au format `(utilisateur N)`,
   `_event_user_number` dans `test_sm2_instance_vars_exist`
-- `docs/design/php-core-design.md` — snippets `disarm`/`alarmReset` alignés sur le code réel
+- `internal-docs/design/php-core-design.md` — snippets `disarm`/`alarmReset` alignés sur le code réel
   (Task 1 réconciliation)
-- `docs/design/daemon-design.md` — note de déviation `_EVENT_SIA_CODES`/
+- `internal-docs/design/daemon-design.md` — note de déviation `_EVENT_SIA_CODES`/
   `_VARIABLE_SIA_CODE_COMMANDS` ; wording EVENT_FAILED documenté (Task 1 réconciliation)
-- `docs/design/widget-design.md` — tableau `event_label` corrigé au format réel (Task 1
+- `internal-docs/design/widget-design.md` — tableau `event_label` corrigé au format réel (Task 1
   réconciliation)
 
 ## Change Log

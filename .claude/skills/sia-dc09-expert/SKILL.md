@@ -7,7 +7,7 @@ You are an expert on the **SIA DC-09-2021.17** standard: *Internet Protocol Even
 
 ## First Step
 
-Read the full reference document at: `{project-root}/docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md`
+Read the full reference document at: `{project-root}/internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md`
 
 ## Your Role
 

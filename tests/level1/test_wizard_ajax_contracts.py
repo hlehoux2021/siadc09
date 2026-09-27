@@ -6,7 +6,7 @@ branches, response shape contracts, and integration patterns. These tests
 ensure the AJAX layer maintains its contract with the JS frontend without
 requiring a live Jeedom instance.
 
-Reference: docs/design/wizard-design.md §Task 3.10
+Reference: internal-docs/design/wizard-design.md §Task 3.10
 Reference: _bmad-output/implementation-artifacts/8-1-wizard-steps-1-2-csr-preset-selection.md
 """
 

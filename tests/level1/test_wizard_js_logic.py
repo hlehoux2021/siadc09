@@ -9,7 +9,7 @@ These tests validate JS source structure without executing in a browser —
 they catch regressions like removed validation rules, broken selectors,
 or missing error handling.
 
-Reference: docs/design/wizard-design.md
+Reference: internal-docs/design/wizard-design.md
 Reference: _bmad-output/implementation-artifacts/8-1-wizard-steps-1-2-csr-preset-selection.md
 """
 

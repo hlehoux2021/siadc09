@@ -273,7 +273,7 @@ For each "Verify" step:
 Two symptoms reported during manual widget use; both trace to the same defect.
 
 1. **[OPEN BUG] Dashboard tile does not auto-refresh — full page reload required.**
-   `docs/design/widget-design.md:20-22,66-70` asserts the `cmd::update` websocket re-renders
+   `internal-docs/design/widget-design.md:20-22,66-70` asserts the `cmd::update` websocket re-renders
    the tile with no custom JS. **False for this template.** Jeedom's socket handler updates
    in place only DOM nodes carrying a `data-cmd_id` bound to the changed command.
    `core/template/dashboard/siaDC09.html:19,25` renders `#supervision_label#` and

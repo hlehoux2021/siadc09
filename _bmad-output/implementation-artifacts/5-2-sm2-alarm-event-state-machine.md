@@ -349,10 +349,10 @@ self._update_info_commands({
 
 ### References
 
-- Daemon design: [docs/design/daemon-design.md](../../docs/design/daemon-design.md) § SM2 — Alarm Event State
-- Error handling: [docs/design/error-handler-design.md](../../docs/design/error-handler-design.md) § 3-tier error model
-- Logging design: [docs/design/logging-design.md](../../docs/design/logging-design.md) § SM2 state transitions table
-- Protocol specification: [docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md](../../docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md) § 5.5.1 (frame format), § 5.5.3 (NAK/ACK)
+- Daemon design: [internal-docs/design/daemon-design.md](../../internal-docs/design/daemon-design.md) § SM2 — Alarm Event State
+- Error handling: [internal-docs/design/error-handler-design.md](../../internal-docs/design/error-handler-design.md) § 3-tier error model
+- Logging design: [internal-docs/design/logging-design.md](../../internal-docs/design/logging-design.md) § SM2 state transitions table
+- Protocol specification: [internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md](../../internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md) § 5.5.1 (frame format), § 5.5.3 (NAK/ACK)
 - Epics file: [_bmad-output/planning-artifacts/epics.md](../_bmad-output/planning-artifacts/epics.md) § Story 5.2
 
 ## Dev Agent Record

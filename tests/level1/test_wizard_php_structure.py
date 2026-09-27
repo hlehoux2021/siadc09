@@ -8,7 +8,7 @@ preset data attributes, and Jeedom integration patterns.
 These tests fail if HTML elements are renamed, data attributes are removed,
 or the wizard structure is broken — no Jeedom instance required.
 
-Reference: docs/design/wizard-design.md
+Reference: internal-docs/design/wizard-design.md
 Reference: _bmad-output/implementation-artifacts/8-1-wizard-steps-1-2-csr-preset-selection.md
 Reference: _bmad-output/implementation-artifacts/8-2-wizard-steps-3-4-zone-mapping.md
 """

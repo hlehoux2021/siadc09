@@ -246,9 +246,9 @@ All 17 PRD requirements are captured in the epic structure. No missing FRs. Epic
 
 While a standalone UX document in the planning-artifacts folder was not found, **comprehensive UX/UI design documentation exists in the design folder:**
 
-- `docs/design/wizard-design.md` — 4-step configuration wizard (zero-jargon French, domain language)
-- `docs/design/widget-design.md` — Supervision health widget (dashboard + mobile)
-- `docs/design/debug-ui-design.md` — Debug UI (status badge, error panel, protocol inspector)
+- `internal-docs/design/wizard-design.md` — 4-step configuration wizard (zero-jargon French, domain language)
+- `internal-docs/design/widget-design.md` — Supervision health widget (dashboard + mobile)
+- `internal-docs/design/debug-ui-design.md` — Debug UI (status badge, error panel, protocol inspector)
 
 Additionally, the Architecture document (`architecture.md`) explicitly references and validates these UI components against PRD requirements.
 

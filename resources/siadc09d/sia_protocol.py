@@ -4,7 +4,7 @@ SIA DC-09-2021.17 Protocol Message Builder Module
 Pure protocol layer for constructing and serializing SIA DC-09 compliant message frames.
 No external dependencies beyond Python stdlib.
 
-Reference: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5 Messages
+Reference: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5 Messages
 
 Expert Validation: sia-dc09-expert (2026-04-07)
 - CRC: CRC-16 MODBUS (polynomial 0xA001)
@@ -217,7 +217,7 @@ class SIAMessageBuilder:
         Raises:
             ValueError: If account_number, prefix, or receiver_number invalid hex
 
-        Reference: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1
+        Reference: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1
         """
         if extended_data is None:
             extended_data = {}
@@ -279,7 +279,7 @@ class SIAMessageBuilder:
         Returns:
             Complete NULL message frame as bytes
 
-        Reference: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.2.1
+        Reference: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.2.1
         """
         return self.encode_message(
             account_number=account_number,
@@ -314,7 +314,7 @@ class SIAMessageBuilder:
         Returns:
             4-character ASCII hex CRC (uppercase)
 
-        Reference: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.2
+        Reference: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.2
         """
         crc_value = _compute_crc_modbus(data)
         return f"{crc_value:04X}"
@@ -329,7 +329,7 @@ class SIAMessageBuilder:
         Returns:
             Length field: "0" + 3-digit hex (e.g., "0123" = 291 bytes)
 
-        Reference: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.3
+        Reference: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.3
         """
         length = len(data)
         return f"0{length:03X}"
@@ -363,7 +363,7 @@ class SIAMessageBuilder:
         Raises:
             ValueError: If account_number or prefix invalid hex
 
-        Reference: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.6
+        Reference: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.6
         """
         # Validate account number
         if not self._validate_hex(account_number, 3, 16):
@@ -407,7 +407,7 @@ class SIAMessageBuilder:
         Returns:
             Data field string: [#{account}|{event_code}] or [#{account}|{event_code} {zone}]
 
-        Reference: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.7, Annex B
+        Reference: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.7, Annex B
         """
         if extended_data is None:
             extended_data = {}
@@ -435,7 +435,7 @@ class SIAMessageBuilder:
             "[V{media_url}]" when media_url is present and non-empty, else "" (no block —
             byte-identical to pre-14-1 frames when media_url is absent).
 
-        Reference: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.8, line 651
+        Reference: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.8, line 651
         """
         if not extended_data:
             return ""
@@ -456,7 +456,7 @@ class SIAMessageBuilder:
         Returns:
             Formatted string: _HH:MM:SS,MM-DD-YYYY (exactly 20 characters), or None
 
-        Reference: docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.9
+        Reference: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.9
         Example: "_22:49:34,04-07-2026"
         """
         if ts is None:
@@ -707,7 +707,7 @@ def decode_ack_nak(raw: bytes, crc_format: CrcFormat = 'hex') -> AckNakResponse:
         - seq: Echoed sequence number (int), or None
         - raw_nak: Full raw bytes if type='NAK', else None
 
-    Reference: docs/design/daemon-design.md § decode_ack_nak()
+    Reference: internal-docs/design/daemon-design.md § decode_ack_nak()
     """
     unknown_response: AckNakResponse = {'type': UNKNOWN_RESPONSE, 'seq': None, 'raw_nak': None}
 

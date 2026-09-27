@@ -809,18 +809,18 @@ def test_all_constants_referenced_in_siadc09d():
 
 ### References
 
-- **Design Authority:** [logging-design.md](docs/design/logging-design.md) — Section "Task 5b.6 — Message externalization"
+- **Design Authority:** [logging-design.md](internal-docs/design/logging-design.md) — Section "Task 5b.6 — Message externalization"
   - SM1/SM2 state transition tables (lines 610-635)
   - String coverage requirements (lines 692-730)
   - Testing strategy (lines 718-732)
 
-- **Error Codes Reference:** [error-handler-design.md](docs/design/error-handler-design.md)
+- **Error Codes Reference:** [error-handler-design.md](internal-docs/design/error-handler-design.md)
   - ErrorCode enum: SUPERVISION_TIMEOUT, SUPERVISION_NAK, BAD_CSR_RESPONSE, SUPERVISION_DISCONNECTED, EVENT_FAILED, TRANSPORT_PERMANENT
 
-- **Wizard Reference:** [wizard-design.md](docs/design/wizard-design.md)
+- **Wizard Reference:** [wizard-design.md](internal-docs/design/wizard-design.md)
   - Wizard step titles and user interactions
 
-- **Architecture Context:** [daemon-design.md](docs/design/daemon-design.md)
+- **Architecture Context:** [daemon-design.md](internal-docs/design/daemon-design.md)
   - SM1 state machine figure and pseudocode
   - SM2 state machine documentation
 

@@ -5,7 +5,7 @@ Validates that plugin_info/packages.json correctly declares Python dependencies
 for Jeedom's automatic dependency manager (Method 1). Catches missing packages,
 empty stubs from the template, and structural issues.
 
-Reference: docs/design/php-core-design.md § Task 2.2
+Reference: internal-docs/design/php-core-design.md § Task 2.2
 Reference: _bmad-output/implementation-artifacts/6-5-jeedom-dependency-manager-installation.md
 """
 import json
@@ -135,4 +135,22 @@ def test_packages_json_pip3_entries_are_objects(packages: dict) -> None:
         assert isinstance(value, dict), (
             f"packages.json pip3.{pkg} must be an object {{}}, "
             f"got {type(value).__name__}: {value}"
+        )
+
+
+def test_packages_json_pip3_all_pinned(packages: dict) -> None:
+    """
+    Story 11.4 AC7: every pip3 dependency carries a pinned version for
+    reproducible Market installs (Jeedom installs pip3 "version" as ==version,
+    system::installPackage).
+
+    Expected result:
+    - every pip3 entry has a non-empty "version" of the form N.N.N
+    """
+    import re
+
+    for pkg, value in packages.get("pip3", {}).items():
+        # Assert: pinned exact version
+        assert re.match(r"^\d+\.\d+\.\d+$", str(value.get("version", ""))), (
+            f"packages.json pip3.{pkg} must pin an exact version, got {value}"
         )

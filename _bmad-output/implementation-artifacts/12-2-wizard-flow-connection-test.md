@@ -220,7 +220,7 @@ Key learnings from Story 12-1 that apply here:
 
 ### References
 
-- [Source: docs/design/wizard-design.md] — Full wizard design spec (steps, validation, data flow)
+- [Source: internal-docs/design/wizard-design.md] — Full wizard design spec (steps, validation, data flow)
 - [Source: desktop/php/siaDC09.php] — Wizard HTML implementation
 - [Source: desktop/js/siaDC09.js] — Wizard JS logic
 - [Source: core/ajax/siaDC09.ajax.php] — AJAX endpoints (testConnection, getZones, getCameraCommands)

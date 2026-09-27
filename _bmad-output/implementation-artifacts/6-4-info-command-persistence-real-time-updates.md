@@ -330,9 +330,9 @@ New files (Story 6.4):
 
 ### References
 
-- [Source: docs/design/php-core-design.md § Task 2.6 — `_handleInfoUpdate()` spec with `getCmd(null, $logicalId)` pattern]
-- [Source: docs/design/php-core-design.md § Task 2.4 — `postSave()` `returnStateTime=30` / `returnStateValue=0` spec]
-- [Source: docs/design/php-core-design.md § Full command list — `isVisible=0` for all commands]
+- [Source: internal-docs/design/php-core-design.md § Task 2.6 — `_handleInfoUpdate()` spec with `getCmd(null, $logicalId)` pattern]
+- [Source: internal-docs/design/php-core-design.md § Task 2.4 — `postSave()` `returnStateTime=30` / `returnStateValue=0` spec]
+- [Source: internal-docs/design/php-core-design.md § Full command list — `isVisible=0` for all commands]
 - [Source: _bmad-output/planning-artifacts/architecture.md § ADR-14 — SM2 IDLE startup-only; `event_state` / `event_label` not reset]
 - [Source: _bmad-output/planning-artifacts/architecture.md § Anti-Pattern table — `empty($data['field'])` → `isset($data['field'])`]
 - [Source: _bmad-output/planning-artifacts/architecture.md § Callback Contract Table — `info_update` required keys]

@@ -123,14 +123,14 @@ so that it can check openings/closings against my schedule.
         trois commandes (`disarm`/`alarmReset`/`arm`).
   - [x] `.claude/skills/jeedom-alarm/SKILL.md` : table de câblage étendue à `arm` →
         `activationImmediateOk`, avec l'avertissement explicite « jamais sur `activationOk` ».
-  - [x] `docs/design/php-core-design.md` : snippets `disarm` (branche `else`) et `arm` alignés
+  - [x] `internal-docs/design/php-core-design.md` : snippets `disarm` (branche `else`) et `arm` alignés
         sur le code livré ; `$actionCmds` et table de câblage mis à jour.
-  - [x] `docs/design/daemon-design.md` : nouvelle section « Arm/Disarm Reporting — Story 13-4
+  - [x] `internal-docs/design/daemon-design.md` : nouvelle section « Arm/Disarm Reporting — Story 13-4
         design decisions » (mapping fixe `arm`, généralisation `_USER_ADDRESSED_SIA_CODES`,
         wording EVENT_FAILED CL).
-  - [x] `docs/design/widget-design.md` : ligne `CL` ajoutée au tableau `event_label`, mapping
+  - [x] `internal-docs/design/widget-design.md` : ligne `CL` ajoutée au tableau `event_label`, mapping
         SIA→français étendu, `_event_context_prefix()` mis à jour.
-  - [x] `docs/design/wizard-design.md` : note « et later CL » corrigée (CL livré).
+  - [x] `internal-docs/design/wizard-design.md` : note « et later CL » corrigée (CL livré).
 - [x] Task 7: Validation live sur `test-jeedom.lehoux.net` contre la centrale interne (AC10) —
       via l'API Jeedom (`core/api/jeeApi.php`, clés scopées `plugin=alarm`/`plugin=siaDC09`
       fournies par Herve), après qu'Herve a fait le `git pull`, la sauvegarde de l'équipement
@@ -145,11 +145,11 @@ Code review 2026-09-26 (Blind Hunter + Edge Case Hunter + Acceptance Auditor, di
 
 - [x] [Review][Decision] Repeated `OP` on every "Désactiver", even when already disarmed — `alarm.class.php:700-703` (`released`) has no "already disarmed" guard (unlike `armed`, `:729-731` "Alarme déjà active"), and sets `enable=0` *before* `doAction('release')`, so siaDC09 can't tell a real disarm from a repeat by reading the alarm state. **Resolved by Herve (2026-09-26): accept and document** (OP is idempotent for the CSR) — becomes the patch below.
 - [x] [Review][Decision] AC10 evidence doesn't prove "CL then OP" / "OP alone, never BC" — Task 7 validated through `event_label` via `jeeApi.php`, not in the protocol inspector. **Resolved by Herve (2026-09-26): accepted** — the real-PHP level-1 harness (`test_disarm_with_no_open_ba_emits_op`) already proves OP-alone; no re-run.
-- [x] [Review][Patch] Document that a repeated "Désactiver" sends a repeated OP (accepted behavior, D1) [core/class/siaDC09Cmd.class.php:124, docs/design/php-core-design.md, .claude/skills/jeedom-alarm/SKILL.md]
+- [x] [Review][Patch] Document that a repeated "Désactiver" sends a repeated OP (accepted behavior, D1) [core/class/siaDC09Cmd.class.php:124, internal-docs/design/php-core-design.md, .claude/skills/jeedom-alarm/SKILL.md]
 - [x] [Review][Patch] `_USER_ADDRESSED_SIA_CODES` now does two jobs: framing, and the allow-list for disarm/alarmReset's `sia_code`. Adding CL means `disarm`/`alarmReset` with `sia_code=CL` now passes validation. Split into an allow-list `{BC, OP}` and the framing set `{BC, OP, CL}`, and add a rejection test [resources/siadc09d/daemon.py:2150]
 - [x] [Review][Patch] `error_handler.py` still hardcodes `("BC", "OP", "CL")`, which contradicts the "one place to extend" claim in daemon-design.md. Define the constant once in error_handler (daemon.py already imports from it) [resources/siadc09d/error_handler.py:427]
 - [x] [Review][Patch] Missing i18n: "Armement" is absent from `en_US.json`, while its siblings "Désarmement" and "Réinitialisation alarme" are translated [core/i18n/en_US.json:37]
-- [x] [Review][Patch] The AC9 wording contradicts the plugin source: `activationImmediateOk` runs at `alarm.class.php:743`, before the detector scan and `activationKo` (`:794`). An arm with a bypass therefore **does** send CL, and only the bypass itself goes unreported. Correct AC9, and add the `alarm.class.php` line references to the SKILL/daemon-design claims [13-4 story:66-71, .claude/skills/jeedom-alarm/SKILL.md:26, docs/design/daemon-design.md:130]
+- [x] [Review][Patch] The AC9 wording contradicts the plugin source: `activationImmediateOk` runs at `alarm.class.php:743`, before the detector scan and `activationKo` (`:794`). An arm with a bypass therefore **does** send CL, and only the bypass itself goes unreported. Correct AC9, and add the `alarm.class.php` line references to the SKILL/daemon-design claims [13-4 story:66-71, .claude/skills/jeedom-alarm/SKILL.md:26, internal-docs/design/daemon-design.md:130]
 - [x] [Review][Patch] The wizard help and docs name non-existent UI labels ("Activation OK (immédiate)/(standard)"). The alarm plugin shows a single "Activation OK" tab with the buttons "Ajouter action immediate lors de l'activation" and "Ajouter action lors de l'activation" (`plugin-alarm/desktop/php/alarm.php:175`) [desktop/php/siaDC09.php:331]
 - [x] [Review][Patch] Some docstrings and comments still say BC/OP only and don't mention CL/`arm`: daemon.py `EventItem`/`EventQueuePayload`/`_event_user_number`, the `on_message()` docstring and the `:2178` comment; also `_resolveSiaUserNumber()`'s docblock [resources/siadc09d/daemon.py:175, core/class/siaDC09Cmd.class.php:161]
 - [x] [Review][Patch] Test gaps. There is no test for the CL `event_label` (AC8, `Armement (utilisateur 1) : Confirmée par la centrale`), none for a CL frame with a stray `zone_number` (AC6), and `test_arm_emits_cl_unconditionally` never seeds an open BA to show the "unconditional" claim [tests/level2/test_sm2_alarm_event_suite.py:251, tests/level2/test_ipc_daemon_wiring.py:845, tests/level1/test_burglary_cancel_behavior.py:526]
@@ -300,10 +300,10 @@ Claude Sonnet 5 (bmad-dev-story workflow)
   `test_build_event_frame_bc_and_op_address_by_user_number` étendu au cas CL
 - `desktop/php/siaDC09.php` — aide assistant étape 3 réécrite pour les trois commandes
 - `.claude/skills/jeedom-alarm/SKILL.md` — table de câblage étendue à `arm`
-- `docs/design/php-core-design.md` — snippets `disarm`/`arm`, `$actionCmds`, table de câblage
-- `docs/design/daemon-design.md` — nouvelle section « Arm/Disarm Reporting — Story 13-4 »
-- `docs/design/widget-design.md` — ligne `CL`, mapping SIA→français, `_event_context_prefix()`
-- `docs/design/wizard-design.md` — note « et later CL » corrigée
+- `internal-docs/design/php-core-design.md` — snippets `disarm`/`arm`, `$actionCmds`, table de câblage
+- `internal-docs/design/daemon-design.md` — nouvelle section « Arm/Disarm Reporting — Story 13-4 »
+- `internal-docs/design/widget-design.md` — ligne `CL`, mapping SIA→français, `_event_context_prefix()`
+- `internal-docs/design/wizard-design.md` — note « et later CL » corrigée
 
 ## Change Log
 

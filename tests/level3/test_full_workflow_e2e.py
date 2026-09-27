@@ -5,8 +5,8 @@ real CSRSimulator on localhost, and real daemon state machines.
 Only send_to_jeedom is mocked — no PHP/Jeedom required.
 
 Reference: _bmad-output/implementation-artifacts/11-3-full-workflow-integration-testing.md
-Reference: docs/design/daemon-design.md — SM1/SM2 state machines
-Reference: docs/design/supervision-design.md — SM1 lifecycle
+Reference: internal-docs/design/daemon-design.md — SM1/SM2 state machines
+Reference: internal-docs/design/supervision-design.md — SM1 lifecycle
 """
 import asyncio
 import resource

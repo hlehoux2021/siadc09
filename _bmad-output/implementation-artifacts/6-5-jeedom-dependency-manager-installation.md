@@ -203,9 +203,9 @@ Unchanged (verified only):
 
 ### References
 
-- [Source: docs/design/php-core-design.md § Task 2.1 — info.json spec]
-- [Source: docs/design/php-core-design.md § Task 2.2 — packages.json spec]
-- [Source: docs/design/php-core-design.md § Task 2.8 — dependancy_info() spec (OVERRIDDEN by Method 1)]
+- [Source: internal-docs/design/php-core-design.md § Task 2.1 — info.json spec]
+- [Source: internal-docs/design/php-core-design.md § Task 2.2 — packages.json spec]
+- [Source: internal-docs/design/php-core-design.md § Task 2.8 — dependancy_info() spec (OVERRIDDEN by Method 1)]
 - [Source: core/class/aiodemo.class.php — reference plugin has NO dependancy_info/install overrides]
 - [Source: plugin_info/info.json — current state with fields to fix]
 - [Source: plugin_info/packages.json — current state with empty stubs]
@@ -246,7 +246,7 @@ No debug issues encountered.
 - `tests/level1/test_packages_json.py` — **NEW** — 7 packages.json contract tests
 - `tests/level1/test_install_php.py` — **NEW** — 6 install.php structural tests
 - `tests/level1/test_php_eqlogic_stub.py` — Added 3 Story 6.5 structural tests
-- `docs/design/php-core-design.md` — Task 2.8 Method 2 override banner + file structure fix
+- `internal-docs/design/php-core-design.md` — Task 2.8 Method 2 override banner + file structure fix
 - `_bmad-output/planning-artifacts/architecture.md` — Updated 3 stale sentinel/dependancy_info references
 
 ### Change Log
