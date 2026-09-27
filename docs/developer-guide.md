@@ -114,7 +114,7 @@ Today there is exactly one preset, and the UI is hard-wired to it. `csr_presets.
 - `__()` keys are the **runtime** string (PHP escapes resolved);
 - `{{…}}` keys are the **raw** text between the braces, because Jeedom translates the raw file/buffer.
 
-A missing key falls back to the source text, so a gap is never a runtime error. `tests/level1/test_i18n_roundtrip.py` fails on a missing or orphan key. There is no automatic translation: `.github/workflows/translations.yml` does not work, so do not rely on it. `en_US.json` is maintained by hand and covers only part of the strings (22 of 169 at 1.0), so English users see mostly French. When you add a string, add it to `fr_FR.json`, and to `en_US.json` if you can translate it.
+A missing key falls back to the source text, so a gap is never a runtime error. `tests/level1/test_i18n_roundtrip.py` fails on a missing or orphan key. There is no automatic translation. `en_US.json` is maintained by hand and covers only part of the strings (22 of 169 at 1.0), so English users see mostly French. When you add a string, add it to `fr_FR.json`, and to `en_US.json` if you can translate it.
 
 **Daemon.** Log messages live in `resources/siadc09d/messages.py` (`# TODO v1.1: gettext`). **Not every user-visible daemon string is there yet.** Inventory for the gettext migration:
 
@@ -140,7 +140,7 @@ PHP-side hard-coded French outside `__()`/`{{…}}`: the Configuration active su
 - Rules (`.claude/rules/testing.md`): pytest only; each test has a docstring with an **Expected result** list and an `# Assert:` comment per assert; async tests join `daemon._tasks` instead of sleeping.
 - Lint: `python3 -m pylint resources/siadc09d/`; PHP syntax: `find core/ desktop/ -name "*.php" | xargs -n1 php -l`.
 - CSR simulator: `python3 -m tests.simulator` (see [tests/simulator/README.md](../tests/simulator/README.md) and [simulator-tools.md](../internal-docs/simulator-tools.md)) — for provoked failures (NAK, silence, garbage). It is **not** a substitute for a real receiver.
-- CI: `.github/workflows/checkPHP.yml` (PHP lint). `translations.yml` is inherited from the template and does not work. There is no Python CI job; run the suites locally before pushing.
+- CI: `.github/workflows/checkPHP.yml` (PHP lint). There is no Python CI job; run the suites locally before pushing.
 
 ## Versioning and release
 

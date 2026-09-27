@@ -13,7 +13,7 @@ Steps to publish siaDC09 on the Jeedom Market. The **files** are prepared in the
 - [x] Internal documents (design docs, protocol spec, simulator/logging guides) live in `internal-docs/`, outside the `/docs` folder that GitHub Pages publishes
 - [ ] 👤 **Icon design**: the current icon is a generated placeholder (shield + signal arcs + "SIA DC-09"). Replace it with a final design if you want one: 309 × 348 PNG, rounded corners, coloured background, transparency, avoid the official Jeedom palette.
 - [x] **aiodemo template leftovers removed** (D-83): `core/ajax/aiodemo.ajax.php`, `core/class/aiodemo.class.php`, `core/php/jeeaiodemo.php`, `desktop/js/aiodemo.js`, `desktop/php/aiodemo.php`, `resources/aiodemod/`, the `plugins/aiodemo/...` sections of `core/i18n/{de_DE,en_US,es_ES,it_IT,pt_PT}.json`, `plugin_info/pre_install.php` (only an empty `aiodemo_pre_update()`) and `install.png` were deleted.
-- [x] **Languages**: `info.json` declares `fr_FR` and `en_US` only (`de_DE` removed: no German file, and `translations.yml` does not work). `en_US.json` is partial (22 of 169 strings), so English users see mostly French.
+- [x] **Languages**: `info.json` declares `fr_FR` and `en_US` only (`de_DE` removed: no German file, and no automatic translation — the template's `translations.yml` did not work and was deleted). `en_US.json` is partial (22 of 169 strings), so English users see mostly French.
 - [ ] 👤 **Forum link** (optional but recommended): once a topic exists on community.jeedom.com, add `"link": {"forum": "<topic URL>"}` to `info.json`.
 - [ ] Run the full regression: `python3 -m pytest tests/level1/ tests/level2/ tests/level2_5/`, `find core/ desktop/ -name "*.php" | xargs -n1 php -l`, `python3 -m pylint resources/siadc09d/`.
 
