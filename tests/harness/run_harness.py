@@ -32,6 +32,7 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from resources.siadc09d.csr_simulator import CSRSimulator, CSRSimulatorPreset  # pylint: disable=wrong-import-position,import-error
+from resources.siadc09d.sia_crypto import AESKeyError, parse_hex_key  # pylint: disable=wrong-import-position,import-error
 from resources.siadc09d.sia_protocol import decode_ack_nak  # pylint: disable=wrong-import-position,import-error
 from resources.siadc09d.simulate_frames import parse_hex_file, replay_frames  # pylint: disable=wrong-import-position,import-error
 
@@ -40,6 +41,9 @@ from resources.siadc09d.simulate_frames import parse_hex_file, replay_frames  # 
 GOLDEN_DIR = _PROJECT_ROOT / "tests" / "fixtures" / "golden"
 FRAME_FILE_PATTERN = "frames_*.hex"
 MALFORMED_FIXTURE = "frames_malformed.hex"
+# Without the key the simulator cannot decrypt this fixture and, per
+# DC-09 § 5.6.2.4, discards it silently: a timeout is the expected outcome.
+ENCRYPTED_FIXTURE = "frames_encrypted_alarm.hex"
 ACCOUNT_NUMBER_DEFAULT = "001234"
 CRC_FORMAT_DEFAULT = "hex"
 TIMEOUT_S = 2.0
@@ -87,7 +91,7 @@ async def run_harness(  # pylint: disable=too-many-locals
     prints a per-file result line plus a final summary.
 
     Args:
-        encryption_key: Optional AES-128 key bytes (16 bytes). None = plaintext.
+        encryption_key: Optional AES key bytes (16, 24 or 32). None = plaintext.
         crc_format: CRC encoding format — ``"hex"`` or ``"bin"``.
         port: UDP port for the simulator. None → OS-assigned ephemeral port.
 
@@ -153,9 +157,16 @@ async def run_harness(  # pylint: disable=too-many-locals
             # Malformed fixtures are expected to produce responses too (NAK),
             # but we count non-responses (timeout) only as failures for non-malformed files.
             is_malformed = fixture_path.name == MALFORMED_FIXTURE
+            is_undecryptable = encryption_key is None and fixture_path.name == ENCRYPTED_FIXTURE
+            timeout_expected = is_malformed or is_undecryptable
 
-            label = "MALFORMED" if is_malformed else "OK"
-            status = "PASS" if (is_malformed or timeout_count == 0) else "FAIL"
+            if is_malformed:
+                label = "MALFORMED"
+            elif is_undecryptable:
+                label = "NO KEY, DISCARDED"
+            else:
+                label = "OK"
+            status = "PASS" if (timeout_expected or timeout_count == 0) else "FAIL"
 
             print(
                 f"  [{status}] {fixture_path.name:<42}  "
@@ -166,7 +177,7 @@ async def run_harness(  # pylint: disable=too-many-locals
             total_frames += len(frames)
             total_ack += ack_count
             total_nak += nak_count
-            total_timeout += (0 if is_malformed else timeout_count)
+            total_timeout += (0 if timeout_expected else timeout_count)
 
     finally:
         await simulator.stop()
@@ -190,7 +201,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--encryption-key",
         metavar="HEX",
-        help="AES-128 encryption key as 32 hex chars (e.g. 0123456789ABCDEF0123456789ABCDEF)",
+        help="AES key as 32, 48 or 64 hex digits (e.g. 0123456789ABCDEF0123456789ABCDEF)",
     )
     parser.add_argument(
         "--crc-format",
@@ -214,14 +225,10 @@ def main() -> None:
 
     encryption_key: bytes | None = None
     if args.encryption_key:
-        raw = args.encryption_key.replace(" ", "")
-        if len(raw) != 32:
-            print(f"ERROR: --encryption-key must be exactly 32 hex chars, got {len(raw)}")
-            sys.exit(EXIT_FAILURE)
         try:
-            encryption_key = bytes.fromhex(raw)
-        except ValueError:
-            print(f"ERROR: --encryption-key is not valid hex: {args.encryption_key!r}")
+            encryption_key = parse_hex_key(args.encryption_key)
+        except AESKeyError as e:
+            print(f"ERROR: --encryption-key: {e}")
             sys.exit(EXIT_FAILURE)
 
     print(f"SIA DC-09 Test Harness — crc_format={args.crc_format}, "

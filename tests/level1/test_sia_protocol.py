@@ -31,6 +31,8 @@ from resources.siadc09d.sia_protocol import (
     SIAMessageBuilder, SequenceTracker,
 )
 
+_TEST_KEY = bytes.fromhex("0123456789ABCDEF0123456789ABCDEF")
+
 
 # ===== HELPER FUNCTIONS FOR FIELD VALIDATION =====
 
@@ -1114,6 +1116,7 @@ def test_encode_message_encrypted_token(builder):
     frame = builder.encode_message(
         "001234", "1130",
         encryption=True,
+        encryption_key=_TEST_KEY,
         timestamp=None
     )
     # Assert: Encrypted token with * prefix present
@@ -1456,7 +1459,7 @@ def test_encryption_flag_changes_frame_content(builder):
     - Frames differ due to encryption marker affecting message
     """
     unenc = builder.encode_message("001234", "1130", encryption=False, timestamp=None)
-    enc = builder.encode_message("001234", "1130", encryption=True, timestamp=None)
+    enc = builder.encode_message("001234", "1130", encryption=True, encryption_key=_TEST_KEY, timestamp=None)
 
     # Assert: Encryption flag produces different frames
     assert unenc != enc, "Encrypted and unencrypted frames should differ"
@@ -1476,7 +1479,7 @@ def test_encryption_affects_null_message(builder):
     - CRCs differ
     """
     unenc = builder.make_supervision_message("001234", encryption=False)
-    enc = builder.make_supervision_message("001234", encryption=True)
+    enc = builder.make_supervision_message("001234", encryption=True, encryption_key=_TEST_KEY)
 
     # Assert: Encryption affects supervision message
     assert unenc != enc, "Encryption should change supervision message"
@@ -1593,11 +1596,12 @@ def test_null_message_ends_with_cr(builder):
 def test_null_message_encrypted_flag(builder):
     """
     Test that NULL message respects encryption flag.
-    This verifies encryption token changes between unencrypted and encrypted modes.
+    This verifies the token changes between unencrypted and encrypted modes
+    (story 1-5 D2: encrypted supervision is the § 5.5.2.1 "*NULL" Null Message).
 
     Expected result:
     - unencrypted: contains "SIA-DCS" token (no asterisk)
-    - encrypted: contains "*SIA-DCS" token (with asterisk)
+    - encrypted: contains "*NULL" token with seq 0000
     - Both frames have valid structure
     """
     unencrypted = builder.make_supervision_message(
@@ -1606,7 +1610,8 @@ def test_null_message_encrypted_flag(builder):
     )
     encrypted = builder.make_supervision_message(
         "001234",
-        encryption=True
+        encryption=True,
+        encryption_key=_TEST_KEY,
     )
     # Assert: Unencrypted uses unencrypted token
     assert b'"SIA-DCS"' in unencrypted, \
@@ -1614,9 +1619,9 @@ def test_null_message_encrypted_flag(builder):
     # Assert: Unencrypted does NOT use encrypted token
     assert b'"*SIA-DCS"' not in unencrypted, \
         "Unencrypted should not contain \"*SIA-DCS\""
-    # Assert: Encrypted uses encrypted token
-    assert b'"*SIA-DCS"' in encrypted, \
-        "Encrypted should contain \"*SIA-DCS\""
+    # Assert: Encrypted uses the Null Message token with seq 0000
+    assert b'"*NULL"0000' in encrypted, \
+        "Encrypted should contain \"*NULL\"0000"
     # Assert: Encrypted does NOT use unencrypted variant
     assert b'"SIA-DCS"0' not in encrypted, \
         "Encrypted should not contain unencrypted variant"

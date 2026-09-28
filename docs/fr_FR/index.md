@@ -233,10 +233,11 @@ En plus, une tâche Jeedom vérifie toutes les 5 minutes que le démon répond e
 
 ## Limitations connues
 
-- **Chiffrement** : dans cette version de test, cocher « Chiffrement activé » marque les trames de supervision comme chiffrées, mais **le contenu n'est pas réellement chiffré en AES**, et les **trames d'alarme partent toujours en clair**. Une centrale qui exige le chiffrement refusera donc probablement les alarmes. Le fonctionnement validé en conditions réelles est **TCP, sans chiffrement**. Renseignez-vous auprès de votre centrale avant d'activer cette option.
+- **Chiffrement** : le chiffrement AES est implémenté selon la norme DC-09-2021 (§ 5.4) et vérifié sur des trames chiffrées de vraies centrales d'alarme, mais il n'a **pas encore été validé avec un vrai récepteur**. Le fonctionnement validé en conditions réelles reste **TCP, sans chiffrement**. Renseignez-vous auprès de votre centrale avant d'activer cette option.
+- **Clé AES** : elle se saisit en **hexadécimal**, 32, 48 ou 64 caractères (128, 192 ou 256 bits). Certaines centrales utilisent directement les caractères d'un texte comme clé : cette forme n'est pas encore prise en charge. Avec une clé absente ou invalide, le démon refuse de démarrer ; s'il tourne déjà, il continue de fonctionner mais n'envoie plus rien (jamais de repli en clair).
 - **Un seul récepteur**, pas de récepteur de secours.
 - **UDP** n'a été testé qu'avec un simulateur, pas avec un récepteur réel.
-- Les alarmes sont retentées **4 fois** (valeur fixe) ; le champ « Tentatives » ne concerne que les reconnexions TCP. Une alarme refusée (NAK) n'est pas retentée.
+- Les alarmes sont retentées **4 fois** (valeur fixe) ; le champ « Tentatives » ne concerne que les reconnexions TCP. Une alarme refusée (NAK) est renvoyée immédiatement avec un horodatage mis à jour, dans la limite de ces 4 tentatives.
 - **Incendie / panique** : pas de code d'annulation spécifique ; pas de code de retour à la normale (restauration) d'intrusion.
 - Un changement de mode de l'alarme **sans désarmer** n'est pas signalé comme tel (seule l'annulation BC l'est).
 - Un **seul numéro utilisateur** SIA pour tout le foyer.

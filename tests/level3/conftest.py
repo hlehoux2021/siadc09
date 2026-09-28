@@ -11,6 +11,7 @@ import socket
 from contextlib import suppress
 from unittest.mock import AsyncMock
 
+from jeedomdaemon import BaseConfig
 import pytest
 import pytest_asyncio
 
@@ -189,20 +190,20 @@ def make_e2e_daemon(
         encryption_enabled=encryption_enabled,
     )
 
+    # Story 1-5: the key goes through the real config path (hex, parsed by parse_hex_key),
+    # built like siadc09d.py does in production
+    config: BaseConfig | None = None
+    if encryption_enabled:
+        config = BaseConfig()
+        config.add_argument("--encryption-key", type=str, default="")
+        config.parse(["--encryption-key", E2E_ENCRYPTION_KEY.hex().upper()])
     with patch("sys.argv", ["test"]):
-        daemon = SIADaemon(preset=preset)
+        daemon = SIADaemon(preset=preset, config=config)
 
     # Wire account fields (not set from preset automatically)
     daemon._account = E2E_ACCOUNT
     daemon._account_prefix = "L0"
     daemon._receiver_prefix = ""
-
-    # Wire encryption key if enabled
-    if encryption_enabled:
-        daemon._encryption_key = E2E_ENCRYPTION_KEY
-        from resources.siadc09d.sia_protocol import SIAMessageBuilder
-        daemon._sia_builder = SIAMessageBuilder(crc_format=preset.crc_format)
-        daemon._sia_builder._encryption_key = E2E_ENCRYPTION_KEY
 
     # Mock send_to_jeedom (no PHP)
     daemon.send_to_jeedom = AsyncMock()

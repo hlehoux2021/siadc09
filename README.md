@@ -29,10 +29,11 @@ siaDC09 turns a Jeedom box into an alarm transmitter. When the official Jeedom *
 
 ## Known Limitations
 
-- **Encryption is not implemented yet.** Enabling it only adds the `*` marker to supervision frames — their body stays plaintext — and alarm frames are always sent unencrypted. A receiver that requires AES will most likely reject them. The field-validated configuration is **TCP, unencrypted, hex CRC**.
+- **Encryption** is implemented to DC-09-2021 § 5.4 (AES-CBC, 128/192/256-bit keys) and checked against encrypted frames from real panels, but it is **not yet validated against a real receiver**. The field-validated configuration is still **TCP, unencrypted, hex CRC**.
+- The AES key is entered as **hex**: 32, 48 or 64 hex digits (128, 192 or 256 bits). Some panels use the ASCII bytes of a key text instead; that form is not supported yet.
 - **UDP** has only been exercised against the bundled CSR simulator, not against a real receiver.
 - One receiver (no backup receiver), one equipment, one SIA user number.
-- Alarm retries are fixed (4 attempts); the "Retries" setting only applies to TCP reconnection. An alarm NAK is not retried.
+- Alarm retries are fixed (4 attempts); the "Retries" setting only applies to TCP reconnection. A NAK is answered by an immediate re-send with an updated timestamp, within those 4 attempts.
 - No restore codes (BR) and no fire/panic-specific cancel codes yet.
 - Configuration changes require a daemon restart; the first supervision frame is sent one interval after start.
 - Daemon and notification messages are French only (`messages.py`; gettext is planned).

@@ -30,9 +30,12 @@ from resources.siadc09d.messages import (
     SM1_NO_NETWORK_FR,
     SM1_TCP_RECONNECTING_FR,
 )
-from resources.siadc09d.sia_protocol import SIATransportError
+from resources.siadc09d.sia_protocol import SIAMessageBuilder, SIATransportError
 from resources.siadc09d.sia_transport import TransportType
 from tests.conftest import make_daemon_preset
+
+# A real NULL frame: _send_supervision reads its seq header (story 1-5 AC4)
+_NULL_FRAME: bytes = SIAMessageBuilder("SIA").make_supervision_message("1234")
 
 
 # ===== FIXTURES =====
@@ -678,7 +681,7 @@ async def test_send_supervision_transport_error_treated_as_timeout():
     daemon._strike_counter = 0
     daemon._update_info_commands = AsyncMock()
     daemon._sia_builder = MagicMock()
-    daemon._sia_builder.make_supervision_message = MagicMock(return_value=b"\x00\x01")
+    daemon._sia_builder.make_supervision_message = MagicMock(return_value=_NULL_FRAME)
     daemon._send_raw = AsyncMock(side_effect=SIATransportError("UDP socket error"))
 
     await daemon._send_supervision()
@@ -706,7 +709,7 @@ async def test_send_supervision_ack_calls_update_info_commands():
     daemon._strike_counter = 0
     daemon._update_info_commands = AsyncMock()
     daemon._sia_builder = MagicMock()
-    daemon._sia_builder.make_supervision_message = MagicMock(return_value=b"\x00\x01")
+    daemon._sia_builder.make_supervision_message = MagicMock(return_value=_NULL_FRAME)
     daemon._send_raw = AsyncMock(return_value={"status": "ack", "raw_nak": None})
 
     await daemon._send_supervision()
@@ -730,7 +733,7 @@ async def test_send_supervision_timeout_calls_update_info_commands():
     daemon._strike_counter = 0
     daemon._update_info_commands = AsyncMock()
     daemon._sia_builder = MagicMock()
-    daemon._sia_builder.make_supervision_message = MagicMock(return_value=b"\x00\x01")
+    daemon._sia_builder.make_supervision_message = MagicMock(return_value=_NULL_FRAME)
     daemon._send_raw = AsyncMock(return_value={"status": "timeout", "raw_nak": None})
 
     await daemon._send_supervision()
@@ -1262,7 +1265,7 @@ async def test_send_supervision_cancelled_error_propagates():
     daemon._strike_counter = 0
     daemon._update_info_commands = AsyncMock()
     daemon._sia_builder = MagicMock()
-    daemon._sia_builder.make_supervision_message = MagicMock(return_value=b"\x00\x01")
+    daemon._sia_builder.make_supervision_message = MagicMock(return_value=_NULL_FRAME)
     daemon._send_raw = AsyncMock(side_effect=asyncio.CancelledError())
 
     # Assert: CancelledError propagates
@@ -1473,7 +1476,7 @@ async def test_send_supervision_transport_none_raises_transport_error():
     daemon._sia_transport = None
     daemon._update_info_commands = AsyncMock()
     daemon._sia_builder = MagicMock()
-    daemon._sia_builder.make_supervision_message = MagicMock(return_value=b"\x00\x01")
+    daemon._sia_builder.make_supervision_message = MagicMock(return_value=_NULL_FRAME)
 
     await daemon._send_supervision()
 

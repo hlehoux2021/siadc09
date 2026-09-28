@@ -25,6 +25,7 @@ from typing import Optional
 from resources.siadc09d.daemon import SIADaemon, SM2State, SM2LogCtx, EventItem
 from resources.siadc09d.error_handler import ErrorCode
 from resources.siadc09d.ring_buffer import RingBuffer
+from resources.siadc09d.sia_protocol import parse_frame_header
 
 
 # ===== SHARED FIXTURE =====
@@ -155,24 +156,35 @@ class TestRetryMechanics:
         assert daemon._send_raw.call_count == 3
 
     @pytest.mark.asyncio
-    async def test_nak_stops_retry_immediately(self, daemon):
-        """Test: NAK response stops retries immediately — no retry loop for NAK.
+    async def test_nak_retries_immediately_until_budget_exhausted(self, daemon):
+        """Test: a NAK is repeated immediately, within the retry budget (§ 5.6.1.2).
 
-        Per design: NAK (parseable or not) always → FAILED immediately in v1.0.
-        The retry loop is NOT used for NAK (only for timeout).
+        Story 1-5 AC4: NAK → immediate re-send with an updated timestamp, same
+        sequence (§ 5.5.1.5). An unparseable NAK falls back to the current UTC time.
 
         Expected result:
-        - _send_raw called exactly once despite high max_retries
-        - Final state is FAILED
+        - _send_raw called max_retries + 1 times
+        - asyncio.sleep never awaited (no back-off between NAK re-sends)
+        - Every attempt carries the same wire seq
+        - Final state is FAILED with reason 'nak'
         """
         event = EventItem(sia_code="BA", zone="Salon", timestamp="12:30:45,04-13-2026")
         daemon._send_raw = AsyncMock(return_value=SIATransportResult(status="nak", raw_nak=b"bad"))
 
-        await daemon._send_with_retry(event, max_retries=5)
+        with patch('asyncio.sleep') as mock_sleep:
+            await daemon._send_with_retry(event, max_retries=5)
 
-        # Assert: only 1 call — NAK exits immediately
-        assert daemon._send_raw.call_count == 1
+        seqs = {parse_frame_header(c.args[0])[1] for c in daemon._send_raw.call_args_list}
+        # Assert: initial attempt + 5 immediate NAK re-sends
+        assert daemon._send_raw.call_count == 6
+        # Assert: no sleep between NAK re-sends
+        mock_sleep.assert_not_called()
+        # Assert: one wire seq shared by every attempt
+        assert len(seqs) == 1
+        # Assert: budget exhausted → FAILED
         assert daemon._sm2_state == SM2State.FAILED
+        # Assert: failure attributed to the NAK
+        assert daemon._event_failure_reason == "nak"
 
     @pytest.mark.asyncio
     async def test_max_retries_zero_single_attempt_on_timeout(self, daemon):
@@ -310,22 +322,23 @@ class TestSequenceNumberBehavior:
 
     @pytest.mark.asyncio
     async def test_seq_wraps_at_9999(self, daemon):
-        """Test: Sequence number wraps from 9999 → 0 (modulo 10000).
+        """Test: the event sequence wraps from 9999 → 0001 (§ 5.5.1.5).
 
-        Per SIA DC-09 § 5.5.1.5: 'When the sequence number is 9999, the next
-        sequence number is 0001.' Our impl uses modulo 10000 (0000→0001→...→9999→0000).
+        Story 1-5 AC4: _sia_seq is taken from the built frame, so it follows the
+        SequenceTracker wrap rule ('When the sequence number is 9999, the next
+        sequence number is 0001').
 
         Expected result:
-        - Starting at sia_seq=9999, after one send: sia_seq == 0
+        - Tracker at 9999, after one send: sia_seq == 1
         """
-        daemon._sia_seq = 9999
+        daemon._sia_builder._sequence_tracker._seq_map[daemon._account] = 9999
         daemon._send_raw = AsyncMock(return_value=SIATransportResult(status="ack", raw_nak=None))
 
         event = EventItem(sia_code="BA", zone="Salon", timestamp="12:30:45,04-13-2026")
         await daemon._send_with_retry(event, max_retries=1)
 
-        # Assert: Wrapped to 0 (modulo 10000 wraps 9999+1=10000 → 0)
-        assert daemon._sia_seq == 0
+        # Assert: wrapped to 0001, never 0000
+        assert daemon._sia_seq == 1
 
     @pytest.mark.asyncio
     async def test_seq_does_not_increment_on_retry(self, daemon):
@@ -334,8 +347,8 @@ class TestSequenceNumberBehavior:
         SIA DC-09 § 5.5.1.5 states: 'The PE shall NOT increment the sequence number
         when repeating a message due to a communication failure or no response from a CSR.'
 
-        Fixed: _sia_seq is now incremented ONCE in _send_with_retry before the loop.
-        All retry attempts reuse the same sequence number.
+        Story 1-5 AC4: the first attempt draws the wire seq; retries reuse it,
+        and _sia_seq mirrors the wire seq.
 
         Expected result:
         - 2 timeouts + 1 ACK → seq increments exactly ONCE (for the new event)

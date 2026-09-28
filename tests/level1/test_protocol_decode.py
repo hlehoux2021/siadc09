@@ -10,8 +10,11 @@ Reference: _bmad-output/implementation-artifacts/9-2-protocol-inspector-hex-view
 
 import dataclasses
 import json
+import os
+import re
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -22,9 +25,13 @@ from resources.siadc09d.sia_protocol import (
     ParsedMessage,
     decode,
 )
+from tests.level1._dc09_crypto_oracle import EXPECTED_CONTENT, crc16_arc, vector
 
 _PROJECT_ROOT = Path(__file__).parent.parent.parent
 _SIA_PROTOCOL_SCRIPT = _PROJECT_ROOT / "resources/siadc09d/sia_protocol.py"
+
+_KEY_128 = bytes.fromhex("0123456789ABCDEF0123456789ABCDEF")
+_TS = datetime(2026, 9, 27, 12, 0, 0, tzinfo=timezone.utc)
 
 # ── Golden frame constants ───────────────────────────────────────────────────
 
@@ -174,45 +181,169 @@ class TestDecodeKnownGoodFrame:
 
 
 class TestDecodeEncryptedFrame:
-    """Verify decode() handles encrypted frame with valid key."""
+    """decode() on DC-09 encrypted frames (story 1-5 AC7, § 5.4.3)."""
 
     def test_encrypted_frame_without_key_sets_encrypted_true(self) -> None:
         """
         decode() without a key on an encrypted frame must still set encrypted=True.
 
         Expected result:
-        - encrypted is True, data_decrypted is None
+        - encrypted is True, data_decrypted is None, no decrypt_error
+        - data_raw is the wire hex (no ']' after it)
         """
-        builder = SIAMessageBuilder(crc_format="SIA")
-        # encode_message with encryption=True produces a *SIA-DCS token
-        frame = builder.encode_message(
-            account_number="1234",
-            event_code="0000",
-            encryption=True,
-        )
+        frame = SIAMessageBuilder(crc_format="SIA").encode_message(
+            account_number="1234", event_code="BA", encryption=True, encryption_key=_KEY_128)
         result = decode(frame.hex())
         # Assert: encrypted marker detected even without key
         assert result.encrypted is True
-        # Assert: no key provided → no decrypted output
-        assert result.data_decrypted is None
+        # Assert: no key provided → no decrypted output and no error
+        assert result.data_decrypted is None and result.decrypt_error is None
+        # Assert: data_raw carries the ciphertext hex up to the end of the message
+        assert re.fullmatch(r"[0-9A-F]+", result.data_raw) and len(result.data_raw) % 32 == 0
+
+    def test_encrypted_frame_with_key_decrypts_region(self) -> None:
+        """
+        decode() with the key returns the region content and the plaintext timestamp.
+
+        Expected result:
+        - data_decrypted == '#1234|BA 001][Vhttp://c/s]_12:00:00,09-27-2026'
+        - timestamp_str parsed from the plaintext
+        - key and pad never appear in the result
+        """
+        builder = SIAMessageBuilder(crc_format="SIA", pad_source=lambda n: b"p" * n)
+        frame = builder.encode_message(
+            "1234", "BA", extended_data={"zone": "001", "media_url": "http://c/s"},
+            timestamp=_TS, encryption=True, encryption_key=_KEY_128)
+        result = decode(frame.hex(), key=_KEY_128)
+        # Assert: decrypted region content, pad and '|' stripped
+        assert result.data_decrypted == "#1234|BA 001][Vhttp://c/s]_12:00:00,09-27-2026"
+        # Assert: timestamp comes from the plaintext
+        assert result.timestamp_str == "12:00:00,09-27-2026"
+        # Assert: CRC and length valid on the wire form
+        assert result.crc_valid and result.length_declared == result.length_actual
+        dumped = json.dumps(dataclasses.asdict(result))
+        # Assert: neither key nor pad leaks into the output
+        assert _KEY_128.hex().upper() not in dumped.upper() and "pppp" not in dumped
+
+    def test_encrypted_null_decodes(self) -> None:
+        """
+        An encrypted *NULL decodes to id_token NULL, sequence 0, content ']_ts'.
+
+        Expected result:
+        - id_token 'NULL', encrypted True, sequence 0
+        - data_decrypted ']_12:00:00,09-27-2026'
+        """
+        frame = SIAMessageBuilder(crc_format="SIA").make_supervision_message(
+            "1234", encryption=True, encryption_key=_KEY_128, timestamp=_TS)
+        result = decode(frame.hex(), key=_KEY_128)
+        # Assert: Null Message header
+        assert (result.id_token, result.encrypted, result.sequence) == ("NULL", True, 0)
+        # Assert: region content
+        assert result.data_decrypted == "]_12:00:00,09-27-2026"
 
     def test_encrypted_frame_with_wrong_key_data_decrypted_none(self) -> None:
         """
-        decode() with incorrect key must return data_decrypted=None (no crash).
+        decode() with an incorrect key returns data_decrypted=None and a clean error (no crash).
 
         Expected result:
-        - data_decrypted is None when decryption fails
+        - data_decrypted is None
+        - decrypt_error explains the failure without the key
         """
-        builder = SIAMessageBuilder(crc_format="SIA")
-        frame = builder.encode_message(
-            account_number="1234",
-            event_code="0000",
-            encryption=True,
-        )
+        builder = SIAMessageBuilder(crc_format="SIA", pad_source=lambda n: b"p" * n)
+        frame = builder.encode_message("1234", "BA", timestamp=_TS, encryption=True, encryption_key=_KEY_128)
         wrong_key = b"\x00" * 16
         result = decode(frame.hex(), key=wrong_key)
         # Assert: failed decryption yields None, not an exception
         assert result.data_decrypted is None
+        # Assert: a clean, key-free error message is reported
+        assert result.decrypt_error and wrong_key.hex() not in result.decrypt_error
+
+    def test_bad_key_size_is_a_clean_error(self) -> None:
+        """
+        A key of an unsupported size gives decrypt_error, not an AESKeyError traceback.
+
+        Expected result:
+        - data_decrypted None, decrypt_error set
+        """
+        frame = SIAMessageBuilder(crc_format="SIA").encode_message(
+            "1234", "BA", encryption=True, encryption_key=_KEY_128)
+        result = decode(frame.hex(), key=b"short")
+        # Assert: key problem reported cleanly
+        assert result.data_decrypted is None and result.decrypt_error
+
+    def test_bracketed_hex_still_accepted(self) -> None:
+        """
+        '[hex]' (spec § 5.4.7 example form, V5) is still parsed.
+
+        Expected result:
+        - V5 decrypts to its expected content
+        """
+        v5 = vector("V5_spec")
+        result = decode(_frame_hex(v5.frame_body), key=v5.key)
+        # Assert: trailing ']' tolerated
+        assert result.data_decrypted == EXPECTED_CONTENT["V5_spec"].decode()
+
+    @pytest.mark.parametrize("name", ["V1_ajax", "V2_ajax", "V4_dc09gen", "V5_spec", "V6_null_nopipe", "S1_swiss_null"])
+    def test_external_vectors_decode(self, name: str) -> None:
+        """
+        The decoder decrypts and parses every external event/NULL vector (AC9).
+
+        Expected result:
+        - encrypted True, data_decrypted equals the known content
+        - declared CRC/length (when quoted) equal the recomputed ones
+        """
+        v = vector(name)
+        result = decode(_frame_hex(v.frame_body), key=v.key)
+        # Assert: encrypted frame recognised
+        assert result.encrypted is True
+        # Assert: region content recovered
+        assert result.data_decrypted == EXPECTED_CONTENT[name].decode("windows-1252")
+        if v.crc is not None:
+            # Assert: real-panel CRC/length match our computation over the wire body
+            assert (f"{crc16_arc(v.frame_body.encode()):04X}", f"0{len(v.frame_body):03X}") == (v.crc, v.length)
+
+    def test_cli_decode_encrypted_with_env_key(self) -> None:
+        """
+        `sia_protocol.py --decode` with SIA_ENCRYPTION_KEY (hex) decrypts (PHP inspector path).
+
+        Expected result:
+        - exit 0, data_decrypted set, key absent from stdout
+        """
+        frame = SIAMessageBuilder(crc_format="SIA").encode_message(
+            "1234", "BA", timestamp=_TS, encryption=True, encryption_key=_KEY_128)
+        result = subprocess.run(
+            [sys.executable, str(_SIA_PROTOCOL_SCRIPT), "--decode", frame.hex()],
+            capture_output=True, text=True, env={**os.environ, "SIA_ENCRYPTION_KEY": _KEY_128.hex()},
+        )
+        # Assert: script-mode import works and decode succeeds
+        assert result.returncode == 0, result.stderr
+        data = json.loads(result.stdout)
+        # Assert: decrypted content returned
+        assert data["data_decrypted"] == "#1234|BA]_12:00:00,09-27-2026"
+        # Assert: key never echoed
+        assert _KEY_128.hex() not in result.stdout.lower()
+
+    def test_cli_decode_rejects_bad_env_key(self) -> None:
+        """
+        An invalid SIA_ENCRYPTION_KEY gives an error JSON without the key.
+
+        Expected result:
+        - exit 1, {'error': ...}, key text absent
+        """
+        result = subprocess.run(
+            [sys.executable, str(_SIA_PROTOCOL_SCRIPT), "--decode", _GOLDEN_HEX],
+            capture_output=True, text=True, env={**os.environ, "SIA_ENCRYPTION_KEY": "notakey123"},
+        )
+        # Assert: error exit
+        assert result.returncode == 1
+        # Assert: error JSON without the key
+        assert "error" in json.loads(result.stdout) and "notakey123" not in result.stdout
+
+
+def _frame_hex(body: str) -> str:
+    """Wrap a wire message into LF CRC LEN body CR (CRC recomputed) and return its hex."""
+    raw = body.encode("windows-1252")
+    return (b"\n" + f"{crc16_arc(raw):04X}0{len(raw):03X}".encode() + raw + b"\r").hex()
 
 
 # ── Task 8.3: corrupted CRC → crc_valid=False ────────────────────────────────

@@ -16,5 +16,7 @@ Version de pré-diffusion, destinée aux premiers testeurs. Ce n'est pas une ver
 - **Widget** Télésurveillance (supervision + dernière alarme) et **onglet Diagnostic** : dernières erreurs et inspecteur de protocole.
 - **Frigate** (optionnel) : capture forcée au déclenchement et lien photo/vidéo joint à l'alarme ; l'alarme n'attend jamais la photo.
 - Documentation utilisateur, administrateur et développeur ; traduction française complète de l'interface.
+- **Chiffrement AES** conforme à DC-09-2021 (§ 5.4) pour la supervision et les alarmes, clé de 128, 192 ou 256 bits saisie en hexadécimal. Une clé absente ou invalide bloque tout envoi (jamais d'envoi en clair). Pas encore validé avec un vrai récepteur.
+- Une trame refusée par la centrale (NAK) est renvoyée immédiatement avec un horodatage mis à jour.
 
-Limitations connues de cette version de test : voir la [documentation](index.md#limitations-connues), notamment : **chiffrement AES non effectif**, UDP testé uniquement avec un simulateur.
+Limitations connues de cette version de test : voir la [documentation](index.md#limitations-connues), notamment : **chiffrement AES pas encore validé avec un vrai récepteur**, UDP testé uniquement avec un simulateur.

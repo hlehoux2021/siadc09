@@ -31,7 +31,7 @@ This guide is the map, not the territory: it tells you where things are and how 
 | `resources/siadc09d/daemon.py` | `SIADaemon(BaseDaemon)`: `on_start/on_message/on_stop`, SM1 supervision loop, SM2 event queue and consumer, callbacks | [daemon-design.md](../internal-docs/design/daemon-design.md), [supervision-design.md](../internal-docs/design/supervision-design.md) |
 | `resources/siadc09d/sia_protocol.py` | Frame build/parse, CRC-16, timestamps, ACK/NAK/DUH decoding | [SIA DC-09 spec](../internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md) |
 | `resources/siadc09d/sia_transport.py` | UDP and TCP transports, TCP reconnection | [daemon-design.md](../internal-docs/design/daemon-design.md) |
-| `resources/siadc09d/sia_crypto.py` | `SIACipher` (AES-CBC) — **not wired into production yet**, see [gaps](#known-gaps-and-discrepancies) | — |
+| `resources/siadc09d/sia_crypto.py` | `SIACipher` (AES-CBC, § 5.4) and `parse_hex_key` — not yet validated against a real receiver, see [gaps](#known-gaps-and-discrepancies) | [daemon-design.md](../internal-docs/design/daemon-design.md) |
 | `resources/siadc09d/error_handler.py` | T1/T2/T3 classification, notification texts, error codes | [error-handler-design.md](../internal-docs/design/error-handler-design.md) |
 | `resources/siadc09d/frigate_prefetch.py` | Forced Frigate event + best-event polling and ranking | ADR-17 in `architecture.md` |
 | `resources/siadc09d/messages.py` | French INFO/WARNING/ERROR log messages | [logging-design.md](../internal-docs/design/logging-design.md) |
@@ -132,9 +132,9 @@ Behaviour that differs from what the UI or the design docs suggest. IDs refer to
 
 | Area | Gap |
 |------|-----|
-| **Encryption** | `SIACipher` is never called in production and `_encryption_key` is unused. With encryption on, supervision frames get the `*` marker but a plaintext body (`daemon.py` ≈ 957, `siadc09d.py` ≈ 287); event frames are always built with `encryption=False` (`daemon.py` ≈ 1765). |
+| **Encryption** | Implemented to DC-09-2021 § 5.4 (story 1-5): `*NULL` supervision and `*SIA-DCS` events, AES-CBC zero IV, 16/24/32-byte keys given as hex. Checked against real-panel encrypted frames and an independent oracle, **not yet validated against a real receiver** (D-81). ASCII-bytes keys are not supported (D-93). |
 | CRC format | `crc_format = bin` is accepted but ignored on send: the daemon always emits ASCII hex CRC. |
-| Retries | Alarm retries are fixed (`MAX_RETRY_DEFAULT = 3`, i.e. 4 attempts, 10 s timeout, 1 s apart); `retry_count` only drives TCP reconnection. An alarm NAK is not retried. |
+| Retries | Alarm retries are fixed (`MAX_RETRY_DEFAULT = 3`, i.e. 4 attempts, 10 s timeout, 1 s apart); `retry_count` only drives TCP reconnection. A NAK triggers an immediate re-send with the same seq and an updated timestamp (§ 5.6.1.2), counted in the same budget; a NULL NAK gets up to 2 re-sends before a strike. |
 | Missing UI | `crc_format`, `receiver_prefix`, `account_prefix`, `socketport` have no field. |
 | Daemon lifecycle | Config changes need a restart (D-40); first supervision after one interval (D-42). The "stop daemon" confirmation dialogs do not actually stop it. |
 | Event label | Single last-event slot (D-67). |

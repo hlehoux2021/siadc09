@@ -146,7 +146,8 @@ Two numbers must move together before every Market publish:
 
 ## Security notes
 
-- **Encryption is not effective yet.** `encryption_enabled` only adds the `*` marker to supervision frames; their body is plaintext and alarm frames are always sent unencrypted. Do not rely on it for confidentiality, and check with the monitoring centre before enabling it — a receiver that requires AES will likely reject the frames.
+- **Encryption is not yet validated against a real receiver.** With `encryption_enabled`, supervision (`*NULL`) and alarm (`*SIA-DCS`) frames are AES-CBC encrypted per DC-09-2021 § 5.4, and the implementation is checked against encrypted frames from real panels. Check with the monitoring centre before enabling it.
+- **Key format.** `encryption_key` must be 32, 48 or 64 **hex** digits (AES-128/192/256). With encryption on and a missing or malformed key, the daemon refuses to start, and a daemon already running sends nothing (no plaintext fallback). The ASCII-bytes key form some panels use is not supported yet.
 - **AES key storage.** `encryption_key` is stored **unencrypted** in the equipment configuration (it is not declared in `$_encryptConfigKey`), so it is included in clear in every Jeedom backup. It is also passed on the daemon's **command line** (`--encryption-key`), so any local user who can list processes on the box can read it. It is redacted from the Jeedom log.
 - **Frigate URL.** Only literal placeholders (`<user>`, `<pass>`, `<token>`) may be stored. The monitoring centre substitutes the real credentials on its side. Never put a real password in `frigate_media_url_template`: it travels in every alarm frame.
 - **Callback authentication.** `jeesiaDC09.php` accepts only requests carrying the plugin API key; the IPC socket listens on `127.0.0.1` only.

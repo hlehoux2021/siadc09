@@ -34,7 +34,7 @@ import itertools
 import logging
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Coroutine, Final, Iterator, Literal, TypedDict, cast
 
@@ -42,6 +42,7 @@ from jeedomdaemon import BaseDaemon, BaseConfig
 
 from .error_handler import (
     BadCSRResponseCtx,
+    EVENT_FAILED_ENCRYPTION_KEY,
     ErrorCode,
     EventFailedCtx,
     NotificationContext,
@@ -55,26 +56,29 @@ from .error_handler import (
 from . import DAEMON_VERSION
 from .messages import (
     DAEMON_VERSION_INFO,
+    ENCRYPTION_KEY_INVALID,
+    ENCRYPTION_KEY_INVALID_TITLE,
     SM1_DEGRADED_1_2_FR,
     SM1_DEGRADED_3_FR,
     SM1_HEALTHY_FR,
     SM1_INITIALIZING_FR,
     SM1_TCP_RECONNECTING_FR,
     SM1_NO_NETWORK_FR,
+    SM1_CONFIG_ERROR_FR,
 )
 from .frigate_prefetch import PrefetchResult, prefetch_alarm_media
 from .ring_buffer import RingBuffer, make_message_entry
 from .sia_protocol import (
-    ENCRYPTED_MARKER,
     NULL_TOKEN,
     SIA_DCS_TOKEN,
     SIAMessageBuilder,
     SIAProtocolError,
     SIATransportError,
     TIMESTAMP_FORMAT,
+    parse_frame_header,
     parse_nak_timestamp,
 )
-from .sia_crypto import AESEncryptionError
+from .sia_crypto import AESEncryptionError, AESKeyError, parse_hex_key
 from .presets import CSRPreset
 from .sia_transport import (
     CrcFormat, SIABaseTransport, SIAUDPTransport, SIATCPTransport,
@@ -91,6 +95,7 @@ class SM1State(Enum):
     DEGRADED = "DEGRADED"            # Timeouts/NAKs received (strike=1-3)
     TCP_RECONNECTING = "TCP_RECONNECTING"  # TCP half-open stall, reconnect loop active
     NO_NETWORK = "NO_NETWORK"        # Permanent TCP failure (terminal)
+    CONFIG_ERROR = "CONFIG_ERROR"    # Encryption on, key invalid: nothing is sent (story 1-5 AC3)
 
 
 class SM1AckLogCtx(TypedDict):
@@ -198,6 +203,12 @@ RECONNECT_BACKOFF_FACTORS: Final[tuple[float, ...]] = (1.0, 2.0, 4.0, 10.0, 10.0
 RECONNECT_BACKOFF_CAP_S: Final[float] = 300.0  # Ceiling for any single reconnect attempt's delay
 STRIKE_CAP = 3  # Strike counter capped at 3
 SIA_SEQ_MAX: Final[int] = 10000  # Sequence wraps 9999 → 0000 (SIA DC-09 § 5.5.1.5)
+# Story 1-5 AC4 (§ 5.6.1.2): immediate re-sends of a NAKed supervision frame before a strike.
+SUPERVISION_NAK_RESENDS: Final[int] = 2
+# A NAK timestamp further than this from local UTC is ignored (unauthenticated, § 5.5.3.2).
+NAK_TIMESTAMP_SANITY: Final[timedelta] = timedelta(hours=24)
+# message_center logical_id of the invalid-key notification (story 1-5 AC3).
+ENCRYPTION_KEY_LOGICAL_ID: Final[str] = "encryption_key"
 
 
 def _reconnect_backoff_delay_s(base_delay_s: float, attempt_index: int) -> float:
@@ -436,7 +447,8 @@ class SIADaemon(BaseDaemon):
         # Why FAILED was reached, for _event_label_from_sm2()'s wording split:
         # 'nak' = the CSR explicitly rejected the event; 'no_response' = no answer at
         # all (timeout/transport/protocol error/loop exhaustion) despite retries.
-        self._event_failure_reason: Literal["nak", "no_response"] | None = None
+        # 'config' = never sent: encryption is on but the key is invalid (story 1-5 AC3).
+        self._event_failure_reason: Literal["nak", "no_response", "config"] | None = None
 
         # Configuration — populated from preset and CLI config
         # Fix #5: account must come from preset (was empty string, causing frame build failures)
@@ -444,8 +456,18 @@ class SIADaemon(BaseDaemon):
         self._receiver_prefix: str = getattr(config, "receiver_prefix", "") or ""
         # Fix #6: empty prefix fails SIA validation; "L0" is the protocol default
         self._account_prefix: str = getattr(config, "account_prefix", "") or "L0"
+        # Story 1-5 AC3: the key is 32/48/64 hex digits, decoded once. An invalid
+        # key leaves b"" — with encryption on, _encryption_config_error() then
+        # blocks every send (never a plaintext fallback). The key is never logged.
         _enc_key_str: str = getattr(config, "encryption_key", "") or ""
-        self._encryption_key: bytes = _enc_key_str.encode() if _enc_key_str else b""
+        self._encryption_key: bytes = b""
+        _enc_key_error: str | None = None
+        try:
+            self._encryption_key = parse_hex_key(_enc_key_str)
+        except AESKeyError as e:
+            _enc_key_error = str(e)  # parse_hex_key messages never contain the key
+        # Set once the CONFIG_ERROR notification went out (sent once per daemon run).
+        self._encryption_config_notified: bool = False
         self._sia_transport: SIABaseTransport | None = None  # Active transport; None before on_start()
 
         # State & data
@@ -456,6 +478,8 @@ class SIADaemon(BaseDaemon):
         self._ring_buffer: RingBuffer = RingBuffer()
         self._tasks: set[asyncio.Task] = set()
         self._logger = logging.getLogger(__name__)
+        if preset.encryption_enabled and _enc_key_error is not None:
+            self._logger.error(f"Encryption enabled but key rejected: {_enc_key_error} — nothing will be sent")
 
         # Queue coordination (Story 5-3): PriorityQueue + monotonic counter.
         # 4-tuple items: (priority: int, counter: int, item_type: QueueItemType, payload: QueuePayload)
@@ -782,6 +806,8 @@ class SIADaemon(BaseDaemon):
             - PENDING → "{Type} (zone {zone}) : En cours"
             - CONFIRMED → "{Type} (zone {zone}) : Confirmée par la centrale"
             - FAILED, reason='nak' → "{Type} (zone {zone}) : Refusé par la centrale"
+            - FAILED, reason='config' → "{Type} (zone {zone}) : Non transmise — clé de
+              chiffrement invalide" (story 1-5 AC3: nothing was sent)
             - FAILED, reason='no_response' (or unset) → "{Type} (zone {zone}) : Sans
               réponse de la centrale"
 
@@ -803,6 +829,8 @@ class SIADaemon(BaseDaemon):
         elif self._sm2_state == SM2State.FAILED:
             if self._event_failure_reason == "nak":
                 return f"{self._event_context_prefix()} : Refusé par la centrale"
+            if self._event_failure_reason == "config":
+                return f"{self._event_context_prefix()} : Non transmise — clé de chiffrement invalide"
             return f"{self._event_context_prefix()} : Sans réponse de la centrale"
         else:
             # Defensive: should not reach here
@@ -821,6 +849,7 @@ class SIADaemon(BaseDaemon):
             - DEGRADED(strike 3) → 0 (critical, requires attention)
             - TCP_RECONNECTING → 0 (connection broken)
             - NO_NETWORK → 0 (permanent failure, terminal)
+            - CONFIG_ERROR → 0 (invalid encryption key, nothing sent)
 
         Reference: supervision-design.md SM1 state → INFO command mapping
         """
@@ -832,7 +861,7 @@ class SIADaemon(BaseDaemon):
             # DEGRADED with strike=3 is critical (0), strike 1-2 is impaired (1)
             return 0 if self._strike_counter >= 3 else 1
         else:
-            # TCP_RECONNECTING, NO_NETWORK → 0 (problem)
+            # TCP_RECONNECTING, NO_NETWORK, CONFIG_ERROR → 0 (problem)
             return 0
 
     def _supervision_label(self) -> str:
@@ -848,6 +877,7 @@ class SIADaemon(BaseDaemon):
             - DEGRADED(strike 3) → "Connexion perdue" (lost)
             - TCP_RECONNECTING → "Tentative de reconnexion en cours" (reconnecting)
             - NO_NETWORK → "Hors Réseau" (network unavailable, terminal)
+            - CONFIG_ERROR → "Clé de chiffrement invalide" (story 1-5 AC3)
 
         Note: HEALTHY label is static "Connexion OK" (not time-varying) to avoid DB writes on every ACK.
         The last-ACK timestamp is available via supervision_state.collectDate for display.
@@ -866,6 +896,8 @@ class SIADaemon(BaseDaemon):
                 return SM1_DEGRADED_1_2_FR.format(self._strike_counter)
         elif self._sm1_state == SM1State.TCP_RECONNECTING:
             return SM1_TCP_RECONNECTING_FR  # "Tentative de reconnexion en cours"
+        elif self._sm1_state == SM1State.CONFIG_ERROR:
+            return SM1_CONFIG_ERROR_FR  # "Clé de chiffrement invalide"
         else:  # NO_NETWORK
             return SM1_NO_NETWORK_FR  # "Hors Réseau"
 
@@ -923,6 +955,98 @@ class SIADaemon(BaseDaemon):
 
         return t3_just_fired
 
+    def _encryption_config_error(self) -> bool:
+        """Return True when encryption is enabled but no valid key was configured.
+
+        Story 1-5 AC3: in that state nothing is sent — never a plaintext fallback.
+        """
+        return bool(self._preset.encryption_enabled) and not self._encryption_key
+
+    async def _enter_encryption_config_error(self) -> None:
+        """Set SM1 CONFIG_ERROR and notify the user once per daemon run.
+
+        ErrorCode admits no new code without design review, so the T2-style
+        message_center + notify callbacks are sent directly. The key never appears.
+
+        Reference: story 1-5 AC3
+        """
+        self._set_sm1_state(SM1State.CONFIG_ERROR)
+        if self._encryption_config_notified:
+            return
+        self._encryption_config_notified = True
+        self._logger.error(ENCRYPTION_KEY_INVALID)
+        self._ring_buffer.push_supervision_entry(
+            level="error",
+            message=ENCRYPTION_KEY_INVALID,
+            context={"account": self._account},
+            is_routine=False,
+        )
+        try:
+            await self._send_callback({
+                "type": "message_center",
+                "message": ENCRYPTION_KEY_INVALID,
+                "logical_id": ENCRYPTION_KEY_LOGICAL_ID,
+            })
+            await self._send_callback({
+                "type": "notify",
+                "title": ENCRYPTION_KEY_INVALID_TITLE,
+                "message": ENCRYPTION_KEY_INVALID,
+            })
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            self._logger.error(f"Encryption key notification failed: {e!r}")
+
+    def _nak_offset(self, raw_nak: bytes | None) -> timedelta:
+        """Return the clock offset to apply on a NAK re-send (story 1-5 AC4 / D3).
+
+        The NAK is unauthenticated and never encrypted (§ 5.5.3.2), so its
+        timestamp is only trusted within NAK_TIMESTAMP_SANITY of local UTC.
+        Otherwise the current UTC time is used (offset 0) and a WARN is logged.
+
+        Args:
+            raw_nak: Raw NAK frame bytes, or None.
+
+        Returns:
+            ``nak_ts - now`` when sane, else ``timedelta(0)``.
+        """
+        now = datetime.now(timezone.utc)
+        try:
+            nak_ts = parse_nak_timestamp(raw_nak or b"")
+        except ValueError:
+            self._logger.warning("NAK without a usable timestamp — re-send with the current UTC time")
+            return timedelta(0)
+        offset = nak_ts - now
+        if abs(offset) > NAK_TIMESTAMP_SANITY:
+            self._logger.warning(
+                f"NAK timestamp {nak_ts.isoformat()} is more than 24 h from local UTC — "
+                f"ignored, re-send with the current UTC time"
+            )
+            return timedelta(0)
+        return offset
+
+    def _trace_header(self, default_token: str, default_seq: int | str) -> dict[str, str]:
+        """Return the ID token and sequence of the frame actually sent (story 1-5 AC7).
+
+        Falls back to the given defaults when no frame was sent or it cannot
+        be parsed, so a trace entry is never lost. ``sequence`` is always a
+        string, on both paths (review finding 2026-09-28: the fallback used
+        to leak the caller's `int` default, an inconsistent type for callers
+        of the JSON trace/notification payload).
+
+        Args:
+            default_token: ID token to report when the frame is unavailable.
+            default_seq: Sequence to report when the frame is unavailable.
+
+        Returns:
+            ``{"id_token": ..., "sequence": ...}`` — e.g. ``{"id_token": "*NULL", "sequence": "0000"}``.
+        """
+        id_token, seq = default_token, default_seq
+        if self._last_sent_frame:
+            try:
+                id_token, seq = parse_frame_header(self._last_sent_frame)
+            except SIAProtocolError:
+                pass  # keep the defaults
+        return {"id_token": id_token, "sequence": str(seq)}
+
     async def _send_supervision(self) -> None:
         """Send supervision NULL frame and handle ACK/NAK/timeout/tcp_drop response.
 
@@ -948,33 +1072,57 @@ class SIADaemon(BaseDaemon):
             - NAK with unparseable timestamp routed to BAD_CSR_RESPONSE (T2)
             - All strikes capped at 3 (never exceeds)
 
+        NAK retry (story 1-5 AC4, DC-09 § 5.6.1.2): a NAK is answered by up to
+        SUPERVISION_NAK_RESENDS immediate re-sends with an updated timestamp. Only
+        when every attempt is NAKed does the NAK reach _handle_supervision_nak()
+        (one strike).
+
         Reference: daemon-design.md Component 1, supervision-design.md ADR-11, Task B.2
         """
-        # Create SIA NULL supervision frame
-        try:
-            frame = self._sia_builder.make_supervision_message(
-                account_number=self._account,
-                account_prefix=self._account_prefix,
-                receiver_number=self._receiver_prefix if self._receiver_prefix else None,
-                encryption=self._preset.encryption_enabled,
-            )
-        except (SIAProtocolError, AESEncryptionError) as e:
-            self._logger.error(f"Failed to encode supervision NULL frame: {e}")
-            return
-
-        # Send frame and measure elapsed time
-        send_start = time.monotonic()
-        try:
-            result: SIATransportResult = await self._send_raw(frame)
-        except asyncio.CancelledError:
-            raise  # never swallow cancellation (daemon-design.md § CancelledError safety rule)
-        except SIATransportError as e:
-            self._logger.error(f"Transport error sending supervision: {e!r}")
-            await self._handle_supervision_timeout((time.monotonic() - send_start) * 1000)
+        if self._encryption_config_error():
+            await self._enter_encryption_config_error()
             await self._update_info_commands()
             return
 
-        elapsed_ms = (time.monotonic() - send_start) * 1000
+        nak_offset: timedelta | None = None
+        wire_seq: str | None = None  # re-sends keep the first attempt's seq (§ 5.5.1.5)
+        for attempt in range(SUPERVISION_NAK_RESENDS + 1):
+            # Create SIA NULL supervision frame
+            try:
+                frame = self._sia_builder.make_supervision_message(
+                    account_number=self._account,
+                    account_prefix=self._account_prefix,
+                    receiver_number=self._receiver_prefix if self._receiver_prefix else None,
+                    encryption=self._preset.encryption_enabled,
+                    encryption_key=self._encryption_key or None,
+                    timestamp=None if nak_offset is None else datetime.now(timezone.utc) + nak_offset,
+                    seq=wire_seq,
+                )
+                wire_seq = parse_frame_header(frame)[1]
+            except (SIAProtocolError, AESEncryptionError, AESKeyError) as e:
+                self._logger.error(f"Failed to encode supervision NULL frame: {e}")
+                return
+
+            # Send frame and measure elapsed time
+            send_start = time.monotonic()
+            try:
+                result: SIATransportResult = await self._send_raw(frame)
+            except asyncio.CancelledError:
+                raise  # never swallow cancellation (daemon-design.md § CancelledError safety rule)
+            except SIATransportError as e:
+                self._logger.error(f"Transport error sending supervision: {e!r}")
+                await self._handle_supervision_timeout((time.monotonic() - send_start) * 1000)
+                await self._update_info_commands()
+                return
+
+            elapsed_ms = (time.monotonic() - send_start) * 1000
+            if result['status'] != "nak" or attempt == SUPERVISION_NAK_RESENDS:
+                break
+            nak_offset = self._nak_offset(result['raw_nak'])
+            self._logger.info(
+                f"NAK supervision — renvoi immédiat avec horodatage mis à jour "
+                f"({attempt + 1}/{SUPERVISION_NAK_RESENDS})"
+            )
 
         # Route response to appropriate handler
         status: Literal['ack', 'nak', 'timeout', 'tcp_drop'] = result['status']
@@ -1324,8 +1472,7 @@ class SIADaemon(BaseDaemon):
                         "routine": 1,
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                         "elapsed_ms": int(ack_ctx["elapsed_ms"]),
-                        "id_token": f"{ENCRYPTED_MARKER}{NULL_TOKEN}" if self._preset.encryption_enabled else NULL_TOKEN,
-                        "sequence": ack_ctx["seq"],
+                        **self._trace_header(NULL_TOKEN, ack_ctx["seq"]),
                         "account": self._account,
                         "request_hex": self._last_sent_frame.hex() if self._last_sent_frame else "",
                         "response_hex": ack_ctx["raw_hex"] if ack_ctx["raw_hex"] else "",
@@ -1361,8 +1508,7 @@ class SIADaemon(BaseDaemon):
                         "routine": 0,
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                         "elapsed_ms": int(t_ctx["elapsed_ms"]),
-                        "id_token": f"{ENCRYPTED_MARKER}{NULL_TOKEN}" if self._preset.encryption_enabled else NULL_TOKEN,
-                        "sequence": t_ctx["seq"],
+                        **self._trace_header(NULL_TOKEN, t_ctx["seq"]),
                         "account": self._account,
                         "request_hex": self._last_sent_frame.hex() if self._last_sent_frame else "",
                     },
@@ -1392,8 +1538,7 @@ class SIADaemon(BaseDaemon):
                         "routine": 0,
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                         "elapsed_ms": int(n_ctx["elapsed_ms"]),
-                        "id_token": f"{ENCRYPTED_MARKER}{NULL_TOKEN}" if self._preset.encryption_enabled else NULL_TOKEN,
-                        "sequence": n_ctx["seq"],
+                        **self._trace_header(NULL_TOKEN, n_ctx["seq"]),
                         "account": self._account,
                         "request_hex": self._last_sent_frame.hex() if self._last_sent_frame else "",
                         "response_hex": n_ctx["raw_hex"],
@@ -1424,8 +1569,7 @@ class SIADaemon(BaseDaemon):
                         "routine": 0,
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                         "elapsed_ms": int(n_ctx["elapsed_ms"]),
-                        "id_token": f"{ENCRYPTED_MARKER}{NULL_TOKEN}" if self._preset.encryption_enabled else NULL_TOKEN,
-                        "sequence": n_ctx["seq"],
+                        **self._trace_header(NULL_TOKEN, n_ctx["seq"]),
                         "account": self._account,
                         "request_hex": self._last_sent_frame.hex() if self._last_sent_frame else "",
                         "response_hex": n_ctx["raw_hex"],
@@ -1443,10 +1587,16 @@ class SIADaemon(BaseDaemon):
         event_item: EventItem,
         max_retries: int = MAX_RETRY_DEFAULT
     ) -> SM2State:
-        """Send alarm event with retry logic until ACK/NAK or max retries.
+        """Send alarm event with retry logic until ACK or the retry budget is used up.
 
         Implements retry loop with exponential backoff for alarm event delivery.
         Updates SM2 state and notifies on final failure.
+
+        Story 1-5 AC4: NAK and timeout attempts share the max_retries budget. A NAK
+        is re-sent immediately with an updated timestamp (§ 5.6.1.2); a timeout
+        after a 1 s backoff. Every attempt reuses the first attempt's wire seq
+        (§ 5.5.1.5). T2 BAD_CSR_RESPONSE fires once, only when the final attempt
+        is NAKed. With encryption on and an invalid key nothing is sent (AC3).
 
         Args:
             event_item: EventItem with sia_code, zone, timestamp
@@ -1467,18 +1617,27 @@ class SIADaemon(BaseDaemon):
         self._event_user_number = event_item.user_number
         self._event_attempt_count = 0
 
-        # Increment sequence number ONCE before the loop.
+        if self._encryption_config_error():
+            return await self._fail_event_config(event_item, max_retries)
+
         # SIA DC-09 § 5.5.1.5: "The PE shall NOT increment the sequence number
         # when repeating a message due to a communication failure or no response
-        # from a CSR." All retry attempts reuse the same seq.
-        self._sia_seq = (self._sia_seq + 1) % SIA_SEQ_MAX
+        # from a CSR." The first attempt draws the seq from the builder's tracker;
+        # every retry re-sends that same wire seq (story 1-5 AC4, D-85).
+        wire_seq: str | None = None
+        # § 5.6.1.2: a NAK is repeated immediately with an updated timestamp. The
+        # offset learnt from the NAK applies to every later attempt of this event.
+        nak_offset: timedelta | None = None
 
         for attempt in range(max_retries + 1):
             self._event_attempt_count = attempt + 1
 
             try:
                 # Build SIA-DCS message frame and send with timeout
-                frame = self._build_event_frame(event_item)
+                frame = self._build_event_frame(event_item, seq=wire_seq, nak_offset=nak_offset)
+                if wire_seq is None:
+                    wire_seq = parse_frame_header(frame)[1]
+                    self._sia_seq = int(wire_seq)  # traces/notifications = wire seq (AC4)
                 result = await asyncio.wait_for(
                     self._send_raw(frame),
                     timeout=10.0
@@ -1509,22 +1668,26 @@ class SIADaemon(BaseDaemon):
                     return SM2State.CONFIRMED
 
                 elif status == "nak":
-                    # NAK received: per daemon-design.md any NAK in v1.0 →
-                    # _notify(BAD_CSR_RESPONSE) → SM2 FAILED, stop retrying.
-                    # Parse timestamp for diagnostic logging only; v1.1 will use it
-                    # for auto-heal resync (SIA DC-09 § 5.5.3.2 / daemon-design.md line 724).
-                    raw_nak = result['raw_nak']
-                    try:
-                        if raw_nak:
-                            csr_timestamp = parse_nak_timestamp(raw_nak)
-                            self._logger.debug(
-                                f"Event NAK: parseable CSR timestamp {csr_timestamp} "
-                                f"(v1.1 auto-heal candidate)"
-                            )
-                    except (ValueError, TypeError):
-                        self._logger.debug("Event NAK: unparseable timestamp (protocol anomaly)")
+                    _nak_hex = result['raw_response'].hex() if result.get('raw_response') else None
+                    if attempt < max_retries:
+                        # § 5.6.1.2: repeat immediately (no backoff sleep) with an
+                        # updated timestamp, within the shared max_retries budget.
+                        nak_offset = self._nak_offset(result['raw_nak'])
+                        await self._log_sm2_event(
+                            "nak_retry",
+                            SM2LogCtx(
+                                zone=event_item.zone,
+                                sia_code=event_item.sia_code,
+                                attempt=self._event_attempt_count,
+                                elapsed=0.0,
+                                state_change=False
+                            ),
+                            response_hex=_nak_hex,
+                        )
+                        continue
 
-                    # Always T2 notification on event NAK (no parseable/undecodable split for SM2)
+                    # Budget used up on a NAK: T2 notification fires once, here only
+                    # (no parseable/undecodable split for SM2).
                     self._notify(
                         ErrorCode.BAD_CSR_RESPONSE,
                         BadCSRResponseCtx(
@@ -1537,7 +1700,6 @@ class SIADaemon(BaseDaemon):
                     )
                     self._sm2_state = SM2State.FAILED
                     self._event_failure_reason = "nak"
-                    _nak_hex = result['raw_response'].hex() if result.get('raw_response') else None
                     await self._log_sm2_event(
                         "failed_nak",
                         SM2LogCtx(
@@ -1650,7 +1812,7 @@ class SIADaemon(BaseDaemon):
                     })
                     return SM2State.FAILED
 
-            except (SIAProtocolError, AESEncryptionError) as e:
+            except (SIAProtocolError, AESEncryptionError, AESKeyError) as e:
                 self._logger.error(f"Protocol/transport error in _send_with_retry: {e}")
                 self._sm2_state = SM2State.FAILED
                 self._event_failure_reason = "no_response"
@@ -1704,19 +1866,78 @@ class SIADaemon(BaseDaemon):
         })
         return SM2State.FAILED
 
-    def _build_event_frame(self, event_item: EventItem) -> bytes:
+    async def _fail_event_config(self, event_item: EventItem, max_retries: int) -> SM2State:
+        """Fail an event that cannot be sent: encryption on, key invalid (story 1-5 AC3).
+
+        Nothing is built or sent — never a plaintext fallback. SM2 goes to FAILED
+        with reason 'config', and EVENT_FAILED carries last_error='encryption_key'.
+
+        Args:
+            event_item: The event that is not transmitted.
+            max_retries: The event's retry budget (reported in the notification).
+
+        Returns:
+            SM2State.FAILED
+        """
+        await self._enter_encryption_config_error()
+        self._sm2_state = SM2State.FAILED
+        self._event_failure_reason = "config"
+        await self._log_sm2_event(
+            "failed_config",
+            SM2LogCtx(
+                zone=event_item.zone,
+                sia_code=event_item.sia_code,
+                attempt=0,
+                elapsed=0.0,
+                state_change=True
+            )
+        )
+        self._notify(
+            ErrorCode.EVENT_FAILED,
+            EventFailedCtx(
+                sia_code=event_item.sia_code,
+                sia_seq=self._sia_seq,
+                zone_name=event_item.zone,
+                max_retries=max_retries,
+                attempts_made=0,
+                last_error=EVENT_FAILED_ENCRYPTION_KEY,
+                user_number=event_item.user_number,
+            )
+        )
+        await self._update_info_commands({
+            'event_state': self._event_state_from_sm2(),
+            'event_label': self._event_label_from_sm2()
+        })
+        return SM2State.FAILED
+
+    def _build_event_frame(
+        self,
+        event_item: EventItem,
+        *,
+        seq: str | None = None,
+        nak_offset: timedelta | None = None,
+    ) -> bytes:
         """Build SIA-DCS frame for alarm event (Task 3.2.2b).
 
         Constructs complete SIA protocol frame for alarm event delivery with:
         - Account number and CRC format from preset (synced at call time)
-        - Current sequence number (incremented once per event by _send_with_retry,
-          NOT here — SIA DC-09 § 5.5.1.5)
+        - Sequence number: drawn from the builder's tracker on the first attempt,
+          the explicit ``seq`` on retries (SIA DC-09 § 5.5.1.5, story 1-5 AC4)
         - Zone order number in extended data, zero-padded to 3 digits (never the label)
         - media_url in extended data as a Verification [V...] block, when present (story 14-1)
-        - UTC timestamp (from event_item.timestamp or current UTC if unparseable)
+        - Timestamp: see below
+        - Encryption per preset, with the configured key (§ 5.4, story 1-5 AC3)
+
+        Timestamp (story 1-5 AC3/AC4):
+        - Encrypted: always UTC now (+ nak_offset), so each attempt fits the CSR
+          window (§ 5.5.1.9); the event's own time stays in the SM2/inspector records.
+        - Unencrypted, first attempt: event_item.timestamp (current UTC if unparseable).
+        - Unencrypted NAK re-send (nak_offset set): UTC now + nak_offset.
 
         Args:
             event_item: EventItem with sia_code, zone, zone_number, media_url, timestamp
+            seq: Explicit 4-digit wire seq for a retry; None draws a new one.
+            nak_offset: Clock offset learnt from a NAK in this send; None = no NAK yet.
 
         Returns:
             Complete SIA frame as bytes: LF + CRC + Length + Message + CR
@@ -1748,8 +1969,11 @@ class SIADaemon(BaseDaemon):
             # Parse event timestamp for the SIA frame (M1).
             # event_item.timestamp is a string "HH:MM:SS,MM-DD-YYYY"; pass None on parse failure
             # to let encode_message use current UTC time.
+            encrypted = bool(self._preset.encryption_enabled)
             event_ts: datetime | None = None
-            if event_item.timestamp:
+            if encrypted or nak_offset is not None:
+                event_ts = datetime.now(timezone.utc) + (nak_offset or timedelta(0))
+            elif event_item.timestamp:
                 try:
                     event_ts = datetime.strptime(event_item.timestamp, TIMESTAMP_FORMAT).replace(
                         tzinfo=timezone.utc
@@ -1764,14 +1988,16 @@ class SIADaemon(BaseDaemon):
                 receiver_number=self._receiver_prefix,
                 extended_data=extended_data if extended_data else None,
                 timestamp=event_ts,
-                encryption=False  # No encryption in v1.0
+                encryption=encrypted,
+                encryption_key=self._encryption_key or None,
+                seq=seq,
             )
 
             return frame
 
         except SIAProtocolError:
             raise
-        except (ValueError, AttributeError, AESEncryptionError) as e:
+        except (ValueError, AttributeError, AESEncryptionError, AESKeyError) as e:
             self._logger.error(f"Error building event frame: {e!r}")
             raise SIAProtocolError(f"Frame build failed: {e}") from e
 
@@ -1832,6 +2058,16 @@ class SIADaemon(BaseDaemon):
                     type=ctx['sia_code'],
                     zone=ctx['zone'] or "(pas de zone)"
                 )
+            elif transition == "nak_retry":
+                info_msg = messages.SM2_NAK_RETRY.format(
+                    attempt=ctx['attempt'],
+                    max=MAX_RETRY_DEFAULT
+                )
+            elif transition == "failed_config":
+                info_msg = messages.SM2_FAILED_CONFIG.format(
+                    type=ctx['sia_code'],
+                    zone=ctx['zone'] or "(pas de zone)"
+                )
             elif transition == "failed_max_retries":
                 info_msg = messages.SM2_FAILED.format(
                     type=ctx['sia_code'],
@@ -1870,8 +2106,7 @@ class SIADaemon(BaseDaemon):
                 "routine": 0,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "elapsed_ms": int(ctx["elapsed"] * 1000),
-                "id_token": f"{ENCRYPTED_MARKER}{SIA_DCS_TOKEN}" if self._preset.encryption_enabled else SIA_DCS_TOKEN,
-                "sequence": self._sia_seq,
+                **self._trace_header(SIA_DCS_TOKEN, self._sia_seq),
                 "account": self._account,
                 "request_hex": self._last_sent_frame.hex() if self._last_sent_frame else "",
             }

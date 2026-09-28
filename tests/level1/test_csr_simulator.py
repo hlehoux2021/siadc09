@@ -475,24 +475,32 @@ class TestACKFrameGeneration:
         assert b'"ACK"0001R0L0#000001[]' in ack_frame, "ACK frame should contain message with correct seq and account"
 
     def test_ack_encrypted_has_star_marker(self, preset_encrypted):
-        """Test encrypted ACK has *ACK id_token and differs from plaintext.
+        """Test encrypted ACK follows DC-09 § 5.5.3.1: "*ACK" header, hex region.
 
         Expected result:
-        - Encrypted ACK frame is not empty (valid encryption output)
-        - Encrypted ACK frame differs from plaintext version (encryption applied)
-        - Decryption roundtrip would reveal *ACK marker (encryption integrity)
+        - The body starts with the clear header "*ACK"0001R0L0#000001[
+        - The region is uppercase hex with no closing ']' (§ 5.4.3)
+        - The oracle decrypts it to "]_" + the receiver timestamp
         """
         from resources.siadc09d.csr_simulator import CSRSimulator
+        from tests.level1._dc09_crypto_oracle import oracle_region, split_frame
 
+        ts = datetime(2026, 9, 28, 10, 0, 0, tzinfo=timezone.utc)
         simulator = CSRSimulator(10001, 5000, preset_encrypted)
-        ack_frame = simulator._generate_ack_frame(1, preset_encrypted, encrypted_inbound=True)
+        ack_frame = simulator._generate_ack_frame(
+            1, preset_encrypted, encrypted_inbound=True, account='000001', timestamp=ts,
+        )
+        _crc, _length, body = split_frame(ack_frame)
+        header, _, region = body.partition('[')
 
-        # Assert: Frame is not empty
-        assert len(ack_frame) > 0, "ACK frame should not be empty"
-
-        # Assert: Encrypted version differs from plaintext
-        plain_ack = simulator._generate_ack_frame(1, preset_encrypted, encrypted_inbound=False)
-        assert ack_frame != plain_ack, "Encrypted ACK should differ from plaintext version"
+        # Assert: clear header carries the *ACK token, seq, prefixes and account
+        assert header == '"*ACK"0001R0L0#000001', f"unexpected header {header!r}"
+        # Assert: region is uppercase hex with no trailing ']'
+        assert region == region.upper() and all(c in '0123456789ABCDEF' for c in region), \
+            f"region is not uppercase hex: {region!r}"
+        # Assert: oracle decrypts it to the timestamp-only ACK content
+        assert oracle_region(region, preset_encrypted['encryption_key'])[1] == \
+            b']_10:00:00,09-28-2026', "decrypted ACK content mismatch"
 
     @pytest.mark.parametrize("crc_format", ['hex', 'bin'])
     def test_ack_crc_format_matches_preset(self, crc_format):
@@ -724,28 +732,32 @@ class TestIntegrationWithStories11To13:
         assert decoded.get('type') == 'ACK', "Simulator ACK should decode as ACK"
 
     def test_integration_story_1_2_encryption_round_trip(self, preset_encrypted):
-        """Use SIACipher and simulator together without crashing.
+        """Encrypted event built by SIAMessageBuilder round-trips through the simulator.
 
         Expected result:
-        - Simulator works with Story 1.2 encryption key in preset
-        - ACK generation with encryption flag doesn't crash
-        - Components integrate without errors
+        - The simulator answers an encrypted event (key in preset) with a frame
+        - That frame decodes as an ACK for the event's sequence number
+        - Its region decrypts with SIACipher to "]_" + a timestamp (§ 5.5.3.1)
         """
         from resources.siadc09d.csr_simulator import CSRSimulator
-        from resources.siadc09d.sia_crypto import SIACipher
+        from resources.siadc09d.sia_protocol import decode_ack_nak
 
+        key = preset_encrypted['encryption_key']
         simulator = CSRSimulator(10001, 5000, preset_encrypted)
-        cipher = SIACipher(preset_encrypted['encryption_key'])
+        event = SIAMessageBuilder(crc_format='hex').encode_message(
+            '000001', 'BA', encryption=True, encryption_key=key, seq='0042',
+        )
 
-        # Assert: Cipher initialized with key from preset
-        assert cipher is not None, "SIACipher should initialize with preset key"
+        _response_type, ack_response = simulator._build_response(event)
 
-        # Generate ACK response for encrypted inbound
-        ack_response = simulator._generate_ack_frame(1, preset_encrypted, encrypted_inbound=True)
-
-        # Assert: ACK response is bytes (encrypted frame, so may have different structure)
-        assert isinstance(ack_response, bytes), "ACK should be bytes"
-        assert len(ack_response) > 0, "ACK response should not be empty"
+        # Assert: the simulator answered the encrypted event
+        assert ack_response is not None, "simulator should answer a decryptable event"
+        # Assert: the answer is an ACK for sequence 42
+        decoded = decode_ack_nak(ack_response, crc_format='hex')
+        assert (decoded.get('type'), decoded.get('seq')) == ('ACK', 42), f"unexpected {decoded}"
+        # Assert: the ACK region decrypts to the timestamp-only content
+        region = ack_response.decode('ascii')[9:-1].partition('[')[2]
+        assert SIACipher(key).decrypt(region).startswith(b']_'), "ACK content should be ']_<ts>'"
 
     def test_integration_full_flow_plaintext(self, preset_plain):
         """Full flow: build alarm → parse → generate ACK → decode.

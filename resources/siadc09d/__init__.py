@@ -7,7 +7,7 @@ Module Organization:
 - error_handler.py (Story 3.1) — Error classification (ErrorCode, ErrorTier, ERROR_TIERS)
 - messages.py (Story 4.1) — User-facing message strings
 - sia_protocol.py (Epic 1) — Protocol message builder and encoder
-- sia_crypto.py (Epic 1) — AES-128-CBC encryption and CRC-16 MODBUS
+- sia_crypto.py (Epic 1, Story 1.5) — DC-09 § 5.4 AES-CBC region cipher (128/192/256)
 - csr_simulator.py (Epic 1) — CSR protocol simulator for testing
 - daemon.py (Epic 5) — Daemon core with SM1/SM2 state machines
 

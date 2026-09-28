@@ -376,7 +376,7 @@ async def test_ac6_nak_handling_unparseable(csr_sim):
     Scenario:
     - Patch sim._decide_response to always return 'NAK'
     - daemon starts, first supervision frame → NAK response
-    - NAK has no parseable timestamp (simulator's _generate_nak_frame has no timestamp)
+    - NAK has no parseable timestamp (simulator in nak_with_timestamp=False mode)
     - → nak_bad path → BAD_CSR_RESPONSE (T2)
 
     Expected result:
@@ -387,6 +387,8 @@ async def test_ac6_nak_handling_unparseable(csr_sim):
 
     # Patch simulator to always return NAK
     sim._decide_response = lambda *_: "NAK"  # type: ignore[method-assign]
+    # The spec NAK carries a timestamp (story 1-5); drop it so the NAK is unparseable
+    sim._nak_with_timestamp = False
 
     daemon = make_e2e_daemon("UDP", udp_port, tcp_port)
     dispatched: list[ErrorCode] = []
@@ -741,47 +743,36 @@ async def test_ac12_concurrent_alarm_during_supervision(csr_sim):
 @pytest.mark.asyncio
 @pytest.mark.level3
 async def test_ac13_encrypted_supervision_marker_sent(csr_sim):
-    """E2E: daemon with encryption_enabled=True sends frame with *SIA-DCS marker. (AC13)
+    """E2E: encrypted supervision is an AES-encrypted *NULL the CSR decrypts and ACKs. (AC13)
 
-    Note: Current implementation sets the * marker but does not perform actual AES
-    encryption of the data block. The simulator will return NAK (unknown frame type)
-    because it cannot parse '*SIA-DCS' as a known type. This test verifies the
-    encryption marker is correctly set in the frame — full E2E ACK requires completing
-    the encryption path in the daemon (deferred work).
+    § 5.5.2.1: with encryption on the supervision token is "*NULL"; § 5.4: the
+    data block is AES-CBC (zero IV) — the simulator shares the key and decrypts it.
 
     Expected result:
-    - Daemon sends frame with '*SIA-DCS' id_token (encryption marker present)
-    - Ring buffer has entry (from NAK response)
-    - Daemon state is DEGRADED (simulator NAKs the frame — expected given partial impl)
+    - Supervision frame header is *NULL with sequence 0000
+    - Simulator decrypts the frame and ACKs → SM1 HEALTHY, no strike
     """
-    # Restart the default sim with encryption key so it can at least detect the marker
     sim, udp_port, tcp_port = csr_sim
+    # The CSR shares the daemon key (story 1-5), otherwise it discards the frame (§ 5.6.2.4)
+    sim.preset["encryption_key"] = E2E_ENCRYPTION_KEY
 
-    # Create daemon with encryption enabled
     daemon = make_e2e_daemon("UDP", udp_port, tcp_port, encryption_enabled=True)
 
     try:
         await daemon.on_start()
 
-        # Wait for first supervision cycle to fire (success or failure)
         await _wait_for(
             lambda: daemon._strike_counter >= 1 or daemon._sm1_state == SM1State.HEALTHY,
             timeout=10.0,
         )
 
-        # Assert: supervision frame uses *SIA-DCS marker (encryption_enabled=True)
-        # Verify via _sia_builder — when encryption=True, make_supervision_message sets id_token="*SIA-DCS"
-        from resources.siadc09d.sia_protocol import ENCRYPTED_MARKER, SIA_DCS_TOKEN
-        test_frame = daemon._sia_builder.make_supervision_message(
-            account_number=daemon._account,
-            account_prefix=daemon._account_prefix,
-            encryption=daemon._preset.encryption_enabled,
-        )
-        frame_str = test_frame.decode("ascii", errors="replace")
-        assert f'"{ENCRYPTED_MARKER}{SIA_DCS_TOKEN}"' in frame_str, (
-            f"Expected '*{SIA_DCS_TOKEN}' id_token in encrypted supervision frame, "
-            f"got frame_str={frame_str[:80]}"
-        )
+        from resources.siadc09d.sia_protocol import parse_frame_header
+        # Assert: supervision frame is an encrypted *NULL with sequence 0000
+        assert parse_frame_header(daemon._last_sent_frame) == ("*NULL", "0000")
+        # Assert: the CSR decrypted and ACKed it
+        assert daemon._sm1_state == SM1State.HEALTHY
+        # Assert: no strike recorded
+        assert daemon._strike_counter == 0
 
     finally:
         with suppress(Exception):

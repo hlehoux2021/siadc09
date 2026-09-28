@@ -45,6 +45,7 @@ SM1_DEGRADED_1_2_FR: Final[str] = "Connexion dégradée ({}/3)"  # {} = strike c
 SM1_DEGRADED_3_FR: Final[str] = "Connexion perdue"
 SM1_TCP_RECONNECTING_FR: Final[str] = "Tentative de reconnexion en cours"
 SM1_NO_NETWORK_FR: Final[str] = "Hors Réseau"
+SM1_CONFIG_ERROR_FR: Final[str] = "Clé de chiffrement invalide"  # Story 1-5 AC3
 
 # ===== SM1 STATE TRANSITIONS =====
 # Supervision connection/health states - 13 messages
@@ -70,6 +71,10 @@ SM2_IDLE: Final[str] = "En attente d'événements alarme"
 SM2_EVENT_RECEIVED: Final[str] = "Alarme {type} reçue (zone: {zone}) — transmission en cours"
 SM2_CONFIRMED: Final[str] = "Centrale confirmée — alarme {type} transmise (zone: {zone})"
 SM2_RETRY: Final[str] = "Pas de réponse de la centrale — tentative {attempt}/{max}"
+# Story 1-5 AC4 (§ 5.6.1.2): NAK → immediate re-send with an updated timestamp.
+SM2_NAK_RETRY: Final[str] = (
+    "NAK de la centrale — renvoi immédiat avec horodatage mis à jour (tentative {attempt}/{max})"
+)
 SM2_TIMESTAMP_HEAL: Final[str] = "Horodatage refusé — correction automatique et renvoi"
 # TODO v1.1: SM2_TIMESTAMP_HEAL not used in v1.0 (timestamp auto-heal deferred)
 SM2_FAILED: Final[str] = T3_PREFIX + "Alarme {type} non transmise après {max} tentatives (zone: {zone})"
@@ -85,7 +90,17 @@ SM2_FAILED_NO_NETWORK: Final[str] = T3_PREFIX + "Alarme {type} non transmise —
 # Message content defined above in SM1 section
 
 # T2 User-actionable notifications
-# (Reserved for future configuration error messages)
+# Story 1-5 AC3: encryption enabled but the key is missing or malformed. Sent
+# directly (message_center + notify), since ErrorCode admits no new code. The
+# key itself is never interpolated.
+ENCRYPTION_KEY_INVALID_TITLE: Final[str] = "SIA DC-09 : clé de chiffrement invalide"
+ENCRYPTION_KEY_INVALID: Final[str] = (
+    "Chiffrement activé mais la clé AES est absente ou invalide "
+    "(attendu : 32, 48 ou 64 caractères hexadécimaux). Aucune trame n'est envoyée."
+)
+SM2_FAILED_CONFIG: Final[str] = (
+    "Alarme {type} non transmise — clé de chiffrement invalide (zone: {zone})"
+)
 
 # T3 Critical notifications
 # All prepended with T3_PREFIX above (SM1_LOST, SM1_NO_NETWORK, SM2_FAILED, SM2_FAILED_NO_NETWORK)

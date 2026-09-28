@@ -1,32 +1,27 @@
 """
-SIA DC-09-2021 AES-128 CBC Cipher Module
+SIA DC-09-2021 AES-CBC Cipher Module
 
-Provides class-based interface for AES-128 CBC encryption/decryption per SIA DC-09-2021 standard.
+Encrypts and decrypts the encrypted region of a DC-09 message per
+SIA DC-09-2021 § 5.4.3 - 5.4.7:
 
-**Encryption Standard (per SIA DC-09-2021 § 5.5.1.10):**
-- Algorithm: AES-128 CBC
-- Key length: exactly 16 bytes (128-bit) — bound at construction
-- IV (Initialization Vector): 16 zero bytes (b'\\x00' * 16) — **FIXED per standard, not random**
-- Padding: PKCS#7 (RFC 5652)
-- Block size: 16 bytes
+- Key: 128, 192 or 256 bits (16/24/32 bytes), static configuration shared by
+  PE and CSR (§ 5.4.5). Bound at construction.
+- Cipher: AES-CBC with an IV of 16 zero bytes (§ 5.4.6). Nothing is prepended.
+- Padding: random pad bytes at the FRONT of the region, then '|' (§ 5.4.4).
+  The pad length makes pad + '|' + content a multiple of 16; when it already
+  is, a full 16-byte pad is used. There is no PKCS#7 tail padding.
+- Output: the ciphertext as uppercase hex ASCII (§ 5.4.7).
 
-**Key Lifecycle (per SIA DC-09-2021 § 5.4.5):**
-The encryption key is a static configuration value programmed identically on PE and CSR.
-It does not change per-message or per-session. NAK retries use the same key with an
-updated timestamp (§ 5.5.1.9). Therefore, the key is bound at cipher construction time
-and stored as instance state.
+Callers pass the region content (data from after '[' through the timestamp)
+as bytes and receive the hex string that goes after '[' on the wire.
 
-**Semantic Design:**
-The `SIACipher` class groups encryption operations as a domain concept (SIA protocol
-concept), provides clear namespacing, and mirrors the `SIAMessageBuilder` pattern
-(configuration bound at construction, methods use self._key transparently).
-
-[Expert validation: sia-dc09-expert skill]
-[Source: SIA DC-09-2021 spec § 5.4 – 5.4.7; daemon-design.md § Encryption Contract]
+[Source: SIA DC-09-2021 § 5.4.3 - 5.4.7; story 1-5]
 """
 
+import re
+import secrets
+from collections.abc import Callable
 from typing import ClassVar
-from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 
@@ -35,46 +30,63 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 # ============================================================================
 
 class AESKeyError(Exception):
-    """Raised when encryption key validation fails."""
-    pass
+    """Raised when encryption key validation fails. Never carries the key."""
 
 
 class AESEncryptionError(Exception):
     """Raised when encryption operation fails."""
-    pass
 
 
 class AESDecryptionError(Exception):
-    """Raised when decryption operation fails."""
-    pass
+    """Raised when decryption operation fails. Never carries key or plaintext."""
 
 
 # ============================================================================
-# Private Module-Level Validation Helper
+# Key parsing
 # ============================================================================
 
-def _validate_key(key: bytes | None) -> None:
-    """
-    Validate encryption key is exactly 16 bytes (128-bit).
+_HEX_KEY_RE = re.compile(r"(?:[0-9A-Fa-f]{32}|[0-9A-Fa-f]{48}|[0-9A-Fa-f]{64})")
 
-    Per SIA DC-09-2021 standard, AES-128 keys must be exactly 16 bytes.
+PadSource = Callable[[int], bytes]
+
+
+def parse_hex_key(text: str | None) -> bytes:
+    """Decode a configured key: 32, 48 or 64 hex digits (AES-128/192/256).
+
+    Surrounding whitespace is trimmed. Internal whitespace, a '0x' prefix or any
+    other length is rejected. ASCII-phrase keys are not supported (D-93).
 
     Args:
-        key: The encryption key to validate
+        text: Key as entered in the plugin configuration.
+
+    Returns:
+        The raw key bytes (16, 24 or 32 bytes).
 
     Raises:
-        AESKeyError: If key is None, wrong type, or wrong length
-
-    Reference:
-        SIA DC-09-2021 spec § 5.4.5 - Encryption Key
+        AESKeyError: If the key is missing or malformed. The message never
+            contains the key.
     """
-    if key is None or not isinstance(key, bytes):
-        raise AESKeyError("Encryption key must be bytes, not None")
-
-    if len(key) != 16:
+    if not isinstance(text, str) or not text.strip():
+        raise AESKeyError("Encryption key is missing")
+    stripped = text.strip()
+    if _HEX_KEY_RE.fullmatch(stripped) is None:
         raise AESKeyError(
-            f"Encryption key must be exactly 16 bytes (128-bit), "
-            f"got {len(key)} bytes"
+            f"Encryption key must be 32, 48 or 64 hex digits (got {len(stripped)} characters)"
+        )
+    return bytes.fromhex(stripped)
+
+
+def _validate_key(key: bytes | None) -> None:
+    """Validate a raw AES key is 16, 24 or 32 bytes.
+
+    Raises:
+        AESKeyError: If key is not bytes or has an unsupported length.
+    """
+    if not isinstance(key, bytes):
+        raise AESKeyError("Encryption key must be bytes")
+    if len(key) not in SIACipher.KEY_SIZES:
+        raise AESKeyError(
+            f"Encryption key must be 16, 24 or 32 bytes (AES-128/192/256), got {len(key)} bytes"
         )
 
 
@@ -83,276 +95,106 @@ def _validate_key(key: bytes | None) -> None:
 # ============================================================================
 
 class SIACipher:
-    """
-    AES-128 CBC cipher for SIA DC-09-2021 protocol.
+    """AES-CBC cipher for the DC-09 encrypted region (§ 5.4.3 - 5.4.7).
 
-    Key is bound at construction and stored as instance state. Per SIA DC-09-2021 § 5.4.5,
-    the key is a static configuration value that does not change per-message or per-session.
-    NAK retries use the same key with an updated timestamp (§ 5.5.1.9).
-
-    **Encryption Contract:**
-    - Input: plaintext bytes (any length)
-    - Process: Apply PKCS#7 padding, then AES-128 CBC encryption
-    - Output: ciphertext bytes (length multiple of 16)
-    - IV: Fixed at 16 zero bytes per SIA DC-09 standard
-    - Deterministic: Same plaintext + key → same ciphertext (no random IV)
-
-    **Decryption Contract:**
-    - Input: ciphertext bytes (must be multiple of 16 bytes)
-    - Process: AES-128 CBC decryption, then PKCS#7 unpadding
-    - Output: plaintext bytes
-    - Validation: Rejects malformed ciphertext or invalid padding
-
-    Reference: SIA DC-09-2021 spec § 5.4 – 5.4.7
+    Key is bound at construction and never logged or included in errors.
     """
 
-    # Class-level constants (per code-style.md ClassVar pattern)
-    KEY_SIZE: ClassVar[int] = 16  # 128-bit key
-    BLOCK_SIZE: ClassVar[int] = 16  # AES block size in bytes
-    IV: ClassVar[bytes] = b'\x00' * 16  # Fixed IV per SIA DC-09-2021 standard (16 zero bytes, not random)
+    KEY_SIZES: ClassVar[tuple[int, ...]] = (16, 24, 32)
+    BLOCK_SIZE: ClassVar[int] = 16
+    IV: ClassVar[bytes] = b"\x00" * 16  # § 5.4.6: IV is all zeros
+    PAD_TERMINATOR: ClassVar[bytes] = b"|"  # § 5.4.4.3
+    DATA_END: ClassVar[bytes] = b"]"
+    # § 5.4.4.2 allows any byte except '|', '[' and ']'. Printable ASCII is a
+    # conformant subset that also survives receivers decoding the plaintext as
+    # text (ioBroker: utf-8, pysiaalarm: ascii/ignore).
+    PAD_ALPHABET: ClassVar[bytes] = bytes(b for b in range(0x20, 0x7F) if b not in b"|[]")
 
-    def __init__(self, key: bytes) -> None:
-        """
-        Initialize cipher with encryption key.
-
-        Key is validated and bound at construction. Once set, the key is invariant
-        for the lifetime of this cipher instance, matching the daemon's session-level
-        key storage pattern (self._encryption_key).
+    def __init__(self, key: bytes, pad_source: PadSource | None = None) -> None:
+        """Initialize cipher.
 
         Args:
-            key: Encryption key (exactly 16 bytes for AES-128)
+            key: Raw AES key, 16/24/32 bytes.
+            pad_source: Returns n pad bytes. Defaults to a `secrets`-based
+                generator over PAD_ALPHABET. Injectable for deterministic tests.
 
         Raises:
-            AESKeyError: If key is None, not bytes, or not exactly 16 bytes
-
-        Instance Variables:
-            _key: The AES-128 encryption key (16 bytes)
-
-        Reference:
-            SIA DC-09-2021 spec § 5.4.5 - Encryption Key
+            AESKeyError: If the key has an unsupported type or length.
         """
         _validate_key(key)
         self._key: bytes = key
+        self._pad_source: PadSource = pad_source or self._random_pad
 
-    def encrypt(self, plaintext: bytes) -> bytes:
-        """
-        Encrypt plaintext using AES-128 CBC with fixed IV per SIA DC-09 standard.
+    def __repr__(self) -> str:
+        return f"SIACipher(AES-{len(self._key) * 8})"
 
-        IV is always 16 zero bytes per SIA DC-09-2021 § 5.5.1.10 (not random).
+    @classmethod
+    def _random_pad(cls, n: int) -> bytes:
+        return bytes(secrets.choice(cls.PAD_ALPHABET) for _ in range(n))
 
-        Process:
-        1. Apply PKCS#7 padding to plaintext
-        2. Create AES-CBC cipher with fixed IV
-        3. Encrypt padded plaintext
-        4. Return ciphertext (IV is implicit, not prepended)
+    def _cipher(self) -> Cipher:
+        return Cipher(algorithms.AES(self._key), modes.CBC(self.IV))
+
+    def encrypt(self, content: bytes) -> str:
+        """Encrypt region content into uppercase hex (§ 5.4.4 - 5.4.7).
 
         Args:
-            plaintext: Unencrypted message bytes (any length)
+            content: Region content bytes, i.e. data after '[' (its ']'
+                included), extended data and timestamp.
 
         Returns:
-            Ciphertext (IV is implicit per SIA DC-09 standard)
+            Uppercase hex of AES-CBC(pad + '|' + content).
 
         Raises:
-            AESEncryptionError: If encryption fails
+            AESEncryptionError: If content is not bytes, the pad source returns
+                an invalid pad, or the cipher fails.
+        """
+        if not isinstance(content, bytes):
+            raise AESEncryptionError("Region content must be bytes")
+        body = self.PAD_TERMINATOR + content
+        pad_len = self.BLOCK_SIZE - (len(body) % self.BLOCK_SIZE)
+        pad = self._pad_source(pad_len)
+        if not isinstance(pad, bytes) or len(pad) != pad_len or any(b in b"|[]" for b in pad):
+            raise AESEncryptionError("Pad source returned an invalid pad")
+        try:
+            encryptor = self._cipher().encryptor()
+            ciphertext = encryptor.update(pad + body) + encryptor.finalize()
+        except ValueError as e:
+            raise AESEncryptionError("Encryption failed") from e
+        return ciphertext.hex().upper()
 
-        Reference:
-            SIA DC-09-2021 spec § 5.5.1.10 - Encryption Support
-            internal-docs/design/daemon-design.md § Encryption Contract
+    def decrypt(self, hex_text: str) -> bytes:
+        """Decrypt hex ciphertext and return the region content (pad stripped).
+
+        The pad is stripped at byte level up to and including the first '|'.
+        Without a '|', everything before the first ']' is treated as pad: some
+        encoders write *NULL / *ACK regions straight from the § 5.5.2.1 /
+        § 5.5.3.1 templates, which omit the '|'.
+
+        Args:
+            hex_text: Ciphertext hex, upper or lower case.
+
+        Returns:
+            Region content bytes. Callers decode as windows-1252.
+
+        Raises:
+            AESDecryptionError: On malformed hex, a length that is not a whole
+                number of blocks, or a plaintext with neither '|' nor ']'.
         """
         try:
-            # Apply PKCS#7 padding
-            padded_plaintext = self._apply_pkcs7_padding(plaintext)
-
-            # Create cipher: AES-128 CBC with fixed IV per SIA DC-09 standard
-            cipher = Cipher(
-                algorithms.AES(self._key),
-                modes.CBC(self.IV),
-                backend=default_backend()
-            )
-
-            # Encrypt
-            encryptor = cipher.encryptor()
-            ciphertext = encryptor.update(padded_plaintext) + encryptor.finalize()
-
-            return ciphertext
-
-        except AESKeyError:
-            raise  # Key validation errors already raised by __init__
-        except Exception as e:
-            raise AESEncryptionError(f"Encryption failed: {e}") from e
-
-    def decrypt(self, ciphertext: bytes) -> bytes:
-        """
-        Decrypt ciphertext using AES-128 CBC with fixed IV per SIA DC-09 standard.
-
-        IV is always 16 zero bytes per SIA DC-09-2021 § 5.5.1.10 (same as encryption).
-
-        Process:
-        1. Validate ciphertext length is multiple of 16 bytes
-        2. Create AES-CBC cipher with fixed IV
-        3. Decrypt ciphertext
-        4. Remove PKCS#7 padding
-        5. Return plaintext
-
-        Args:
-            ciphertext: Encrypted message bytes (must be multiple of 16 bytes)
-
-        Returns:
-            Plaintext (decrypted and unpadded)
-
-        Raises:
-            AESDecryptionError: If ciphertext invalid or decryption fails
-
-        Reference:
-            SIA DC-09-2021 spec § 5.5.1.10 - Encryption Support
-            internal-docs/design/daemon-design.md § Decryption Contract
-        """
-        try:
-            # Validate ciphertext length is multiple of AES block size
-            if len(ciphertext) % self.BLOCK_SIZE != 0:
-                raise AESDecryptionError(
-                    f"Invalid ciphertext length: {len(ciphertext)} bytes. "
-                    f"Must be multiple of {self.BLOCK_SIZE} bytes (AES block size)"
-                )
-
-            # Create cipher: AES-128 CBC with fixed IV per SIA DC-09 standard
-            cipher = Cipher(
-                algorithms.AES(self._key),
-                modes.CBC(self.IV),
-                backend=default_backend()
-            )
-
-            # Decrypt
-            decryptor = cipher.decryptor()
-            padded_plaintext = decryptor.update(ciphertext) + decryptor.finalize()
-
-            # Remove PKCS#7 padding
-            plaintext = self._remove_pkcs7_padding(padded_plaintext)
-
-            return plaintext
-
-        except AESKeyError:
-            raise  # Key validation errors (should not happen post-construction)
-        except AESDecryptionError:
-            raise  # Padding validation errors
-        except Exception as e:
-            raise AESDecryptionError(f"Decryption failed: {e}") from e
-
-    def encrypt_frame(self, plaintext_frame: bytes) -> bytes:
-        """
-        Encrypt a SIA protocol frame for transmission to CSR.
-
-        **Semantic Intent:** Explicit frame-level method for daemon code clarity.
-        Equivalent to `encrypt()` but call-site intent is obvious (frame, not raw bytes).
-
-        Input: plaintext SIA frame from `SIAMessageBuilder.encode_message()`
-        (includes LF prefix, CRC, length, message string, CR suffix)
-
-        Output: ciphertext ready for wire transmission
-
-        The daemon will wrap the encrypted frame in SIA message format with
-        '*SIA-DCS' token to mark it as encrypted.
-
-        Args:
-            plaintext_frame: Full SIA protocol frame (bytes)
-
-        Returns:
-            Ciphertext (IV is implicit per SIA DC-09 standard)
-
-        Raises:
-            AESEncryptionError: If encryption fails
-
-        Reference:
-            internal-docs/design/daemon-design.md § Message Flow: Plaintext → Encrypt → Send
-            Story 1.1: SIA Protocol Message Builder
-        """
-        return self.encrypt(plaintext_frame)
-
-    def decrypt_frame(self, encrypted_frame: bytes) -> bytes:
-        """
-        Decrypt a SIA protocol frame received from CSR.
-
-        **Semantic Intent:** Explicit frame-level method for daemon code clarity.
-        Equivalent to `decrypt()` but call-site intent is obvious (frame, not raw bytes).
-
-        Input: encrypted ACK/NAK or other response frame (ciphertext)
-        IV is implicit per SIA DC-09 standard.
-
-        Output: plaintext frame for ACK/NAK parser (Story 1.3) to validate
-
-        Args:
-            encrypted_frame: Encrypted SIA protocol frame (bytes)
-
-        Returns:
-            Plaintext frame (ready for parsing/validation)
-
-        Raises:
-            AESDecryptionError: If decryption fails
-
-        Reference:
-            internal-docs/design/daemon-design.md § ACK/NAK Handling
-            Story 1.3: ACK/NAK Response Parser (dependency)
-        """
-        return self.decrypt(encrypted_frame)
-
-    @staticmethod
-    def _apply_pkcs7_padding(data: bytes) -> bytes:
-        """
-        Apply PKCS#7 padding to data.
-
-        Pads data to a multiple of AES_BLOCK_SIZE. Padding bytes = padding length.
-        Example: if 3 bytes of padding needed, appends b'\\x03\\x03\\x03'
-
-        Args:
-            data: Data to pad
-
-        Returns:
-            Padded data (length is multiple of AES_BLOCK_SIZE)
-
-        Reference:
-            RFC 5652 Section 6.3 - PKCS#7 Padding
-        """
-        pad_len = 16 - (len(data) % 16)
-        return data + bytes([pad_len] * pad_len)
-
-    @staticmethod
-    def _remove_pkcs7_padding(data: bytes) -> bytes:
-        """
-        Remove PKCS#7 padding from data.
-
-        Reads last byte as padding length, validates all padding bytes match,
-        then removes padding.
-
-        Args:
-            data: Padded data
-
-        Returns:
-            Unpadded data
-
-        Raises:
-            AESDecryptionError: If padding is invalid (bytes don't match declared length)
-
-        Reference:
-            RFC 5652 Section 6.3 - PKCS#7 Padding Removal
-        """
-        if len(data) == 0:
-            raise AESDecryptionError("Invalid PKCS#7 padding: data is empty")
-
-        pad_len = data[-1]  # Last byte indicates padding length
-
-        # Validate pad_len is reasonable
-        if pad_len == 0 or pad_len > 16:
+            ciphertext = bytes.fromhex(hex_text)
+        except (TypeError, ValueError) as e:
+            raise AESDecryptionError("Ciphertext is not valid hex") from e
+        if not ciphertext or len(ciphertext) % self.BLOCK_SIZE != 0:
             raise AESDecryptionError(
-                f"Invalid PKCS#7 padding: pad length {pad_len} outside valid range [1, 16]"
+                f"Ciphertext length {len(ciphertext)} bytes is not a positive multiple of {self.BLOCK_SIZE}"
             )
-
-        # Validate all padding bytes match the declared length
-        for i in range(pad_len):
-            if data[-(i + 1)] != pad_len:
-                raise AESDecryptionError(
-                    f"Invalid PKCS#7 padding: byte at offset -{i + 1} is {data[-(i + 1)]}, "
-                    f"expected {pad_len}"
-                )
-
-        # Remove padding
-        return data[:-pad_len]
+        decryptor = self._cipher().decryptor()
+        plain = decryptor.update(ciphertext) + decryptor.finalize()
+        idx = plain.find(self.PAD_TERMINATOR)
+        if idx >= 0:
+            return plain[idx + 1:]
+        idx = plain.find(self.DATA_END)
+        if idx >= 0:
+            return plain[idx:]
+        raise AESDecryptionError("Decrypted region has no pad terminator (wrong key?)")

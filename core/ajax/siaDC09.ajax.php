@@ -232,17 +232,25 @@ try {
             return;
         }
 
+        // Review finding 2026-09-28: a stored key that is non-empty but rejected must not
+        // fall through to a silent unencrypted decode — that reads as an opaque decode
+        // failure with no clue the key itself was the problem.
+        if ($encKey !== '' && !siaDC09::isValidEncryptionKey($encKey)) {
+            ajax::error(__('Clé de chiffrement stockée invalide — reconfigurez-la (étape 1)', __FILE__));
+            return;
+        }
+
         $cmd = $python3 . escapeshellarg($pythonPath) . ' --decode ' . escapeshellarg($hex);
         $envPrefix = '';
-        if (!empty($encKey)) {
-            $encKeyHex = ctype_xdigit($encKey) ? $encKey : bin2hex($encKey);
-            $envPrefix = 'SIA_ENCRYPTION_KEY=' . escapeshellarg($encKeyHex) . ' ';
+        // Story 1-5 AC5: only a key the daemon would accept is passed (no ASCII fallback).
+        if (siaDC09::isValidEncryptionKey($encKey)) {
+            $envPrefix = 'SIA_ENCRYPTION_KEY=' . escapeshellarg(trim($encKey)) . ' ';
         }
 
         set_time_limit(10);
         exec($envPrefix . $cmd . ' 2>/dev/null', $output, $retCode);
         $encKey = null;
-        $encKeyHex = null;
+        $envPrefix = null;
 
         if ($retCode !== 0 || empty($output)) {
             ajax::error(__('Erreur de décodage de la trame', __FILE__));

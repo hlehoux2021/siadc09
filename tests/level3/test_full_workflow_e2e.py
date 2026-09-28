@@ -469,6 +469,8 @@ async def test_csr_error_nak_notification(csr_sim):
 
     # Patch simulator to always NAK
     sim._decide_response = lambda *_: "NAK"  # type: ignore[method-assign]
+    # The spec NAK carries a timestamp (story 1-5); drop it so the NAK is unparseable
+    sim._nak_with_timestamp = False
 
     daemon = make_e2e_daemon("UDP", udp_port, tcp_port, supervision_interval_s=E2E_FAST_INTERVAL)
     dispatched: list[tuple[ErrorCode, object]] = []
@@ -1003,15 +1005,13 @@ async def test_happy_path_encrypted(csr_sim):
     """E2E encrypted: supervision + alarm with encryption_enabled=True → ACK from simulator. (AC: 14)
 
     Scenario:
-    - Daemon with encryption_enabled=True; simulator with encryption_key=None
-    - v1.0 encryption is id_token marker only: daemon sends "*SIA-DCS" frames,
-      simulator sends plain ACK (payload is NOT AES-encrypted in v1.0)
-    - Supervision and alarm frames carry "*SIA-DCS" encrypted marker
+    - Daemon and simulator share the same AES-128 key (story 1-5, § 5.4)
+    - Supervision is an encrypted *NULL (§ 5.5.2.1), the alarm an encrypted *SIA-DCS
+    - The simulator decrypts both and answers with an encrypted *ACK
 
     Expected result:
-    - Supervision frames use *SIA-DCS id_token (encrypted marker per v1.0)
-    - Alarm frames use *SIA-DCS id_token (encrypted event marker)
-    - CSR simulator responds with plain ACK (parseable by decode_ack_nak)
+    - Supervision frames use the *NULL token
+    - Alarm frame uses the *SIA-DCS token
     - SM1=HEALTHY and SM2=CONFIRMED
     """
     # Allocate fresh ports for the encrypted simulator (csr_sim fixture already holds the fixture ports).
@@ -1021,10 +1021,8 @@ async def test_happy_path_encrypted(csr_sim):
     enc_sim_preset = {
         "crc_format": "hex",
         "account_number": E2E_ACCOUNT,
-        # encryption_key=None: v1.0 encryption is id_token marker only ("*SIA-DCS"),
-        # actual payload is NOT AES-encrypted. Simulator must send plain ACK frames
-        # (not AES-encrypted) so decode_ack_nak() can parse them on the daemon side.
-        "encryption_key": None,
+        # Same key as the daemon: the simulator decrypts and answers *ACK (story 1-5)
+        "encryption_key": E2E_ENCRYPTION_KEY,
     }
     enc_sim = CSRSimulator(
         udp_port=enc_udp_port,
@@ -1040,6 +1038,15 @@ async def test_happy_path_encrypted(csr_sim):
         supervision_interval_s=E2E_FAST_INTERVAL,
         encryption_enabled=True,
     )
+    # Record every frame put on the wire to check the tokens actually sent
+    sent_frames: list[bytes] = []
+    real_send_raw = daemon._send_raw
+
+    async def _spy_send_raw(frame: bytes):
+        sent_frames.append(frame)
+        return await real_send_raw(frame)
+
+    daemon._send_raw = _spy_send_raw  # type: ignore[method-assign]
 
     try:
         await daemon.on_start()
@@ -1050,17 +1057,6 @@ async def test_happy_path_encrypted(csr_sim):
             timeout=E2E_SCENARIO_TIMEOUT,
         )
 
-        # Assert: supervision frames use *NULL marker (encrypted supervision = *NULL per spec)
-        from resources.siadc09d.sia_protocol import ENCRYPTED_MARKER, NULL_TOKEN
-        sup_frame = daemon._sia_builder.make_supervision_message(
-            account_number=daemon._account,
-            account_prefix=daemon._account_prefix,
-            encryption=daemon._preset.encryption_enabled,
-        )
-        sup_str = sup_frame.decode("ascii", errors="replace")
-        assert f'"{ENCRYPTED_MARKER}{NULL_TOKEN}"' in sup_str, (
-            f"Expected *NULL marker in encrypted supervision frame, got: {sup_str[:100]}"
-        )
 
         # Inject alarm
         await daemon.on_message("burglarAlarm", {"zone": "salon"})
@@ -1074,6 +1070,10 @@ async def test_happy_path_encrypted(csr_sim):
         # Assert: both supervision and event callbacks present
         assert 2 in extract_sup_states(daemon.send_to_jeedom), "Expected supervision_state=2 (HEALTHY)"
         assert 1 in extract_event_states(daemon.send_to_jeedom), "Expected event_state=1 (CONFIRMED)"
+        from resources.siadc09d.sia_protocol import parse_frame_header
+        sent_tokens = {parse_frame_header(f)[0] for f in sent_frames}
+        # Assert: only encrypted *NULL supervision and *SIA-DCS alarm went on the wire
+        assert sent_tokens == {"*NULL", "*SIA-DCS"}, sent_tokens
 
     finally:
         with suppress(Exception):

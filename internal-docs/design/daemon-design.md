@@ -21,7 +21,7 @@ The daemon is a Python asyncio process that bridges Jeedom alarm events to a Cen
 resources/siadc09d/
 ├── siadc09d.py          ← Main daemon (SIADaemon class, extends JeedomDaemon)
 ├── sia_protocol.py      ← Pure protocol module (encode/decode/CRC) — no Jeedom deps
-├── sia_crypto.py        ← AES encryption module (stubbed initially)
+├── sia_crypto.py        ← AES-CBC per § 5.4 (SIACipher, parse_hex_key) — story 1-5
 ├── error_handler.py     ← Error classification and message factory (Component 5a)
 tests/
 └── simulator/
@@ -98,7 +98,7 @@ class SIAProtocolError(ValueError):
 
 #### `make_timestamp() -> str`
 
-**Why:** Every SIA DC-09 frame must carry a UTC timestamp (section 5.5.1.7). The CSR validates it is within +20/−40 seconds of its own clock. A stale or local-time timestamp causes a NAK, which in v1.0 increments the strike counter.
+**Why:** Every SIA DC-09 frame must carry a UTC timestamp (section 5.5.1.7). The CSR validates it is within +20/−40 seconds of its own clock. A stale or local-time timestamp causes a NAK, answered by an immediate re-send with an updated timestamp (§ 5.6.1.2, story 1-5).
 
 **What:** Returns the current UTC time formatted per the standard. Must be called fresh immediately before encoding each frame.
 
@@ -150,16 +150,16 @@ class SIAProtocolError(ValueError):
 
 **Encrypted frame structure (for `'*SIA-DCS'` and `'*NULL'`):**
 
-Per section 5.4.3–5.4.4, only the content inside the data block `[...]` is encrypted. Padding is **pseudo-random** and is prepended inside the block, terminated by `|`. The closing `]` and everything before `[` are never encrypted.
+Per section 5.4.3–5.4.4, everything after the opening `[` is encrypted: the data, its closing `]`, any extended data and the timestamp. Everything up to and including `[` stays clear. The plaintext is `pad | content`; the ciphertext is written as uppercase hex and **nothing follows it** (no closing `]` after the hex — the `]` is inside the ciphertext).
 
 ```
-Unencrypted: "SIA-DCS"SSSS...#ACCOUNT[#ACCOUNT|BA 001]_timestamp
-Encrypted:   "*SIA-DCS"SSSS...#ACCOUNT[hex(AES(pad|#ACCOUNT|BA 001_timestamp))]
-                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-                                        encrypted region: pad + | + data + _ + timestamp
+Unencrypted: "SIA-DCS"SSSS...#ACCOUNT[#ACCOUNT|BA 001]_HH:MM:SS,MM-DD-YYYY
+Encrypted:   "*SIA-DCS"SSSS...#ACCOUNT[<HEX>
+             <HEX> = hex(AES-CBC(pad + "|" + "#ACCOUNT|BA 001]_HH:MM:SS,MM-DD-YYYY"))
+Supervision: "*NULL"SSSS...#ACCOUNT[<HEX of pad|]_timestamp>
 ```
 
-The pad is pseudo-random bytes prepended so that the total encrypted region length is a multiple of 16 (section 5.4.4). `encode_message()` is responsible for generating the pad and assembling the plaintext before passing it to `sia_crypto.encrypt()`.
+The pad is random printable ASCII (never `|`, `[` or `]`, § 5.4.4.2), sized so that `pad + | + content` is a multiple of 16 bytes (1 to 16 pad bytes). `SIACipher.encrypt()` builds the pad and the `|`; `encode_message()` passes it the region content after `[`. The § 5.5.1.6 length guard applies to the encrypted frame.
 
 | Parameter | Type | Description |
 |---|---|---|
@@ -231,7 +231,7 @@ The pad is pseudo-random bytes prepended so that the total encrypted region leng
 | Incoming `id_type` | ACK token | ACK format |
 |---|---|---|
 | `'SIA-DCS'` / `'NULL'` (unencrypted) | `"ACK"` | `"ACK"SSSS[Rprefix][Lprefix]#account[]` |
-| `'*SIA-DCS'` / `'*NULL'` (encrypted) | `"*ACK"` | `"*ACK"SSSS[Rprefix][Lprefix]#account[hex(AES(pad_timestamp))]` |
+| `'*SIA-DCS'` / `'*NULL'` (encrypted) | `"*ACK"` | `"*ACK"SSSS[Rprefix][Lprefix]#account[<hex(AES(pad\|]_timestamp))>` (no `]` after the hex) |
 
 For encrypted ACK, the `*ACK` response is itself encrypted (timestamp + pad in the data block), using the same key as the incoming message. The `sia_msg['encrypted']` flag from `decode_message()` determines which format to use.
 
@@ -252,7 +252,7 @@ For encrypted ACK, the `*ACK` response is itself encrypted (timestamp + pad in t
 
 #### `decode_ack_nak(raw: bytes) -> dict`
 
-**Why:** Used by the daemon to parse every CSR response to its outbound frames. The result drives SM1/SM2 transitions — in v1.0 a NAK always stops retrying and triggers `BAD_CSR_RESPONSE`.
+**Why:** Used by the daemon to parse every CSR response to its outbound frames. The result drives SM1/SM2 transitions — a NAK triggers an immediate re-send with an updated timestamp (§ 5.6.1.2, story 1-5); see the NAK handling below.
 
 **What:** Parses a raw CSR response and classifies it. Never raises — returns `'unknown'` on any parse failure so the daemon can handle it as a `BAD_CSR_RESPONSE` without crashing.
 
@@ -266,7 +266,7 @@ For encrypted ACK, the `*ACK` response is itself encrypted (timestamp + pad in t
 |---|---|---|
 | `type` | `str` | `'ACK'`, `'NAK'`, or `'unknown'` (anything unparseable) |
 | `seq` | `int \| None` | Echoed sequence number; `None` for `'unknown'` |
-| `raw_nak` | `bytes \| None` | Full raw NAK frame bytes; populated only when `type='NAK'`. Passed to `parse_nak_timestamp()` to extract CSR clock for v1.1 auto-heal. |
+| `raw_nak` | `bytes \| None` | Full raw NAK frame bytes; populated only when `type='NAK'`. Passed to `parse_nak_timestamp()` to extract the CSR clock for the NAK re-send. |
 
 ---
 
@@ -311,7 +311,7 @@ class ParsedMessage:
 
 #### `parse_nak_timestamp(nak_data: bytes) -> datetime` *(Task 0.5)*
 
-**Why:** Extracts the CSR's current time from a NAK frame data field (section 5.5.3.2). In v1.0 used only to distinguish a standard timestamp-NAK (parseable) from a malformed NAK (anomaly → `BAD_CSR_RESPONSE`). In v1.1, the extracted `datetime` will drive clock auto-heal and a one-shot retry.
+**Why:** Extracts the CSR's current time from a NAK frame data field (section 5.5.3.2). The daemon (`_nak_offset()`) uses it as the clock for the immediate NAK re-send: offset = NAK time − local UTC, trusted only within ±24 h (`NAK_TIMESTAMP_SANITY`, the NAK is unauthenticated); otherwise, or if unparseable, the re-send uses the current UTC time and a WARN is logged.
 
 | Parameter | Type | Description |
 |---|---|---|
@@ -341,39 +341,26 @@ and push a conditional into every call site.
 
 ### API surface of `sia_crypto.py`
 
----
-
-#### `encrypt(data: bytes, key: bytes) -> bytes`
-
-**Phase 1 (stub):** Returns `data` unchanged. Allows full end-to-end protocol testing before AES is implemented.
-
-**Phase 2:** AES-CBC encryption.
-- IV: 16 zero bytes (`b'\x00' * 16`) as specified by section 5.4.6.
-- Key length selects variant: 16 bytes → AES-128, 24 bytes → AES-192, 32 bytes → AES-256.
-- `data` **must already be a multiple of 16 bytes** — `encrypt()` does NOT add padding. Padding is pseudo-random and is prepended by `encode_message()` as part of the message string structure (section 5.4.4). See `encode_message()` encrypted frame structure above.
-- Returns raw ciphertext bytes; caller encodes to hex ASCII for embedding in the frame data block.
-
-| Parameter | Type | Description |
-|---|---|---|
-| `data` | `bytes` | Plaintext encrypted region, already padded to a multiple of 16 bytes by the caller |
-| `key` | `bytes` | AES key — 16, 24, or 32 bytes |
-
-**Returns:** `bytes` — ciphertext, same length as input.
+Implemented in story 1-5 (DC-09-2021 § 5.4). The key never appears in a log line, an exception message or a `repr()`.
 
 ---
 
-#### `decrypt(data: bytes, key: bytes) -> bytes`
+#### `parse_hex_key(text: str | None) -> bytes`
 
-**Phase 1 (stub):** Returns `data` unchanged.
+Converts the configured key (`--encryption-key`, the `encryption_key` equipment setting) to raw bytes. Accepts 32, 48 or 64 hex digits, any case, surrounding whitespace stripped → 16, 24 or 32 bytes (AES-128/192/256). Raises `AESKeyError` on anything else, with a message that states the expected format but never echoes the input. The ASCII-bytes key form some panels use is not supported (D-93).
 
-**Phase 2:** Reverse of `encrypt`. Returns the full plaintext encrypted region including the pseudo-random pad prefix — the caller is responsible for stripping it (locate the `|` pad terminator and discard everything before it). Used by `decode()` in Task 0.5 (debug inspector only — not in daemon runtime).
+---
 
-| Parameter | Type | Description |
-|---|---|---|
-| `data` | `bytes` | Ciphertext bytes (decoded from hex ASCII frame field) |
-| `key` | `bytes` | AES key — 16, 24, or 32 bytes |
+#### `class SIACipher(key: bytes, pad_source: PadSource | None = None)`
 
-**Returns:** `bytes` — decrypted region including pad prefix; caller strips pad by splitting on first `|`.
+AES-CBC with a zero IV (§ 5.4.6). The key is validated at construction (`AESKeyError`). `pad_source(n)` is injectable for deterministic tests; the default draws `n` bytes of printable ASCII excluding `|`, `[` and `]` (§ 5.4.4.2) from `secrets`. `repr()` shows only the key size.
+
+| Method | Contract |
+|---|---|
+| `encrypt(content: bytes) -> str` | `content` is the region after `[` (data with its `]`, extended data, timestamp). Returns uppercase hex of `AES-CBC(pad + "\|" + content)`, with 1-16 pad bytes so the plaintext is a whole number of blocks. Raises `AESEncryptionError`. |
+| `decrypt(hex_text: str) -> bytes` | Accepts upper or lower hex. Returns the region content with the pad stripped up to the first `\|`; without a `\|`, from the first `]` (some encoders write `*NULL` / `*ACK` from the § 5.5.2.1 / § 5.5.3.1 templates without it). Raises `AESDecryptionError` on bad hex, a partial block or no terminator (wrong key). |
+
+`sia_protocol.encode_message()` calls `encrypt()` for `*SIA-DCS` and `*NULL`; the frame inspector (`_decrypt_region()`) uses `decrypt()` for display; the daemon classifies `*ACK` from its clear header. The daemon parses the key once at start: an invalid key with encryption on puts SM1 in `SM1State.CONFIG_ERROR` and nothing is sent (no plaintext fallback).
 
 ---
 
@@ -395,9 +382,8 @@ sequenceDiagram
 
     Q-->>D: get() → EVENT{BA, Salon, 1}
     D->>P: encode_message("SIA-DCS", account, seq, "001", ts, crc_format=self._crc_format)
-    P->>C: encrypt(payload, key)
-    Note over C: Stub: returns payload unchanged (Phase 1)
-    C-->>P: payload
+    P->>C: SIACipher.encrypt(region) [encryption on]
+    C-->>P: uppercase hex
     P->>P: compute_crc() → wrap_frame()
     P-->>D: frame: bytes
 
@@ -614,6 +600,7 @@ Recovery happens when the network restores and the CSR responds with ACK → `SM
 - TCP connection dropped → `SM1State.TCP_RECONNECTING` [TCP only]
 - TCP reconnect succeeded → `SM1State.INITIALIZING` (supervision must be re-verified)
 - TCP reconnect exhausted → `SM1State.NO_NETWORK` → `_notify(ErrorCode.TRANSPORT_PERMANENT, {...})` + `self.stop()`
+- Encryption on with a missing or invalid key → `SM1State.CONFIG_ERROR` ("Clé de chiffrement invalide"): no frame is sent, one `message_center` + `notify` per daemon run, key never shown (story 1-5 AC3)
 
 **SM1 → INFO commands:**
 
@@ -628,6 +615,7 @@ Recovery happens when the network restores and the CSR responds with ACK → `SM
 | DEGRADED (strike 3) | `0` |
 | TCP_RECONNECTING | `0` |
 | NO_NETWORK | `0` |
+| CONFIG_ERROR | `0` |
 | STOPPED | `0` |
 
 > **`supervision_label` strings are NOT defined here.** Call `_supervision_label()` — defined and owned by supervision-design.md (Task B.1). Never hardcode label strings in daemon-design.md.
@@ -712,8 +700,8 @@ stateDiagram-v2
     PENDING --> CONFIRMED : ACK received
     PENDING --> PENDING : timeout → retry (retries_left > 0)
     PENDING --> FAILED : all retries exhausted (retries_left == 0)
-    PENDING --> FAILED : NAK received → _notify(BAD_CSR_RESPONSE) → stop retrying
-    PENDING --> PENDING : NAK timestamp_old → auto-heal, retry once [v1.1]
+    PENDING --> PENDING : NAK → immediate re-send, same seq, updated timestamp (retries_left > 0)
+    PENDING --> FAILED : NAK with retries exhausted → _notify(BAD_CSR_RESPONSE)
     PENDING --> FAILED : SM1 → NO_NETWORK → _notify(EVENT_FAILED) [event still queued]
 
     CONFIRMED --> PENDING : next alarm dequeued (direct — no IDLE step)
@@ -728,8 +716,11 @@ stateDiagram-v2
 > **Protocol fact (SIA DC-09 section 5.5.3.2):** The only standard NAK is a timestamp
 > validation failure carrying the CSR's current GMT time. There are **no NAK sub-codes**
 > (`bad_acct`, `bad_encryption`, `bad_message` do not exist in the protocol).
-> Any NAK in v1.0 → `_notify(ErrorCode.BAD_CSR_RESPONSE)` → stop retrying → `SM2State.FAILED`.
-> Timestamp auto-heal (parse CSR time from NAK → resync → retry once) is deferred to v1.1.
+> Any NAK → immediate re-send (§ 5.6.1.2), **same sequence number** (§ 5.5.1.5), timestamp taken
+> from the NAK (±24 h sanity, else current UTC). The re-send is counted in the same retry budget
+> (`MAX_RETRY_DEFAULT`, 4 attempts); when it is exhausted on a NAK →
+> `_notify(ErrorCode.BAD_CSR_RESPONSE)` → `SM2State.FAILED`. A NULL NAK gets up to
+> `SUPERVISION_NAK_RESENDS` (2) re-sends before a strike is counted (story 1-5).
 
 **SM2 → INFO commands:**
 
@@ -1133,9 +1124,9 @@ and continue encoding without the URL. An alarm must never be blocked by a media
 
 Implements NAK dispatch:
 - **ACK** → `SM2State.CONFIRMED`
-- **NAK** (any) → `SM2State.FAILED`, `_notify(ErrorCode.BAD_CSR_RESPONSE, {...})`, stop retrying.
-  Per SIA DC-09 section 5.5.3.2, there are no NAK sub-codes. Any NAK = unexpected CSR behavior.
-  _(v1.1: will parse CSR timestamp from NAK data for auto-heal resync before flagging as failure)_
+- **NAK** (any) → immediate re-send with the same seq and the NAK timestamp (`_nak_offset()`),
+  within `retries_left`; on exhaustion → `SM2State.FAILED`, `_notify(ErrorCode.BAD_CSR_RESPONSE, {...})`.
+  Per SIA DC-09 section 5.5.3.2, there are no NAK sub-codes (story 1-5, § 5.6.1.2).
 - **Timeout** → decrement `retries_left`; at 0 → `SM2State.FAILED`, `_notify(ErrorCode.EVENT_FAILED, {...})`
 - **`tcp_drop`** → SM1 → `TCP_RECONNECTING`, `_track_task(_tcp_reconnect_loop())`, re-queue event
   (same as the TCP_RECONNECTING re-queue path in `_queue_consumer()`). No `SM2State.FAILED` —

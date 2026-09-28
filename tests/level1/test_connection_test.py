@@ -26,6 +26,7 @@ from resources.siadc09d.siadc09d import (
     _send_raw_once,
     run_connection_test,
 )
+from resources.siadc09d.sia_protocol import parse_frame_header
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -455,13 +456,14 @@ def test_run_connection_test_string_port_parses_correctly(capsys, monkeypatch):
 def test_run_connection_test_encryption_sends_frame(capsys, monkeypatch):
     """
     run_connection_test() still calls _send_raw_once when encryption_enabled=True
-    and SIA_ENCRYPTION_KEY is non-empty. The frame is built with encryption=True.
+    and SIA_ENCRYPTION_KEY is a valid 32-hex-digit key. The frame is a *NULL.
 
     Expected result:
     - _send_raw_once is called (encryption config does not short-circuit the test)
+    - the frame sent is an encrypted *NULL (story 1-5 AC6)
     - stdout JSON has status == "ok"
     """
-    monkeypatch.setenv("SIA_ENCRYPTION_KEY", "0123456789abcdef")
+    monkeypatch.setenv("SIA_ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef")
 
     call_args = []
 
@@ -477,21 +479,27 @@ def test_run_connection_test_encryption_sends_frame(capsys, monkeypatch):
     out = json.loads(capsys.readouterr().out.strip())
     # Assert: send was called even with encryption enabled
     assert call_args, "_send_raw_once must be called when encryption is configured"
+    # Assert: the frame really is encrypted
+    assert parse_frame_header(call_args[0][1]["frame"])[0] == "*NULL"
     # Assert: result is ok
     assert out["status"] == "ok"
 
 
-def test_run_connection_test_encryption_disabled_without_key(capsys, monkeypatch):
+@pytest.mark.parametrize("key", [None, "0123456789abcdef", "my-secret-passphrase-1234567890ab"])
+def test_run_connection_test_encryption_bad_key_blocks_send(capsys, monkeypatch, key):
     """
-    run_connection_test() sends an unencrypted frame when encryption_enabled=True
-    but SIA_ENCRYPTION_KEY is absent. The guard `encryption_enabled and bool(key)`
-    must prevent encrypting without a key.
+    run_connection_test() with encryption on and a missing or malformed key
+    sends nothing and reports the key (story 1-5 AC6).
 
     Expected result:
-    - _send_raw_once is called
-    - stdout JSON has status == "ok" (no crash from empty key)
+    - _send_raw_once is never called
+    - stdout JSON has status == "error" and names the AES key
+    - the key never appears on stdout or stderr
     """
-    monkeypatch.delenv("SIA_ENCRYPTION_KEY", raising=False)
+    if key is None:
+        monkeypatch.delenv("SIA_ENCRYPTION_KEY", raising=False)
+    else:
+        monkeypatch.setenv("SIA_ENCRYPTION_KEY", key)
 
     call_count = []
 
@@ -504,11 +512,16 @@ def test_run_connection_test_encryption_disabled_without_key(capsys, monkeypatch
     with patch("resources.siadc09d.siadc09d._send_raw_once", new=fake_send):
         _run(run_connection_test(config, timeout=5))
 
-    out = json.loads(capsys.readouterr().out.strip())
-    # Assert: missing key degrades gracefully to unencrypted send
-    assert call_count, "_send_raw_once must be called even without encryption key"
-    # Assert: result is ok (not an error)
-    assert out["status"] == "ok"
+    captured = capsys.readouterr()
+    out = json.loads(captured.out.strip())
+    # Assert: no frame sent — never a plaintext fallback
+    assert not call_count
+    # Assert: red verdict, Next disabled in the wizard
+    assert out["status"] == "error"
+    # Assert: the detail names the key
+    assert "clé AES" in out["detail"]
+    # Assert: the key is not echoed anywhere
+    assert key is None or (key not in captured.out and key not in captured.err)
 
 
 def test_run_connection_test_output_is_valid_json(capsys, monkeypatch):

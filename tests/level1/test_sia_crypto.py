@@ -1,764 +1,353 @@
 """
-SIA DC-09 AES-128 CBC Cipher Tests
+SIA DC-09 AES-CBC Cipher Tests (story 1-5, AC1/AC9)
 
-Level 1 Unit Tests (pytest): Pure Python, no I/O, no async, no external dependencies.
+Level 1 Unit Tests (pytest): Pure Python, no I/O, no async.
 
-Test coverage for SIACipher class:
-- Key validation at construction
-- AES-128 CBC encryption/decryption with fixed IV (per SIA DC-09 standard)
-- PKCS#7 padding/unpadding
-- Round-trip encryption/decryption
-- Error handling (AESKeyError, AESEncryptionError, AESDecryptionError)
-- SIA protocol frame integration
-- Golden frame encryption/decryption (real SIA protocol frames)
+Test coverage for SIACipher:
+- Key validation (16/24/32 bytes) and hex key parsing
+- Region encryption per DC-09-2021 § 5.4.4-5.4.7: random front pad + '|',
+  AES-CBC with zero IV, uppercase hex output
+- Decryption: byte-level pad strip at the first '|', ']' fallback for
+  pipe-less *NULL/*ACK regions, clean errors on bad input
+- External vectors (real Ajax hub, spec example, DC09Gen, gosia, Swissdotnet)
+- An independent oracle (tests/level1/_dc09_crypto_oracle.py) built on raw
+  `cryptography` primitives, never on SIACipher
 
-Reference: SIA DC-09-2021 § 5.4 – 5.4.7 - Encryption Support
-Expert validation: sia-dc09-expert skill
+Reference: SIA DC-09-2021 § 5.4.3 - 5.4.7
 """
 
-import os
 import pytest
 from resources.siadc09d.sia_crypto import (
-    SIACipher,
-    AESKeyError,
-    AESEncryptionError,
     AESDecryptionError,
+    AESEncryptionError,
+    AESKeyError,
+    SIACipher,
+    parse_hex_key,
 )
-from resources.siadc09d.sia_protocol import SIAMessageBuilder
+from tests.level1._dc09_crypto_oracle import (
+    EXPECTED_CONTENT,
+    VECTORS,
+    oracle_aes_decrypt,
+    oracle_region,
+    split_wire,
+    vector,
+)
 
 
-# ============================================================================
-# Fixtures
-# ============================================================================
-
-@pytest.fixture
-def test_key() -> bytes:
-    """Fixture providing a deterministic test encryption key for reproducible tests.
-
-    Note: This is a fixed test key (not random) to ensure tests are reproducible
-    and can validate against golden ciphertexts.
-    """
-    return b'0123456789ABCDEF'
+KEY_128 = bytes.fromhex("0123456789ABCDEF0123456789ABCDEF")
+KEY_192 = bytes.fromhex("0123456789ABCDEF" * 3)
+KEY_256 = bytes.fromhex("0123456789ABCDEF" * 4)
+FORBIDDEN_PAD_BYTES = {0x7C, 0x5B, 0x5D}
 
 
-@pytest.fixture
-def cipher(test_key: bytes) -> SIACipher:
-    """Fixture providing a pre-built SIACipher bound to the test key.
-
-    Use this in tests that just need to encrypt/decrypt. No need to construct
-    the cipher yourself or manage key validation.
-    """
-    return SIACipher(test_key)
+def _fixed_pad(n: int) -> bytes:
+    """Deterministic pad source for tests: 'p' * n (spec example style)."""
+    return b"p" * n
 
 
 @pytest.fixture
-def sia_builder() -> SIAMessageBuilder:
-    """Fixture providing SIAMessageBuilder for generating test frames.
-
-    Uses SIA CRC format (hex-encoded CRC per § 5.5.1.2).
-    """
-    return SIAMessageBuilder(crc_format="SIA")
+def cipher() -> SIACipher:
+    """SIACipher bound to a fixed AES-128 key with the production pad source."""
+    return SIACipher(KEY_128)
 
 
 # ============================================================================
-# Class Constants Validation
+# Constants and key validation
 # ============================================================================
 
-def test_sia_cipher_key_size_constant():
-    """Test that SIACipher.KEY_SIZE constant is exactly 16 (128-bit).
+def test_class_constants_follow_spec():
+    """Class constants match DC-09 § 5.4.5/§ 5.4.6.
 
-    Expected result:
-    - SIACipher.KEY_SIZE == 16
+    - IV is 16 zero bytes
+    - block size is 16
+    - supported key sizes are 16, 24 and 32 bytes
     """
-    assert SIACipher.KEY_SIZE == 16
-
-
-def test_sia_cipher_block_size_constant():
-    """Test that SIACipher.BLOCK_SIZE constant is exactly 16.
-
-    Expected result:
-    - SIACipher.BLOCK_SIZE == 16
-    """
+    # IV is 16 zero bytes (§ 5.4.6)
+    assert SIACipher.IV == b"\x00" * 16
+    # AES block size is 16 bytes
     assert SIACipher.BLOCK_SIZE == 16
+    # AES-128/192/256 key sizes (§ 5.4.5)
+    assert SIACipher.KEY_SIZES == (16, 24, 32)
 
 
-def test_sia_cipher_iv_constant_is_16_zero_bytes():
-    """Test that SIACipher.IV constant is exactly 16 zero bytes per SIA DC-09 standard.
+def test_pad_alphabet_excludes_delimiters():
+    """The default pad alphabet is printable ASCII minus '|', '[' and ']'.
 
-    Expected result:
-    - SIACipher.IV == b'\\x00' * 16 (16 zero bytes)
-    - SIACipher.IV length is 16 bytes
+    - every byte is in 0x20-0x7E
+    - none of 0x7C, 0x5B, 0x5D appear
     """
-    assert SIACipher.IV == b'\x00' * 16
-    assert len(SIACipher.IV) == 16
+    # All alphabet bytes are printable ASCII
+    assert all(0x20 <= b <= 0x7E for b in SIACipher.PAD_ALPHABET)
+    # No pipe or square bracket in the alphabet (§ 5.4.4.2)
+    assert not FORBIDDEN_PAD_BYTES & set(SIACipher.PAD_ALPHABET)
 
 
-def test_error_classes_exist_and_inherit_from_exception():
-    """Test that custom error classes are defined and properly inherit from Exception.
+@pytest.mark.parametrize("key", [KEY_128, KEY_192, KEY_256])
+def test_accepts_128_192_256_bit_keys(key):
+    """16, 24 and 32-byte keys construct a cipher.
 
-    Expected result:
-    - AESKeyError is defined and is-a Exception
-    - AESEncryptionError is defined and is-a Exception
-    - AESDecryptionError is defined and is-a Exception
+    - no exception for each supported size
     """
-    assert issubclass(AESKeyError, Exception)
-    assert issubclass(AESEncryptionError, Exception)
-    assert issubclass(AESDecryptionError, Exception)
+    # Construction succeeds for a supported key size
+    assert SIACipher(key) is not None
 
 
-# ============================================================================
-# Constructor / Key Validation
-# ============================================================================
+@pytest.mark.parametrize("key", [b"", b"x" * 15, b"x" * 17, b"x" * 33, None, "0123456789ABCDEF"])
+def test_rejects_bad_keys_without_echoing_them(key):
+    """Wrong-size, None and str keys raise AESKeyError.
 
-def test_cipher_construction_with_valid_16_byte_key():
-    """Test SIACipher construction with exactly 16-byte (128-bit) key.
-
-    Expected result:
-    - SIACipher(key) succeeds with valid 16-byte key
-    - Cipher is ready for encrypt/decrypt
+    - AESKeyError raised
+    - the message never contains the key value
     """
-    valid_key = os.urandom(16)
-    cipher = SIACipher(valid_key)
-
-    # Assert: cipher is constructed and usable
-    assert cipher is not None
-
-
-def test_cipher_construction_with_15_byte_key_raises_aeskeyerror():
-    """Test SIACipher construction rejects keys shorter than 16 bytes.
-
-    Expected result:
-    - AESKeyError raised with message about key length
-    """
-    invalid_key = os.urandom(15)
-
-    with pytest.raises(AESKeyError, match="16 bytes"):
-        SIACipher(invalid_key)
-
-
-def test_cipher_construction_with_17_byte_key_raises_aeskeyerror():
-    """Test SIACipher construction rejects keys longer than 16 bytes.
-
-    Expected result:
-    - AESKeyError raised with message about key length
-    """
-    invalid_key = os.urandom(17)
-
-    with pytest.raises(AESKeyError, match="16 bytes"):
-        SIACipher(invalid_key)
-
-
-def test_cipher_construction_with_none_raises_aeskeyerror():
-    """Test SIACipher construction rejects None input.
-
-    Expected result:
-    - AESKeyError raised for None
-    """
-    with pytest.raises(AESKeyError):
-        SIACipher(None)
-
-
-def test_cipher_construction_with_32_byte_key_raises_aeskeyerror():
-    """Test SIACipher construction rejects keys for AES-256 (not supported in this story).
-
-    Expected result:
-    - AESKeyError raised for 32-byte key
-    """
-    invalid_key = os.urandom(32)
-
-    with pytest.raises(AESKeyError, match="16 bytes"):
-        SIACipher(invalid_key)
-
-
-def test_cipher_construction_with_string_key_raises_aeskeyerror():
-    """Test SIACipher construction rejects string keys (not bytes).
-
-    Expected result:
-    - AESKeyError raised for non-bytes key even if correct length
-    """
-    key = "1234567890123456"  # 16 chars but not bytes
-
-    with pytest.raises(AESKeyError):
+    with pytest.raises(AESKeyError) as exc:
         SIACipher(key)
-
-
-# ============================================================================
-# Encrypt/Decrypt Roundtrip Tests
-# ============================================================================
-
-def test_encrypt_decrypt_roundtrip_empty_plaintext(cipher):
-    """Test AES-128 CBC encryption/decryption with empty plaintext (0 bytes).
-
-    Expected result:
-    - Empty plaintext encrypted produces 16-byte ciphertext (all PKCS#7 padding)
-    - Decryption of 16-byte ciphertext returns empty plaintext
-    - Round-trip validation: encrypt(b'') then decrypt() returns b''
-    """
-    plaintext = b''  # 0 bytes
-    ciphertext = cipher.encrypt(plaintext)
-    recovered = cipher.decrypt(ciphertext)
-
-    # Assert: round-trip succeeds for empty plaintext
-    assert recovered == plaintext
-
-    # Assert: ciphertext is 16 bytes (all padding per PKCS#7)
-    assert len(ciphertext) == 16
-
-
-def test_encrypt_decrypt_roundtrip_1_byte_plaintext(cipher):
-    """Test AES-128 CBC encryption round-trip with 1-byte plaintext.
-
-    Expected result:
-    - plaintext (1 byte) encrypted and decrypted returns original
-    - padding adds 15 bytes (PKCS#7)
-    - encrypted data is 16 bytes (one AES block)
-    """
-    plaintext = b'X'  # 1 byte
-    ciphertext = cipher.encrypt(plaintext)
-    recovered = cipher.decrypt(ciphertext)
-
-    # Assert: recovered plaintext matches original
-    assert recovered == plaintext
-
-    # Assert: ciphertext length is multiple of 16 (after padding: 1 + 15 = 16)
-    assert len(ciphertext) == 16
-
-
-def test_encrypt_decrypt_roundtrip_15_byte_plaintext(cipher):
-    """Test AES-128 CBC with plaintext 15 bytes (requires 1 byte padding).
-
-    Expected result:
-    - plaintext encrypted and decrypted returns original
-    - encrypted data is 16 bytes (one AES block with 1-byte padding)
-    """
-    plaintext = b'0123456789ABCDE'  # 15 bytes
-    ciphertext = cipher.encrypt(plaintext)
-    recovered = cipher.decrypt(ciphertext)
-
-    # Assert: recovered plaintext matches original
-    assert recovered == plaintext
-
-    # Assert: ciphertext is 16 bytes (15 + 1 padding)
-    assert len(ciphertext) == 16
-
-
-def test_encrypt_decrypt_roundtrip_16_byte_plaintext(cipher):
-    """Test AES-128 CBC with plaintext exactly 16 bytes (requires 16 bytes padding).
-
-    Expected result:
-    - plaintext encrypted and decrypted returns original
-    - padding is applied even though plaintext == block size (PKCS#7 rule)
-    - encrypted data is 32 bytes (two AES blocks: data + padding block)
-    """
-    plaintext = b'0123456789ABCDEF'  # 16 bytes
-    ciphertext = cipher.encrypt(plaintext)
-    recovered = cipher.decrypt(ciphertext)
-
-    # Assert: recovered plaintext matches original
-    assert recovered == plaintext
-
-    # Assert: ciphertext is 32 bytes (16 data + 16 padding per PKCS#7)
-    assert len(ciphertext) == 32
-
-    # Assert: encryption is deterministic (same plaintext + key = same ciphertext)
-    ciphertext2 = cipher.encrypt(plaintext)
-    assert ciphertext == ciphertext2
-
-
-def test_encrypt_decrypt_roundtrip_17_byte_plaintext(cipher):
-    """Test AES-128 CBC with plaintext 17 bytes (requires 15 bytes padding).
-
-    Expected result:
-    - plaintext encrypted and decrypted returns original
-    - encrypted data is 32 bytes (16 data + 15 padding + 1)
-    """
-    plaintext = b'0123456789ABCDEF0'  # 17 bytes
-    ciphertext = cipher.encrypt(plaintext)
-    recovered = cipher.decrypt(ciphertext)
-
-    # Assert: recovered plaintext matches original
-    assert recovered == plaintext
-
-    # Assert: ciphertext is 32 bytes (17 + 15 padding)
-    assert len(ciphertext) == 32
-
-
-def test_encrypt_decrypt_roundtrip_31_byte_plaintext(cipher):
-    """Test AES-128 CBC with plaintext 31 bytes (requires 1 byte padding).
-
-    Expected result:
-    - plaintext encrypted and decrypted returns original
-    - encrypted data is 32 bytes
-    """
-    plaintext = b'0' * 31  # 31 bytes
-    ciphertext = cipher.encrypt(plaintext)
-    recovered = cipher.decrypt(ciphertext)
-
-    # Assert: recovered plaintext matches original
-    assert recovered == plaintext
-
-    # Assert: ciphertext is 32 bytes (31 + 1 padding)
-    assert len(ciphertext) == 32
-
-
-def test_encrypt_decrypt_roundtrip_32_byte_plaintext(cipher):
-    """Test AES-128 CBC with plaintext 32 bytes (requires 16 bytes padding).
-
-    Expected result:
-    - plaintext encrypted and decrypted returns original
-    - encrypted data is 48 bytes (32 data + 16 padding)
-    """
-    plaintext = b'0' * 32  # 32 bytes
-    ciphertext = cipher.encrypt(plaintext)
-    recovered = cipher.decrypt(ciphertext)
-
-    # Assert: recovered plaintext matches original
-    assert recovered == plaintext
-
-    # Assert: ciphertext is 48 bytes (32 + 16 padding)
-    assert len(ciphertext) == 48
-
-
-def test_encrypt_decrypt_roundtrip_256_byte_plaintext(cipher):
-    """Test AES-128 CBC encryption with large plaintext (256 bytes).
-
-    Expected result:
-    - 256-byte plaintext encrypted and decrypted returns original
-    - Ciphertext length is 272 bytes (256 data + 16 padding)
-    - Scalability verified for multi-block plaintexts
-    """
-    plaintext = os.urandom(256)  # 16 AES blocks
-    ciphertext = cipher.encrypt(plaintext)
-    recovered = cipher.decrypt(ciphertext)
-
-    # Assert: round-trip succeeds for large plaintext
-    assert recovered == plaintext
-
-    # Assert: ciphertext is 272 bytes (256 + 16 padding)
-    assert len(ciphertext) == 272
-
-
-# ============================================================================
-# Determinism and Key Sensitivity
-# ============================================================================
-
-def test_encrypt_is_deterministic(cipher):
-    """Test that encryption is deterministic (same input = same output).
-
-    Expected result:
-    - Encrypting same plaintext with same key twice produces identical ciphertext
-    - (Due to fixed IV per SIA DC-09 standard, not random IV)
-    """
-    plaintext = b'deterministic test'
-    cipher1 = cipher.encrypt(plaintext)
-    cipher2 = cipher.encrypt(plaintext)
-
-    # Assert: encryption is deterministic (fixed IV per SIA DC-09)
-    assert cipher1 == cipher2
-
-
-def test_encrypt_with_different_keys_produces_different_ciphertexts():
-    """Test that different keys produce different ciphertexts for same plaintext.
-
-    Expected result:
-    - plaintext encrypted with key1 and key2 produces different ciphertexts
-    - (IV is fixed per SIA DC-09, so only key differs)
-    """
-    plaintext = b'test message'
-    key1 = os.urandom(16)
-    key2 = os.urandom(16)
-
-    cipher1 = SIACipher(key1).encrypt(plaintext)
-    cipher2 = SIACipher(key2).encrypt(plaintext)
-
-    # Assert: different keys produce different ciphertexts
-    assert cipher1 != cipher2
-
-
-def test_decrypt_with_wrong_key_fails_or_returns_garbage():
-    """Test that decrypting with wrong key fails or returns incorrect plaintext.
-
-    Expected result:
-    - decrypt_message() with wrong key either:
-      a) raises AESDecryptionError on invalid padding
-      b) returns garbage (not the original plaintext)
-    """
-    plaintext = b'secret message'
-    key1 = os.urandom(16)
-    key2 = os.urandom(16)
-
-    cipher1 = SIACipher(key1)
-    cipher2 = SIACipher(key2)
-
-    ciphertext = cipher1.encrypt(plaintext)
-
-    # Try to decrypt with wrong key
-    try:
-        recovered = cipher2.decrypt(ciphertext)
-        # Assert: if no exception, recovered is garbage (not original)
-        assert recovered != plaintext
-    except AESDecryptionError:
-        # Assert: exception is acceptable (invalid padding with wrong key)
-        pass
-
-
-# ============================================================================
-# Error Handling
-# ============================================================================
-
-def test_decrypt_with_truncated_ciphertext_raises_error(cipher):
-    """Test that decrypting truncated ciphertext raises AESDecryptionError.
-
-    Expected result:
-    - AESDecryptionError raised for truncated/invalid ciphertext
-    """
-    plaintext = b'test'
-    ciphertext = cipher.encrypt(plaintext)
-
-    # Truncate ciphertext
-    truncated = ciphertext[:8]
-
-    # Assert: AESDecryptionError raised for truncated ciphertext
-    with pytest.raises(AESDecryptionError):
-        cipher.decrypt(truncated)
-
-
-def test_decrypt_with_odd_length_ciphertext():
-    """Test that decryption rejects ciphertext not multiple of 16 bytes.
-
-    Expected result:
-    - AESDecryptionError raised with message about block size
-    - Error triggered before decryption attempt
-    """
-    invalid_ciphertext = os.urandom(17)
-    cipher = SIACipher(os.urandom(16))
-
-    # Assert: AESDecryptionError raised for invalid ciphertext length
-    with pytest.raises(AESDecryptionError, match="multiple|block"):
-        cipher.decrypt(invalid_ciphertext)
-
-
-def test_decrypt_with_3_byte_ciphertext(cipher):
-    """Test that decryption rejects very short invalid ciphertext.
-
-    Expected result:
-    - AESDecryptionError raised for 3-byte ciphertext (too short)
-    """
-    invalid_ciphertext = os.urandom(3)
-
-    # Assert: AESDecryptionError raised
-    with pytest.raises(AESDecryptionError):
-        cipher.decrypt(invalid_ciphertext)
-
-
-def test_decrypt_with_invalid_pad_len_zero():
-    """Test PKCS#7 unpadding rejects padding with pad_len == 0 (invalid).
-
-    Expected result:
-    - AESDecryptionError raised when last byte indicates 0 padding
-    """
-    key = os.urandom(16)
-    cipher = SIACipher(key)
-
-    # Encrypt something valid first
-    plaintext = b'test'
-    ciphertext = cipher.encrypt(plaintext)
-
-    # Now corrupt the last byte to be 0x00 (invalid pad_len)
-    corrupted = ciphertext[:-1] + b'\x00'
-
-    # Assert: AESDecryptionError on invalid pad_len (0)
-    with pytest.raises(AESDecryptionError, match="range|padding"):
-        cipher.decrypt(corrupted)
-
-
-def test_decrypt_with_invalid_pad_len_too_large():
-    """Test PKCS#7 unpadding rejects padding with pad_len > 16 (invalid).
-
-    Expected result:
-    - AESDecryptionError raised when last byte indicates padding > 16 bytes
-    """
-    cipher = SIACipher(os.urandom(16))
-
-    # Create a 16-byte block where last byte is 0xFF (255, way too large)
-    invalid_ciphertext = b'\x00' * 15 + b'\xFF'
-
-    # Assert: AESDecryptionError on invalid pad_len (either range or mismatch message)
-    with pytest.raises(AESDecryptionError):
-        cipher.decrypt(invalid_ciphertext)
-
-
-def test_aeskeyerror_has_descriptive_message():
-    """Test that AESKeyError messages are descriptive and helpful.
-
-    Expected result:
-    - error message includes "16" or "byte" description
-    """
-    try:
-        SIACipher(b'short')
-    except AESKeyError as e:
-        # Assert: error message is descriptive
-        assert "16" in str(e) or "byte" in str(e).lower()
-
-
-def test_aesdecryptionerror_on_invalid_padding(cipher):
-    """Test that AESDecryptionError is raised on invalid padding.
-
-    Expected result:
-    - AESDecryptionError with message about padding
-    """
-    # Create invalid ciphertext (16 bytes of zeros is likely invalid padding)
-    invalid_ciphertext = b'\x00' * 16
-
-    with pytest.raises(AESDecryptionError):
-        cipher.decrypt(invalid_ciphertext)
-
-
-# ============================================================================
-# Type Safety Tests
-# ============================================================================
-
-def test_encrypt_with_string_plaintext_raises_error():
-    """Test cipher.encrypt() rejects string plaintext (not bytes).
-
-    Expected result:
-    - AESEncryptionError or TypeError raised when plaintext is string
-    """
-    cipher = SIACipher(os.urandom(16))
-    plaintext = "not bytes, this is a string"
-
-    # Assert: Error raised for non-bytes plaintext (wrapped in AESEncryptionError)
-    with pytest.raises((AESEncryptionError, TypeError, AttributeError)):
-        cipher.encrypt(plaintext)
-
-
-# ============================================================================
-# Frame Methods (Semantic Intent)
-# ============================================================================
-
-def test_encrypt_frame_with_valid_frame(cipher):
-    """Test SIA protocol frame encryption.
-
-    Expected result:
-    - plaintext frame encrypted returns ciphertext
-    - ciphertext can be decrypted back to original
-    """
-    plaintext_frame = b'\x0a"6F6FL0#001234[#001234|1130]_22:49:34,04-07-2026\x0d'
-    ciphertext = cipher.encrypt_frame(plaintext_frame)
-    recovered = cipher.decrypt_frame(ciphertext)
-
-    # Assert: round-trip encryption/decryption returns original frame
-    assert recovered == plaintext_frame
-
-
-def test_decrypt_frame_with_valid_ciphertext(cipher):
-    """Test SIA protocol frame decryption.
-
-    Expected result:
-    - encrypted frame decrypted returns plaintext
-    """
-    plaintext_frame = b'\x0a"4F4FL0#ACCOUNT[#ACCOUNT|1130]_22:49:34,04-07-2026\x0d'
-    encrypted = cipher.encrypt_frame(plaintext_frame)
-    decrypted = cipher.decrypt_frame(encrypted)
-
-    # Assert: decrypted frame matches original plaintext
-    assert decrypted == plaintext_frame
-
-
-# ============================================================================
-# Golden Frame Tests: Real SIA Protocol Frames with Encryption
-# ============================================================================
-
-def test_encrypt_golden_alarm_frame_roundtrip(sia_builder, test_key):
-    """Test encryption of real SIA alarm frame with golden plaintext.
-
-    Expected result:
-    - Real alarm frame from SIAMessageBuilder can be encrypted and decrypted
-    - Round-trip: plaintext → encrypt → decrypt → matches original
-    - Validates encryption works with actual protocol frames per § 5.5.1.10
-    """
-    cipher = SIACipher(test_key)
-
-    # Generate real alarm frame using protocol builder
-    plaintext_frame = sia_builder.encode_message(
-        account_number="001234",
-        event_code="1130",  # Burglary alarm
-        timestamp=None  # Disable timestamp for determinism
-    )
-
-    # Encrypt the plaintext frame
-    ciphertext = cipher.encrypt_frame(plaintext_frame)
-    recovered = cipher.decrypt_frame(ciphertext)
-
-    # Assert: encryption is reversible
-    assert recovered == plaintext_frame
-
-    # Assert: ciphertext is longer due to PKCS#7 padding
-    assert len(ciphertext) > len(plaintext_frame)
-
-    # Assert: ciphertext length is multiple of 16 (AES block requirement)
-    assert len(ciphertext) % 16 == 0
-
-
-def test_encrypt_golden_supervision_frame_roundtrip(sia_builder, test_key):
-    """Test encryption of real SIA supervision (NULL) frame with golden plaintext.
-
-    Expected result:
-    - Real supervision frame from SIAMessageBuilder can be encrypted/decrypted
-    - Round-trip: supervision frame → encrypt → decrypt → original
-    - Validates encryption works with NULL supervision messages per § 5.5.1.10
-    """
-    cipher = SIACipher(test_key)
-
-    # Generate real supervision (NULL) frame
-    plaintext_frame = sia_builder.make_supervision_message(
-        account_number="001234"
-    )
-
-    # Encrypt the supervision frame
-    ciphertext = cipher.encrypt_frame(plaintext_frame)
-    recovered = cipher.decrypt_frame(ciphertext)
-
-    # Assert: encryption is reversible for supervision messages
-    assert recovered == plaintext_frame
-
-    # Assert: ciphertext is valid AES block multiple
-    assert len(ciphertext) % 16 == 0
-
-
-def test_encrypt_deterministic_with_golden_key(sia_builder, test_key):
-    """Test that encryption is deterministic with fixed IV per SIA DC-09 standard.
-
-    Expected result:
-    - Same plaintext frame + same key produces identical ciphertext (deterministic)
-    - Validates fixed IV (not random) per § 5.5.1.10
-    - Multiple encryption calls with same inputs produce same output
-    """
-    cipher = SIACipher(test_key)
-
-    plaintext_frame = sia_builder.encode_message(
-        account_number="002468",
-        event_code="1130",
-        timestamp=None
-    )
-
-    # Encrypt same frame twice with same key
-    ciphertext1 = cipher.encrypt_frame(plaintext_frame)
-    ciphertext2 = cipher.encrypt_frame(plaintext_frame)
-
-    # Assert: encryption is deterministic (fixed IV)
-    assert ciphertext1 == ciphertext2
-
-    # Assert: both decrypt to original
-    assert cipher.decrypt_frame(ciphertext1) == plaintext_frame
-    assert cipher.decrypt_frame(ciphertext2) == plaintext_frame
-
-
-def test_encrypt_different_frames_produce_different_ciphertexts(sia_builder, test_key):
-    """Test that different plaintext frames produce different ciphertexts.
-
-    Expected result:
-    - Different alarm codes produce different encrypted outputs
-    - Different account numbers produce different encrypted outputs
-    - Validates encryption depends on plaintext content
-    """
-    cipher = SIACipher(test_key)
-
-    frame1 = sia_builder.encode_message("001234", "1130", timestamp=None)  # Burglary
-    frame2 = sia_builder.encode_message("001234", "1140", timestamp=None)  # Different event
-    frame3 = sia_builder.encode_message("005678", "1130", timestamp=None)  # Different account
-
-    ciphertext1 = cipher.encrypt_frame(frame1)
-    ciphertext2 = cipher.encrypt_frame(frame2)
-    ciphertext3 = cipher.encrypt_frame(frame3)
-
-    # Assert: different plaintexts produce different ciphertexts
-    assert ciphertext1 != ciphertext2, "Different events should produce different ciphertexts"
-    assert ciphertext1 != ciphertext3, "Different accounts should produce different ciphertexts"
-    assert ciphertext2 != ciphertext3
-
-
-def test_encrypt_different_keys_produce_different_ciphertexts(sia_builder):
-    """Test that different encryption keys produce different ciphertexts.
-
-    Expected result:
-    - Same plaintext encrypted with key1 and key2 produces different ciphertexts
-    - Validates key material affects output
-    """
-    plaintext_frame = sia_builder.encode_message("001234", "1130", timestamp=None)
-
-    key1 = b'0123456789ABCDEF'
-    key2 = b'FEDCBA9876543210'
-
-    cipher1 = SIACipher(key1)
-    cipher2 = SIACipher(key2)
-
-    ciphertext1 = cipher1.encrypt_frame(plaintext_frame)
-    ciphertext2 = cipher2.encrypt_frame(plaintext_frame)
-
-    # Assert: different keys produce different ciphertexts
-    assert ciphertext1 != ciphertext2
-
-    # Assert: each decrypts only with its matching key
-    assert cipher1.decrypt_frame(ciphertext1) == plaintext_frame
-    assert cipher2.decrypt_frame(ciphertext2) == plaintext_frame
-
-    # Assert: wrong key decryption fails or returns garbage
-    try:
-        decrypted_wrong = cipher1.decrypt_frame(ciphertext2)
-        # If no exception, should be garbage (not original plaintext)
-        assert decrypted_wrong != plaintext_frame
-    except AESDecryptionError:
-        # Exception is also acceptable
-        pass
-
-
-def test_encrypt_golden_frame_preserves_structure_after_roundtrip(sia_builder, test_key):
-    """Test that plaintext frame structure is preserved through encrypt/decrypt roundtrip.
-
-    Expected result:
-    - Recovered frame matches original byte-for-byte
-    - Frame delimiters (LF/CR) are preserved
-    - All fields (CRC, length, sequence, account, etc.) intact after roundtrip
-    """
-    cipher = SIACipher(test_key)
-
-    # Generate frame with specific parameters
-    plaintext = sia_builder.encode_message(
-        account_number="ABCDEF123456",
-        event_code="1130",
-        timestamp=None
-    )
-
-    # Encrypt and decrypt
-    encrypted = cipher.encrypt_frame(plaintext)
-    recovered = cipher.decrypt_frame(encrypted)
-
-    # Assert: structure perfectly preserved
-    assert recovered == plaintext
-    assert len(recovered) == len(plaintext)
-    assert recovered[0:1] == plaintext[0:1]  # LF preserved
-    assert recovered[-1:] == plaintext[-1:]  # CR preserved
-
-
-@pytest.mark.parametrize("event_code,account", [
-    ("1130", "001234"),  # Burglary alarm
-    ("1230", "005678"),  # Fire alarm
-    ("1330", "009999"),  # Panic alarm
-    ("0000", "AABBCC"),  # Supervision NULL
+    if key:
+        # The key value is never echoed in the error
+        assert str(key) not in str(exc.value) and repr(key) not in str(exc.value)
+
+
+@pytest.mark.parametrize("text,size", [
+    ("0123456789abcdef" * 2, 16),
+    ("0123456789ABCDEF" * 3, 24),
+    ("0123456789ABCDEF" * 4, 32),
+    ("  " + "0123456789ABCDEF" * 2 + "\n", 16),
 ])
-def test_encrypt_parametrized_golden_frames(sia_builder, test_key, event_code, account):
-    """Parametrized test: encrypt various alarm types with different accounts.
+def test_parse_hex_key_accepts_32_48_64_hex_digits(text, size):
+    """parse_hex_key decodes 32/48/64 hex digits (surrounding whitespace trimmed).
 
-    Expected result:
-    - All alarm types can be encrypted and decrypted successfully
-    - Round-trip validation succeeds for all event/account combinations
+    - returns bytes of the matching AES key size
     """
-    cipher = SIACipher(test_key)
+    # Decoded key has the AES key size matching the hex length
+    assert len(parse_hex_key(text)) == size
 
-    plaintext = sia_builder.encode_message(account, event_code, timestamp=None)
-    ciphertext = cipher.encrypt_frame(plaintext)
-    recovered = cipher.decrypt_frame(ciphertext)
 
-    # Assert: all variations can be encrypted/decrypted
-    assert recovered == plaintext
+@pytest.mark.parametrize("text", [
+    None, "", "0123", "0123456789ABCDEF",  # 16 hex digits = ASCII-style key (D-93)
+    "0x" + "0123456789ABCDEF" * 2, "0123456789ABCDEF 0123456789ABCDEF",
+    "G123456789ABCDEF0123456789ABCDEF", "0123456789ABCDEF" * 2 + "0",
+])
+def test_parse_hex_key_rejects_everything_else(text):
+    """parse_hex_key rejects any other shape, never echoing the input.
+
+    - AESKeyError raised
+    - message does not contain the input
+    """
+    with pytest.raises(AESKeyError) as exc:
+        parse_hex_key(text)
+    if text:
+        # Input is not echoed in the error message
+        assert text.strip() not in str(exc.value)
+
+
+# ============================================================================
+# Encryption (§ 5.4.4 - 5.4.7)
+# ============================================================================
+
+@pytest.mark.parametrize("content_len", [0, 1, 14, 15, 16, 31, 32, 47, 200])
+def test_encrypt_pads_front_to_block_multiple(content_len):
+    """Region = pad + '|' + content; pad_len = 16 - (len('|'+content) % 16).
+
+    - oracle decryption gives pad + '|' + content exactly
+    - total length is a multiple of 16
+    - pad length is 1..16, and 16 when '|'+content is already aligned
+    """
+    content = b"A" * content_len
+    hex_text = SIACipher(KEY_128, pad_source=_fixed_pad).encrypt(content)
+    plain = oracle_aes_decrypt(hex_text, KEY_128)
+    expected_pad = 16 - ((content_len + 1) % 16)
+    # Plaintext is exactly pad + '|' + content
+    assert plain == b"p" * expected_pad + b"|" + content
+    # Total length is a whole number of blocks
+    assert len(plain) % 16 == 0
+    # Pad length is never 0 (full block when aligned)
+    assert 1 <= expected_pad <= 16
+
+
+def test_encrypt_returns_uppercase_hex(cipher):
+    """encrypt() returns uppercase hex ASCII (§ 5.4.7).
+
+    - str of hex digits, no lowercase letters
+    """
+    hex_text = cipher.encrypt(b"#1234|NBA001]_12:00:00,09-27-2026")
+    # Output is uppercase hex
+    assert hex_text == hex_text.upper() and bytes.fromhex(hex_text)
+
+
+def test_default_pad_is_random_and_never_uses_delimiters(cipher):
+    """Production pad bytes come from the pad alphabet and vary per call.
+
+    - no '|', '[' or ']' in any pad
+    - two encryptions of the same content differ
+    """
+    content = b"#1234|NBA001]_12:00:00,09-27-2026"
+    pads = []
+    for _ in range(50):
+        pad, recovered = oracle_region(cipher.encrypt(content), KEY_128)
+        # Content survives after the first '|'
+        assert recovered == content
+        pads.append(pad)
+    # No delimiter byte in any pad (§ 5.4.4.2)
+    assert not any(FORBIDDEN_PAD_BYTES & set(p) for p in pads)
+    # Pads are random: at most a handful of collisions in 50 draws, not the
+    # near-constant generator a bare "len(set(pads)) > 1" would still pass
+    # (review finding 2026-09-28)
+    assert len(set(pads)) >= 45
+
+
+@pytest.mark.parametrize("key", [KEY_128, KEY_192, KEY_256])
+def test_oracle_decrypts_our_output_for_every_key_size(key):
+    """The independent oracle decrypts SIACipher output for AES-128/192/256.
+
+    - content recovered after the pad
+    """
+    content = b"#001234|NBA001]_12:00:00,09-27-2026"
+    _, recovered = oracle_region(SIACipher(key).encrypt(content), key)
+    # Content recovered by the oracle
+    assert recovered == content
+
+
+def test_bad_pad_source_is_rejected():
+    """An injected pad containing '|' or of wrong length raises AESEncryptionError.
+
+    - '|' in pad rejected
+    - wrong length rejected
+    """
+    # Pad containing '|' is rejected
+    with pytest.raises(AESEncryptionError):
+        SIACipher(KEY_128, pad_source=lambda n: b"|" * n).encrypt(b"x")
+    # Pad of the wrong length is rejected
+    with pytest.raises(AESEncryptionError):
+        SIACipher(KEY_128, pad_source=lambda n: b"p").encrypt(b"x")
+
+
+def test_encrypt_rejects_non_bytes(cipher):
+    """encrypt() needs bytes (callers encode str themselves).
+
+    - AESEncryptionError for str input
+    """
+    # str content is rejected
+    with pytest.raises(AESEncryptionError):
+        cipher.encrypt("#1234|NBA001]")
+
+
+def test_pkcs7_and_frame_aliases_removed():
+    """PKCS#7 helpers and the encrypt_frame/decrypt_frame aliases are gone.
+
+    - none of the old attributes exist
+    """
+    for name in ("_apply_pkcs7_padding", "_remove_pkcs7_padding", "encrypt_frame", "decrypt_frame", "KEY_SIZE"):
+        # Old PKCS#7-era attribute removed
+        assert not hasattr(SIACipher, name)
+
+
+# ============================================================================
+# Decryption
+# ============================================================================
+
+@pytest.mark.parametrize("content", [b"", b"]_12:00:00,09-27-2026", b"#1234|NBA001][Vhttp://x/y]_12:00:00,09-27-2026"])
+def test_roundtrip(cipher, content):
+    """decrypt(encrypt(x)) == x.
+
+    - content returned without the pad and '|'
+    """
+    # Round trip returns the original content
+    assert cipher.decrypt(cipher.encrypt(content)) == content
+
+
+def test_decrypt_accepts_lowercase_hex(cipher):
+    """Lowercase hex (ioBroker, RoslynServer2, DC09Gen) decrypts too.
+
+    - same content as uppercase
+    """
+    hex_text = cipher.encrypt(b"#1234|NBA001]")
+    # Lowercase hex decrypts to the same content
+    assert cipher.decrypt(hex_text.lower()) == b"#1234|NBA001]"
+
+
+def test_decrypt_strips_binary_pad_at_byte_level():
+    """A binary pad (bytes >= 0x80, LF) is stripped before any text decoding.
+
+    - V1 (real Ajax hub, pad contains 0x0A and 0xB5) gives the clean content
+    """
+    v1 = vector("V1_ajax")
+    _, hex_text = split_wire(v1.frame_body)
+    # Byte-level strip keeps the content intact
+    assert SIACipher(v1.key).decrypt(hex_text) == EXPECTED_CONTENT["V1_ajax"]
+
+
+@pytest.mark.parametrize("bad", ["", "ABC", "ZZ" * 16, "00" * 15, "00" * 17])
+def test_decrypt_rejects_malformed_hex(cipher, bad):
+    """Empty, odd-length, non-hex or non-block-multiple input raises AESDecryptionError.
+
+    - AESDecryptionError raised
+    """
+    # Malformed ciphertext rejected cleanly
+    with pytest.raises(AESDecryptionError):
+        cipher.decrypt(bad)
+
+
+def test_decrypt_with_wrong_key_fails_cleanly():
+    """A wrong key yields AESDecryptionError, never a traceback or the original content.
+
+    Uses a fixed pad source (review finding 2026-09-28: with the production
+    random pad, this specific plaintext decrypts under the wrong key to
+    garbage without a '|' or ']' about a third of the time and to garbage
+    that happens to contain one the rest of the time — an either/or
+    assertion couldn't tell a correctly-hardened decrypt from a subtly
+    broken one apart. Fixing the pad makes the outcome deterministic, so a
+    single, precise branch can be asserted).
+
+    - AESDecryptionError, with the standard "no pad terminator" message
+    """
+    right_key_cipher = SIACipher(KEY_128, pad_source=_fixed_pad)
+    hex_text = right_key_cipher.encrypt(b"#1234|NBA001]_12:00:00,09-27-2026")
+    # Wrong key raises cleanly, it never silently recovers the original content
+    with pytest.raises(AESDecryptionError, match="no pad terminator"):
+        SIACipher(KEY_256).decrypt(hex_text)
+
+
+def test_decrypt_error_never_contains_key_or_pad(cipher):
+    """Decryption errors carry no key and no plaintext.
+
+    - error text does not contain the key hex
+    - error text does not contain the decrypted garbage plaintext either
+      (review finding 2026-09-28: the docstring already claimed this, but
+      only the key was actually checked)
+    """
+    ciphertext_hex = "00" * 16
+    with pytest.raises(AESDecryptionError) as exc:
+        cipher.decrypt(ciphertext_hex)
+    error_text = str(exc.value)
+    # Key hex not in the error text
+    assert KEY_128.hex().upper() not in error_text.upper()
+    # The decrypted garbage (computed independently, never returned by decrypt()
+    # itself since it raised) is not in the error text either
+    garbage = oracle_aes_decrypt(ciphertext_hex, KEY_128)
+    assert garbage.decode('windows-1252') not in error_text
+
+
+# ============================================================================
+# External vectors (independent evidence)
+# ============================================================================
+
+@pytest.mark.parametrize("v", VECTORS, ids=lambda v: v.name)
+def test_external_vector_decrypts_to_expected_content(v):
+    """SIACipher.decrypt recovers the region content of every external vector.
+
+    - V1/V2 real Ajax, V4 DC09Gen, V5 spec example, S1 Swissdotnet ('|' split)
+    - V6 *NULL and V7 *ACK without '|' (']' fallback)
+    """
+    _, hex_text = split_wire(v.frame_body)
+    # Content equals the known plaintext after the pad
+    assert SIACipher(v.key).decrypt(hex_text) == EXPECTED_CONTENT[v.name]
+
+
+@pytest.mark.parametrize("v", VECTORS, ids=lambda v: v.name)
+def test_oracle_self_check_on_external_vectors(v):
+    """The oracle itself decrypts every vector to its transcribed plaintext.
+
+    - guards the oracle against being wrong in the same way as SIACipher
+    """
+    _, hex_text = split_wire(v.frame_body)
+    # Oracle output equals the independently transcribed plaintext
+    assert oracle_aes_decrypt(hex_text, v.key) == v.plaintext

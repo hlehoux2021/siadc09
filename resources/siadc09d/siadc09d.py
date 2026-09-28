@@ -25,6 +25,7 @@ from pathlib import Path
 # Ensure the package is importable when run as a script
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from siadc09d.sia_crypto import AESKeyError, parse_hex_key
 from siadc09d.sia_protocol import SIAMessageBuilder
 from siadc09d.sia_transport import (
     SIABaseTransport,
@@ -52,6 +53,8 @@ _FAIL_CONNECT_TIMEOUT = "connect_timeout"
 _FAIL_NETWORK = "network"
 _FAIL_BAD_REPLY = "bad_reply"
 _FAIL_INTERNAL = "internal"
+# Encryption on but the key is missing or malformed — nothing is sent (story 1-5 AC6)
+_FAIL_ENCRYPTION_KEY = "encryption_key"
 _STATUS_TCP_DROP = "tcp_drop"
 
 # SIATransportError carries no error code — the connect-timeout path
@@ -113,6 +116,11 @@ _TEST_VERDICTS: dict[str, tuple[str, str]] = {
     _FAIL_INTERNAL: (
         _UI_ERROR,
         "Erreur interne du test de connexion — voir le log siaDC09",
+    ),
+    _FAIL_ENCRYPTION_KEY: (
+        _UI_ERROR,
+        "Chiffrement activé mais la clé AES est absente ou invalide — 32, 48 ou "
+        "64 caractères hexadécimaux attendus. Aucune trame envoyée.",
     ),
 }
 
@@ -259,6 +267,10 @@ async def run_connection_test(config: dict, timeout: int) -> None:
     manual — the daemon does not distinguish). Builds a NULL frame, sends it
     via _send_raw_once(), prints result.
 
+    With encryption enabled the key (SIA_ENCRYPTION_KEY) must pass
+    parse_hex_key(); otherwise nothing is sent and the encryption-key verdict
+    is printed — never a plaintext or marker-only frame (story 1-5 AC6).
+
     Args:
         config: Configuration dict from PHP (eqLogic configuration minus encryption_key).
         timeout: Overall test timeout in seconds.
@@ -281,11 +293,22 @@ async def run_connection_test(config: dict, timeout: int) -> None:
         }), flush=True)
         return
 
+    key_bytes: bytes | None = None
+    if encryption_enabled:
+        try:
+            key_bytes = parse_hex_key(encryption_key)
+        except AESKeyError as e:
+            # parse_hex_key messages never contain the key
+            print(f"test connexion : {e}", file=sys.stderr, flush=True)
+            print(json.dumps(_test_verdict(_FAIL_ENCRYPTION_KEY, {})), flush=True)
+            return
+
     frame = SIAMessageBuilder(
         crc_format="SIA" if crc_format == "hex" else "ADM",
     ).make_supervision_message(
         account_number=account_number,
-        encryption=encryption_enabled and bool(encryption_key),
+        encryption=encryption_enabled,
+        encryption_key=key_bytes,
     )
 
     start_time = time.monotonic()

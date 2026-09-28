@@ -2,7 +2,7 @@
 SIA DC-09-2021.17 Protocol Message Builder Module
 
 Pure protocol layer for constructing and serializing SIA DC-09 compliant message frames.
-No external dependencies beyond Python stdlib.
+Encryption of the message region is delegated to sia_crypto (story 1-5).
 
 Reference: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5 Messages
 
@@ -18,6 +18,10 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal, TypedDict
+try:
+    from .sia_crypto import AESDecryptionError, AESKeyError, PadSource, SIACipher, parse_hex_key
+except ImportError:  # run as a script: `python3 sia_protocol.py --decode` (PHP inspector)
+    from sia_crypto import AESDecryptionError, AESKeyError, PadSource, SIACipher, parse_hex_key  # type: ignore[no-redef]
 
 # CRC encoding format for SIA DC-09 frames (canonical definition — re-exported by sia_transport)
 CrcFormat = Literal['hex', 'bin']
@@ -64,6 +68,24 @@ TIMESTAMP_PATTERN = r'^\d{2}:\d{2}:\d{2},\d{2}-\d{2}-\d{4}$'
 
 # Message field lengths (characters)
 SEQUENCE_FIELD_LENGTH = 4
+
+# Length field is "0" + 3 hex digits (§ 5.5.1.3): largest encodable message
+MAX_MESSAGE_LENGTH = 0xFFF
+
+# Encrypted region (§ 5.4.3): the hex runs from after '[' to the end of the
+# message. No ']' follows it (story 1-5 D1; spec example § 5.4.7 is a typo, no
+# real PE/CSR in the survey writes one). Kept as a constant so a CSR that turns
+# out to need it is a one-line change.
+ENCRYPTED_REGION_TERMINATOR = ""
+
+# Encrypted supervision token (story 1-5 D2): "*NULL" per § 5.5.2.1. A CSR that
+# rejects it can fall back to an encrypted "*SIA-DCS" 0000 event by setting this
+# to SIA_DCS_TOKEN (the seq then comes from the tracker).
+ENCRYPTED_SUPERVISION_TOKEN = NULL_TOKEN
+NULL_MESSAGE_SEQ = "0000"  # § 5.5.2.1 template
+
+_SEQ_RE = re.compile(r"(?!0000)\d{4}")
+_FRAME_HEADER_RE = re.compile(rb'^\n.{8}"(?P<token>[^"]+)"(?P<seq>\d{4})')
 
 
 # ===== Type Definitions =====
@@ -173,19 +195,23 @@ class SIAMessageBuilder:
         builder.reset_sequence("001234")  # Reset account to seq=0001
     """
 
-    def __init__(self, crc_format: Literal["SIA", "ADM"]) -> None:
+    def __init__(self, crc_format: Literal["SIA", "ADM"], pad_source: PadSource | None = None) -> None:
         """
         Initialize message builder with CRC format.
 
         Args:
             crc_format: CRC algorithm ("SIA" or "ADM") - set once, used for all messages
+            pad_source: Optional pad generator for encrypted frames (tests only;
+                default is SIACipher's random pad)
 
         Instance Variables:
             crc_format: Configured CRC algorithm for this builder
             _sequence_tracker: Per-account sequence number tracker
+            _pad_source: Pad generator handed to SIACipher
         """
         self.crc_format: Literal["SIA", "ADM"] = crc_format
         self._sequence_tracker = SequenceTracker()
+        self._pad_source: PadSource | None = pad_source
 
     # ===== Public Methods =====
 
@@ -197,10 +223,17 @@ class SIAMessageBuilder:
         receiver_number: str | None = None,
         extended_data: dict[str, str] | None = None,
         timestamp: datetime | None = None,
-        encryption: bool = False
+        encryption: bool = False,
+        encryption_key: bytes | None = None,
+        seq: str | None = None,
     ) -> bytes:
         """
         Encode a complete SIA protocol message frame.
+
+        Encrypted frames (§ 5.4.3) keep the header in clear and encrypt the
+        region from after '[' through the timestamp:
+        ``"*SIA-DCS"seq L0#acct[<hex>``. A timestamp is mandatory when
+        encrypting (§ 5.5.1.9); None then means "UTC now".
 
         Args:
             account_number: 3-16 hex ASCII characters
@@ -209,85 +242,104 @@ class SIAMessageBuilder:
             receiver_number: Optional 1-6 hex digits
             extended_data: Optional additional string fields
             timestamp: Optional datetime (UTC); None = omit timestamp
+                (unencrypted) or UTC now (encrypted)
             encryption: Whether to encrypt (default False)
+            encryption_key: Raw AES key (16/24/32 bytes), required when encrypting
+            seq: Explicit wire sequence number, for retries of the same event
+                (§ 5.5.1.5, Annex F.5). None = next from the per-account tracker.
 
         Returns:
             Complete frame as bytes: LF + CRC + Length + Message + CR
 
         Raises:
             ValueError: If account_number, prefix, or receiver_number invalid hex
+            SIAProtocolError: If seq is malformed or the message exceeds 0xFFF characters
+            AESKeyError: If encryption is requested without a valid key
 
         Reference: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1
         """
         if extended_data is None:
             extended_data = {}
+        if seq is not None and _SEQ_RE.fullmatch(seq) is None:
+            raise SIAProtocolError(f"Invalid sequence number: {seq!r} (expected 0001-9999)")
+        cipher = self._make_cipher(encryption_key) if encryption else None
 
         # Build message components per spec § 5.5.1
         account_id_str = self._format_account_id(account_number, account_prefix, receiver_number)
         data_field = self._format_data_field(account_number, event_code, extended_data)
         extended_data_field = self._format_extended_data_field(extended_data)
-        timestamp_str = self._format_timestamp(timestamp)
+        if cipher is not None and timestamp is None:
+            timestamp = datetime.now(timezone.utc)
+        timestamp_str = self._format_timestamp(timestamp) or ""
 
-        # Select ID token per § 5.5.1.4
-        if encryption:
-            id_token = f'"{ENCRYPTED_MARKER}{SIA_DCS_TOKEN}"'
-        else:
-            id_token = f'"{SIA_DCS_TOKEN}"'
+        # Sequence number (auto-incremented per account unless given)
+        if seq is None:
+            seq = self._sequence_tracker.next_seq(account_number)
 
-        # Sequence number (auto-incremented per account)
-        seq = self._sequence_tracker.next_seq(account_number)
-
-        # Build message core (everything included in CRC calculation)
         # Field order per § 5.5.1 template: [Data] then [x…data…] then <timestamp>
-        message_core_str = id_token + seq + account_id_str + data_field + extended_data_field
-        if timestamp_str is not None:
-            message_core_str += timestamp_str
-
-        message_core = message_core_str.encode('ascii')
-
-        # Calculate CRC and length
-        crc = self._calculate_crc(message_core)
-        length = self._calculate_length(message_core)
-
-        # Build complete frame: LF + CRC + Length + Message + CR
-        frame = (
-            LF +
-            crc.encode('ascii') +
-            length.encode('ascii') +
-            message_core +
-            CR
-        )
-
-        return frame
+        if cipher is None:
+            core = f'"{SIA_DCS_TOKEN}"{seq}{account_id_str}{data_field}{extended_data_field}{timestamp_str}'
+        else:
+            # Region = everything after the data field's '[' (§ 5.4.3)
+            region = data_field[1:] + extended_data_field + timestamp_str
+            core = (f'"{ENCRYPTED_MARKER}{SIA_DCS_TOKEN}"{seq}{account_id_str}['
+                    f'{cipher.encrypt(region.encode("ascii"))}{ENCRYPTED_REGION_TERMINATOR}')
+        return self._frame(core.encode('ascii'))
 
     def make_supervision_message(
         self,
         account_number: str,
         account_prefix: str = "L0",
         receiver_number: str | None = None,
-        encryption: bool = False
+        encryption: bool = False,
+        encryption_key: bytes | None = None,
+        timestamp: datetime | None = None,
+        seq: str | None = None,
     ) -> bytes:
         """
         Create a NULL/supervision message.
+
+        Unencrypted: the field-validated ``"SIA-DCS"seq…[#acct|0000]`` event
+        (D-86, unchanged). Encrypted: the § 5.5.2.1 Null Message
+        ``"*NULL"0000L0#acct[<hex of pad|]_ts>`` (story 1-5 D2). The '|' is
+        always present (§ 5.4.4.3). It does not consume a tracker seq.
 
         Args:
             account_number: 3-16 hex ASCII characters
             account_prefix: Optional prefix (default "L0")
             receiver_number: Optional receiver number
             encryption: Whether to encrypt (default False)
+            encryption_key: Raw AES key, required when encrypting
+            timestamp: Encrypted: None = UTC now. Unencrypted: None = no timestamp
+            seq: Unencrypted only: explicit wire seq for a NAK re-send (§ 5.5.1.5);
+                None draws from the tracker. ``*NULL`` always uses 0000.
 
         Returns:
             Complete NULL message frame as bytes
 
+        Raises:
+            AESKeyError: If encryption is requested without a valid key
+
         Reference: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.2.1
         """
-        return self.encode_message(
-            account_number=account_number,
-            event_code=SIA_NULL_CODE,
-            account_prefix=account_prefix,
-            receiver_number=receiver_number,
-            encryption=encryption
-        )
+        if not encryption or ENCRYPTED_SUPERVISION_TOKEN != NULL_TOKEN:
+            return self.encode_message(
+                account_number=account_number,
+                event_code=SIA_NULL_CODE,
+                account_prefix=account_prefix,
+                receiver_number=receiver_number,
+                timestamp=timestamp,
+                encryption=encryption,
+                encryption_key=encryption_key,
+                seq=seq,
+            )
+        cipher = self._make_cipher(encryption_key)
+        account_id_str = self._format_account_id(account_number, account_prefix, receiver_number)
+        timestamp_str = self._format_timestamp(timestamp or datetime.now(timezone.utc)) or ""
+        region = "]" + timestamp_str
+        core = (f'"{ENCRYPTED_MARKER}{NULL_TOKEN}"{NULL_MESSAGE_SEQ}{account_id_str}['
+                f'{cipher.encrypt(region.encode("ascii"))}{ENCRYPTED_REGION_TERMINATOR}')
+        return self._frame(core.encode('ascii'))
 
     def reset_sequence(self, account_number: str | None = None) -> None:
         """
@@ -303,6 +355,32 @@ class SIAMessageBuilder:
         self._sequence_tracker.reset(account_number)
 
     # ===== Private Helper Methods =====
+
+    def _make_cipher(self, encryption_key: bytes | None) -> SIACipher:
+        """Build the cipher for one frame; a missing key is an error, never a marker-only frame.
+
+        Raises:
+            AESKeyError: If the key is missing or has an unsupported size.
+        """
+        if encryption_key is None:
+            raise AESKeyError("Encryption is enabled but no key is configured")
+        return SIACipher(encryption_key, pad_source=self._pad_source)
+
+    def _frame(self, message_core: bytes) -> bytes:
+        """Wrap a message as LF + CRC + Length + message + CR.
+
+        Raises:
+            SIAProtocolError: If the message is longer than the length field can
+                express (§ 5.5.1.3).
+        """
+        if len(message_core) > MAX_MESSAGE_LENGTH:
+            raise SIAProtocolError(
+                f"Message is {len(message_core)} characters, over the {MAX_MESSAGE_LENGTH} "
+                "the length field allows"
+            )
+        crc = self._calculate_crc(message_core)
+        length = self._calculate_length(message_core)
+        return LF + crc.encode('ascii') + length.encode('ascii') + message_core + CR
 
     def _calculate_crc(self, data: bytes) -> str:
         """
@@ -463,6 +541,27 @@ class SIAMessageBuilder:
             return None
 
         return ts.strftime("_%H:%M:%S,%m-%d-%Y")
+
+
+def parse_frame_header(frame: bytes) -> tuple[str, str]:
+    """Return the clear (token, seq) of a frame built by SIAMessageBuilder.
+
+    Used for traces: an encrypted frame's token and seq stay in clear, so they
+    can be logged without the key (story 1-5 AC7).
+
+    Args:
+        frame: Complete frame (LF + CRC + Length + message + CR)
+
+    Returns:
+        (token, seq), e.g. ("*SIA-DCS", "0001") or ("*NULL", "0000")
+
+    Raises:
+        SIAProtocolError: If the frame has no readable header.
+    """
+    match = _FRAME_HEADER_RE.match(frame)
+    if match is None:
+        raise SIAProtocolError("Frame has no readable token/sequence header")
+    return match.group("token").decode("ascii"), match.group("seq").decode("ascii")
 
 
 # ===== ACK/NAK Response Parser Module (Story 1.3) =====
@@ -820,10 +919,14 @@ class ParsedMessage:
         receiver_prefix: e.g. "R0" or "" if absent
         account_prefix: e.g. "L0"
         account: Account number string
-        data_raw: Raw data block content (between [ and ])
-        data_decrypted: Decrypted data (None if not encrypted or no key provided)
+        data_raw: Raw data block content (between [ and ]); for encrypted
+            frames, the ciphertext hex after '['
+        data_decrypted: Decrypted region content, pad stripped (None if not
+            encrypted, no key provided, or decryption failed)
         extended_fields: Parsed extended data fields dict
-        timestamp_str: Raw timestamp string after _ delimiter, or None
+        timestamp_str: Raw timestamp string after _ delimiter (from the
+            plaintext for encrypted frames), or None
+        decrypt_error: Why decryption failed (never contains key or pad), or None
     """
     raw_hex: str
     crc_received: str
@@ -842,6 +945,45 @@ class ParsedMessage:
     data_decrypted: str | None
     extended_fields: dict[str, str]
     timestamp_str: str | None
+    decrypt_error: str | None = None
+
+
+_NOT_A_DATA_BLOCK = "Decryption failed: plaintext is not a DC-09 data block (wrong key?)"
+
+
+def _decrypt_region(hex_text: str, key: bytes) -> tuple[str | None, str | None]:
+    """Decrypt an encrypted region for display.
+
+    Without a MAC a wrong key cannot be detected for sure, so the content is
+    sanity-checked: it must end with ']' followed by the timestamp, which
+    § 5.5.1.9 makes mandatory in encrypted messages. Content decodes as
+    windows-1252 with errors="replace" (AC1) — some receivers put extended-
+    data bytes ≥ 0x80 in the region, so charset is not part of the sanity
+    check.
+
+    Returns:
+        (content, None) on success, (None, error) otherwise. Neither carries
+        the key or the pad.
+    """
+    try:
+        content = SIACipher(key).decrypt(hex_text)
+    except AESKeyError as e:
+        return None, str(e)
+    except AESDecryptionError as e:
+        return None, f"Decryption failed: {e}"
+    if b"]" not in content:
+        return None, _NOT_A_DATA_BLOCK
+    text = content.decode('windows-1252', errors='replace')
+    timestamp = _region_timestamp(text)
+    if timestamp is None or not re.match(TIMESTAMP_PATTERN, timestamp):
+        return None, _NOT_A_DATA_BLOCK
+    return text, None
+
+
+def _region_timestamp(content: str) -> str | None:
+    """Timestamp after the last ']' of a decrypted region, without its '_'."""
+    tail = content[content.rfind(']') + 1:]
+    return tail[1:] if tail.startswith(TIMESTAMP_DELIMITER) else None
 
 
 def decode(raw_hex: str, key: bytes | None = None) -> ParsedMessage:
@@ -854,7 +996,7 @@ def decode(raw_hex: str, key: bytes | None = None) -> ParsedMessage:
 
     Args:
         raw_hex: Hex string of the complete frame (LF + CRC + Length + Message + CR).
-        key: Optional 16-byte AES key for decryption of encrypted frames.
+        key: Optional AES key (16, 24 or 32 bytes) for decryption of encrypted frames.
 
     Returns:
         ParsedMessage with all parsed fields (all JSON-serializable).
@@ -904,21 +1046,13 @@ def decode(raw_hex: str, key: bytes | None = None) -> ParsedMessage:
     id_token, encrypted, sequence, receiver_prefix, account_prefix, account, data_raw, timestamp_str = \
         _parse_message_fields(message_str)
 
-    # Decrypt if key provided and frame is encrypted
+    # Decrypt if key provided and frame is encrypted (§ 5.4.3)
     data_decrypted: str | None = None
+    decrypt_error: str | None = None
     if encrypted and key is not None:
-        try:
-            from .sia_crypto import SIACipher, AESDecryptionError
-            cipher = SIACipher(key)
-            # data_raw contains hex-encoded ciphertext for encrypted frames
-            try:
-                ciphertext = bytes.fromhex(data_raw)
-                decrypted_bytes = cipher.decrypt(ciphertext)
-                data_decrypted = decrypted_bytes.decode('windows-1252', errors='replace')
-            except (ValueError, AESDecryptionError):
-                data_decrypted = None
-        except ImportError:
-            data_decrypted = None
+        data_decrypted, decrypt_error = _decrypt_region(data_raw, key)
+        if data_decrypted is not None:
+            timestamp_str = _region_timestamp(data_decrypted)
 
     return ParsedMessage(
         raw_hex=raw_hex,
@@ -938,6 +1072,7 @@ def decode(raw_hex: str, key: bytes | None = None) -> ParsedMessage:
         data_decrypted=data_decrypted,
         extended_fields={},
         timestamp_str=timestamp_str,
+        decrypt_error=decrypt_error,
     )
 
 
@@ -1006,6 +1141,16 @@ def _parse_message_fields(
             raise SIAProtocolError("No data block [ found")
         account = message_str[hash_pos + 1:bracket_open]
 
+        # 5a. Encrypted: the hex runs from '[' to the end of the message, with
+        # no ']' (§ 5.4.3, story 1-5 D1). '[hex]' (§ 5.4.7 example) is accepted.
+        # The timestamp is inside the ciphertext.
+        if encrypted:
+            data_raw = message_str[bracket_open + 1:]
+            if data_raw.endswith(']'):
+                data_raw = data_raw[:-1]
+            return (id_token, encrypted, sequence, receiver_prefix,
+                    account_prefix, account, data_raw, None)
+
         # 5. Extract data block (between [ and ])
         bracket_close = message_str.find(']', bracket_open)
         if bracket_close < 0:
@@ -1035,10 +1180,10 @@ if __name__ == '__main__':
     if len(sys.argv) >= 3 and sys.argv[1] == '--decode':
         hex_input = sys.argv[2]
         key_hex = os.environ.get('SIA_ENCRYPTION_KEY', '')
-        key = bytes.fromhex(key_hex) if key_hex else None
         try:
+            key = parse_hex_key(key_hex) if key_hex.strip() else None
             result = decode(hex_input, key)
             print(json.dumps(dataclasses.asdict(result)))
-        except (SIAProtocolError, ValueError) as e:
+        except (SIAProtocolError, AESKeyError, ValueError) as e:
             print(json.dumps({"error": str(e)}))
             sys.exit(1)

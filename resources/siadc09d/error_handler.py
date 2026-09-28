@@ -128,6 +128,8 @@ from typing import Any, Final, Literal, TypedDict
 
 # T3_PREFIX constant — prepended to all critical-tier notification messages
 T3_PREFIX: Final[str] = "CRITIQUE — "
+# EventFailedCtx.last_error when nothing was sent: encryption on, key invalid (story 1-5 AC3).
+EVENT_FAILED_ENCRYPTION_KEY: Final[str] = "encryption_key"
 
 
 class ErrorTier(Enum):
@@ -445,6 +447,23 @@ def build_notification(code: ErrorCode, context: dict[str, Any]) -> Notification
             "(zone: " + str(context.get("zone_name", context.get("zone", "<inconnu>"))) + ")"
         )
 
+    # Story 1-5 AC3: last_error='encryption_key' means nothing was sent at all
+    # (encryption on, key invalid) — "after N attempts, check your network" would mislead.
+    if context.get("last_error") == EVENT_FAILED_ENCRYPTION_KEY:
+        _event_cause = "(chiffrement activé mais clé AES absente ou invalide)"
+        _event_advice = (
+            "Corrigez la clé de chiffrement dans la configuration du plugin "
+            "(32, 48 ou 64 caractères hexadécimaux)."
+        )
+    else:
+        _event_cause = (
+            "après " + str(context.get("attempts_made", context.get("retry_count", "?")))
+            + " tentative(s)"
+        )
+        _event_advice = (
+            "Vérifiez votre connexion réseau et le service de la centrale de télésurveillance."
+        )
+
     title_map: dict[ErrorCode, str] = {
         ErrorCode.SUPERVISION_TIMEOUT: "siaDC09 — Timeout supervision (auto-résolu)",
         ErrorCode.SUPERVISION_NAK: "siaDC09 — NAK supervision (horodatage rejeté — auto-résolu)",
@@ -487,11 +506,11 @@ def build_notification(code: ErrorCode, context: dict[str, Any]) -> Notification
             + _event_subject
             + " "
             + _event_address_clause
-            + " n'a pas pu être transmis" + _event_gender_e + "\nà la centrale après "
-            + str(context.get("attempts_made", context.get("retry_count", "?")))
-            + " tentative(s). La centrale de\ntélésurveillance n'a PAS reçu "
+            + " n'a pas pu être transmis" + _event_gender_e + "\nà la centrale "
+            + _event_cause
+            + ". La centrale de\ntélésurveillance n'a PAS reçu "
             + _event_object + ".\n"
-            "Vérifiez votre connexion réseau et le service de la centrale de télésurveillance.\n"
+            + _event_advice + "\n"
             f"Centrale: {csr_address} ({transport})."
         ),
         ErrorCode.TRANSPORT_PERMANENT: (

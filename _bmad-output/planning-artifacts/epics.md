@@ -91,7 +91,7 @@ Build core protocol layer with AES-128 encryption, message construction, ACK/NAK
 ### Epic 2: CSR Simulator (Standalone Tool)
 Build a standalone CSR simulator that responds to SIA DC-09 protocol frames, usable for testing daemon implementations and other alarm systems without a real CSR.
 **Note:** Internal Testing Infrastructure (not user-facing v1.0 feature); can be deferred if v1.0 uses mock responses
-**Dependencies:** Story 1.1 (Message Builder) + Story 1.2 (AES-128 Encryption)
+**Dependencies:** Story 1.1 (Message Builder) + Story 1.5 (DC-09 AES encryption; supersedes 1.2)
 **Testing:** Unit tests for simulator ACK/NAK generation, encryption, UDP/TCP modes; hex frame replay; PCAP extraction
 
 ### Epic 3: Error Handler (Contract & Boilerplate)
@@ -183,6 +183,8 @@ So that the daemon can send properly formatted frames to the CSR.
 
 ### Story 1.2: AES-128 CBC Encryption Module
 
+> **Superseded by Story 1.5 (2026-09-27).** The random IV and PKCS#7 padding below contradict DC-09-2021 § 5.4.4/§ 5.4.6. They do not match real encrypted frames either: Ajax hub captures and the spec's own § 5.4.7 example both decrypt with a zero IV and a front pad. The 128-bit-only scope was allowed but incomplete: § 5.4.5.2 leaves the key length to the manufacturer. Kept for history; do not implement against these ACs.
+
 As a security engineer,
 I want to encrypt and decrypt SIA messages using AES-128 CBC,
 So that communication with the CSR is secure.
@@ -227,7 +229,7 @@ So that I can distinguish successful delivery from errors.
 
 ### Story 1.5: DC-09-Conformant AES Encryption on the Send Path
 
-*Added 2026-09-27 from D-81. It supersedes Story 1.2's ACs: the random IV, PKCS#7 padding and 128-bit-only keys it specified contradict DC-09-2021 § 5.4.*
+*Added 2026-09-27 from D-81. It supersedes Story 1.2's ACs: the random IV and PKCS#7 padding it specified contradict DC-09-2021 § 5.4, and its 128-bit-only keys left out AES-192/256 support.*
 
 As a Jeedom user whose monitoring station requires DC-09 encryption,
 I want alarm and supervision frames actually encrypted per DC-09 § 5.4,
@@ -257,7 +259,7 @@ Story file: `_bmad-output/implementation-artifacts/1-5-dc09-conformant-send-path
 
 Build a standalone CSR simulator that responds to SIA DC-09 protocol frames, usable for testing daemon implementations and other alarm systems without a real CSR.
 
-**Dependencies:** Story 1.1 (Message Builder) + Story 1.2 (AES-128 Encryption)
+**Dependencies:** Story 1.1 (Message Builder) + Story 1.5 (DC-09 AES encryption; supersedes 1.2)
 
 **Scope Classification:** Developer/Testing Infrastructure (not user-facing v1.0 feature)
 

@@ -29,6 +29,7 @@ from resources.siadc09d.error_handler import (
     SM1TimeoutCtx,
     TransportPermanentCtx,
 )
+from resources.siadc09d.sia_protocol import parse_frame_header
 from tests.conftest import make_daemon_preset
 
 
@@ -817,13 +818,13 @@ async def test_sequence_not_incremented_on_sm2_retry(daemon_no_start):
     Sequence number is NOT incremented when SM2 retries after timeout.
 
     Expected result:
-    - _sia_seq incremented once before retry loop (when event queued)
-    - Same sequence used for all retry attempts
+    - The first attempt draws the wire seq; retries reuse it (story 1-5 AC4)
+    - _sia_seq mirrors the wire seq
     - SIA DC-09 § 5.5.1.5: "PE shall not increment sequence on retry"
     """
     daemon = daemon_no_start
     daemon._sm1_state = SM1State.HEALTHY
-    daemon._sia_seq = 10
+    daemon._sia_builder._sequence_tracker._seq_map[daemon._account] = 10
 
     # All attempts timeout, then ACK on final retry
     daemon._sia_transport.send_frame = AsyncMock(side_effect=[
@@ -835,8 +836,12 @@ async def test_sequence_not_incremented_on_sm2_retry(daemon_no_start):
     event = EventItem(sia_code='BA', zone='Salon', timestamp='12:00:00,04-22-2026')
     result = await daemon._send_with_retry(event, max_retries=2)
 
-    # Assert: sequence incremented exactly once (10 → 11), not per retry
+    seqs = [parse_frame_header(c.args[0])[1] for c in daemon._sia_transport.send_frame.call_args_list]
+    # Assert: all three attempts carry the same wire seq (10 → 11 once)
+    assert seqs == ["0011", "0011", "0011"]
+    # Assert: _sia_seq mirrors the wire seq
     assert daemon._sia_seq == 11
+    # Assert: final ACK confirms the event
     assert result == SM2State.CONFIRMED
 
 

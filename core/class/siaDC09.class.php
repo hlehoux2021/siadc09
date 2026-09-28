@@ -24,6 +24,9 @@ class siaDC09 extends eqLogic {
     const NOTIFY_KIND_CMD = 'cmd';
     const NOTIFY_KIND_INTERNAL = 'internal';
 
+    /** AES-128/192/256 key lengths in hex digits (DC-09 § 5.4). */
+    const ENCRYPTION_KEY_HEX_LENGTHS = [32, 48, 64];
+
     /**
      * Jeedom internal actions the plugin knows how to run as a critical alert, stored in
      * `sia_notify_internal`. Adding one means: an <option> at step 4, a case in
@@ -184,14 +187,25 @@ class siaDC09 extends eqLogic {
             return $return;
         }
 
-        // Guard 5 — encryption key when encryption enabled
-        if ($eqLogic->getConfiguration('encryption_enabled')
-            && empty($eqLogic->getConfiguration('encryption_key'))) {
-            $return['launchable'] = 'nok';
-            $return['launchable_message'] = __(
-                "Clé de chiffrement manquante (étape 1 de l'assistant).", __FILE__
-            );
-            return $return;
+        // Guard 5 — encryption key when encryption enabled: present and 32/48/64 hex digits
+        // (story 1-5 AC5). The message never echoes the key.
+        if ($eqLogic->getConfiguration('encryption_enabled')) {
+            $encKey = trim((string) $eqLogic->getConfiguration('encryption_key', ''));
+            if ($encKey === '') {
+                $return['launchable'] = 'nok';
+                $return['launchable_message'] = __(
+                    "Clé de chiffrement manquante (étape 1 de l'assistant).", __FILE__
+                );
+                return $return;
+            }
+            if (!self::isValidEncryptionKey($encKey)) {
+                $return['launchable'] = 'nok';
+                $return['launchable_message'] = __(
+                    "Clé de chiffrement invalide — 32, 48 ou 64 caractères hexadécimaux attendus (étape 1 de l'assistant).",
+                    __FILE__
+                );
+                return $return;
+            }
         }
 
         // Guard 6 — notification target (equipment command or Jeedom internal action)
@@ -358,6 +372,15 @@ class siaDC09 extends eqLogic {
         self::_runNotifyTarget($eqLogic, 'siaDC09 — Démon bloqué', $msg, true);
 
         config::save('_freshness_alert_ts', time(), __CLASS__);
+    }
+
+    /**
+     * True when $key is an AES key the daemon accepts: 32, 48 or 64 hex digits once trimmed
+     * (story 1-5 AC5). Same rule as the wizard (desktop/js/siaDC09.js) and parse_hex_key().
+     */
+    public static function isValidEncryptionKey(?string $key): bool {
+        $key = trim($key ?? '');
+        return ctype_xdigit($key) && in_array(strlen($key), self::ENCRYPTION_KEY_HEX_LENGTHS, true);
     }
 
     /**
