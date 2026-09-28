@@ -57,7 +57,7 @@ def _check_crc_len(frame: bytes) -> str:
 @pytest.mark.parametrize("key", [KEY_128, KEY_192, KEY_256])
 @pytest.mark.parametrize("extended", [{}, {"zone": "001"}, {"media_url": "http://cam/snap.jpg"}])
 def test_encrypted_event_decrypts_with_oracle(builder, key, extended):
-    """An encrypted event frame is `"*SIA-DCS"seq L0#acct[<hex>` with no ']' after the hex.
+    """An encrypted event frame is `"*SIA-DCS"seq L0#acct[<hex>]` (D1 reverted 2026-09-28).
 
     - header fields stay in clear
     - oracle decrypts to pad + '|' + data (']' included) + ext + timestamp
@@ -67,8 +67,9 @@ def test_encrypted_event_decrypts_with_oracle(builder, key, extended):
     frame = builder.encode_message("001234", "BA", extended_data=extended, timestamp=TS,
                                    encryption=True, encryption_key=key)
     body = _check_crc_len(frame)
-    # Clear header then '[' then hex until end (D1: no closing ']')
-    assert re.fullmatch(r'"\*SIA-DCS"0001L0#001234\[[0-9A-F]+', body)
+    # Clear header then '[' then hex then ']' (D1 reverted: live AC11 evidence
+    # against ioBroker.sia showed its parser requires the closing bracket)
+    assert re.fullmatch(r'"\*SIA-DCS"0001L0#001234\[[0-9A-F]+\]', body)
     _, hex_text = split_wire(body)
     pad, content = oracle_region(hex_text, key)
     zone = " 001" if extended.get("zone") else ""
@@ -222,16 +223,16 @@ def test_length_boundary_exact_encrypted(builder, monkeypatch):
 
 
 def test_encrypted_supervision_is_null_message(builder):
-    """Encrypted supervision is `"*NULL"0000L0#acct[<hex>`, region pad|]_ts (§ 5.5.2.1, § 5.4.4.3).
+    """Encrypted supervision is `"*NULL"0000L0#acct[<hex>]`, region pad|]_ts (§ 5.5.2.1, § 5.4.4.3).
 
-    - token *NULL, seq 0000, no ']' after the hex
+    - token *NULL, seq 0000, ']' after the hex (D1 reverted 2026-09-28)
     - decrypted content is ']' + timestamp, with the '|' present
     - does not consume a tracker seq
     """
     frame = builder.make_supervision_message("001234", encryption=True, encryption_key=KEY_128, timestamp=TS)
     body = _check_crc_len(frame)
-    # Null Message header with literal 0000 seq
-    assert re.fullmatch(r'"\*NULL"0000L0#001234\[[0-9A-F]+', body)
+    # Null Message header with literal 0000 seq, closing ']' after the hex
+    assert re.fullmatch(r'"\*NULL"0000L0#001234\[[0-9A-F]+\]', body)
     pad, content = oracle_region(split_wire(body)[1], KEY_128)
     # Region content is ']' + timestamp after the mandatory '|'
     assert content == f"]{TS_STR}".encode()

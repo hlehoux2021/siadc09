@@ -73,10 +73,15 @@ SEQUENCE_FIELD_LENGTH = 4
 MAX_MESSAGE_LENGTH = 0xFFF
 
 # Encrypted region (§ 5.4.3): the hex runs from after '[' to the end of the
-# message. No ']' follows it (story 1-5 D1; spec example § 5.4.7 is a typo, no
-# real PE/CSR in the survey writes one). Kept as a constant so a CSR that turns
-# out to need it is a one-line change.
-ENCRYPTED_REGION_TERMINATOR = ""
+# message. D1 (2026-09-27) originally omitted the closing ']', per a survey of
+# third-party frames. Reverted 2026-09-28: live AC11 evidence against a real
+# ioBroker.sia instance (testsia.lehoux.net) showed its parser applies an
+# outer regex to the WIRE message *before* decrypting, expecting a literal
+# ']' to delimit the data block — without it, valid ciphertext (which
+# verified as decrypting cleanly with the shared key) was rejected with
+# "Incorrect format of data message" before decryption was ever attempted.
+# Kept as a constant so this is a one-line change either way.
+ENCRYPTED_REGION_TERMINATOR = "]"
 
 # Encrypted supervision token (story 1-5 D2): "*NULL" per § 5.5.2.1. A CSR that
 # rejects it can fall back to an encrypted "*SIA-DCS" 0000 event by setting this

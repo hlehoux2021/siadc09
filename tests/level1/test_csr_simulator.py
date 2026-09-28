@@ -479,11 +479,11 @@ class TestACKFrameGeneration:
 
         Expected result:
         - The body starts with the clear header "*ACK"0001R0L0#000001[
-        - The region is uppercase hex with no closing ']' (§ 5.4.3)
+        - The region is uppercase hex, terminated by ']' (D1 reverted 2026-09-28)
         - The oracle decrypts it to "]_" + the receiver timestamp
         """
         from resources.siadc09d.csr_simulator import CSRSimulator
-        from tests.level1._dc09_crypto_oracle import oracle_region, split_frame
+        from tests.level1._dc09_crypto_oracle import oracle_region, split_frame, split_wire
 
         ts = datetime(2026, 9, 28, 10, 0, 0, tzinfo=timezone.utc)
         simulator = CSRSimulator(10001, 5000, preset_encrypted)
@@ -492,14 +492,16 @@ class TestACKFrameGeneration:
         )
         _crc, _length, body = split_frame(ack_frame)
         header, _, region = body.partition('[')
+        _token, hex_text = split_wire(body)
 
         # Assert: clear header carries the *ACK token, seq, prefixes and account
         assert header == '"*ACK"0001R0L0#000001', f"unexpected header {header!r}"
-        # Assert: region is uppercase hex with no trailing ']'
-        assert region == region.upper() and all(c in '0123456789ABCDEF' for c in region), \
-            f"region is not uppercase hex: {region!r}"
+        # Assert: region is uppercase hex, closed by ']'
+        assert region == region.upper() and region.endswith(']') \
+            and all(c in '0123456789ABCDEF' for c in region[:-1]), \
+            f"region is not uppercase hex terminated by ']': {region!r}"
         # Assert: oracle decrypts it to the timestamp-only ACK content
-        assert oracle_region(region, preset_encrypted['encryption_key'])[1] == \
+        assert oracle_region(hex_text, preset_encrypted['encryption_key'])[1] == \
             b']_10:00:00,09-28-2026', "decrypted ACK content mismatch"
 
     @pytest.mark.parametrize("crc_format", ['hex', 'bin'])
@@ -757,7 +759,8 @@ class TestIntegrationWithStories11To13:
         assert (decoded.get('type'), decoded.get('seq')) == ('ACK', 42), f"unexpected {decoded}"
         # Assert: the ACK region decrypts to the timestamp-only content
         region = ack_response.decode('ascii')[9:-1].partition('[')[2]
-        assert SIACipher(key).decrypt(region).startswith(b']_'), "ACK content should be ']_<ts>'"
+        hex_text = region[:-1] if region.endswith(']') else region  # D1 reverted 2026-09-28
+        assert SIACipher(key).decrypt(hex_text).startswith(b']_'), "ACK content should be ']_<ts>'"
 
     def test_integration_full_flow_plaintext(self, preset_plain):
         """Full flow: build alarm → parse → generate ACK → decode.

@@ -149,7 +149,7 @@ class TestEncryptedAck:
 
     def test_encrypted_ack_spec_format(self) -> None:
         """
-        *ACK = "*ACK"seq<prefixes>#acct[hex of pad|]_ts, no ']' after the hex.
+        *ACK = "*ACK"seq<prefixes>#acct[hex of pad|]_ts], ']' after the hex (D1 reverted 2026-09-28).
 
         Expected result:
         - body header echoes seq, prefixes and account
@@ -161,12 +161,13 @@ class TestEncryptedAck:
             7, sim.preset, True, account="1234", receiver_prefix="R1", account_prefix="L0", timestamp=_TS)
         crc, length, body = split_frame(ack)
         header, _, hex_text = body.partition("[")
+        hex_text = hex_text[:-1] if hex_text.endswith("]") else hex_text
         # Assert: echoed header
         assert header == '"*ACK"0007R1L0#1234'
         # Assert: CRC and length over the wire form
         assert (crc, length) == (f"{crc16_arc(body.encode()):04X}", f"0{len(body):03X}")
-        # Assert: region content, and no ']' after the hex
-        assert oracle_region(hex_text, _KEY)[1] == b"]_10:00:00,09-28-2026" and not body.endswith("]")
+        # Assert: region content, and ']' after the hex
+        assert oracle_region(hex_text, _KEY)[1] == b"]_10:00:00,09-28-2026" and body.endswith("]")
 
     def test_encrypted_ack_decodes_as_ack(self) -> None:
         """

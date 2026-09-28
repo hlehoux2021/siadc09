@@ -84,7 +84,9 @@ def iobroker_parse_event(message: str, key: bytes) -> dict:
     Only ``SIA-DCS``/``ADM-CID`` tokens are handled; ioBroker has no ``*NULL``
     branch at all, so a ``*NULL`` raises ValueError here as it fails there.
     """
-    match = re.match(r'^"(\*?)(SIA-DCS|ADM-CID)"(\d{4})(R[0-9A-F]*)?(L[0-9A-F]*)?#([0-9A-F]+)\[(.+)$', message)
+    match = re.match(
+        r'^"(\*?)(SIA-DCS|ADM-CID)"(\d{4})(R[0-9A-F]*)?(L[0-9A-F]*)?#([0-9A-F]+)\[([0-9A-Fa-f]+)\]?$',
+        message)
     if match is None:
         raise ValueError("ioBroker: unsupported message")
     encrypted, token, seq, rpref, lpref, act, payload = match.groups()
