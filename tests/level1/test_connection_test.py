@@ -460,7 +460,7 @@ def test_run_connection_test_encryption_sends_frame(capsys, monkeypatch):
 
     Expected result:
     - _send_raw_once is called (encryption config does not short-circuit the test)
-    - the frame sent is an encrypted *NULL (story 1-5 AC6)
+    - the frame sent is an encrypted supervision frame (D2 fallback: *SIA-DCS 0000, story 1-5 AC6)
     - stdout JSON has status == "ok"
     """
     monkeypatch.setenv("SIA_ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef")
@@ -479,8 +479,8 @@ def test_run_connection_test_encryption_sends_frame(capsys, monkeypatch):
     out = json.loads(capsys.readouterr().out.strip())
     # Assert: send was called even with encryption enabled
     assert call_args, "_send_raw_once must be called when encryption is configured"
-    # Assert: the frame really is encrypted
-    assert parse_frame_header(call_args[0][1]["frame"])[0] == "*NULL"
+    # Assert: the frame really is encrypted (D2 fallback token, review finding 2026-09-28)
+    assert parse_frame_header(call_args[0][1]["frame"])[0] == "*SIA-DCS"
     # Assert: result is ok
     assert out["status"] == "ok"
 

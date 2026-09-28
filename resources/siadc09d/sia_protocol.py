@@ -83,10 +83,15 @@ MAX_MESSAGE_LENGTH = 0xFFF
 # Kept as a constant so this is a one-line change either way.
 ENCRYPTED_REGION_TERMINATOR = "]"
 
-# Encrypted supervision token (story 1-5 D2): "*NULL" per § 5.5.2.1. A CSR that
-# rejects it can fall back to an encrypted "*SIA-DCS" 0000 event by setting this
-# to SIA_DCS_TOKEN (the seq then comes from the tracker).
-ENCRYPTED_SUPERVISION_TOKEN = NULL_TOKEN
+# Encrypted supervision token (story 1-5 D2): "*NULL" per § 5.5.2.1, with a
+# fallback to an encrypted "*SIA-DCS" 0000 event (the seq then comes from the
+# tracker) for a CSR that has no *NULL branch at all. Switched to the fallback
+# 2026-09-28: live AC11 evidence against ioBroker.sia showed it decrypts and
+# accepts the *NULL correctly (content and CRC both verified) but has no *NULL
+# response path — its own log shows it answering with a degenerate, tokenless
+# LF+"0000"+"0000"+CR frame (CRC/LEN both correctly computed for an empty
+# body) instead of a real ACK, which our decoder classifies as unparseable.
+ENCRYPTED_SUPERVISION_TOKEN = SIA_DCS_TOKEN
 NULL_MESSAGE_SEQ = "0000"  # § 5.5.2.1 template
 
 _SEQ_RE = re.compile(r"(?!0000)\d{4}")

@@ -78,16 +78,22 @@ class TestInboundEncrypted:
 
     def test_encrypted_null_recognised(self) -> None:
         """
-        An encrypted *NULL is a NULL with seq 0 and the header account.
+        Encrypted supervision (D2 fallback: *SIA-DCS 0000) is classified NULL.
+
+        The seq comes from the tracker, not a fixed 0000 (D2 reverted
+        2026-09-28: live AC11 evidence showed ioBroker.sia decrypts and
+        accepts *NULL correctly but has no response path for it — it
+        answers with a degenerate, tokenless empty frame instead of an
+        ACK, so encrypted supervision now falls back to a *SIA-DCS event).
 
         Expected result:
-        - type NULL, seq 0, account 000001
+        - type NULL, seq 1 (first tracker draw), account 000001
         - ACK decision
         """
         sim = CSRSimulator(0, 0, _preset())
         parsed = sim._parse_received_message(_null(), sim.preset)
-        # Assert: Null Message recognised
-        assert (parsed["type"], parsed["seq"], parsed["account"]) == ("NULL", 0, _ACCOUNT)
+        # Assert: Null Message recognised, seq from the tracker
+        assert (parsed["type"], parsed["seq"], parsed["account"]) == ("NULL", 1, _ACCOUNT)
         # Assert: a matching NULL is acknowledged
         assert sim._decide_response(parsed, sim.preset) == "ACK"
 
