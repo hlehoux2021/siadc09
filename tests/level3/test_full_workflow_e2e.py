@@ -1006,12 +1006,16 @@ async def test_happy_path_encrypted(csr_sim):
 
     Scenario:
     - Daemon and simulator share the same AES-128 key (story 1-5, § 5.4)
-    - Supervision is an encrypted *NULL (§ 5.5.2.1), the alarm an encrypted *SIA-DCS
+    - Supervision is the D2 fallback (an encrypted *SIA-DCS 0000, story 1-5
+      D2 reverted 2026-09-28: ioBroker.sia has no *NULL response path at
+      all), the alarm a regular encrypted *SIA-DCS — both share the same
+      token, so which is which is checked by decrypted content, not token
     - The simulator decrypts both and answers with an encrypted *ACK
 
     Expected result:
-    - Supervision frames use the *NULL token
-    - Alarm frame uses the *SIA-DCS token
+    - Every frame on the wire is the encrypted *SIA-DCS token
+    - At least one decrypts to the supervision NULL-code shape (|0000])
+    - At least one decrypts to the real alarm event (|BA)
     - SM1=HEALTHY and SM2=CONFIRMED
     """
     # Allocate fresh ports for the encrypted simulator (csr_sim fixture already holds the fixture ports).
@@ -1070,10 +1074,24 @@ async def test_happy_path_encrypted(csr_sim):
         # Assert: both supervision and event callbacks present
         assert 2 in extract_sup_states(daemon.send_to_jeedom), "Expected supervision_state=2 (HEALTHY)"
         assert 1 in extract_event_states(daemon.send_to_jeedom), "Expected event_state=1 (CONFIRMED)"
+        from resources.siadc09d.sia_crypto import SIACipher
         from resources.siadc09d.sia_protocol import parse_frame_header
+
         sent_tokens = {parse_frame_header(f)[0] for f in sent_frames}
-        # Assert: only encrypted *NULL supervision and *SIA-DCS alarm went on the wire
-        assert sent_tokens == {"*NULL", "*SIA-DCS"}, sent_tokens
+        # Assert: every frame on the wire is the encrypted *SIA-DCS token
+        # (supervision now shares it with the alarm via the D2 fallback)
+        assert sent_tokens == {"*SIA-DCS"}, sent_tokens
+        cipher = SIACipher(E2E_ENCRYPTION_KEY)
+        decrypted = [
+            cipher.decrypt(f.decode("windows-1252")[9:-1].partition("[")[2]).decode(
+                "windows-1252", errors="replace"
+            )
+            for f in sent_frames
+        ]
+        # Assert: at least one frame really is the supervision (NULL code 0000)
+        assert any("|0000]" in d for d in decrypted), decrypted
+        # Assert: at least one frame really is the alarm event (BA)
+        assert any("|BA" in d for d in decrypted), decrypted
 
     finally:
         with suppress(Exception):

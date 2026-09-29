@@ -340,8 +340,9 @@ class TestSupervisionNakRetry:
         # Assert: still healthy
         assert daemon._sm1_state == SM1State.HEALTHY
         if encrypted:
-            # Assert: encrypted NULL is *NULL with seq 0000 (§ 5.5.2.1)
-            assert parse_frame_header(sent[0]) == ("*NULL", "0000")
+            # Assert: encrypted supervision is the D2 fallback *SIA-DCS 0000
+            # (ioBroker.sia has no real *NULL response path, story 1-5 D2)
+            assert parse_frame_header(sent[0]) == ("*SIA-DCS", "0001")
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("encrypted", [False, True])
@@ -370,8 +371,8 @@ class TestSupervisionNakRetry:
         # Assert: one strike for the whole exchange
         assert daemon._strike_counter == 1
         if encrypted:
-            # Assert: every attempt stayed *NULL with seq 0000, even NAKed
-            assert all(parse_frame_header(f) == ("*NULL", "0000") for f in sent)
+            # Assert: every attempt stayed the D2 fallback *SIA-DCS 0001, even NAKed
+            assert all(parse_frame_header(f) == ("*SIA-DCS", "0001") for f in sent)
 
 
 class TestInvalidKeyBlocksSending:
@@ -473,7 +474,10 @@ class TestKeyNeverLeaks:
                 # Assert: the key text never appears in any sink
                 assert key_text not in text, f"key leaked in {where}"
         # Assert: sanity — both encrypted frames were traced, so the sinks were exercised
-        assert "*NULL" in haystacks["callbacks"] and "*SIA-DCS" in haystacks["callbacks"]
+        # (supervision now uses the D2 fallback token too, *SIA-DCS, so
+        # 'dialog_type' distinguishes the two dialogs instead of the token)
+        assert "'dialog_type': 'supervision'" in haystacks["callbacks"] \
+            and "'dialog_type': 'alarm'" in haystacks["callbacks"]
 
 
 class TestTraceHeader:

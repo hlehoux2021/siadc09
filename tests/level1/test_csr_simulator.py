@@ -479,7 +479,9 @@ class TestACKFrameGeneration:
 
         Expected result:
         - The body starts with the clear header "*ACK"0001R0L0#000001[
-        - The region is uppercase hex, terminated by ']' (D1 reverted 2026-09-28)
+        - The region is uppercase hex with no trailing ']' (D1, reverted back
+          2026-09-29: ioBroker.sia's decrypt_hex() chokes on a non-hex
+          trailing character passed straight into Node's hex decoder)
         - The oracle decrypts it to "]_" + the receiver timestamp
         """
         from resources.siadc09d.csr_simulator import CSRSimulator
@@ -496,10 +498,9 @@ class TestACKFrameGeneration:
 
         # Assert: clear header carries the *ACK token, seq, prefixes and account
         assert header == '"*ACK"0001R0L0#000001', f"unexpected header {header!r}"
-        # Assert: region is uppercase hex, closed by ']'
-        assert region == region.upper() and region.endswith(']') \
-            and all(c in '0123456789ABCDEF' for c in region[:-1]), \
-            f"region is not uppercase hex terminated by ']': {region!r}"
+        # Assert: region is uppercase hex with no trailing ']'
+        assert region == region.upper() and all(c in '0123456789ABCDEF' for c in region), \
+            f"region is not uppercase hex: {region!r}"
         # Assert: oracle decrypts it to the timestamp-only ACK content
         assert oracle_region(hex_text, preset_encrypted['encryption_key'])[1] == \
             b']_10:00:00,09-28-2026', "decrypted ACK content mismatch"

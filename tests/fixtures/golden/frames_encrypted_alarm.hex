@@ -4,11 +4,12 @@
 # Encryption: AES-128-CBC, zero IV, key 0123456789ABCDEF0123456789ABCDEF (matches conftest.py preset_encrypted)
 # Region plaintext (front pad 'p' injected for determinism): pppppppppppppp|#001234|1130]_14:23:45,04-09-2026
 # Ciphertext (hex): 2561B3D7C450C1D3196A64426ABD98DB470903362FEBA6E60585C692C652E74F6998E2FC29E9F9F178A1087CA0F6B1F4
-# Wire message: "*SIA-DCS"0001L0#001234[2561B3D7C450C1D3196A64426ABD98DB470903362FEBA6E60585C692C652E74F6998E2FC29E9F9F178A1087CA0F6B1F4]
-# CRC CAA3 / length 0079 over the wire message (hex included). ']' after the hex
-# (story 1-5 D1 reverted 2026-09-28: live AC11 evidence against ioBroker.sia
-# showed its parser requires the closing bracket in the wire message).
+# Wire message: "*SIA-DCS"0001L0#001234[2561B3D7C450C1D3196A64426ABD98DB470903362FEBA6E60585C692C652E74F6998E2FC29E9F9F178A1087CA0F6B1F4
+# CRC 6244 / length 0078 over the wire message (hex included). No ']' after the hex
+# (story 1-5 D1, back to omitting it 2026-09-29: ioBroker.sia's decrypt_hex()
+# chokes on a non-hex trailing character; the decrypted content's own ']',
+# part of the DC-09 data block, is what its post-decrypt parsing needs).
 # Expected response: encrypted ACK with seq=0001 (simulator encrypts response with same key)
 
 # Format: one frame per line as hex bytes (space separated)
-0A 43 41 41 33 30 30 37 39 22 2A 53 49 41 2D 44 43 53 22 30 30 30 31 4C 30 23 30 30 31 32 33 34 5B 32 35 36 31 42 33 44 37 43 34 35 30 43 31 44 33 31 39 36 41 36 34 34 32 36 41 42 44 39 38 44 42 34 37 30 39 30 33 33 36 32 46 45 42 41 36 45 36 30 35 38 35 43 36 39 32 43 36 35 32 45 37 34 46 36 39 39 38 45 32 46 43 32 39 45 39 46 39 46 31 37 38 41 31 30 38 37 43 41 30 46 36 42 31 46 34 5D 0D
+0A 36 32 34 34 30 30 37 38 22 2A 53 49 41 2D 44 43 53 22 30 30 30 31 4C 30 23 30 30 31 32 33 34 5B 32 35 36 31 42 33 44 37 43 34 35 30 43 31 44 33 31 39 36 41 36 34 34 32 36 41 42 44 39 38 44 42 34 37 30 39 30 33 33 36 32 46 45 42 41 36 45 36 30 35 38 35 43 36 39 32 43 36 35 32 45 37 34 46 36 39 39 38 45 32 46 43 32 39 45 39 46 39 46 31 37 38 41 31 30 38 37 43 41 30 46 36 42 31 46 34 0D

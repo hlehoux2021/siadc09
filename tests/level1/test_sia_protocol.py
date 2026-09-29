@@ -1597,11 +1597,14 @@ def test_null_message_encrypted_flag(builder):
     """
     Test that NULL message respects encryption flag.
     This verifies the token changes between unencrypted and encrypted modes
-    (story 1-5 D2: encrypted supervision is the § 5.5.2.1 "*NULL" Null Message).
+    (story 1-5 D2 reverted 2026-09-28: live AC11 evidence showed ioBroker.sia
+    has no response path for a real *NULL, so encrypted supervision falls
+    back to a *SIA-DCS event with code 0000, per D2's own pre-planned
+    fallback, rather than the § 5.5.2.1 "*NULL" Null Message).
 
     Expected result:
     - unencrypted: contains "SIA-DCS" token (no asterisk)
-    - encrypted: contains "*NULL" token with seq 0000
+    - encrypted: contains "*SIA-DCS" token (D2 fallback)
     - Both frames have valid structure
     """
     unencrypted = builder.make_supervision_message(
@@ -1619,12 +1622,12 @@ def test_null_message_encrypted_flag(builder):
     # Assert: Unencrypted does NOT use encrypted token
     assert b'"*SIA-DCS"' not in unencrypted, \
         "Unencrypted should not contain \"*SIA-DCS\""
-    # Assert: Encrypted uses the Null Message token with seq 0000
-    assert b'"*NULL"0000' in encrypted, \
-        "Encrypted should contain \"*NULL\"0000"
-    # Assert: Encrypted does NOT use unencrypted variant
-    assert b'"SIA-DCS"0' not in encrypted, \
-        "Encrypted should not contain unencrypted variant"
+    # Assert: Encrypted uses the D2 fallback token
+    assert b'"*SIA-DCS"' in encrypted, \
+        "Encrypted should contain \"*SIA-DCS\" (D2 fallback)"
+    # Assert: Encrypted does NOT use the unencrypted variant
+    assert b'"SIA-DCS"' not in encrypted.replace(b'"*SIA-DCS"', b''), \
+        "Encrypted should not contain the unencrypted variant"
     # Assert: Both have valid frame structure
     assert unencrypted.startswith(LF) and unencrypted.endswith(CR)
     assert encrypted.startswith(LF) and encrypted.endswith(CR)

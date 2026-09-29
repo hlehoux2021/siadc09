@@ -743,13 +743,16 @@ async def test_ac12_concurrent_alarm_during_supervision(csr_sim):
 @pytest.mark.asyncio
 @pytest.mark.level3
 async def test_ac13_encrypted_supervision_marker_sent(csr_sim):
-    """E2E: encrypted supervision is an AES-encrypted *NULL the CSR decrypts and ACKs. (AC13)
+    """E2E: encrypted supervision is an AES-encrypted frame the CSR decrypts and ACKs. (AC13)
 
-    § 5.5.2.1: with encryption on the supervision token is "*NULL"; § 5.4: the
-    data block is AES-CBC (zero IV) — the simulator shares the key and decrypts it.
+    § 5.5.2.1 originally defined the supervision token as "*NULL", but D2's
+    fallback (story 1-5, reverted 2026-09-28 on live AC11 evidence: ioBroker.sia
+    has no *NULL response path at all) sends an encrypted *SIA-DCS event with
+    code 0000 instead — § 5.4's AES-CBC (zero IV) data block still applies, and
+    the simulator shares the key and decrypts it the same way.
 
     Expected result:
-    - Supervision frame header is *NULL with sequence 0000
+    - Supervision frame header is the D2 fallback *SIA-DCS, seq from the tracker
     - Simulator decrypts the frame and ACKs → SM1 HEALTHY, no strike
     """
     sim, udp_port, tcp_port = csr_sim
@@ -767,8 +770,8 @@ async def test_ac13_encrypted_supervision_marker_sent(csr_sim):
         )
 
         from resources.siadc09d.sia_protocol import parse_frame_header
-        # Assert: supervision frame is an encrypted *NULL with sequence 0000
-        assert parse_frame_header(daemon._last_sent_frame) == ("*NULL", "0000")
+        # Assert: supervision frame is the encrypted D2 fallback *SIA-DCS, first tracker seq
+        assert parse_frame_header(daemon._last_sent_frame) == ("*SIA-DCS", "0001")
         # Assert: the CSR decrypted and ACKed it
         assert daemon._sm1_state == SM1State.HEALTHY
         # Assert: no strike recorded

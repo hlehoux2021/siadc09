@@ -227,19 +227,24 @@ class TestDecodeEncryptedFrame:
 
     def test_encrypted_null_decodes(self) -> None:
         """
-        An encrypted *NULL decodes to id_token NULL, sequence 0, content ']_ts'.
+        Encrypted supervision (D2 fallback: *SIA-DCS 0000) decodes correctly.
+
+        D2 reverted 2026-09-28: live AC11 evidence showed ioBroker.sia has no
+        response path for a real *NULL, so encrypted supervision now falls
+        back to a *SIA-DCS event carrying event code 0000, seq from the
+        tracker rather than a fixed 0000.
 
         Expected result:
-        - id_token 'NULL', encrypted True, sequence 0
-        - data_decrypted ']_12:00:00,09-27-2026'
+        - id_token 'SIA-DCS', encrypted True, sequence 1 (first tracker draw)
+        - data_decrypted '#1234|0000]_12:00:00,09-27-2026'
         """
         frame = SIAMessageBuilder(crc_format="SIA").make_supervision_message(
             "1234", encryption=True, encryption_key=_KEY_128, timestamp=_TS)
         result = decode(frame.hex(), key=_KEY_128)
-        # Assert: Null Message header
-        assert (result.id_token, result.encrypted, result.sequence) == ("NULL", True, 0)
-        # Assert: region content
-        assert result.data_decrypted == "]_12:00:00,09-27-2026"
+        # Assert: event header, seq from the tracker
+        assert (result.id_token, result.encrypted, result.sequence) == ("SIA-DCS", True, 1)
+        # Assert: region content is the account + NULL code, then the timestamp
+        assert result.data_decrypted == "#1234|0000]_12:00:00,09-27-2026"
 
     def test_encrypted_frame_with_wrong_key_data_decrypted_none(self) -> None:
         """

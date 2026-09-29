@@ -57,7 +57,7 @@ def _check_crc_len(frame: bytes) -> str:
 @pytest.mark.parametrize("key", [KEY_128, KEY_192, KEY_256])
 @pytest.mark.parametrize("extended", [{}, {"zone": "001"}, {"media_url": "http://cam/snap.jpg"}])
 def test_encrypted_event_decrypts_with_oracle(builder, key, extended):
-    """An encrypted event frame is `"*SIA-DCS"seq L0#acct[<hex>]` (D1 reverted 2026-09-28).
+    """An encrypted event frame is `"*SIA-DCS"seq L0#acct[<hex>` with no ']' after the hex.
 
     - header fields stay in clear
     - oracle decrypts to pad + '|' + data (']' included) + ext + timestamp
@@ -67,9 +67,11 @@ def test_encrypted_event_decrypts_with_oracle(builder, key, extended):
     frame = builder.encode_message("001234", "BA", extended_data=extended, timestamp=TS,
                                    encryption=True, encryption_key=key)
     body = _check_crc_len(frame)
-    # Clear header then '[' then hex then ']' (D1 reverted: live AC11 evidence
-    # against ioBroker.sia showed its parser requires the closing bracket)
-    assert re.fullmatch(r'"\*SIA-DCS"0001L0#001234\[[0-9A-F]+\]', body)
+    # Clear header then '[' then hex until end (D1, back to no closing ']':
+    # ioBroker.sia's decrypt_hex() chokes on the extra non-hex trailing char;
+    # the decrypted content's own ']', part of the DC-09 data block, is what
+    # its post-decrypt field-splitting regex actually needs)
+    assert re.fullmatch(r'"\*SIA-DCS"0001L0#001234\[[0-9A-F]+', body)
     _, hex_text = split_wire(body)
     pad, content = oracle_region(hex_text, key)
     zone = " 001" if extended.get("zone") else ""
@@ -223,34 +225,45 @@ def test_length_boundary_exact_encrypted(builder, monkeypatch):
 
 
 def test_encrypted_supervision_is_null_message(builder):
-    """Encrypted supervision is `"*NULL"0000L0#acct[<hex>]`, region pad|]_ts (§ 5.5.2.1, § 5.4.4.3).
+    """Encrypted supervision is `"*SIA-DCS"seq L0#acct[<hex>`, region #acct|0000]_ts (D2 fallback).
 
-    - token *NULL, seq 0000, ']' after the hex (D1 reverted 2026-09-28)
-    - decrypted content is ']' + timestamp, with the '|' present
-    - does not consume a tracker seq
+    D2 reverted 2026-09-28: live AC11 evidence showed ioBroker.sia decrypts
+    and accepts a real *NULL correctly but has no response path for it —
+    it answers with a degenerate, tokenless empty frame instead of an ACK.
+    Encrypted supervision now falls back to a *SIA-DCS event with code
+    0000 (D2's own pre-planned fallback), which does consume a tracker seq.
+
+    D1 also reverted back to no closing ']' the same day, once tracing
+    ioBroker's decrypt path (which *SIA-DCS reaches, unlike *NULL) showed
+    the wire-level ']' breaks its hex decoding; the decrypted content's own
+    ']' (part of the DC-09 data block) satisfies its post-decrypt parsing.
+
+    - token *SIA-DCS, seq from the tracker, no ']' after the hex
+    - decrypted content is the account + NULL code + ']' + timestamp
+    - consumes a tracker seq (unlike the literal-0000 *NULL form)
     """
     frame = builder.make_supervision_message("001234", encryption=True, encryption_key=KEY_128, timestamp=TS)
     body = _check_crc_len(frame)
-    # Null Message header with literal 0000 seq, closing ']' after the hex
-    assert re.fullmatch(r'"\*NULL"0000L0#001234\[[0-9A-F]+\]', body)
+    # *SIA-DCS header with the first tracker seq, no closing ']' after the hex
+    assert re.fullmatch(r'"\*SIA-DCS"0001L0#001234\[[0-9A-F]+', body)
     pad, content = oracle_region(split_wire(body)[1], KEY_128)
-    # Region content is ']' + timestamp after the mandatory '|'
-    assert content == f"]{TS_STR}".encode()
-    # Tracker untouched: next event is seq 0001
-    assert parse_frame_header(builder.encode_message("001234", "BA"))[1] == "0001"
-    # Default token constant is *NULL (D2)
-    assert ENCRYPTED_SUPERVISION_TOKEN == "NULL"
+    # Region content is the account + NULL code + ']' + timestamp
+    assert content == f"#001234|0000]{TS_STR}".encode()
+    # Tracker consumed: next event is seq 0002
+    assert parse_frame_header(builder.encode_message("001234", "BA"))[1] == "0002"
+    # Default token constant is the D2 fallback (*SIA-DCS)
+    assert ENCRYPTED_SUPERVISION_TOKEN == "SIA-DCS"
 
 
 def test_encrypted_supervision_without_timestamp_uses_now(builder):
     """Encrypted supervision always carries a timestamp.
 
-    - decrypted content matches ]_HH:MM:SS,MM-DD-YYYY
+    - decrypted content matches #acct|0000]_HH:MM:SS,MM-DD-YYYY (D2 fallback)
     """
     frame = builder.make_supervision_message("001234", encryption=True, encryption_key=KEY_128)
     _, content = oracle_region(split_wire(split_frame(frame)[2])[1], KEY_128)
-    # Timestamp present
-    assert re.fullmatch(rb"\]_\d\d:\d\d:\d\d,\d\d-\d\d-\d{4}", content)
+    # Timestamp present, after the account + NULL code
+    assert re.fullmatch(rb"#001234\|0000\]_\d\d:\d\d:\d\d,\d\d-\d\d-\d{4}", content)
 
 
 def test_unencrypted_supervision_unchanged(builder):
@@ -266,24 +279,26 @@ def test_unencrypted_supervision_unchanged(builder):
 def test_parse_frame_header(builder):
     """parse_frame_header returns (token, seq) of a built frame.
 
-    - encrypted event, encrypted NULL and plain event
+    - encrypted event, encrypted supervision (D2 fallback) and plain event
     """
     enc = builder.encode_message("001234", "BA", encryption=True, encryption_key=KEY_128)
     null = builder.make_supervision_message("001234", encryption=True, encryption_key=KEY_128)
     plain = builder.encode_message("001234", "BA")
     # Encrypted event header
     assert parse_frame_header(enc) == ("*SIA-DCS", "0001")
-    # Encrypted NULL header
-    assert parse_frame_header(null) == ("*NULL", "0000")
+    # Encrypted supervision header, D2 fallback, seq from the same tracker
+    assert parse_frame_header(null) == ("*SIA-DCS", "0002")
     # Plain event header
-    assert parse_frame_header(plain) == ("SIA-DCS", "0002")
+    assert parse_frame_header(plain) == ("SIA-DCS", "0003")
 
 
 def test_iobroker_port_parses_our_event_frames(builder):
     """ioBroker.sia's decrypt/parse path (Python port) accepts our encrypted events.
 
     - account, data and timestamp recovered, extended data included
-    - *NULL is not parseable by ioBroker (documented limitation, D2 risk)
+    - encrypted supervision (D2 fallback: *SIA-DCS 0000) parses the same way,
+      confirming live AC11 evidence that ioBroker has no real *NULL response
+      path but does handle a *SIA-DCS event fine
     """
     frame = builder.encode_message("001234", "BA", extended_data={"zone": "001", "media_url": "http://c/s.jpg"},
                                    timestamp=TS, encryption=True, encryption_key=KEY_128)
@@ -292,9 +307,10 @@ def test_iobroker_port_parses_our_event_frames(builder):
     assert (parsed["act"], parsed["data"], parsed["extended"], parsed["ts"]) == (
         "001234", "#001234|BA 001", "Vhttp://c/s.jpg", TS_STR[1:])
     null = builder.make_supervision_message("001234", encryption=True, encryption_key=KEY_128, timestamp=TS)
-    # ioBroker has no *NULL branch at all
-    with pytest.raises(ValueError):
-        iobroker_parse_event(split_frame(null)[2], KEY_128)
+    parsed_null = iobroker_parse_event(split_frame(null)[2], KEY_128)
+    # ioBroker also parses the D2 fallback (a *SIA-DCS event, code 0000)
+    assert (parsed_null["act"], parsed_null["data"], parsed_null["ts"]) == (
+        "001234", "#001234|0000", TS_STR[1:])
 
 
 def test_deterministic_golden_vector():

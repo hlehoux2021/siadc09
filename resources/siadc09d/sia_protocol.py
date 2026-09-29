@@ -74,14 +74,24 @@ MAX_MESSAGE_LENGTH = 0xFFF
 
 # Encrypted region (§ 5.4.3): the hex runs from after '[' to the end of the
 # message. D1 (2026-09-27) originally omitted the closing ']', per a survey of
-# third-party frames. Reverted 2026-09-28: live AC11 evidence against a real
-# ioBroker.sia instance (testsia.lehoux.net) showed its parser applies an
-# outer regex to the WIRE message *before* decrypting, expecting a literal
-# ']' to delimit the data block — without it, valid ciphertext (which
-# verified as decrypting cleanly with the shared key) was rejected with
-# "Incorrect format of data message" before decryption was ever attempted.
-# Kept as a constant so this is a one-line change either way.
-ENCRYPTED_REGION_TERMINATOR = "]"
+# third-party frames. Briefly reverted 2026-09-28 after a *NULL frame against
+# ioBroker.sia was rejected with the wire-level bracket missing — but tracing
+# ioBroker's actual source (sia.js) end to end showed *NULL never reaches its
+# decrypt path at all (unhandled message type there, D2's own known risk);
+# that "*NULL succeeds with a bracket" was a coincidence of its outer regex
+# matching raw ciphertext, not a real decrypt. Once supervision moved to the
+# D2 fallback ("*SIA-DCS" 0000, which DOES decrypt), the wire-level bracket
+# became actively harmful: it is passed straight into the decrypt call
+# (Node's `decipher.update(hex, "hex", ...)`) uncleaned, and a non-hex
+# trailing ']' makes that throw ("Could not decrypt message") — confirmed via
+# a debug line added to ioBroker's own running code (password/key verified
+# correct: Buffer, 16 bytes; the only variable left was the extra ']').
+# Reverted back to omitting it 2026-09-29. Our own decrypted content already
+# carries the DC-09 data block's own ']' (`#acct|code]...`), a different,
+# always-present character unrelated to this wire-level one, so ioBroker's
+# post-decrypt field-splitting regex is satisfied either way. Kept as a
+# constant so this is a one-line change either way.
+ENCRYPTED_REGION_TERMINATOR = ""
 
 # Encrypted supervision token (story 1-5 D2): "*NULL" per § 5.5.2.1, with a
 # fallback to an encrypted "*SIA-DCS" 0000 event (the seq then comes from the
