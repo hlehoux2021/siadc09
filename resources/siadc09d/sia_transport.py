@@ -250,7 +250,10 @@ class SIAUDPTransport(SIABaseTransport):
             self._protocol._future = future
 
             self._transport.sendto(frame)
-            self._logger.debug("UDP frame sent: %d bytes", len(frame))
+            self._logger.debug(
+                "UDP frame sent: %d bytes: %s",
+                len(frame), frame.decode("windows-1252", errors="replace"),
+            )
 
             try:
                 raw = await asyncio.wait_for(
@@ -262,7 +265,10 @@ class SIAUDPTransport(SIABaseTransport):
             finally:
                 self._protocol._future = None  # always clear — prevents stale future
 
-            self._logger.debug("UDP reply received: %d bytes", len(raw))
+            self._logger.debug(
+                "UDP reply received: %d bytes: %s",
+                len(raw), raw.decode("windows-1252", errors="replace"),
+            )
             return self._parse_response(raw)
 
         except SIATransportError:
@@ -365,7 +371,10 @@ class SIATCPTransport(SIABaseTransport):
                 )
             except asyncio.TimeoutError:
                 raise SIATransportError("TCP send buffer drain timeout")
-            self._logger.debug("TCP frame sent: %d bytes", len(frame))
+            self._logger.debug(
+                "TCP frame sent: %d bytes: %s",
+                len(frame), frame.decode("windows-1252", errors="replace"),
+            )
 
             # Read response with frame boundary guard (SIA CR terminator § 5.5.1.10)
             try:
@@ -388,7 +397,10 @@ class SIATCPTransport(SIABaseTransport):
             # readuntil() never returns b"" — it either returns bytes including
             # \x0D or raises IncompleteReadError / LimitOverrunError / TimeoutError
 
-            self._logger.debug("TCP reply received: %d bytes", len(raw))
+            self._logger.debug(
+                "TCP reply received: %d bytes: %s",
+                len(raw), raw.decode("windows-1252", errors="replace"),
+            )
             return self._parse_response(raw)
 
         except SIATransportError:
