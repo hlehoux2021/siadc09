@@ -1949,7 +1949,7 @@ class SIADaemon(BaseDaemon):
             # BA/FA/PA address by zone ORDER NUMBER, never the label; BC/OP/CL address by the
             # configured SIA user number instead — DC-03 p.4, stories 13-1/13-4, ADR-18.
             # Either way SIA DC-09 Annex B formats it as 3 zero-padded digits →
-            # [#001234|BA 001] or [#001234|BC 001]. Padding happens here and only here. When
+            # [#001234|NBA001] or [#001234|NBC001]. Padding happens here and only here. When
             # the source value is None the frame carries no address field at all.
             # Note: _sia_seq is incremented once by _send_with_retry before the loop.
             extended_data = {}

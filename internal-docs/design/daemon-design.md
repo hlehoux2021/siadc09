@@ -153,9 +153,9 @@ class SIAProtocolError(ValueError):
 Per section 5.4.3–5.4.4, everything after the opening `[` is encrypted: the data, its closing `]`, any extended data and the timestamp. Everything up to and including `[` stays clear. The plaintext is `pad | content`; the ciphertext is written as uppercase hex and **nothing follows it** (no closing `]` after the hex — the `]` is inside the ciphertext).
 
 ```
-Unencrypted: "SIA-DCS"SSSS...#ACCOUNT[#ACCOUNT|BA 001]_HH:MM:SS,MM-DD-YYYY
+Unencrypted: "SIA-DCS"SSSS...#ACCOUNT[#ACCOUNT|NBA001]_HH:MM:SS,MM-DD-YYYY
 Encrypted:   "*SIA-DCS"SSSS...#ACCOUNT[<HEX>
-             <HEX> = hex(AES-CBC(pad + "|" + "#ACCOUNT|BA 001]_HH:MM:SS,MM-DD-YYYY"))
+             <HEX> = hex(AES-CBC(pad + "|" + "#ACCOUNT|NBA001]_HH:MM:SS,MM-DD-YYYY"))
 Supervision: "*NULL"SSSS...#ACCOUNT[<HEX of pad|]_timestamp>
 ```
 
@@ -177,7 +177,7 @@ The pad is random printable ASCII (never `|`, `[` or `]`, § 5.4.4.2), sized so 
 
 **Example frame (alarm, unencrypted, with media URL):**
 ```
-"SIA-DCS"0007L0#ABC123[#ABC123|BA 001][Vhttp://192.168.1.50/snap.jpg]_14:32:11,03-06-2026
+"SIA-DCS"0007L0#ABC123[#ABC123|NBA001][Vhttp://192.168.1.50/snap.jpg]_14:32:11,03-06-2026
 ```
 
 **Same alarm, zone unresolved** (the label sent by the alarm plugin matched no row in
@@ -451,7 +451,7 @@ message_string:
                | SIA-DCS (alarm, clear) | *SIA-DCS (alarm, encrypted)
   └── SSSS: 0001–9999, wraps
   └── receiver/account prefixes: optional, default R0L0
-  └── [event_data]: e.g. [#1234|BA 001] — zone ORDER NUMBER, 3-digit zero-padded (Annex B),
+  └── [event_data]: e.g. [#1234|NBA001] — zone ORDER NUMBER, 3-digit zero-padded (Annex B),
        never the zone label; omitted entirely when the zone is unresolved → [#1234|BA]
   └── [Vmedia_url]: optional — SIA DC-09 Verification extended data field (section 5.5.1.8)
        Appended after [event_data], before timestamp.
@@ -1160,7 +1160,7 @@ Receives `{cmd: 'burglarAlarm'|'fireAlarm'|'panicAlarm', zone: zone_name, zone_n
 | `zone_number` | `int \| None` | PHP resolved the label against `sia_zone_mappings` | **the frame, and nothing else** |
 
 `_build_event_frame()` sets `extended_data['zone']` from `zone_number`, zero-padded to 3
-digits (`1` → `"001"`, per DC-09 Annex B usage: `[#1234|FA 129]`, Contact ID `[#1234|1130 02 065]`).
+digits (`1` → `"001"`, per DC-09 Annex B usage: `[#1234|NFA129]`, Contact ID `[#1234|1130 02 065]`).
 When `zone_number` is `None` — the label matched no row in the zone table, or the title was
 empty — **no zone field is emitted at all** (`[#001234|BA]`). The label is never transmitted:
 a CSR indexes incidents by zone number, and free text is not actionable for an operator.

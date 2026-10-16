@@ -328,12 +328,12 @@ resolved against this table:
 
 | Case | Frame |
 |------|-------|
-| Label matches a `zone_name` (case-insensitive, trimmed) | `[#001234|BA 001]` — the matched `zone_number`, zero-padded to 3 digits |
+| Label matches a `zone_name` (case-insensitive, trimmed) | `[#001234|NBA001]` — the matched `zone_number`, zero-padded to 3 digits |
 | No match, or empty title | `[#001234|BA]` — **no zone field at all**, plus a warning in the log |
 
 The label is never transmitted. Rationale: a CSR indexes incidents by zone number; a free
 text label is not actionable for an operator and is not what the DC-09 Annex B examples
-show (`[#1234|FA 129]`, Contact ID `[#1234|1130 02 065]` — hence the 3-digit padding).
+show (`[#1234|NFA129]`, Contact ID `[#1234|1130 02 065]` — hence the 3-digit padding).
 
 The label is still carried in the IPC payload and stays in the logs, the notification
 context (`zone_name`) and the protocol inspector — it is dropped from the **frame** only,

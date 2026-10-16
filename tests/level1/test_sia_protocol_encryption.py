@@ -74,10 +74,10 @@ def test_encrypted_event_decrypts_with_oracle(builder, key, extended):
     assert re.fullmatch(r'"\*SIA-DCS"0001L0#001234\[[0-9A-F]+', body)
     _, hex_text = split_wire(body)
     pad, content = oracle_region(hex_text, key)
-    zone = " 001" if extended.get("zone") else ""
+    zone = "001" if extended.get("zone") else ""
     ext = "[Vhttp://cam/snap.jpg]" if extended.get("media_url") else ""
     # Region content is data (with its ']') + extended data + timestamp (§ 5.4.3)
-    assert content == f"#001234|BA{zone}]{ext}{TS_STR}".encode()
+    assert content == f"#001234|NBA{zone}]{ext}{TS_STR}".encode()
     # Pad free of delimiters (§ 5.4.4.2)
     assert not set(pad) & set(b"|[]")
     # Region is block aligned
@@ -105,7 +105,7 @@ def test_unencrypted_without_timestamp_unchanged(builder):
     """
     frame = builder.encode_message("001234", "BA")
     # Unencrypted, untimestamped frame unchanged
-    assert split_frame(frame)[2] == '"SIA-DCS"0001L0#001234[#001234|BA]'
+    assert split_frame(frame)[2] == '"SIA-DCS"0001L0#001234[#001234|NBA]'
 
 
 def test_encryption_without_key_raises(builder):
@@ -305,7 +305,7 @@ def test_iobroker_port_parses_our_event_frames(builder):
     parsed = iobroker_parse_event(split_frame(frame)[2], KEY_128)
     # ioBroker recovers account, data, extended data and timestamp
     assert (parsed["act"], parsed["data"], parsed["extended"], parsed["ts"]) == (
-        "001234", "#001234|BA 001", "Vhttp://c/s.jpg", TS_STR[1:])
+        "001234", "#001234|NBA001", "Vhttp://c/s.jpg", TS_STR[1:])
     null = builder.make_supervision_message("001234", encryption=True, encryption_key=KEY_128, timestamp=TS)
     parsed_null = iobroker_parse_event(split_frame(null)[2], KEY_128)
     # ioBroker also parses the D2 fallback (a *SIA-DCS event, code 0000)

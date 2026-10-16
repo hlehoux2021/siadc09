@@ -280,7 +280,7 @@ async def test_build_event_frame_sends_zero_padded_zone_number():
     Reference: SIA DC-09-2021 Annex B — zone formatted as 3 zero-padded digits.
 
     Expected:
-    - frame contains "[#001234|BA 003]"
+    - frame contains "[#001234|NBA003]"
     - the label "Salon" appears nowhere in the frame
     """
     daemon = _make_daemon()
@@ -290,7 +290,7 @@ async def test_build_event_frame_sends_zero_padded_zone_number():
 
     frame = daemon._build_event_frame(event)
 
-    assert b"[#001234|BA 003]" in frame  # zero-padded to 3 digits
+    assert b"[#001234|NBA003]" in frame  # zero-padded to 3 digits
     assert b"Salon" not in frame  # label never transmitted
 
 
@@ -299,7 +299,7 @@ async def test_build_event_frame_omits_zone_when_unresolved():
     """AC14: unresolved zone → no zone field at all, and the alarm is still sent.
 
     Expected:
-    - frame contains "[#001234|BA]" (event code alone, no zone separator)
+    - frame contains "[#001234|NBA]" (N + event code alone)
     - the label is not used as a fallback
     """
     daemon = _make_daemon()
@@ -309,7 +309,7 @@ async def test_build_event_frame_omits_zone_when_unresolved():
 
     frame = daemon._build_event_frame(event)
 
-    assert b"[#001234|BA]" in frame  # no zone field emitted
+    assert b"[#001234|NBA]" in frame  # no zone field emitted
     assert b"Inconnue" not in frame  # label not used as a fallback
 
 
@@ -483,13 +483,13 @@ async def test_on_message_arm_enqueues_cl_with_user_number():
 @pytest.mark.asyncio
 async def test_build_event_frame_bc_and_op_address_by_user_number():
     """AC5: BC/OP frames carry the configured user number as their address field, zero-
-    padded like a zone — [#acct|BC 001] / [#acct|OP 001] — never a zone number.
+    padded like a zone — [#acct|NBC001] / [#acct|NOP001] — never a zone number.
 
     Reference: SIA DC-09-2021 Annex B — address formatted as 3 zero-padded digits.
     Reference: ADR-18 — BC/OP address by user number, never by zone.
 
     Expected:
-    - user_number=1 → frame contains "[#001234|BC 001]" for BC, "[#001234|OP 001]" for OP
+    - user_number=1 → frame contains "[#001234|NBC001]" for BC, "[#001234|NOP001]" for OP
     - a non-None zone_number on a BC/OP EventItem is ignored — user_number wins
     """
     daemon = _make_daemon()
@@ -500,16 +500,16 @@ async def test_build_event_frame_bc_and_op_address_by_user_number():
         sia_code="BC", zone=None, timestamp="12:00:00,09-25-2026", zone_number=9, user_number=1
     )
 
-    assert b"[#001234|BC 001]" in daemon._build_event_frame(bc)  # user-number address, zero-padded
-    assert b"[#001234|OP 001]" in daemon._build_event_frame(op)  # same contract for OP
-    assert b"[#001234|CL 001]" in daemon._build_event_frame(cl)  # same contract for CL (13-4)
+    assert b"[#001234|NBC001]" in daemon._build_event_frame(bc)  # user-number address, zero-padded
+    assert b"[#001234|NOP001]" in daemon._build_event_frame(op)  # same contract for OP
+    assert b"[#001234|NCL001]" in daemon._build_event_frame(cl)  # same contract for CL (13-4)
     # Assert: zone_number is ignored on BC/OP — the address always comes from user_number
-    assert b"[#001234|BC 001]" in daemon._build_event_frame(bc_with_stray_zone)
+    assert b"[#001234|NBC001]" in daemon._build_event_frame(bc_with_stray_zone)
     # Assert: same for CL (review 13-4) — a stray zone_number never leaks into the arm report
     cl_with_stray_zone = EventItem(
         sia_code="CL", zone=None, timestamp="12:00:00,09-26-2026", zone_number=9, user_number=1
     )
-    assert b"[#001234|CL 001]" in daemon._build_event_frame(cl_with_stray_zone)
+    assert b"[#001234|NCL001]" in daemon._build_event_frame(cl_with_stray_zone)
 
 
 @pytest.mark.asyncio
@@ -529,5 +529,5 @@ async def test_build_event_frame_omits_address_for_out_of_range_user_number():
     too_big = EventItem(sia_code="OP", zone=None, timestamp="12:00:00,09-26-2026", user_number=1000)
 
     # Assert: no address field at all — never a signed or over-width one
-    assert b"[#001234|BC]" in daemon._build_event_frame(negative)
-    assert b"[#001234|OP]" in daemon._build_event_frame(too_big)
+    assert b"[#001234|NBC]" in daemon._build_event_frame(negative)
+    assert b"[#001234|NOP]" in daemon._build_event_frame(too_big)

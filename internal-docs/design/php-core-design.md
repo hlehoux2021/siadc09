@@ -467,7 +467,7 @@ fix the mapping. An alarm must never be blocked by a configuration issue.
 
 **Zone number formatting:** the number is an `int` in the payload; zero-padding to 3 digits
 (`1` → `001`) happens once, in the daemon's frame builder, per DC-09 Annex B usage
-(`[#1234|FA 129]`, Contact ID `[#1234|1130 02 065]`).
+(`[#1234|NFA129]`, Contact ID `[#1234|1130 02 065]`).
 
 ### Future feature (v1.x): Auto-configure alarm zone actions
 

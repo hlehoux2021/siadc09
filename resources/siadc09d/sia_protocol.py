@@ -503,17 +503,20 @@ class SIAMessageBuilder:
             extended_data: Optional dict; supports key "zone" (zone name appended after event code)
 
         Returns:
-            Data field string: [#{account}|{event_code}] or [#{account}|{event_code} {zone}]
+            Data field string: [#{account}|N{event_code}{zone}] for a 2-letter SIA code,
+            [#{account}|{event_code}{zone}] otherwise
 
         Reference: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.7, Annex B
         """
         if extended_data is None:
             extended_data = {}
 
+        # DC-09 Annex B (original PDF): "N" (new event) + 2-letter code + address, no
+        # separator → [#12345A|NFA129]. Other codes (Contact ID digits, "0000") are left as-is.
+        if re.fullmatch(r"[A-Z]{2}", event_code):
+            event_code = f"N{event_code}"
         zone = extended_data.get("zone", "")
-        if zone:
-            return f"[#{account_number}|{event_code} {zone}]"
-        return f"[#{account_number}|{event_code}]"
+        return f"[#{account_number}|{event_code}{zone}]"
 
     @staticmethod
     def _format_extended_data_field(extended_data: dict[str, str] | None = None) -> str:
