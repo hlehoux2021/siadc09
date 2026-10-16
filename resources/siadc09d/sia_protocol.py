@@ -500,10 +500,12 @@ class SIAMessageBuilder:
         Args:
             account_number: Account ID (3-16 hex chars)
             event_code: SIA event code (e.g., "BA", "FA", "PA", "NULL")
-            extended_data: Optional dict; supports key "zone" (zone name appended after event code)
+            extended_data: Optional dict; supports keys "zone" (address appended after event
+                code) and "area" (DC-03 area/partition, emitted as the "ri" field)
 
         Returns:
             Data field string: [#{account}|N{event_code}{zone}] for a 2-letter SIA code,
+            [#{account}|Nri{area}/{event_code}{zone}] when an area is given,
             [#{account}|{event_code}{zone}] otherwise
 
         Reference: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.7, Annex B
@@ -512,9 +514,14 @@ class SIAMessageBuilder:
             extended_data = {}
 
         # DC-09 Annex B (original PDF): "N" (new event) + 2-letter code + address, no
-        # separator → [#12345A|NFA129]. Other codes (Contact ID digits, "0000") are left as-is.
+        # separator → [#12345A|NFA129]. DC-03 optional fields sit between "N" and the code,
+        # '/'-terminated: the area as "ri" → [#27099|Nri1/CL001] (what Ajax sends, and
+        # what Scutum needs to recognise CL/OP — internal-docs/ajax.md). Other codes
+        # (Contact ID digits, "0000") are left as-is.
         if re.fullmatch(r"[A-Z]{2}", event_code):
-            event_code = f"N{event_code}"
+            area = extended_data.get("area", "")
+            area_field = f"ri{area}/" if area else ""
+            event_code = f"N{area_field}{event_code}"
         zone = extended_data.get("zone", "")
         return f"[#{account_number}|{event_code}{zone}]"
 

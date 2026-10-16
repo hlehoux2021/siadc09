@@ -353,6 +353,11 @@ _VARIABLE_ALLOWED_SIA_CODES: Final[frozenset[str]] = frozenset({"BC", "OP"})
 # error_handler.py, which also uses it for the EVENT_FAILED address clause.
 _USER_ADDRESSED_SIA_CODES: Final[frozenset[str]] = USER_ADDRESSED_SIA_CODES
 
+# DC-03 area (partition) carried as "ri" in every event's data block → [#acct|Nri1/CL001].
+# Fixed: the plugin has a single siaDC09 equipment, so a single area. Ajax hubs send ri1 for
+# alarm events and Scutum shows CL/OP as "CODE INCONNU" without it (internal-docs/ajax.md).
+SIA_AREA_NUMBER: Final[int] = 1
+
 
 # ===== TASK 2: STRIKE COUNTER AND SM1 STATE MANAGEMENT =====
 
@@ -1949,10 +1954,11 @@ class SIADaemon(BaseDaemon):
             # BA/FA/PA address by zone ORDER NUMBER, never the label; BC/OP/CL address by the
             # configured SIA user number instead — DC-03 p.4, stories 13-1/13-4, ADR-18.
             # Either way SIA DC-09 Annex B formats it as 3 zero-padded digits →
-            # [#001234|NBA001] or [#001234|NBC001]. Padding happens here and only here. When
+            # [#001234|Nri1/BA001] or [#001234|Nri1/BC001]. Padding happens here and only here. When
             # the source value is None the frame carries no address field at all.
             # Note: _sia_seq is incremented once by _send_with_retry before the loop.
-            extended_data = {}
+            # Every event also carries the area, SIA_AREA_NUMBER (the "ri1/" part).
+            extended_data = {'area': str(SIA_AREA_NUMBER)}
             if event_item.sia_code in _USER_ADDRESSED_SIA_CODES:
                 # Defense in depth (code review 2026-09-26): on_message() already rejects a
                 # missing user_number for these codes, but a value outside the DC-03 Annex B

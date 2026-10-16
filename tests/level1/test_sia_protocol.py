@@ -743,6 +743,36 @@ def test_data_field_no_zone_in_extended_data(builder):
     assert result == "[#000001|NBA]"
 
 
+def test_data_field_area_emitted_as_ri_before_code(builder):
+    """
+    Test that an area from extended_data is emitted as the DC-03 "ri" field.
+    DC-03 optional fields sit between "N" and the code, '/'-terminated — the shape an Ajax
+    hub sends and Scutum needs for CL/OP (internal-docs/ajax.md, probe of 2026-10-16).
+
+    Expected result:
+    - area "1" + zone "001" on CL yields "[#27099|Nri1/CL001]"
+    - area without zone yields "[#27099|Nri1/BA]"
+    - empty area yields the plain "[#27099|NBA001]"
+    """
+    # Assert: ri field between N and the code, address right after the code
+    assert builder._format_data_field("27099", "CL", {"area": "1", "zone": "001"}) == "[#27099|Nri1/CL001]"
+    # Assert: area alone, no address
+    assert builder._format_data_field("27099", "BA", {"area": "1"}) == "[#27099|Nri1/BA]"
+    # Assert: empty area emits no ri field
+    assert builder._format_data_field("27099", "BA", {"area": "", "zone": "001"}) == "[#27099|NBA001]"
+
+
+def test_data_field_area_ignored_for_non_sia_codes(builder):
+    """
+    Test that the area is only applied to 2-letter SIA codes, never to "0000" supervision.
+
+    Expected result:
+    - "0000" with an area still yields "[#001234|0000]"
+    """
+    # Assert: supervision data block unchanged by an area
+    assert builder._format_data_field("001234", "0000", {"area": "1"}) == "[#001234|0000]"
+
+
 def test_data_field_none_extended_data_no_zone(builder):
     """
     Test that None extended_data produces no zone in data field.
