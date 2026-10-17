@@ -299,11 +299,27 @@ Extranet Scutum, `BC` envoyé par le plugin (trame supposée `[#27099|NBC001]`, 
 - La table DC-03 du dépôt donne `BC` adressé par utilisateur, et le daemon s'y conforme (`_USER_ADDRESSED_SIA_CODES`). La table DC-03 (PDF Peoplecall, vérifié) confirme: `BC` Burglary Cancel, adresse « User ». C'est donc Scutum qui a sa propre lecture. Le libellé reste juste, seule la mention de zone est fausse. Le plugin ne change pas.
 - Le champ à 4 chiffres (`0001`) vient ici de l'adresse, pas de `ri` (sans `ri`, CL donne `0000`).
 
+### Annexe: validation réelle du plugin avec `ri1` (17/10/26)
+
+Plugin à `d35ec5a` déployé sur test-jeedom.lehoux.net, numéro d'utilisateur SIA réglé à 501. Séquence pilotée depuis Jeedom: armement, alarme intrusion zone 2, désarmement. Extranet Scutum:
+
+| Heure | Code | Libellé | Détail |
+|---|---|---|---|
+| 11:17:28 | `OP0001` | Mise Hors Service par U0501 | - |
+| 11:17:28 | `BC0501` | ACQUITTEMENT ALARME | `***** Zone 0501 Non Connue *****` |
+| 11:16:36 | `BA0002` | INTRUSION | `***** Zone 0002 Non Connue *****` |
+| 11:15:25 | `CL0001` | Mise En Service par U0501 | - |
+
+- Tous les codes sont reconnus, plus aucun « CODE INCONNU ».
+- CL et OP s'affichent comme chez l'Ajax: partition `0001`, puis « par U0501 ».
+- BA porte la zone (`0002`).
+- BC garde la lecture propre à Scutum: l'adresse utilisateur (501) est affichée comme une zone (voir l'annexe précédente). C'est sans effet sur le fonctionnement.
+
 ## À faire
 
 Directive: aligner le plugin sur le comportement d'Ajax, reconnu par les CSR. Les particularités d'un CSR passeront ensuite par des options.
 
-1. **Fait (2026-10-17, branche `fix/sia-dcs-n-prefix`, à valider en réel):** `ri` dans le bloc de données de chaque événement (CL, OP, BA, BC) → `[#acct|Nri1/CL001]`. La partition est la constante `SIA_AREA_NUMBER = 1` du daemon, pas un paramètre: un seul équipement siaDC09, donc une seule partition. La supervision ne porte pas de `ri`.
+1. **Fait et validé en réel chez Scutum le 17/10/26 (branche `fix/sia-dcs-n-prefix`, annexe ci-dessus):** `ri` dans le bloc de données de chaque événement (CL, OP, BA, BC) → `[#acct|Nri1/CL001]`. La partition est la constante `SIA_AREA_NUMBER = 1` du daemon, pas un paramètre: un seul équipement siaDC09, donc une seule partition. La supervision ne porte pas de `ri`.
 2. En réflexion: test cyclique `Nri0/RP0000` toutes les 62 s.
 3. En réflexion: supervision par un vrai `NULL` (`"NULL"0000L0#acct[]_ts`).
 4. En réflexion: transport TCP avec `NULL` puis événement(s) sur la même connexion, fermeture laissée au CSR, reconnexion 5 s après.
