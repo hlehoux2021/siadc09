@@ -2481,3 +2481,87 @@ ranked `person` > other label > manual, pushing one callback per improvement
 
 **Explicitly out of scope:** PA/FA media; deleting, ending, or retaining manual events; Frigate config changes
 (recommending `snapshots.retain.objects.alarm: 15` only); Frigate 0.18; an operator-visible source label.
+
+---
+
+## Epic 15: Configurable SIA Message Content Formats — CANCELLED 2026-10-17
+
+Story 15.1 (pluggable SIA-DCS / "IP" `#KEY=VALUE` content formats) is cancelled and was never merged. The "IP" example is the receiver's display of a standard SIA-DCS frame; the real gap (DC-03 `N`/`ri` area prefix) was fixed by `fix/sia-dcs-n-prefix`. See ADR-19 (withdrawn) and `15-1-pluggable-sia-content-formats.md`.
+
+---
+
+## Epic 16: Multi-CSR Failover (Vision v1.5+ — scoped, not scheduled)
+
+Registered via Sprint Change Proposal 2026-10-02, based entirely on ADR-20 (architecture.md). **Status: backlog.
+Not ready-for-dev** — Story 16.2's Task 0 gates the UI work; Story 16.1 is implementable as specified but intentionally
+not started, per Herve's explicit scaffolding-only call.
+
+**Dependencies:** Epic 1 (protocol/CSRPreset), Epic 5 (SM1) — both done; this epic does not touch Epic 1-15.
+**FRs covered:** none from the original PRD FR list (post-MVP feature, PRD "Vision v1.5+")
+**Testing:** level 2 daemon integration (failover trigger per transport), level 1 golden frames (secondary receiver
+produces byte-identical content to primary — only the destination changes)
+
+### Story 16.1: CSRPreset Dual Receiver & SM1 Failover Trigger
+
+As a daemon architect,
+I want SM1 to hold a primary and secondary receiver and switch to the secondary at the point each transport already
+treats as a permanent failure,
+So that the plugin can fail over to a backup monitoring center without duplicating protocol, cipher, or formatter logic.
+
+**Acceptance Criteria:**
+
+**Given** a CSRPreset with exactly two receivers (primary + secondary — not an open list), each with its own
+host/port/transport/connect_timeout_s/receive_timeout_s
+**When** the daemon starts
+**Then** `account_number`, `crc_format`, and the encryption key are shared across both receivers —
+one `SIACipher` and one content formatter instance regardless of which receiver is active
+
+**And** SM1 holds `_active_receiver: Literal["primary", "secondary"]`, defaulting to `"primary"` on every `on_start()`
+
+**And** for TCP: at the point that would otherwise transition to `NO_NETWORK` and stop the daemon (reconnect failure
+×3+, ADR-09/ADR-13), SM1 switches to the secondary if one is configured and not already active; `NO_NETWORK` + daemon
+stop remains the behavior if the secondary also fails or none is configured
+
+**And** for UDP: strike=3 (T3 `SUPERVISION_DISCONNECTED`) triggers the switch directly — no additional cycles are
+awaited, since UDP has no reconnection mechanic to exhaust and extra cycles would repeat the same measurement
+
+**And** switchback to the primary happens only on daemon restart — no automatic retry of the primary while the
+secondary is active and the daemon keeps running
+
+**And** no new `ErrorCode` and no new SIA message type are introduced; the switch is invisible to SM2 (ADR-02
+independence preserved)
+
+**Explicitly out of scope:** any wizard or widget change (Story 16.2); a third+ receiver; independent settings per
+receiver (different account/crc_format/key) — rejected for the stated use case (same provider, see
+ADR-20).
+
+### Story 16.2: Wizard & Widget Representation of the Secondary Receiver
+
+As a non-technical Jeedom user with a backup CSR configured,
+I want to configure and see the secondary receiver without any protocol knowledge,
+So that I know a backup is set up and whether the plugin is currently using it.
+
+**Acceptance Criteria:**
+
+1. **AC1 — Task 0 gate.** The two open questions below are answered and recorded in this file's Dev Agent Record
+   before any UI code is written. Until then this story stays `backlog`, not `ready-for-dev`.
+2. **AC2 — Wizard.** Step 1 offers an optional "Récepteur de secours" section, using Task 0's answer for whether both
+   receivers are tested at configuration time or the secondary only at its first real use, and preserves both
+   receivers' configuration across "Relancer l'assistant".
+3. **AC3 — Debug UI.** The protocol inspector labels each logged frame with the receiver it was sent to
+   (primaire/secours).
+4. **AC4 — Widget/dashboard.** Per Task 0's answer, either a new visual state or a `supervision_label` variant shows
+   "actif sur secours"; mobile uses the same template as desktop (ADR-16), no separate work.
+
+**Tasks / Subtasks**
+
+- [ ] **Task 0 — Resolve the two open UI points from ADR-20 (AC1). BLOCKING for Tasks 1-3.**
+  - [ ] 0.1 Wizard: test both receivers up front at Step 2, or test the secondary only when it's first actually used?
+  - [ ] 0.2 Widget: a new distinct visual state for "on secondary", or a label variant of the existing states, and is
+        a new `active_receiver` INFO command needed for this, or can `supervision_label` carry it alone?
+  - [ ] 0.3 Update AC2/AC4 and Tasks 1-3 with the answers before coding them (story amendment, dated).
+- [ ] Task 1 — Wizard Step 1 secondary receiver section (AC2) — blocked by Task 0.
+- [ ] Task 2 — Protocol inspector receiver labeling (AC3).
+- [ ] Task 3 — Widget/dashboard representation (AC4) — blocked by Task 0.
+
+**Explicitly out of scope:** anything already covered by Story 16.1 (CSRPreset structure, SM1 trigger logic).

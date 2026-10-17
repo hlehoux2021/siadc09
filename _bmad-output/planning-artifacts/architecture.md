@@ -627,6 +627,68 @@ real-clip latency (0.53–11.49 s) makes a missing clip rare within 25 s.
 
 ---
 
+### ADR-19 — Pluggable message content formats *(added 2026-10-01, withdrawn 2026-10-17)*
+
+Withdrawn together with Story 15.1, which never reached master. The "IP" `#KEY=VALUE` layout it was designed for is the receiver's display of a standard SIA-DCS block (`#ETAT=BA#POINT=129#ZONE=0008#SITE=20881` = `[#20881|Nri8/BA129]`). The real gap was the DC-03 `N`/`ri<area>/` prefix, now always emitted (`SIA_AREA_NUMBER`, `daemon-design.md`). There is a single content format, SIA-DCS.
+
+---
+
+### ADR-20 — Multi-CSR Failover Design (Vision v1.5+, scoped not scheduled) *(added 2026-10-02)*
+
+**Context.** Correct-course 2026-10-02, déclenché par une demande de préparer la bascule vers un
+centre de télésurveillance de secours (backup CSR) pour une version future. L'architecture v1.0
+suppose un seul point de terminaison CSR (`CSRPreset` à host/port uniques, SM1 = machine à états
+mono-connexion). Le PRD liste "Multi-CSR failover" sous Vision v1.5+ (inchangé par cet ADR). Cet
+ADR fige la forme de la future conception pour qu'une story ultérieure n'ait pas à redériver
+l'architecture — sans créer aucune story d'implémentation maintenant. Cas d'usage visé : un second
+point d'entrée réseau redondant chez le **même fournisseur/contrat** que le primaire, pas un
+second fournisseur indépendant.
+
+**Decision (scoped, not scheduled).**
+- `CSRPreset` acquiert exactement **deux récepteurs** (primaire + secondaire, pas de liste
+  ouverte) — chacun avec son propre host/port/transport/connect_timeout_s/receive_timeout_s.
+  Rétro-compatible : un preset v1.0 existant devient primaire seul, secondaire absent/désactivé
+  (migration de schéma à prévoir, pas encore assignée).
+- **Le secondaire partage avec le primaire** : `account_number`, `crc_format`
+  et la clé de chiffrement — même fournisseur, même contrat, même dialecte protocolaire. Un seul
+  `SIACipher` et un seul formatter de contenu sont initialisés par le daemon, quelle que
+  soit la bascule ; seule la destination réseau change.
+- SM1 acquiert un `_active_receiver: Literal["primary", "secondary"]` (défaut `"primary"`).
+- **Déclencheur de bascule : au point de panne permanente existant pour chaque transport, pas
+  avant.**
+  - TCP : au lieu d'arrêter le daemon à `NO_NETWORK` (échec de reconnexion ×3+, ADR-09/ADR-13), SM1
+    bascule sur le secondaire si disponible ; `NO_NETWORK` + arrêt daemon reste le comportement si
+    le secondaire échoue aussi ou est absent.
+  - UDP : strike=3 (T3 `SUPERVISION_DISCONNECTED`) déclenche directement la bascule — c'est déjà le
+    signal le plus fort qu'UDP produit, aucun mécanisme de reconnexion à épuiser au préalable ;
+    attendre des cycles supplémentaires répéterait la même mesure sans nouvelle information.
+- **Retour au primaire : uniquement au redémarrage du daemon.** Pas de nouvelle tentative
+  automatique du primaire pendant que le secondaire est actif ; `_active_receiver` repart à
+  `"primary"` à chaque `on_start()`.
+- Aucun nouveau ErrorCode, aucun nouveau type de message SIA — la bascule est une préoccupation de
+  la couche transport, invisible à SM2 (indépendance SM1/SM2 d'ADR-02 préservée). Pas de SM3 :
+  rejeté, violerait ADR-02 pour un bénéfice non démontré.
+
+**Deferred — UI representation (not decided, options listed for a future story):**
+- Wizard : section optionnelle "Récepteur de secours" (Step 1) ; tester les deux récepteurs à la
+  configuration vs. tester le secondaire seulement à son premier usage ; préservation des deux
+  configs sur "Relancer l'assistant" ; étiquetage du récepteur actif dans l'inspecteur de protocole
+  (debug UI).
+- Widget/dashboard : nouvel état visuel "actif sur secours" (badge distinct) vs. variante de
+  `supervision_label` ; nouvelle INFO command `active_receiver` ; aucun travail mobile séparé
+  (même template, ADR-16) ; entrée de bascule dans une future timeline de supervision.
+
+**Not in scope for this ADR:** aucune story d'implémentation, aucun changement de code, aucune
+promotion de scope PRD.
+
+| Option | Pro | Con |
+|---|---|---|
+| Primaire + secondaire fixe, réglages partagés (chosen) | Changement structurel minimal ; un seul cipher/formatter ; réutilise SM1 ; correct pour le cas d'usage visé (même fournisseur) ; déclencheurs = signaux terminaux déjà existants pour les deux transports | Ne couvrirait pas un futur second fournisseur indépendant sans réviser cet ADR |
+| Primaire + secondaire avec réglages indépendants | Couvrirait aussi un fournisseur indépendant | Sur-ingénierie pour le cas d'usage actuel ; double la surface de test (cipher/formatter par récepteur) |
+| Nouvelle SM3 dédiée au failover | Isole la logique | Viole l'indépendance SM1/SM2 d'ADR-02 — rejeté |
+
+---
+
 ### ADR-18 — User-addressed event codes and the configured SIA user *(added 2026-09-25)*
 
 **Context.** DC-03 addresses BC, OP and CL by **user number**, and BA/FA/PA by zone. The Jeedom alarm

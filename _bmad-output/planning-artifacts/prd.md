@@ -109,9 +109,9 @@ Continuous supervision health monitoring is a first-class feature, not an aftert
 - Community-contributed CSR presets (architecture already supports extension)
 - Restoral and cancel events: BC (Burglary Cancel) followed by OP (Opening Report) when the user disarms during a burglary alarm, both addressed to a configured SIA user number, so the CSR can close the incident as a user-cancelled false alarm (Epic 13 / Story 13.1); BR (Burglary Restore) parked for lack of a source (Story 13.2); FC/PC cancels for fire/panic (Story 13.3)
 - Arm/disarm reporting: CL (Closing Report) on arming, OP (Opening Report) on a normal disarm, same user number (Story 13.4)
+- Frigate NVR integration for automatic snapshot/clip attachment to alarm events — *implemented, Epic 14 (ADR-17 + amendments 1-4), done 2026-09-26*
 
 ### Vision — v1.5+
 
-- Multi-CSR failover (primary + backup receiver)
-- Frigate NVR integration for automatic video clip attachment to alarm events
+- Multi-CSR failover (primary + backup receiver) — *scoped 2026-10-02: design spec ready, see ADR-20 in architecture.md; no implementation stories yet, no change to v1.0 scope*
 - Auto-configure alarm plugin zone actions from zone mapping table
