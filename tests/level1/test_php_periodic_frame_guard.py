@@ -223,3 +223,47 @@ def test_get_csr_profiles_failure_returns_empty(tmp_path: Path, content: str | N
     assert profiles == []
     # Assert: one error-level log line
     assert [level for level, _ in lines] == ["error"]
+
+
+@_requires_php
+def test_shortest_periodic_interval_staleness_basis() -> None:
+    """
+    Story 17.3 / ADR-08: staleness is 3 x the shortest active periodic interval.
+
+    Expected result:
+    - supervision 60 + RP 120 -> 60 (threshold 180 s)
+    - 'none' ignores the supervision interval: none + RP 60 -> 60
+    - RP off ignores the RP interval: sia-dcs 90 + RP 60 off -> 90
+    - RP shorter than supervision wins: null 300 + RP 120 -> 120
+    """
+    source = _PHP_CLASS_FILE.read_text(encoding="utf-8")
+    body = _extract_method_body(source, "shortestPeriodicInterval")
+    assert body, "shortestPeriodicInterval missing"
+    cases = [("sia-dcs", 60, True, 120), ("none", 999, True, 60), ("sia-dcs", 90, False, 60),
+             ("null", 300, True, 120)]
+    script = (
+        "class siaDC09 { public static function shortestPeriodicInterval(string $format,"
+        " int $supervisionInterval, bool $rpEnabled, int $rpInterval): int {" + body + "} }"
+        " $cases = json_decode(stream_get_contents(STDIN), true);"
+        " echo json_encode(array_map(fn($c) => siaDC09::shortestPeriodicInterval(...$c), $cases));"
+    )
+    result = json.loads(_run_php(script, json.dumps(cases)))
+    # Assert: shortest active interval per case
+    assert result == [60, 60, 90, 120]
+
+
+def test_freshness_and_widget_use_shortest_interval() -> None:
+    """
+    The cron5 freshness check and the widget tag both use the shortest-interval helper.
+
+    Expected result:
+    - _checkSupervisionFreshness() does not read supervision_interval itself
+    - #supervision_interval# is the helper value (templates already multiply by 3)
+    """
+    source = _PHP_CLASS_FILE.read_text(encoding="utf-8")
+    fresh = _extract_method_body(source, "_checkSupervisionFreshness")
+    # Assert: freshness threshold derives from the helper
+    assert "_shortestPeriodicIntervalOf($eqLogic) * 3" in fresh
+    assert "'supervision_interval'" not in fresh
+    # Assert: widget tag carries the shortest interval, not multiplied by 3 in PHP
+    assert re.search(r"#supervision_interval#'\]\s*=\s*self::_shortestPeriodicIntervalOf\(\$this\);", source)

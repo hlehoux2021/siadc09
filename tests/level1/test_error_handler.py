@@ -583,3 +583,31 @@ def test_notification_context_union_type() -> None:
     # Assert: all instances are of expected types
     assert len(contexts) == 6
     # No assertions needed — type checking handles this; runtime proves it compiles
+
+
+def test_event_failed_rp_wording_is_cyclic_test_not_alarm() -> None:
+    """
+    Story 17-3: a missed RP cyclic test raises EVENT_FAILED with a cyclic-test wording.
+
+    Expected result:
+    - the title names the cyclic test, not an alarm
+    - the message carries no "(zone: ...)" clause and no "L'alarme"
+    - the message still has the T3 prefix
+    """
+    from resources.siadc09d.error_handler import build_notification
+
+    # Arrange / Act
+    payload = build_notification(ErrorCode.EVENT_FAILED, {
+        "sia_code": "RP", "zone_name": None, "attempts_made": 4,
+        "csr_address": "1.2.3.4:10002", "transport": "tcp", "strike_count": 0,
+    })
+
+    # Assert: title is the cyclic test wording
+    assert "Test cyclique" in payload["title"]
+    # Assert: no alarm / zone wording leaks in
+    assert "alarme" not in payload["message"].lower()
+    assert "zone" not in payload["message"]
+    assert "None" not in payload["message"]
+    # Assert: cyclic test named, T3 prefix kept
+    assert "test cyclique" in payload["message"]
+    assert payload["message"].startswith(T3_PREFIX)

@@ -52,6 +52,18 @@ UNDECRYPTABLE = 'undecryptable'
 ResponseType = Literal['ACK', 'NAK', 'DISCARD']
 
 
+def _is_null_data_block(data_block: str) -> bool:
+    """True when a plain SIA-DCS data block carries the supervision NULL code.
+
+    The code is what follows '|': "0000" is the NULL, while an RP ("Nri0/RP0000",
+    story 17-3) merely ends in zone 0000 and is an ALARM for the simulator.
+    """
+    pipe_pos = data_block.find('|')
+    if pipe_pos < 0:
+        return SIA_NULL_CODE in data_block
+    return data_block[pipe_pos + 1:].startswith(SIA_NULL_CODE)
+
+
 class CSRSimulatorPreset(TypedDict):
     """CSR Simulator preset configuration.
 
@@ -569,7 +581,7 @@ class CSRSimulator:
                 bracket_start = message_str.find('[')
                 if bracket_start >= 0:
                     data_block = message_str[bracket_start:]
-                    if SIA_NULL_CODE not in data_block:
+                    if not _is_null_data_block(data_block):
                         frame_type = 'ALARM'
                     # Extract account from [#ACCOUNT|...] pattern
                     acc_start = data_block.find('[#')

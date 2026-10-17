@@ -344,3 +344,26 @@ class TestUdpBuffer:
         assert len(frame) > 1024
         # Assert: encrypted ACK for the event
         assert split_frame(reply)[2].startswith('"*ACK"0001')
+
+
+def test_rp_classified_alarm_in_both_parsers() -> None:
+    """
+    Story 17-3: an RP ("Nri0/RP0000") is neither a NULL nor a supervision frame.
+
+    Expected result:
+    - clear RP and encrypted RP are both classified ALARM
+    - a clear SIA-DCS supervision frame is still NULL
+    """
+    builder = SIAMessageBuilder(crc_format="SIA")
+    rp_ext = {"area": "0", "zone": "0000"}
+    sim = CSRSimulator(0, 0, _preset())
+    clear_rp = builder.encode_message(_ACCOUNT, "RP", extended_data=rp_ext, timestamp=_TS)
+    enc_rp = builder.encode_message(
+        _ACCOUNT, "RP", extended_data=rp_ext, timestamp=_TS, encryption=True, encryption_key=_KEY)
+    null = builder.make_supervision_message(_ACCOUNT, timestamp=_TS)
+    # Assert: plain parser no longer reads the zone 0000 as the NULL code
+    assert sim._parse_received_message(clear_rp, sim.preset)["type"] == "ALARM"
+    # Assert: encrypted parser classifies it ALARM
+    assert sim._parse_received_message(enc_rp, sim.preset)["type"] == "ALARM"
+    # Assert: supervision frame unchanged
+    assert sim._parse_received_message(null, sim.preset)["type"] == "NULL"

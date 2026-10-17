@@ -186,6 +186,7 @@ async def test_send_callback_does_not_block_queue_consumer():
     daemon._log_sm1_supervision = AsyncMock()
     daemon._log_sm2_event = AsyncMock()
     daemon._notify = MagicMock()
+    daemon._enqueue_rp = AsyncMock()  # 17-3: rp_enabled starts an RP loop; keep its frame out of this test
     daemon._account = "001234"
     daemon._account_prefix = "L0"
     daemon._receiver_prefix = ""

@@ -327,7 +327,7 @@ class EventFailedCtx:
         _notify(ErrorCode.EVENT_FAILED, ctx)
     """
 
-    sia_code: Literal["BA", "FA", "PA", "BC", "OP", "CL"]
+    sia_code: Literal["BA", "FA", "PA", "BC", "OP", "CL", "RP"]
     sia_seq: int
     zone_name: str | None
     max_retries: int
@@ -428,12 +428,19 @@ def build_notification(code: ErrorCode, context: dict[str, Any]) -> Notification
     elif _event_sia_code == "CL":
         _event_title_subject = "Armement"
         _event_subject, _event_object, _event_gender_e = "L'armement", "l'armement", ""
+    elif _event_sia_code == "RP":
+        # Story 17-3: the periodic RP cyclic test is not an alarm; a missed one must not
+        # read as a failed alarm.
+        _event_title_subject = "Test cyclique"
+        _event_subject, _event_object, _event_gender_e = "Le test cyclique (RP)", "le test cyclique", ""
     else:
         _event_title_subject = "Alarme"
         _event_subject = "L'alarme " + event_type_fr(_event_sia_code)
         _event_object, _event_gender_e = "l'alarme", "e"
 
-    if _event_sia_code in USER_ADDRESSED_SIA_CODES:
+    if _event_sia_code == "RP":
+        _event_address_clause = ""  # no zone / user: the RP is addressed to the account itself
+    elif _event_sia_code in USER_ADDRESSED_SIA_CODES:
         # context['user_number'] is always present but may be None (EventFailedCtx defaults
         # to None) — dict.get(key, default) only falls back when the KEY is absent, not when
         # its value is None, so the old bare .get(..., '<inconnu>') rendered the literal text
@@ -504,8 +511,7 @@ def build_notification(code: ErrorCode, context: dict[str, Any]) -> Notification
         ErrorCode.EVENT_FAILED: (
             T3_PREFIX
             + _event_subject
-            + " "
-            + _event_address_clause
+            + (" " + _event_address_clause if _event_address_clause else "")
             + " n'a pas pu être transmis" + _event_gender_e + "\nà la centrale "
             + _event_cause
             + ". La centrale de\ntélésurveillance n'a PAS reçu "

@@ -241,12 +241,21 @@ QUEUE_PRIORITY_SUPERVISION: Final[int] = 1  # Supervision dequeued second
 # type annotation tuple[int, int, QueueItemType, QueuePayload] is satisfied).
 QUEUE_TYPE_EVENT: Final[Literal["EVENT"]] = "EVENT"
 QUEUE_TYPE_SUPERVISION: Final[Literal["SUPERVISION"]] = "SUPERVISION"
+# Story 17-3: RP cyclic test (own type: the loop needs an exchange-done event, an EVENT
+# item has none). Shares the supervision priority; ties fall back to the counter.
+QUEUE_TYPE_RP: Final[Literal["RP"]] = "RP"
+QUEUE_PRIORITY_RP: Final[int] = QUEUE_PRIORITY_SUPERVISION
+# RP frame address: area 0, zone 0000 (never SIA_AREA_NUMBER) -> [#acct|Nri0/RP0000]
+RP_AREA: Final[str] = "0"
+RP_ZONE: Final[str] = "0000"
 
 # Type alias for the item_type field (Literal for static analysis)
-QueueItemType = Literal["EVENT", "SUPERVISION"]
+QueueItemType = Literal["EVENT", "SUPERVISION", "RP"]
 
 # Default retry budget when enqueuing a new alarm event
 MAX_RETRY_DEFAULT: Final[int] = 3
+# NAK/timeout retry budget of one RP exchange (story 17-3): same as an event.
+RP_MAX_RETRIES: Final[int] = MAX_RETRY_DEFAULT
 
 
 class OnMessageParams(TypedDict, total=False):
@@ -502,6 +511,9 @@ class SIADaemon(BaseDaemon):
         # cleared on enqueue, set by the queue consumer once the item is fully handled.
         self._supervision_exchange_done: asyncio.Event = asyncio.Event()
         self._supervision_exchange_done.set()
+        # Story 17-3: released by the consumer's finally for each RP item (like supervision).
+        self._rp_exchange_done: asyncio.Event = asyncio.Event()
+        self._rp_exchange_done.set()
 
         # Last sent frame bytes — stored in _send_raw() for message_trace callbacks.
         self._last_sent_frame: bytes = b""
@@ -1152,6 +1164,29 @@ class SIADaemon(BaseDaemon):
         # Update INFO commands
         await self._update_info_commands()
 
+    async def _refresh_sm1_on_ack(self) -> int:
+        """Refresh SM1 after a CSR ACK to a periodic frame (supervision or RP, story 17-3).
+
+        Strike counter 0, T3 flag cleared, HEALTHY, last-ACK timestamp, and the
+        resolve_t1 callbacks when recovering. Does not touch ``_sia_seq`` nor write any
+        supervision trace entry; the caller pushes ``supervision_state``.
+
+        Returns:
+            The strike counter value before the reset.
+        """
+        prev_strike = self._strike_counter
+        self._strike_counter = 0
+        self._sm1_t3_fired = False
+        self._set_sm1_state(SM1State.HEALTHY)
+        self._last_supervision_ack = datetime.now(timezone.utc)
+
+        # Emit resolve_t1 when recovering from degraded state (clears T1 errors on PHP side).
+        # Both codes resolved unconditionally — PHP handler is idempotent (no-op if code not in last_errors).
+        if prev_strike > 0:
+            await self._send_callback({"type": "error_update", "resolve_t1": 1, "code": ErrorCode.SUPERVISION_TIMEOUT.value})
+            await self._send_callback({"type": "error_update", "resolve_t1": 1, "code": ErrorCode.SUPERVISION_NAK.value})
+        return prev_strike
+
     async def _handle_supervision_ack(self, result: SIATransportResult, elapsed_ms: float) -> None:
         """Handle ACK response: reset strike, set HEALTHY, increment sequence.
 
@@ -1170,20 +1205,10 @@ class SIADaemon(BaseDaemon):
 
         Reference: daemon-design.md Task 3 (ACK path), supervision-design.md
         """
-        prev_strike = self._strike_counter
-
         # Increment sequence (only on ACK, never on timeout/NAK)
         self._sia_seq = (self._sia_seq + 1) % SIA_SEQ_MAX
 
-        # Reset strike and T3 dedup flag
-        self._strike_counter = 0
-        self._sm1_t3_fired = False
-
-        # Set state to HEALTHY
-        self._set_sm1_state(SM1State.HEALTHY)
-
-        # Update last ACK timestamp
-        self._last_supervision_ack = datetime.now(timezone.utc)
+        prev_strike = await self._refresh_sm1_on_ack()
 
         # Create logging context
         ctx: SM1AckLogCtx = {
@@ -1193,12 +1218,6 @@ class SIADaemon(BaseDaemon):
             "raw_hex": result['raw_response'].hex() if result.get('raw_response') else None,
             "prev_strike": prev_strike,
         }
-
-        # Emit resolve_t1 when recovering from degraded state (clears T1 errors on PHP side).
-        # Both codes resolved unconditionally — PHP handler is idempotent (no-op if code not in last_errors).
-        if prev_strike > 0:
-            await self._send_callback({"type": "error_update", "resolve_t1": 1, "code": ErrorCode.SUPERVISION_TIMEOUT.value})
-            await self._send_callback({"type": "error_update", "resolve_t1": 1, "code": ErrorCode.SUPERVISION_NAK.value})
 
         # Log supervision event (may be throttled for routine ACKs)
         await self._log_sm1_supervision("ack", ctx)
@@ -2011,6 +2030,122 @@ class SIADaemon(BaseDaemon):
             self._logger.error(f"Error building event frame: {e!r}")
             raise SIAProtocolError(f"Frame build failed: {e}") from e
 
+    def _build_rp_frame(
+        self,
+        *,
+        seq: str | None = None,
+        nak_offset: timedelta | None = None,
+    ) -> bytes:
+        """Build the RP cyclic-test frame (story 17-3).
+
+        ``"SIA-DCS"<seq>L0#acct[#acct|Nri0/RP0000]_ts``: area 0, zone 0000, never
+        SIA_AREA_NUMBER. The seq comes from the shared tracker on the first attempt,
+        the explicit ``seq`` on re-sends. Always timestamped (UTC now + nak_offset);
+        encrypted as for events.
+
+        Raises:
+            SIAProtocolError: frame build failed (bad key, ...).
+        """
+        try:
+            return self._sia_builder.encode_message(
+                account_number=self._account,
+                event_code="RP",
+                account_prefix=self._account_prefix or "L0",
+                receiver_number=self._receiver_prefix,
+                extended_data={'area': RP_AREA, 'zone': RP_ZONE},
+                timestamp=datetime.now(timezone.utc) + (nak_offset or timedelta(0)),
+                encryption=bool(self._preset.encryption_enabled),
+                encryption_key=self._encryption_key or None,
+                seq=seq,
+            )
+        except SIAProtocolError:
+            raise
+        except (ValueError, AttributeError, AESEncryptionError, AESKeyError) as e:
+            self._logger.error(f"Error building RP frame: {e!r}")
+            raise SIAProtocolError(f"RP frame build failed: {e}") from e
+
+    def _notify_rp_failed(self, attempts_made: int, last_error: str) -> None:
+        """Report a missed RP through the existing EVENT_FAILED path (story 17-3)."""
+        self._notify(
+            ErrorCode.EVENT_FAILED,
+            EventFailedCtx(
+                sia_code="RP",
+                sia_seq=self._sia_seq,
+                zone_name=None,
+                max_retries=RP_MAX_RETRIES,
+                attempts_made=attempts_made,
+                last_error=last_error,
+            )
+        )
+
+    async def _send_rp(self, max_retries: int = RP_MAX_RETRIES) -> None:  # pylint: disable=too-many-branches
+        """Send one RP cyclic test with ACK/NAK/timeout retries (story 17-3).
+
+        Reuses the event wire mechanics (shared wire seq on re-sends, § 5.5.1.5;
+        immediate NAK re-send with updated timestamp, § 5.6.1.2; 1 s backoff on
+        timeout) but touches none of the user-facing event state (SM2, event_state,
+        event_label, _event_sia_code/_zone/_user_number) and gives no SM1 strike.
+
+        - ACK: SM1 refreshed (HEALTHY, strike 0) and ``supervision_state`` pushed.
+        - Retries exhausted by timeout: EVENT_FAILED (sia_code RP).
+        - Retries exhausted by NAK: BAD_CSR_RESPONSE, as for events.
+        - Encryption key invalid: nothing sent, EVENT_FAILED (encryption_key).
+        """
+        if self._encryption_config_error():
+            first_entry = not self._encryption_config_notified
+            await self._enter_encryption_config_error()
+            if first_entry:  # notify once per run, like the supervision loop
+                self._notify_rp_failed(0, EVENT_FAILED_ENCRYPTION_KEY)
+            return
+
+        wire_seq: str | None = None
+        nak_offset: timedelta | None = None
+        attempts = 0
+        for attempt in range(max_retries + 1):
+            attempts = attempt + 1
+            try:
+                frame = self._build_rp_frame(seq=wire_seq, nak_offset=nak_offset)
+                if wire_seq is None:
+                    wire_seq = parse_frame_header(frame)[1]
+                result = await asyncio.wait_for(self._send_raw(frame), timeout=10.0)
+            except (asyncio.TimeoutError, SIATransportError):
+                result = None
+            except (SIAProtocolError, AESEncryptionError, AESKeyError) as e:
+                self._logger.error(f"Protocol error in _send_rp: {e}")
+                self._notify_rp_failed(attempts, 'protocol_error')
+                return
+
+            status = result['status'] if result is not None else 'timeout'
+            if status == "ack":
+                await self._refresh_sm1_on_ack()
+                self._logger.debug(f"RP ACKed (seq={wire_seq}, attempt={attempts})")
+                await self._update_info_commands({
+                    'supervision_state': self._supervision_value(),
+                    'supervision_label': self._supervision_label(),
+                })
+                return
+            if status == "nak" and result is not None:
+                if attempt < max_retries:
+                    nak_offset = self._nak_offset(result['raw_nak'])
+                    continue
+                self._notify(
+                    ErrorCode.BAD_CSR_RESPONSE,
+                    BadCSRResponseCtx(
+                        raw_frame=result['raw_nak'] or b"",
+                        parse_error="RP NAK",
+                        csr_host=self._preset.host,
+                        csr_port=self._preset.port,
+                        transport="tcp" if self._preset.transport is TransportType.TCP else "udp",
+                    )
+                )
+                return
+            # timeout / tcp_drop: retry after a 1 s backoff, then EVENT_FAILED
+            if attempt < max_retries:
+                await asyncio.sleep(1.0)
+                continue
+            self._notify_rp_failed(attempts, 'timeout')
+            return
+
     async def _log_sm2_event(
         self,
         transition: str,
@@ -2197,6 +2332,13 @@ class SIADaemon(BaseDaemon):
         await self._queue.put((QUEUE_PRIORITY_SUPERVISION, counter, QUEUE_TYPE_SUPERVISION, {}))
         self._logger.debug(f"SUPERVISION enqueued (counter={counter})")
 
+    async def _enqueue_rp(self) -> None:
+        """Enqueue an RP cyclic-test item at the supervision priority (story 17-3)."""
+        counter: int = next(self._queue_counter)
+        self._rp_exchange_done.clear()
+        await self._queue.put((QUEUE_PRIORITY_RP, counter, QUEUE_TYPE_RP, {}))
+        self._logger.debug(f"RP enqueued (counter={counter})")
+
     # ===== TASK 4 (Story 5-3): QUEUE CONSUMER COROUTINE =====
 
     async def _queue_consumer(self) -> None:
@@ -2249,6 +2391,15 @@ class SIADaemon(BaseDaemon):
                         )
                     else:
                         await self._send_supervision()
+
+                elif item_type == QUEUE_TYPE_RP:
+                    if self._sm1_state == SM1State.NO_NETWORK:
+                        # Daemon stopping: drop silently, like SUPERVISION
+                        self._logger.debug(
+                            f"SM1 NO_NETWORK: RP dropped (daemon stopping, counter={counter})"
+                        )
+                    else:
+                        await self._send_rp()
 
                 elif item_type == QUEUE_TYPE_EVENT:
                     event_payload: EventQueuePayload = payload  # type: ignore[assignment]
@@ -2305,6 +2456,9 @@ class SIADaemon(BaseDaemon):
                 if item_type == QUEUE_TYPE_SUPERVISION:
                     # Releases _supervision_loop on ACK, NAK, timeout, drop or NO_NETWORK drop
                     self._supervision_exchange_done.set()
+                elif item_type == QUEUE_TYPE_RP:
+                    # Releases _rp_loop on ACK, NAK, timeout, drop, cancel or NO_NETWORK drop
+                    self._rp_exchange_done.set()
                 self._queue.task_done()
 
     # ===== TASK 5/6 (Story 5-3): SUPERVISION LOOP =====
@@ -2329,6 +2483,25 @@ class SIADaemon(BaseDaemon):
             self._logger.debug("Enqueueing supervision frame")
             await self._enqueue_supervision()
             await self._supervision_exchange_done.wait()
+            await asyncio.sleep(interval)
+
+    async def _rp_loop(self) -> None:
+        """Periodically enqueue the RP cyclic test (story 17-3).
+
+        The first RP is enqueued at task start, before the first sleep. The loop
+        then waits for the consumer to finish the exchange and only then sleeps
+        rp_interval_s, so each period counts from the end of the previous exchange
+        and events in between do not shift it. Only started when rp_enabled.
+        """
+        interval: float = float(self._preset.rp_interval_s)
+        while True:
+            self._logger.debug("Enqueueing RP cyclic test")
+            await self._enqueue_rp()
+            try:
+                await self._rp_exchange_done.wait()
+            except asyncio.CancelledError:
+                self._rp_exchange_done.set()
+                raise
             await asyncio.sleep(interval)
 
     # ===== TASK 7 (Story 5-3): on_message — ALARM DISPATCH FROM PHP =====
@@ -2598,6 +2771,8 @@ class SIADaemon(BaseDaemon):
             self._track_task(self._supervision_loop(), name="supervision_loop")
         else:
             self._logger.info("supervision_format=none: no supervision task")
+        if self._preset.rp_enabled:
+            self._track_task(self._rp_loop(), name="rp_loop")
 
     # ===== TASK 7 (Story 5-4): on_stop — DAEMON SHUTDOWN =====
 

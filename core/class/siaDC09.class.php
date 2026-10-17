@@ -383,8 +383,7 @@ class siaDC09 extends eqLogic {
     }
 
     private static function _checkSupervisionFreshness($eqLogic): void {
-        $supervisionInterval = (int) $eqLogic->getConfiguration('supervision_interval', 60);
-        $staleThreshold = $supervisionInterval * 3;
+        $staleThreshold = self::_shortestPeriodicIntervalOf($eqLogic) * 3;
         $alertRateLimit = 30 * 60;
 
         $stateCmd = $eqLogic->getCmd('info', 'supervision_state');
@@ -440,6 +439,33 @@ class siaDC09 extends eqLogic {
     public static function isValidEncryptionKey(?string $key): bool {
         $key = trim($key ?? '');
         return ctype_xdigit($key) && in_array(strlen($key), self::ENCRYPTION_KEY_HEX_LENGTHS, true);
+    }
+
+    /**
+     * Shortest active periodic interval in seconds (Story 17.3, ADR-08 amended).
+     *
+     * Staleness is 3 x this value. Supervision counts only when its format is not 'none';
+     * RP counts only when enabled. Falls back to 60 when neither is active (cannot happen
+     * for a launchable daemon, Guard 3e).
+     */
+    public static function shortestPeriodicInterval(string $format, int $supervisionInterval, bool $rpEnabled, int $rpInterval): int {
+        $intervals = [];
+        if ($format !== 'none' && $supervisionInterval > 0) {
+            $intervals[] = $supervisionInterval;
+        }
+        if ($rpEnabled && $rpInterval > 0) {
+            $intervals[] = $rpInterval;
+        }
+        return $intervals ? min($intervals) : 60;
+    }
+
+    private static function _shortestPeriodicIntervalOf($eqLogic): int {
+        return self::shortestPeriodicInterval(
+            (string) $eqLogic->getConfiguration('supervision_format', self::SUPERVISION_FORMAT_DEFAULT),
+            (int) $eqLogic->getConfiguration('supervision_interval', 60),
+            (bool) $eqLogic->getConfiguration('rp_enabled', 0),
+            (int) $eqLogic->getConfiguration('rp_interval', self::RP_INTERVAL_DEFAULT_S)
+        );
     }
 
     /**
@@ -881,7 +907,8 @@ class siaDC09 extends eqLogic {
             $eventValue ?: __('Aucun événement depuis le démarrage', __FILE__)
         );
 
-        $replace['#supervision_interval#']    = (int) $this->getConfiguration('supervision_interval', 60);
+        // Shortest active periodic interval; the templates multiply it by 3 (ADR-08).
+        $replace['#supervision_interval#']    = self::_shortestPeriodicIntervalOf($this);
         $replace['#stale_label#']             = trim(json_encode(__('Données non disponibles', __FILE__)), '"');
         $replace['#stale_tooltip_prefix#']    = trim(json_encode(__('Dernière mise à jour il y a', __FILE__)), '"');
         $replace['#calledFrom#']              = 'eqLogic';

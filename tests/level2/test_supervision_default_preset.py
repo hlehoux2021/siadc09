@@ -206,26 +206,36 @@ async def test_null_format_encrypted_is_star_null_and_sia_dcs_keeps_fallback() -
 
 
 @pytest.mark.asyncio
-async def test_none_format_starts_no_supervision_task() -> None:
+async def test_none_format_starts_only_rp_task() -> None:
     """
-    Format none: on_start() creates only the queue consumer and no frame is sent.
+    Format none + RP (story 17-3): on_start() creates the consumer and the RP loop, and
+    sends one RP frame, no supervision frame.
 
     Expected result:
-    - task names == {"queue_consumer"}
-    - no frame sent
+    - task names == {"queue_consumer", "rp_loop"}
+    - exactly one frame sent, an RP: area 0, zone 0000
     """
     daemon = _make_daemon_with_format("none", rp_enabled=True)
     with patch("resources.siadc09d.daemon.SIAUDPTransport") as mock_cls:
         mock_t = MagicMock()
         mock_t.start = AsyncMock()
         mock_t.close = AsyncMock()
-        mock_t.send_frame = AsyncMock(return_value={"status": "ack", "raw_nak": None})
+        sent = asyncio.Event()
+
+        async def ack(_frame: bytes) -> dict:
+            sent.set()
+            return {"status": "ack", "raw_nak": None}
+
+        mock_t.send_frame = AsyncMock(side_effect=ack)
         mock_cls.return_value = mock_t
         await daemon.on_start()
-    # Assert: no supervision task
-    assert {t.get_name() for t in daemon._tasks} == {"queue_consumer"}
-    # Assert: nothing sent
-    assert mock_t.send_frame.await_count == 0
+    await asyncio.wait_for(sent.wait(), timeout=2)
+    await daemon._queue.join()
+    # Assert: no supervision task, RP task present
+    assert {t.get_name() for t in daemon._tasks} == {"queue_consumer", "rp_loop"}
+    # Assert: one frame, and it is the RP
+    assert mock_t.send_frame.await_count == 1
+    assert b"Nri0/RP0000" in mock_t.send_frame.await_args.args[0]
     await daemon.on_stop()
 
 
