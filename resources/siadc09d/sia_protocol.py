@@ -315,14 +315,19 @@ class SIAMessageBuilder:
         encryption_key: bytes | None = None,
         timestamp: datetime | None = None,
         seq: str | None = None,
+        supervision_format: str = "sia-dcs",
     ) -> bytes:
         """
         Create a NULL/supervision message.
 
-        Unencrypted: the field-validated ``"SIA-DCS"seq…[#acct|0000]`` event
-        (D-86, unchanged). Encrypted: the § 5.5.2.1 Null Message
-        ``"*NULL"0000L0#acct[<hex of pad|]_ts>`` (story 1-5 D2). The '|' is
-        always present (§ 5.4.4.3). It does not consume a tracker seq.
+        ``supervision_format="sia-dcs"`` (default): unencrypted is the
+        field-validated ``"SIA-DCS"seq…[#acct|0000]`` event (D-86, unchanged);
+        encrypted falls back to the encrypted ``*SIA-DCS`` 0000 event.
+
+        ``supervision_format="null"`` (story 17-2): the § 5.5.2.1 Null Message,
+        ``"NULL"0000L0#acct[]_ts`` in clear and ``"*NULL"0000L0#acct[<cipher>``
+        when encrypted (story 1-5 D2; the '|' is always present, § 5.4.4.3).
+        It always uses seq 0000 and never draws from the sequence tracker.
 
         Args:
             account_number: 3-16 hex ASCII characters
@@ -331,18 +336,23 @@ class SIAMessageBuilder:
             encryption: Whether to encrypt (default False)
             encryption_key: Raw AES key, required when encrypting
             timestamp: Encrypted: None = UTC now. Unencrypted: None = no timestamp
-            seq: Unencrypted only: explicit wire seq for a NAK re-send (§ 5.5.1.5);
-                None draws from the tracker. ``*NULL`` always uses 0000.
+            seq: ``sia-dcs`` unencrypted only: explicit wire seq for a NAK re-send
+                (§ 5.5.1.5); None draws from the tracker. ``null`` always uses 0000.
+            supervision_format: ``"sia-dcs"`` or ``"null"``
 
         Returns:
             Complete NULL message frame as bytes
 
         Raises:
             AESKeyError: If encryption is requested without a valid key
+            SIAProtocolError: If supervision_format is unknown
 
         Reference: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.2.1
         """
-        if not encryption or ENCRYPTED_SUPERVISION_TOKEN != NULL_TOKEN:
+        if supervision_format not in ("sia-dcs", "null"):
+            raise SIAProtocolError(f"Unknown supervision_format {supervision_format!r}")
+        use_null = supervision_format == "null"
+        if not use_null and (not encryption or ENCRYPTED_SUPERVISION_TOKEN != NULL_TOKEN):
             return self.encode_message(
                 account_number=account_number,
                 event_code=SIA_NULL_CODE,
@@ -353,9 +363,13 @@ class SIAMessageBuilder:
                 encryption_key=encryption_key,
                 seq=seq,
             )
-        cipher = self._make_cipher(encryption_key)
+        cipher = self._make_cipher(encryption_key) if encryption else None
         account_id_str = self._format_account_id(account_number, account_prefix, receiver_number)
         timestamp_str = self._format_timestamp(timestamp or datetime.now(timezone.utc)) or ""
+        if cipher is None:
+            # § 5.5.2.1 clear Null Message: empty data field, timestamp present
+            core = f'"{NULL_TOKEN}"{NULL_MESSAGE_SEQ}{account_id_str}[]{timestamp_str}'
+            return self._frame(core.encode('ascii'))
         region = "]" + timestamp_str
         core = (f'"{ENCRYPTED_MARKER}{NULL_TOKEN}"{NULL_MESSAGE_SEQ}{account_id_str}['
                 f'{cipher.encrypt(region.encode("ascii"))}{ENCRYPTED_REGION_TERMINATOR}')

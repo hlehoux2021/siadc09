@@ -9,6 +9,7 @@ Validates that the daemon's PHP integration plumbing works correctly:
 Reference: _bmad-output/implementation-artifacts/6-6-php-core-integration-ipc-tests.md § AC9
 """
 import asyncio
+import dataclasses
 import logging
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -177,7 +178,8 @@ async def test_send_callback_does_not_block_queue_consumer():
     - _send_callback raises → caught internally, daemon logs ERROR
     - Queue consumer continues processing next items after callback failure
     """
-    preset = make_daemon_preset()
+    # 17-2: format "none" keeps the supervision loop (and its start-up frame) out of this consumer test
+    preset = dataclasses.replace(make_daemon_preset(), supervision_format="none", rp_enabled=True)
     with patch("sys.argv", ["test"]):
         daemon = SIADaemon(preset=preset)
 

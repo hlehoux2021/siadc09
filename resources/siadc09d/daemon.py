@@ -498,6 +498,10 @@ class SIADaemon(BaseDaemon):
         # _queue_consumer awaits this before each dequeue when SM1=TCP_RECONNECTING:
         # items stay in the queue (no re-enqueue) and the consumer wakes naturally.
         self._sm1_state_changed: asyncio.Event = asyncio.Event()
+        # Story 17-2: set when no supervision exchange is outstanding (initially set);
+        # cleared on enqueue, set by the queue consumer once the item is fully handled.
+        self._supervision_exchange_done: asyncio.Event = asyncio.Event()
+        self._supervision_exchange_done.set()
 
         # Last sent frame bytes — stored in _send_raw() for message_trace callbacks.
         self._last_sent_frame: bytes = b""
@@ -1101,6 +1105,7 @@ class SIADaemon(BaseDaemon):
                     encryption_key=self._encryption_key or None,
                     timestamp=None if nak_offset is None else datetime.now(timezone.utc) + nak_offset,
                     seq=wire_seq,
+                    supervision_format=self._preset.supervision_format,
                 )
                 wire_seq = parse_frame_header(frame)[1]
             except (SIAProtocolError, AESEncryptionError, AESKeyError) as e:
@@ -2188,6 +2193,7 @@ class SIADaemon(BaseDaemon):
         Reference: SIA DC-09-2021 § 5.5.2 (Supervision Message)
         """
         counter: int = next(self._queue_counter)
+        self._supervision_exchange_done.clear()
         await self._queue.put((QUEUE_PRIORITY_SUPERVISION, counter, QUEUE_TYPE_SUPERVISION, {}))
         self._logger.debug(f"SUPERVISION enqueued (counter={counter})")
 
@@ -2296,31 +2302,34 @@ class SIADaemon(BaseDaemon):
                     f"(counter={counter}): {e}"
                 )
             finally:
+                if item_type == QUEUE_TYPE_SUPERVISION:
+                    # Releases _supervision_loop on ACK, NAK, timeout, drop or NO_NETWORK drop
+                    self._supervision_exchange_done.set()
                 self._queue.task_done()
 
     # ===== TASK 5/6 (Story 5-3): SUPERVISION LOOP =====
 
     async def _supervision_loop(self) -> None:
-        """Periodically enqueue supervision NULL frames for SM1 keep-alive.
+        """Periodically enqueue supervision frames for SM1 keep-alive (story 17-2).
 
-        Sleeps for supervision_interval_s, then enqueues a SUPERVISION item.
-        The queue consumer dequeues it and calls _send_supervision() for the full
-        send/ACK/NAK cycle. If an alarm is queued, it will be processed first
-        (EVENT priority=0 wins over SUPERVISION priority=1 — safety-critical).
+        The first frame is enqueued at task start (once per task, never on an
+        INITIALIZING transition). The loop then waits for the consumer to finish
+        the exchange (ACK, NAK, timeout, drop) and only then sleeps
+        supervision_interval_s, so each period counts from the end of the previous
+        exchange. The frame form (sia-dcs / null) is chosen in _send_supervision();
+        format "none" never starts this task (see on_start).
 
-        The timer is reset each cycle regardless of ACK/NAK result — the SM1 handler
-        (_send_supervision) manages strike counter and state transitions independently.
+        An alarm queued meanwhile still wins (EVENT priority=0 over SUPERVISION).
 
         Reference: daemon-design.md Component 1 — _supervision_loop() / Task B.3
         Reference: SIA DC-09-2021 § 5.5.2 Supervision Message
         """
         interval: float = float(getattr(self._preset, 'supervision_interval_s', SUPERVISION_INTERVAL_S))
         while True:
-            await asyncio.sleep(interval)
-            self._logger.debug(
-                f"Supervision interval fired ({interval}s), enqueueing NULL frame"
-            )
+            self._logger.debug("Enqueueing supervision frame")
             await self._enqueue_supervision()
+            await self._supervision_exchange_done.wait()
+            await asyncio.sleep(interval)
 
     # ===== TASK 7 (Story 5-3): on_message — ALARM DISPATCH FROM PHP =====
 
@@ -2585,7 +2594,10 @@ class SIADaemon(BaseDaemon):
 
         # Launch consumer and supervision loop — both tracked in _tasks
         self._track_task(self._queue_consumer(), name="queue_consumer")
-        self._track_task(self._supervision_loop(), name="supervision_loop")
+        if self._preset.supervision_format != "none":
+            self._track_task(self._supervision_loop(), name="supervision_loop")
+        else:
+            self._logger.info("supervision_format=none: no supervision task")
 
     # ===== TASK 7 (Story 5-4): on_stop — DAEMON SHUTDOWN =====
 
