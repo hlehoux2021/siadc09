@@ -27,7 +27,7 @@ FR7: SM2 State Machine — Manage alarm event states (IDLE → PENDING → CONFI
 FR8: Burglar Alarm Event — Send burglar alarm events to CSR with proper SIA encoding
 FR9: Fire Alarm Event — Send fire alarm events to CSR with proper SIA encoding
 FR10: Panic Alarm Event — Send panic alarm events to CSR with proper SIA encoding
-FR11: IMA Protect CSR Preset — Configure single CSR endpoint for v1.0 without failover
+FR11: IMA Protect CSR Preset — Configure single CSR endpoint for v1.0 without failover — *amended 2026-10-17: IMA removed (D-84); replaced by CSR behaviour profiles (Ajax, Scutum, Personnalisé) in `core/config/csr_presets.json`, still a single CSR without failover (ADR-22, Epic 17)*
 FR12: 4-Step Configuration Wizard — Zero-jargon domain-language setup in French (preset selection, connection test, zone mapping, notifications)
 FR13: Zone Mapping Table — Map zone names to optional camera actions and optional media URLs
 FR14: Supervision Health Widget — Display connection state on Jeedom dashboard and mobile
@@ -38,7 +38,7 @@ FR15: 3-Tier Error Handler — Auto-heal notifications (T1), user-actionable not
 NFR1: Zero Silent Failures — Every undelivered alarm must trigger a critical notification within the ACK timeout window
 NFR2: Supervision State Lag ≤ 1 Interval — INFO commands updated immediately after state transitions
 NFR3: Non-Technical Usability — Configuration wizard uses domain language only; no protocol jargon exposed
-NFR4: Full SIA DC-09-2021 Compliance — Encryption, timestamp handling, supervision NULL keep-alive, ACK/NAK dialog
+NFR4: Full SIA DC-09-2021 Compliance — Encryption, timestamp handling, supervision NULL keep-alive, ACK/NAK dialog — *amended 2026-10-17: supervision frame (`sia-dcs` empty block or `NULL`) and RP periodic test, each configurable with its own period (ADR-22)*
 NFR5: Python 3.10+ / Debian 12+ Platform Floor — Declared in info.json; no legacy compatibility required
 NFR6: Encryption Key Security — Key scrubbed from PHP scope after exec(); debug UI shows length-only
 NFR7: CSR Extensibility — JSON preset architecture allows community-contributed CSR support without modifying core
@@ -60,7 +60,7 @@ NFR8: Clean Installation — Jeedom dependency manager handles all setup; no man
 - **SM1 Strike Counter**: Single DEGRADED state with `_strike` (1–3, capped); reset on ACK or TCP reconnect
 - **SM2 Startup Role**: IDLE entered once at init only; transitions CONFIRMED/FAILED → PENDING on next alarm
 - **Info Commands**: `supervision_state`, `supervision_label`, `event_state`, `event_label` persist across restarts
-- **Preset Architecture**: JSON files in `resources/siadc09d/presets/`; schema validation at startup
+- **Preset Architecture**: JSON files in `resources/siadc09d/presets/`; schema validation at startup — *superseded 2026-10-17 by ADR-22: one PHP-only file `core/config/csr_presets.json` (`schema_version`); the daemon gets resolved values as CLI arguments and validates them at startup*
 
 ### FR Coverage Map
 
@@ -74,7 +74,7 @@ NFR8: Clean Installation — Jeedom dependency manager handles all setup; no man
 **FR8** (Burglar Alarm) → Epic 2
 **FR9** (Fire Alarm) → Epic 2
 **FR10** (Panic Alarm) → Epic 2
-**FR11** (IMA Protect Preset) → Epic 5
+**FR11** (IMA Protect Preset) → Epic 5; as amended (CSR profiles) → Epic 17
 **FR12** (4-Step Wizard) → Epic 5
 **FR13** (Zone Mapping) → Epic 5
 **FR14** (Widget) → Epic 9
@@ -154,6 +154,30 @@ Validate the complete plugin on a real Jeedom instance (Debian 12 VM) — instal
 **Infrastructure:** Debian 12 VM (VMware Fusion), CSR simulator on same VM, shared folder symlink
 **FRs covered:** (validates all FRs on real infrastructure)
 **Testing:** Real Jeedom UI, real daemon process, real alarm plugin, real notification commands
+
+### Epic 13: Alarm Event Vocabulary Extension (v1.1)
+Report the end of an alarm and the arm/disarm state (BC, OP, CL; BR and FC/PC later), addressed to a configured SIA user number.
+**Dependencies:** Epic 12, Story 8.2 (zone numbers)
+**FRs covered:** new (post-MVP, PRD Growth v1.1+)
+
+### Epic 14: Camera Snapshot Attachment (Frigate Integration)
+Attach a Frigate snapshot URL to the alarm frame's `[V…]` field (ADR-17 and amendments). Done 2026-09-27.
+**Dependencies:** Epic 8 (zone mapping)
+**FRs covered:** new (adjacent to PRD Vision v1.5+)
+
+### Epic 15: Configurable SIA Message Content Formats — CANCELLED 2026-10-17
+Never merged; the real gap (DC-03 area prefix) was fixed by Story 1.6 / ADR-21.
+
+### Epic 16: Multi-CSR Failover (Vision v1.5+, scoped, not scheduled)
+Primary + secondary receiver with an SM1-driven switch (ADR-20). Backlog, scaffolding only.
+**Dependencies:** Epic 1, Epic 5
+**FRs covered:** none (PRD Vision v1.5+)
+
+### Epic 17: CSR Behaviour Profiles & Periodic Frames
+Per-CSR profiles (Ajax, Scutum, Personnalisé) pre-set the advanced options; the supervision frame (`none` | `sia-dcs` | `null`) and the RP cyclic test become configurable, each with its own period (ADR-22). Supersedes Story 11.1; persistent TCP mode deferred (D-115).
+**Dependencies:** Epic 1, 5, 6, Story 1.6 / ADR-21
+**FRs covered:** FR11 (as amended), NFR4 (as amended), NFR7
+**Testing:** level 1 golden frames and key consistency, level 2 periodic loops and SM1 staleness, Jeedom UI on test-jeedom, field validation at Scutum
 
 ---
 
@@ -2604,7 +2628,8 @@ So that I know a backup is set up and whether the plugin is currently using it.
 ## Epic 17: CSR Behaviour Profiles & Periodic Frames
 
 Registered via Sprint Change Proposal 2026-10-17 (`sprint-change-proposal-2026-10-17-csr-profiles.md`), based on
-ADR-22 (architecture.md) and the Ajax↔Scutum captures A/B (`internal-docs/ajax.md`). **Status: backlog.** Supersedes
+ADR-22 (architecture.md) and the Ajax↔Scutum captures A/B (`internal-docs/ajax.md`). **Status: in-progress** (17-1
+ready-for-dev, 2026-10-17). Supersedes
 Story 11.1.
 
 Per-CSR behaviour profiles (Ajax, Scutum, Personnalisé) pre-set the wizard's advanced options. The periodic frames
