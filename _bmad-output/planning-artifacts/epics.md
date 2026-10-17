@@ -1597,9 +1597,14 @@ Full integration testing with real Ajax alarm system, CSR Simulator validation a
 
 **Dependencies:** Epic 1-10 (all features complete)
 
-### Story 11.1: Protocol Conformance — Capture & Compare Ajax Frames
+### Story 11.1: Protocol Conformance — Capture & Compare Ajax Frames — CANCELLED 2026-10-17
 
-*Note 2026-10-17 (correct-course): Ajax frames were captured and compared on 2026-10-16/17, against the real Scutum receiver rather than the CSR Simulator (`internal-docs/ajax.md`, 4 pcapng files under `internal-docs/`, probe `scripts/sia_csr_probe.py`). The comparison drove Story 1.6 / ADR-21 (data block). It also surfaced supervision differences (Ajax: `NULL` with an empty block, a periodic `Nri0/RP0000`, its own TCP connection handling), which are deliberately not adopted yet and still under discussion. The ACs below (simulator, `test_data/` hex files, `compare_frames.py`) are unchanged and still open; they will be revisited when that discussion concludes.*
+*Cancelled 2026-10-17 (sprint-change-proposal-2026-10-17-csr-profiles.md), superseded by Epic 17.*
+- *Its goal was met differently. Ajax frames were captured against the real Scutum receiver rather than the CSR
+  Simulator (`internal-docs/ajax.md`, pcapng files under `internal-docs/`, probe `scripts/sia_csr_probe.py`).*
+- *That comparison drove Story 1.6 / ADR-21 (data block). The remaining gaps (supervision frame, RP cyclic test) are
+  carried by Epic 17.*
+- *The ACs below (simulator, `test_data/` hex files, `compare_frames.py`) are superseded and kept as history only.*
 
 As a protocol engineer,
 I want to verify our daemon generates frames identical to Ajax,
@@ -2593,3 +2598,168 @@ So that I know a backup is set up and whether the plugin is currently using it.
 - [ ] Task 3 — Widget/dashboard representation (AC4) — blocked by Task 0.
 
 **Explicitly out of scope:** anything already covered by Story 16.1 (CSRPreset structure, SM1 trigger logic).
+
+---
+
+## Epic 17: CSR Behaviour Profiles & Periodic Frames
+
+Registered via Sprint Change Proposal 2026-10-17 (`sprint-change-proposal-2026-10-17-csr-profiles.md`), based on
+ADR-22 (architecture.md) and the Ajax↔Scutum captures A/B (`internal-docs/ajax.md`). **Status: backlog.** Supersedes
+Story 11.1.
+
+Per-CSR behaviour profiles (Ajax, Scutum, Personnalisé) pre-set the wizard's advanced options. The periodic frames
+become configurable:
+- a supervision frame (`none` | `sia-dcs` | `null`) with its own period;
+- an RP cyclic test with its own period.
+
+Both are independent of the connection mode. Persistent TCP mode is deferred (D-115); the supervision frame is kept for
+it.
+
+| Setting | Default (no profile) | Ajax | Scutum |
+|---|---|---|---|
+| Supervision frame | `sia-dcs` | none | none |
+| Supervision period | current `supervision_interval_s` | – | – |
+| RP cyclic test | off | on | on |
+| RP period | – | 60 s | 60 s |
+| Connection | on-demand | on-demand | on-demand |
+
+**Dependencies:** Epic 1 (protocol, CSRPreset), Epic 5 (SM1), Epic 6 (wizard), Story 1.6 / ADR-21 (data block). All done.
+**Testing:**
+- level 1: golden frames for `null` and RP, cadence, key consistency;
+- level 2: daemon periodic loops and SM1 staleness;
+- UI validation on test-jeedom;
+- field validation at Scutum.
+
+**Order:** 17.1 → 17.2 and 17.3 → 17.4 → 17.5. 17.2 and 17.3 both touch `daemon.py`; run them sequentially unless
+the merge is planned.
+
+### Story 17.1: CSR Profile Model & PHP → Daemon Plumbing
+
+As a plugin maintainer,
+I want the periodic-frame settings carried from the equipment configuration to the daemon, with profiles defined in one PHP-side file,
+So that adding a CSR profile is a JSON entry and the daemon only ever sees resolved values.
+
+**Acceptance Criteria:**
+
+**Given** a new file `core/config/csr_presets.json` with a `schema_version`
+**When** it is read
+**Then**:
+- it is read by PHP only; the daemon never reads it and never receives a profile name (ADR-22);
+- it defines the Ajax and Scutum profiles with the values in the table above.
+
+**And** `CSRPreset` gains `supervision_format: Literal["none", "sia-dcs", "null"]`, `rp_enabled: bool` and
+`rp_interval_s: float`. `supervision_interval_s` exists already. The defaults reproduce today's behaviour:
+`sia-dcs`, RP off.
+
+**And** each field has a `siadc09d.py` argument, and `deamon_start` passes it from the equipment configuration.
+
+**And** `test_wizard_config_key_consistency.py` covers the new keys.
+
+**And** the daemon refuses to start, with a clear log line and no restart loop, when no periodic frame is active
+(`none` + RP off), or when `rp_interval_s` is outside 60 s to 86 400 s.
+
+**And** `crc_format=bin`, which has no effect on outgoing frames today (ADR-06 note), is either implemented or removed
+from the accepted values. The choice is recorded in the story.
+
+**And** an installation with no new key set starts with exactly the current frames and cadence.
+
+### Story 17.2: Configurable Supervision Frame (`sia-dcs` / `null`)
+
+As a user whose CSR expects a true Null Message,
+I want to choose the supervision frame format and its period,
+So that the plugin speaks the supervision dialect the CSR expects.
+
+**Acceptance Criteria:**
+
+**Given** `supervision_format = sia-dcs`
+**When** the supervision period elapses
+**Then** the frame is the current `"SIA-DCS"<seq>…[#acct|0000]` (D-86), unchanged
+
+**And** with `supervision_format = null`, the frame is `"NULL"0000L0#acct[]_ts` in clear (§ 5.5.2.1). It always uses
+sequence `0000` and does not consume a sequence number. Encrypted supervision stays `*NULL` (ADR-21).
+
+**And** with `supervision_format = none`, no supervision frame is sent.
+
+**And** the first supervision frame leaves at daemon start, not one period later (D-42). This applies at start only,
+not on every INITIALIZING transition, to avoid a double send on reconnect.
+
+**And** each period is counted from the end of the previous supervision exchange.
+
+**And** an ACK refreshes SM1 the same way it does today.
+
+**And** the simulator and decoder accept the clear `NULL` form; the tests that pin the `sia-dcs` shape stay green.
+
+### Story 17.3: RP Cyclic Test
+
+As a user of a CSR that supervises on-demand transmitters by their cyclic test,
+I want the plugin to send a periodic RP,
+So that the CSR shows "Test Cyclique" and does not raise a link alarm.
+
+**Acceptance Criteria:**
+
+**Given** `rp_enabled = true` and `rp_interval_s = 60`
+**When** the daemon runs
+**Then** it sends `"SIA-DCS"<seq>L0#acct[#acct|Nri0/RP0000]_ts`:
+- built by `_format_data_field()` with area `0` (system), not `SIA_AREA_NUMBER`;
+- with the global sequence counter shared with events.
+
+**And** RP goes through the normal event send path (queue, ACK/NAK, retries); a missing ACK is reported like any failed
+event.
+
+**And** the period is counted from the end of the previous RP exchange; an event in between does not shift it (as
+observed on Ajax).
+
+**And** the first RP leaves at daemon start.
+
+**And** an RP ACK refreshes SM1. Staleness = 3 × the shortest active periodic interval (supervision or RP, ADR-08).
+
+**And** with `rp_enabled = false`, no RP is ever sent (current behaviour).
+
+### Story 17.4: Wizard Step 1 — Profile Choice & Advanced Options
+
+As a non-technical user,
+I want to pick my CSR's profile and leave the protocol details folded away,
+So that the plugin behaves as my CSR expects without me knowing what NULL or RP means.
+
+**Acceptance Criteria:**
+
+**Given** wizard step 1
+**When** it opens
+**Then**:
+- a profile selector offers Ajax / Scutum / Personnalisé;
+- a collapsed "Options avancées" section holds the supervision frame, supervision period, RP on/off and RP period.
+
+**And** choosing a profile fills the advanced options from `csr_presets.json` and makes them read-only. "Personnalisé"
+unlocks them, keeping the current values.
+
+**And** the wizard refuses to save "supervision none + RP off".
+
+**And** choosing `null` shows a warning that some receivers reject it.
+
+**And** the field currently labelled "retry_count" is relabelled "Tentatives de reconnexion", which is what it does.
+
+**And** an existing equipment with no profile set opens on "Personnalisé" with its current values.
+
+**And** `internal-docs/design/wizard-design.md` is rewritten to the actual step 1 (it still describes IMA).
+
+**And** the flow is validated through the Jeedom UI on test-jeedom, not by code reading.
+
+### Story 17.5: Field Validation per Profile
+
+As the product owner,
+I want each profile proven against a real receiver,
+So that "Scutum profile works" is field evidence, not a test-suite claim.
+
+**Acceptance Criteria:**
+
+**Given** the Scutum profile on test-jeedom, sending to Scutum (Herve does the sends)
+**When** it runs for at least 10 minutes
+**Then** the Scutum extranet shows `RP0000` "Test Cyclique" every ~60 s and no link alarm
+
+**And** on the test receiver (ioBroker.sia): `sia-dcs` and RP are ACKed and `null` is NAKed. These ACKs prove framing,
+CRC, account and transport only.
+
+**And** optionally, at Herve's convenience, `null` is tried at Scutum.
+
+**Explicitly out of scope:** persistent TCP connection mode (D-115); multi-area reporting; more profiles than Ajax and
+Scutum.

@@ -10,6 +10,8 @@ Analyse des captures réseau d'un hub Ajax qui dialogue avec le centre de télé
 | `capture-ajax-armement-desarmemnt.pcapng` | Armement / désarmement | Analysée (voir plus bas) |
 | `capture-ajax-armement-alarme-desarmement.pcapng` | Armement, alarme intrusion (BA/BR), désarmement | Analysée (voir plus bas) |
 | `capture-ajax-idle-cycle.pcapng` | Repos sur 2 min 20 s, avec coupure secteur | Analysée (voir plus bas) |
+| `capture-ajax-A.pcapng` | Hub en « Connectez-vous sur demande », repos ~7 min puis armement / désarmement | Analysée (voir plus bas) |
+| `capture-ajax-b.pcapng` | Hub en connexion permanente, intervalle ping 5 min, repos puis armement / désarmement | Analysée (voir plus bas) |
 
 ## Environnement de la capture idle
 
@@ -171,6 +173,82 @@ Journal extranet de la même période:
 - **Cycle de connexion:** le hub ouvre une connexion, envoie un `NULL`, reçoit l'ACK. Scutum ferme environ 5,1 s après son dernier ACK. Le hub ouvre la suivante environ 5,0 s après cette fermeture. Le cycle fait donc 10,2 à 10,5 s. Ce n'est pas un intervalle fixe, c'est « 5 s après la fermeture ». Le hub reste ainsi presque toujours connecté.
 - **NULL répété à 23:36:12:** dans la connexion 49631, le hub a envoyé deux fois le même `NULL` (même CRC, même horodatage, numéros de séquence TCP différents: c'est une répétition applicative, pas une retransmission TCP), 0,4 s après le premier ACK. Scutum a répondu par un ACK à chacun. La cause est inconnue (cas isolé sur 15 connexions).
 
+## Capture A: mode « Connectez-vous sur demande »
+
+Fichier `capture-ajax-A.pcapng`, 13:38:32 à 13:46:14 local le 17/10/26 (7 min 42 s). Réglages du hub: « Connectez-vous sur demande » activé; intervalle ping du centre de télésurveillance 1 min et rapport de test périodique activé (confirmés par vous). 11 connexions (ports 49800 à 49810), un message par connexion.
+
+| Heure locale | Trame | Événement |
+|---|---|---|
+| 13:38:33 | `B8A4003A"SIA-DCS"0119L0#27099[#27099\|Nri0/AT0]_11:38:36,10-17-2026` | AT: coupure secteur |
+| 13:38:44 | `CA58003A"SIA-DCS"0120L0#27099[#27099\|Nri0/AR0]_11:38:47,10-17-2026` | AR: secteur rétabli |
+| 13:39:17 | `6B6E003D"SIA-DCS"0121L0#27099[#27099\|Nri0/RP0000]_11:39:20,10-17-2026` | RP |
+| 13:40:22 | `…0122…Nri0/RP0000…` | RP |
+| 13:41:27 | `…0123…Nri0/RP0000…` | RP |
+| 13:42:32 | `…0124…Nri0/RP0000…` | RP |
+| 13:43:37 | `…0125…Nri0/RP0000…` | RP |
+| 13:44:42 | `…0126…Nri0/RP0000…` | RP |
+| 13:45:11 | `B3B7003C"SIA-DCS"0127L0#27099[#27099\|Nri1/CL501]_11:45:14,10-17-2026` | CL: armement, utilisateur 501 |
+| 13:45:46 | `8273003D"SIA-DCS"0128L0#27099[#27099\|Nri0/RP0000]_11:45:49,10-17-2026` | RP |
+| 13:46:09 | `0472003C"SIA-DCS"0129L0#27099[#27099\|Nri1/OP501]_11:46:12,10-17-2026` | OP: désarmement, utilisateur 501 |
+
+Chaque ACK de Scutum (`"ACK"<seq>L0#27099[]`, même séquence que la trame) est émis deux fois, comme dans les captures précédentes.
+
+### Ce que la capture établit
+
+- **Aucun `NULL` en mode à la demande.** Le hub n'envoie que des événements et des RP. La supervision de la liaison repose alors uniquement sur le RP.
+- **Une connexion par message, fermée par Scutum.** Le hub ouvre la connexion, envoie sa trame 0,4 à 0,9 s plus tard, reçoit l'ACK. Scutum envoie le FIN 5,0 s après son ACK (constant sur les 11 connexions); le hub ne ferme jamais le premier, il répond au FIN.
+- **RP toutes les ~65 s.** Les connexions RP s'ouvrent ~59,3 s après la fermeture de la précédente, puis la trame part ~0,7 s plus tard. Le temporisateur d'1 min semble donc compté à partir de la fin de l'échange précédent, pas sur une horloge fixe (déduit). En mode permanent, le RP revenait toutes les 62 s.
+- **Un événement ne décale pas le RP.** Le CL de 13:45:11 n'a pas repoussé le RP suivant (13:45:46, 64 s après celui de 13:44:42).
+- **Séquence globale continue (0119 à 0129)**, RP compris. Adresse non bourrée (`CL501`, `AT0`).
+- **AT/AR en début de capture:** coupure et retour secteur (même trames que dans la capture du cycle), sans doute liés à la manipulation du hub lors du changement de réglage. Cause non vérifiée.
+- **Horodatage:** les trames portent 3 s de plus que l'horloge de la machine de capture (11:38:36 contre 11:38:33 UTC). Dans les captures du 16/10 les deux coïncidaient. L'écart vient de l'une des deux horloges; non tranché.
+
+### Extranet Scutum pour la capture A
+
+| Heure | Code affiché | Libellé |
+|---|---|---|
+| 13:38:33 | `AT0000` | COUPURE ELECTRICITE, `***** Zone 0000 Non Connue *****` |
+| 13:38:44 | `AR0000` | Retablissement Electricite, `***** Zone 0000 Non Connue *****` |
+| 13:39:17 à 13:54:25 | `RP0000` | Test Cyclique, toutes les 65 s (15 occurrences) |
+| 13:45:11 | `CL0001` | Mise En Service par U0501 |
+| 13:46:09 | `OP0001` | Mise Hors Service par U0501 |
+
+- Les heures de l'extranet sont celles de réception: elles coïncident avec la capture, pas avec l'horodatage des trames (+3 s).
+- **Aucune alarme de liaison** chez Scutum alors qu'aucun `NULL` n'est émis: le RP suffit à Scutum pour superviser un transmetteur à la demande (pour ce compte du moins).
+- Les RP continuent après la fin de la capture (13:46:14) au même rythme, jusqu'à 13:54:25.
+
+## Capture B: mode permanent, intervalle ping 5 min
+
+Fichier `capture-ajax-b.pcapng`, 13:59:49 à 14:05:22 local le 17/10/26 (5 min 33 s). Réglages du hub: connexion maintenue (« Connectez-vous sur demande » désactivé), intervalle ping du centre de télésurveillance passé à 5 min (2 min n'est pas proposé par le réglage), rapport de test périodique activé. 33 connexions (ports 49824 à 49856), 41 `NULL`.
+
+| Heure locale | Connexion | Trames du hub |
+|---|---|---|
+| 13:59:49 à 14:05:22 | toutes | `"NULL"0000L0#27099[]_ts` dès l'ouverture |
+| 14:00:40, 14:01:11, 14:01:42, 14:02:13, 14:02:44, 14:03:15, 14:03:46, 14:04:17 | une sur trois environ | le même `NULL` (même horodatage, même CRC) renvoyé 0,49 s après le premier ACK |
+| 14:04:39 | 49852 | `NULL`, puis 1,3 s après `"SIA-DCS"0144L0#27099[#27099\|Nri0/RP0000]` |
+| 14:05:00 | 49854 | `NULL`, puis `"SIA-DCS"0145…[#27099\|Nri1/CL501]` |
+| 14:05:12 | 49855 | `NULL`, puis `"SIA-DCS"0146…[#27099\|Nri1/OP501]` |
+
+### Ce que la capture établit
+
+- **Le rythme des `NULL` ne dépend pas de l'intervalle ping.** Une connexion toutes les 10,4 s en moyenne (10,2 à 11,5 s), comme à 1 min: Scutum ferme 5,0 s après son ACK, le hub rouvre ~5,0 s plus tard et envoie un `NULL` à chaque ouverture. Le « `NULL` toutes les 10 s » n'est pas un réglage: c'est la reconnexion immédiate du mode permanent, cadencée par la fermeture de Scutum.
+- **Un second `NULL` toutes les ~31 s** sur la connexion ouverte. C'est un nouveau segment TCP (le numéro de séquence avance), donc un envoi applicatif du hub, pas une retransmission TCP. Il n'arrive que si la connexion est ouverte à ce moment-là. Hypothèse: un temporisateur de maintien de ~30 s propre au hub, indépendant des reconnexions et de l'intervalle ping (déduit, non documenté).
+- **Le doublon de l'ACK de Scutum est une retransmission TCP** (même numéro de séquence, ~0,23 s après). Ce n'est pas un second ACK applicatif.
+- **Un seul RP en 5 min 33 s** (14:04:39, séquence 0144), cohérent avec un intervalle de 5 min. La capture est trop courte pour mesurer la période (il faudrait deux RP); le journal de l'extranet la donnera.
+- **RP et événements passent sur la connexion ouverte, après son `NULL`.** Le hub n'ouvre pas de connexion dédiée: il attend la connexion suivante ou utilise celle qui est ouverte.
+- **Séquence:** 0129 en fin de capture A, 0144 au premier RP de la capture B. 14 numéros (0130 à 0143) ont été émis entre les deux captures sans être capturés: au moins les 8 RP de l'extranet après 13:46:14, le reste non identifié (RP suivants, `YG` du changement de réglage?). Le compteur continue d'un mode à l'autre.
+- **Horodatage:** +3,7 s par rapport à l'horloge de capture (12:00:44 contre 12:00:40 UTC).
+
+### Modèle Ajax déduit des captures A et B
+
+| | À la demande | Permanent |
+|---|---|---|
+| `NULL` | aucun | à chaque ouverture de connexion, plus un renvoi toutes les ~30 s si la connexion est encore ouverte |
+| RP | toutes les « intervalle ping » (1 min → 65 s mesurées) | idem (1 RP vu avec 5 min, période exacte à mesurer) |
+| Connexion | ouverte pour chaque message, fermée par le CSR | rouverte ~5 s après chaque fermeture par le CSR |
+| Événements | une connexion par événement | sur la connexion ouverte, après le `NULL` |
+| Supervision de liaison côté CSR | par le RP | par les `NULL` et le RP |
+
 ## Correspondance avec l'extranet Scutum
 
 Journal de l'extranet Scutum pour la même période (heure locale, source `IP`):
@@ -218,11 +296,13 @@ Ce que cela établit:
 | Armement | `[#27099\|Nri1/CL501]` | `[#acct\|NCL001]` (utilisateur 001, sans `ri`) |
 | Désarmement | `[#27099\|Nri1/OP501]` | `[#acct\|NOP001]` (idem) |
 | Intrusion | `[#27099\|Nri1/BA1]` | `[#acct\|NBA001]` (sans `ri`) |
-| Test cyclique | `[#27099\|Nri0/RP0000]` toutes les 62 s | absent |
+| Test cyclique | `[#27099\|Nri0/RP0000]`, période = intervalle ping (1 min → 62 à 65 s) | absent |
+| Mode à la demande | aucun `NULL`, supervision par le RP seul | sans objet (supervision obligatoire) |
 | Séquence | globale, 0001 à 9999; `NULL` toujours en 0000 | à vérifier dans le daemon |
 | Champ `ri` | `ri1` (alarme), `ri0` (système: RP, AR) | non implémenté |
 | Adresse | non bourrée (`BA1`) | bourrée sur 3 chiffres (`BA001`): accepté, voir l'annexe |
-| Connexion TCP | `NULL` puis événement(s), fermeture par Scutum ~5 s après, reconnexion 5 s après | une connexion par trame, fermée par le plugin juste après l'ACK |
+| Connexion TCP (permanent) | `NULL` puis événement(s), fermeture par Scutum ~5 s après, reconnexion 5 s après; `NULL` renvoyé toutes les ~30 s si la connexion est ouverte | une connexion par trame, fermée par le plugin juste après l'ACK |
+| Connexion TCP (à la demande) | une connexion par message, fermée par Scutum 5 s après l'ACK | une connexion par trame, fermée par le plugin |
 
 Écarts établis par les essais (annexes):
 - **`ri` manquant:** c'est la cause du « CODE INCONNU » de CL/OP (confirmé).
@@ -324,4 +404,8 @@ Directive: aligner le plugin sur le comportement d'Ajax, reconnu par les CSR. Le
 3. En réflexion: supervision par un vrai `NULL` (`"NULL"0000L0#acct[]_ts`).
 4. En réflexion: transport TCP avec `NULL` puis événement(s) sur la même connexion, fermeture laissée au CSR, reconnexion 5 s après.
 
-Les points 2 à 4 sont suspendus: le bien-fondé de copier Ajax est à discuter avant de les engager. Ils modifieraient la supervision validée sur le serveur de test (D-86).
+Les points 2 à 4 sont repris le 17/10/26 dans l'Epic 17 (profils de comportement par CSR, en cours de Correct Course). Ils deviennent des options du wizard, pré-réglées par profil, plutôt qu'un changement du comportement par défaut, qui reste celui validé sur le serveur de test (D-86). Les captures A et B (modèle Ajax ci-dessus) en fixent les paramètres.
+
+Décision du 17/10/26: deux trames à distinguer. La trame de supervision (`NULL` ou `"SIA-DCS"` à bloc vide) ne sert qu'au maintien de la connexion TCP en mode permanent. Le test cyclique (`RP`) est émis dans les deux modes. Le mode permanent est reporté: aucun CSR à disposition ne l'accepte, et un CSR qui sert des milliers de clients n'a pas intérêt à maintenir autant de connexions. Ajax fonctionne dans les deux modes; le profil Ajax du plugin sera donc à la demande.
+
+Reste à mesurer: la période du RP avec l'intervalle ping à 5 min (journal de l'extranet de la capture B).

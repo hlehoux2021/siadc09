@@ -134,6 +134,10 @@ The plugin delivers 12 functional capabilities across four domains:
 | Hardcoded in Python | No schema risk | Community cannot add presets without fork |
 | Plugin subclass per CSR | Type-safe extension | Too complex for community contributors |
 
+*Superseded 2026-10-17 by ADR-22.* Presets are a PHP-side file (`core/config/csr_presets.json`); the daemon receives
+resolved values only. `schema_version` stays in the JSON file. The `resources/siadc09d/presets/` directory never
+existed, and the daemon never read a preset.
+
 ---
 
 ### ADR-04 — Zero Silent Failures Enforcement Point
@@ -178,6 +182,9 @@ The plugin delivers 12 functional capabilities across four domains:
 
 **Design doc impact applied:** `detect_crc_format()` removed from `sia_protocol.py` spec; `_crc_format_locked` removed from daemon; CRC format contract section in `daemon-design.md` rewritten; NOTE in `supervision-design.md` removed.
 
+*Note 2026-10-17:* `bin` has no effect on outgoing frames today (found while scoping Epic 17). Story 17.1 decides
+between implementing it and removing the value.
+
 ---
 
 ### ADR-07 — Encryption Key Lifecycle at PHP/Daemon Boundary
@@ -194,7 +201,7 @@ The plugin delivers 12 functional capabilities across four domains:
 
 ### ADR-08 — Supervision Loop Timing and Ring Buffer Throttle
 
-**Decision:** Ring buffer routine push throttled to 10-minute minimum interval. State-changing events (strikes, transitions, T3) always write immediately. INFO commands unaffected by throttle. Staleness threshold = 3× `supervision_interval` from equipment config (not hardcoded). Rationale: 3 missed supervision cycles is a clear sign of a frozen daemon loop; consistent with the PHP cron5 watchdog threshold.
+**Decision:** Ring buffer routine push throttled to 10-minute minimum interval. State-changing events (strikes, transitions, T3) always write immediately. INFO commands unaffected by throttle. Staleness threshold = 3× the shortest active periodic interval from equipment config (not hardcoded): supervision or RP (ADR-22, amended 2026-10-17; was 3× `supervision_interval`). An ACK to either frame refreshes it. Rationale: 3 missed supervision cycles is a clear sign of a frozen daemon loop; consistent with the PHP cron5 watchdog threshold.
 
 | Option | Pro | Con |
 |--------|-----|-----|
@@ -719,6 +726,52 @@ captures (`internal-docs/ajax.md`) showed the expected shape `Nri<area>/<code><a
   notation. They are kept as history; this ADR and Story 1.6 take precedence.
 - Validated live at Scutum on 2026-10-17 (CL, BA, BC, OP recognised). Not yet checked at Aremis,
   where `ZONE=0008` is believed to be `ri8`.
+
+---
+
+### ADR-22 — CSR behaviour profiles and periodic frames *(added 2026-10-17)*
+
+**Context.**
+- The Ajax↔Scutum captures A and B (`internal-docs/ajax.md`) show two periodic frames with different roles:
+  - the supervision frame (`"NULL"0000L0#acct[]`) keeps a TCP connection alive in permanent mode only;
+  - the cyclic test `[#acct|Nri0/RP0000]` is sent in both modes, at the hub's ping interval.
+- Scutum supervises an on-demand transmitter by RP alone.
+- The plugin sends only `"SIA-DCS"…[#acct|0000]` (D-86), with no RP, and its first frame waits one interval (D-42).
+
+**Decision.**
+- **Two periodic frames, each with its own period:**
+  - supervision: `none` | `sia-dcs` | `null`;
+  - RP: on/off, 60 s to 24 h.
+- Both settings are independent of the connection mode. On-demand, each frame opens its own connection.
+- **Frame shapes:**
+  - `null` in clear is `"NULL"0000L0#acct[]_ts`; encrypted supervision stays `*NULL` (ADR-21);
+  - `sia-dcs` keeps the D-86 shape;
+  - RP is built by `_format_data_field()` (ADR-21) as `[#acct|Nri0/RP0000]`, with area `0` (system) rather than
+    `SIA_AREA_NUMBER`. It uses the global sequence counter and the normal event send path.
+- **Cadence:**
+  - each period is counted from the end of the previous exchange of that frame; an event does not shift it;
+  - the first frame of each kind leaves at daemon start (D-42), at start only, not on every INITIALIZING.
+- **Profiles:**
+  - `core/config/csr_presets.json`, read by PHP only; a profile pre-fills the equipment config keys;
+  - "Personnalisé" unlocks them;
+  - the daemon receives resolved values as arguments, never the profile name.
+- **Defaults:** with no profile, today's behaviour (`sia-dcs` at the current interval, RP off).
+- **Constraint:** at least one periodic frame must be active. Both the wizard and the daemon (at startup) enforce it.
+
+**Rejected.**
+- A single periodic frame: it conflates connection keep-alive and the cyclic test, which the captures show as two
+  roles.
+- The daemon reading profiles: a second configuration path. PHP resolves, the daemon applies arguments.
+- Persistent TCP mode now: no available CSR accepts it, and a CSR serving thousands of clients would not hold as many
+  idle connections. Deferred (D-115); the supervision frame is kept for it.
+
+**Consequences.**
+- `CSRPreset` gains `supervision_format`, `rp_enabled` and `rp_interval_s` (with defaults); `supervision_interval_s`
+  exists already. They go into the `siadc09d.py` arguments and `deamon_start`.
+- ADR-08 staleness becomes 3 × the shortest active periodic interval.
+- D-86 stays the default but is no longer the only supervision form.
+- ADR-03 is superseded.
+- Implemented by Epic 17 (Stories 17.1-17.5).
 
 ---
 
@@ -1316,11 +1369,13 @@ class CSRPreset:
 
 **Schema mismatch policy:** ERROR log + `supervision_state=0` + clean stop. Watchdog must not restart in a tight loop on bad config.
 
-**`presets.py` vs `presets/` distinction:**
-- `presets.py` (module) — holds `CSRPreset` dataclass + `SUPPORTED_SCHEMA_VERSION` constant
-- `presets/` (subdirectory under `resources/siadc09d/`) — holds preset JSON files (e.g. `ima_protect.json`)
-
-Wizard "Personnaliser" writes `schema_version` to the equipment config key at copy time — version check is against config key value, not the JSON file.
+*Corrected 2026-10-17 (ADR-22).* The `presets/` subdirectory, `ima_protect.json` and the "Personnaliser" button
+described here never shipped in this form or were removed (D-84).
+- `presets.py` holds the `CSRPreset` dataclass. It is built in `siadc09d.py` from the CLI arguments PHP passes, not
+  from a JSON file.
+- Behaviour profiles live in `core/config/csr_presets.json`, read by PHP only (Epic 17).
+- `CSRPreset` gains `supervision_format`, `rp_enabled` and `rp_interval_s`, with defaults equal to today's behaviour.
+  The snippet above predates them and the reconnect fields.
 
 ---
 

@@ -3,14 +3,32 @@ story_id: "11-1"
 story_key: "11-1-protocol-conformance-capture-compare-ajax-frames"
 epic_id: "epic-11"
 epic_name: "End-to-End Testing & Market Preparation"
-status: "ready-for-dev"
+status: "cancelled"
 created: "2026-06-01"
 analysis_completed: "2026-06-01"
 ---
 
 # Story 11.1: Protocol Conformance — Capture & Compare Ajax Frames
 
-Status: ready-for-dev
+Status: cancelled — 2026-10-17, superseded by Epic 17; see "Cancellation" below
+
+## Cancellation — 2026-10-17
+
+Cancelled by Herve on 2026-10-17, during the correct-course that registered Epic 17
+(`_bmad-output/planning-artifacts/sprint-change-proposal-2026-10-17-csr-profiles.md`). No code was written for this
+story.
+
+**Why.** The goal, checking the plugin's frames against an Ajax hub's, was met by a different route:
+- Ajax frames were captured on 2026-10-16/17 against Scutum, a real CSR, rather than the CSR Simulator. The analysis
+  is in `internal-docs/ajax.md`; the captures are the pcapng files under `internal-docs/`; frames were probed with
+  `scripts/sia_csr_probe.py`.
+- The comparison found the missing DC-03 area in the data block. It was fixed by Story 1.6 / ADR-21 and
+  field-validated at Scutum.
+- The remaining gaps are the supervision frame format and the RP cyclic test. Epic 17 / ADR-22 carries them as
+  configurable behaviour profiles. Persistent TCP mode is deferred (D-115).
+
+**What is obsolete.** The ACs below assumed an Ajax hub pointed at the CSR Simulator, `test_data/protocol_conformance/*.hex`
+files and a `compare_frames.py` harness. None of it was built, and none is needed now. The ACs are kept as history.
 
 ## Story
 

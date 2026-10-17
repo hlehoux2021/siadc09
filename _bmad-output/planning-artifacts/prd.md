@@ -41,6 +41,8 @@ The plugin targets Jeedom power users who have deployed the Jeedom alarm plugin 
 
 The v1.0 release targets **IMA Protect** as the sole CSR preset, leveraging their offer for customers who are already equipped with compatible home automation hardware. All SIA DC-09 protocol complexity (encryption, timestamps, supervision keep-alives, ACK/NAK state machines) is hidden behind a zero-jargon configuration wizard in plain French.
 
+*Note 2026-10-17: IMA Protect is no longer a target (D-84, preset removed from code). Field validation runs against Scutum, a real CSR, with an Ajax hub's behaviour as the reference (`internal-docs/ajax.md`). The mentions of IMA in this summary and in the success criteria are kept as history.*
+
 ### What Makes This Special
 
 Traditional alarm monitoring forces users to buy a second set of sensors bundled with the alarm company's proprietary system. Jeedom users already own the sensors, the automation logic, and the alarm management layer (Jeedom alarm plugin). **siaDC09** is the missing transport bridge — the only Jeedom Market plugin that converts an existing Jeedom alarm setup into a professionally monitored security system.
@@ -74,8 +76,8 @@ Continuous supervision health monitoring is a first-class feature, not an aftert
 
 ### Technical Success
 
-- Full SIA DC-09-2021 protocol compliance: AES-128 CBC encryption, correct timestamp handling, supervision NULL keep-alive, ACK/NAK dialog, SIA-DCS data block per Annex B with DC-03 area (`Nri1/…`, ADR-21 — corrected 2026-10-17)
-- Supervision heartbeat maintained continuously; SM1 state machine detects connection degradation within 3 missed supervision cycles and notifies the user
+- Full SIA DC-09-2021 protocol compliance: AES-128 CBC encryption, correct timestamp handling, periodic supervision frame (SIA-DCS empty block or NULL) and/or RP periodic test, independently configurable (ADR-22 — amended 2026-10-17), ACK/NAK dialog, SIA-DCS data block per Annex B with DC-03 area (`Nri1/…`, ADR-21 — corrected 2026-10-17)
+- Supervision heartbeat maintained continuously; SM1 state machine detects connection degradation within 3 missed periodic cycles (shortest active of supervision / RP, ADR-08) and notifies the user
 - Alarm event delivery: immediate failure report on error; at least one retry on timeout before declaring failure and triggering critical notification
 - CSR assumed always available (no failover in v1.0); network-level transient errors handled via SM1 reconnection logic (TCP) or supervision timeout detection (UDP)
 - All INFO commands (`supervision_state`, `supervision_label`, `last_event_success`, `last_event_status`) updated in real time after every state transition
@@ -93,8 +95,8 @@ Continuous supervision health monitoring is a first-class feature, not an aftert
 - SIA DC-09-2021 protocol engine: message builder, AES-128 CBC encryption, ACK/NAK parser, UDP + TCP transport
 - SM1 (connection/supervision) + SM2 (alarm event) state machines
 - 3 alarm event types: burglar alarm, fire alarm, panic alarm
-- IMA Protect CSR preset (single CSR, no failover)
-- Zero-jargon configuration wizard (4 steps: CSR preset, live connection test, zone mapping, notifications)
+- CSR behaviour profiles (Ajax, Scutum, Personnalisé) pre-setting the advanced options: supervision frame format and period, RP periodic test and period (Epic 17, ADR-22). Single CSR, no failover. *IMA Protect preset removed 2026-09 (D-84).*
+- Zero-jargon configuration wizard (4 steps: CSR profile + collapsed "Options avancées", live connection test, zone mapping, notifications)
 - Zone mapping table: zone order number + zone name → optional camera action + optional media URL; the number is what the SIA frame carries
 - Supervision health widget (dashboard + mobile)
 - 3-tier error handler: auto-heal, user-actionable, critical infrastructure notifications
@@ -106,7 +108,8 @@ Continuous supervision health monitoring is a first-class feature, not an aftert
 
 - Timestamp auto-heal via NAK (CSR time resync)
 - Retry resilience improvements and supervision history timeline
-- Community-contributed CSR presets (architecture already supports extension)
+- Additional CSR profiles: one JSON entry each in `core/config/csr_presets.json` (ADR-22)
+- Persistent TCP connection mode (keep-alive supervision, reconnect after CSR close): deferred until a CSR requires it (D-115)
 - Restoral and cancel events: BC (Burglary Cancel) followed by OP (Opening Report) when the user disarms during a burglary alarm, both addressed to a configured SIA user number, so the CSR can close the incident as a user-cancelled false alarm (Epic 13 / Story 13.1); BR (Burglary Restore) parked for lack of a source (Story 13.2); FC/PC cancels for fire/panic (Story 13.3)
 - Arm/disarm reporting: CL (Closing Report) on arming, OP (Opening Report) on a normal disarm, same user number (Story 13.4)
 - Frigate NVR integration for automatic snapshot/clip attachment to alarm events — *implemented, Epic 14 (ADR-17 + amendments 1-4), done 2026-09-26*
