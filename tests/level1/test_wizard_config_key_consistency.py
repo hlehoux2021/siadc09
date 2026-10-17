@@ -16,12 +16,15 @@ import re
 from pathlib import Path
 
 import pytest
+from tests.level1.test_php_eqlogic_stub import _extract_method_body
 
 _PROJECT_ROOT = Path(__file__).parent.parent.parent
 _PHP_PAGE = _PROJECT_ROOT / "desktop/php/siaDC09.php"
 _JS_FILE = _PROJECT_ROOT / "desktop/js/siaDC09.js"
 _PYTHON_ENTRY = _PROJECT_ROOT / "resources/siadc09d/siadc09d.py"
 _AJAX_FILE = _PROJECT_ROOT / "core/ajax/siaDC09.ajax.php"
+_PHP_CLASS = _PROJECT_ROOT / "core/class/siaDC09.class.php"
+_PRESETS_PY = _PROJECT_ROOT / "resources/siadc09d/presets.py"
 
 
 @pytest.fixture(scope="module")
@@ -34,6 +37,12 @@ def php_page() -> str:
 def js_source() -> str:
     assert _JS_FILE.exists(), f"JS file not found: {_JS_FILE}"
     return _JS_FILE.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def php_class() -> str:
+    assert _PHP_CLASS.exists(), f"PHP class not found: {_PHP_CLASS}"
+    return _PHP_CLASS.read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
@@ -283,3 +292,72 @@ def test_supervision_key_in_python_cli(python_source: str, key: str) -> None:
         f"Supervision key '{key}' (as --{cli_arg}) not in Python CLI — "
         "PHP passes it but daemon ignores it"
     )
+
+
+# ── Periodic-frame config keys (Story 17.1, ADR-22): PHP class ↔ Python CLI ───
+
+_PERIODIC_FRAME_KEYS = ["supervision_format", "rp_enabled", "rp_interval"]
+
+
+@pytest.mark.parametrize("key", _PERIODIC_FRAME_KEYS)
+def test_periodic_frame_key_read_by_deamon_start(php_class: str, key: str) -> None:
+    """
+    deamon_start() reads each periodic-frame equipment config key.
+
+    Expected result:
+    - getConfiguration('<key>' present in the deamon_start() body (not elsewhere in the class)
+    """
+    body = _extract_method_body(php_class, "deamon_start")
+    # Assert: deamon_start reads the key before building the daemon command line
+    assert f"getConfiguration('{key}'" in body, (
+        f"Periodic-frame key '{key}' not read in siaDC09::deamon_start() — daemon never gets it"
+    )
+
+
+@pytest.mark.parametrize("key", _PERIODIC_FRAME_KEYS)
+def test_periodic_frame_key_in_python_cli(python_source: str, key: str) -> None:
+    """
+    The daemon CLI accepts each periodic-frame key as --<key-with-hyphens>.
+
+    Expected result:
+    - '"--<key-with-hyphens>"' argument declared in siadc09d.py
+    """
+    cli_arg = "--" + key.replace("_", "-")
+    # Assert: Python CLI declares the argument PHP passes
+    assert f'"{cli_arg}"' in python_source, (
+        f"Periodic-frame key '{key}' ({cli_arg}) not accepted by siadc09d.py"
+    )
+
+
+@pytest.mark.xfail(strict=True, reason="wizard field added by Story 17.4")
+@pytest.mark.parametrize("key", _PERIODIC_FRAME_KEYS)
+def test_periodic_frame_key_in_php_page(php_page: str, key: str) -> None:
+    """
+    The wizard binds each periodic-frame key (Story 17.4 turns this green).
+
+    Expected result:
+    - data-l2key="<key>" present in desktop/php/siaDC09.php
+    """
+    # Assert: wizard field bound to the exact config key deamon_start() reads
+    assert f'data-l2key="{key}"' in php_page
+
+
+@pytest.mark.parametrize("constant, php_name", [
+    ("RP_INTERVAL_MIN_S", "RP_INTERVAL_MIN_S"),
+    ("RP_INTERVAL_MAX_S", "RP_INTERVAL_MAX_S"),
+])
+def test_rp_interval_bounds_in_sync(php_class: str, constant: str, php_name: str) -> None:
+    """
+    The RP interval bounds are the same in CSRPreset (Python) and deamon_info()
+    Guard 3e (PHP), so the PHP guard refuses exactly what the daemon would refuse
+    and Jeedom's auto-restart never loops on a refused start (Story 17.1 AC7).
+
+    Expected result:
+    - the PHP class constant equals the Python module constant
+    """
+    py_match = re.search(rf"^{constant}: int = (\d+)", _PRESETS_PY.read_text(encoding="utf-8"), re.M)
+    php_match = re.search(rf"const {php_name} = (\d+);", php_class)
+    # Assert: both constants found
+    assert py_match and php_match, f"{constant} missing on one side"
+    # Assert: same bound value on both sides
+    assert py_match.group(1) == php_match.group(1)

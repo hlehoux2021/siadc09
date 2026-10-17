@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "ajax":   { "label": "Ajax",   "supervision_format": "none", "rp_enabled": 1, "rp_interval": 60 },
+    "scutum": { "label": "Scutum", "supervision_format": "none", "rp_enabled": 1, "rp_interval": 60 }
+  }
+}

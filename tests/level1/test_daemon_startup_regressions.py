@@ -8,6 +8,8 @@ in the codebase (Fix #N).
 Reference: _bmad-output/implementation-artifacts/12-2-wizard-flow-connection-test.md
 """
 
+import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -219,7 +221,7 @@ def test_daemon_account_prefix_preserves_explicit_value():
     assert daemon._account_prefix == 'L1'
 
 
-# ===== Fix #7: crc_format mapping — "hex"→"SIA", "bin"→"ADM" =====
+# ===== Fix #7: crc_format mapping — "hex"→"SIA" ("bin" removed, Story 17.1) =====
 
 
 def test_daemon_crc_format_hex_maps_to_sia_builder():
@@ -249,49 +251,49 @@ def test_daemon_crc_format_hex_maps_to_sia_builder():
     assert daemon._sia_builder.crc_format == 'SIA'
 
 
-def test_daemon_crc_format_bin_maps_to_adm_builder():
+def test_csr_preset_rejects_crc_format_bin():
     """
-    preset.crc_format="bin" creates SIAMessageBuilder with crc_format="ADM".
+    Story 17.1 (AC8): crc_format="bin" was removed from the sender side.
+
+    Scenario: a CSRPreset is built with crc_format="bin" (only reachable by a
+    manual DB edit — the wizard has no crc_format field).
 
     Expected result:
-    - Builder's crc_format is "ADM" (not "bin")
-    - "bin" is the config-layer name; "ADM" is the protocol-layer name
+    - ValueError naming crc_format, instead of the former dead "bin"→"ADM"
+      mapping that sent a hex CRC and then expected a bin-CRC ACK
     """
-    preset = CSRPreset(
-        csr_provider='test',
-        schema_version=1,
-        host='192.168.1.100',
-        port=5000,
-        account_number='001234',
-        transport='UDP',
-        crc_format='bin',
-        encryption_enabled=False,
-        connect_timeout_s=10.0,
-        receive_timeout_s=20.0,
-        supervision_interval_s=60.0,
-    )
-    daemon = _make_daemon_with_preset(preset)
-
-    # Assert: builder uses "ADM" format for binary wire CRC
-    assert daemon._sia_builder.crc_format == 'ADM'
+    # Assert: bin refused at construction, before any daemon is built
+    with pytest.raises(ValueError, match="crc_format"):
+        CSRPreset(
+            csr_provider='test',
+            schema_version=1,
+            host='192.168.1.100',
+            port=5000,
+            account_number='001234',
+            transport='UDP',
+            crc_format='bin',
+            encryption_enabled=False,
+            connect_timeout_s=10.0,
+            receive_timeout_s=20.0,
+            supervision_interval_s=60.0,
+        )
 
 
-def test_daemon_crc_format_mapping_present_in_source():
+def test_daemon_builder_is_always_sia():
     """
-    Daemon __init__ contains explicit hex→SIA / bin→ADM mapping logic.
+    Story 17.1 (AC8): the daemon always builds the hex SIA CRC builder.
 
     Expected result:
-    - Source code contains the conditional mapping (not passing raw crc_format)
-    - Without this mapping, builder would receive "hex"/"bin" which are not
-      valid SIA protocol CRC algorithm names
+    - daemon.py and siadc09d.py construct SIAMessageBuilder(crc_format="SIA")
+    - the former "SIA" if … else "ADM" mapping is gone from both
     """
-    daemon_path = Path(__file__).resolve().parents[2] / "resources" / "siadc09d" / "daemon.py"
-    source = daemon_path.read_text()
-
-    # Assert: mapping logic exists
-    assert '"SIA" if preset.crc_format == "hex" else "ADM"' in source, (
-        "Daemon must map preset crc_format (hex/bin) to builder format (SIA/ADM)"
-    )
+    pkg = Path(__file__).resolve().parents[2] / "resources" / "siadc09d"
+    for name in ("daemon.py", "siadc09d.py"):
+        source = (pkg / name).read_text(encoding="utf-8")
+        # Assert: builder hard-wired to SIA
+        assert 'SIAMessageBuilder(crc_format="SIA")' in source, name
+        # Assert: dead ADM mapping removed
+        assert '"ADM"' not in source, name
 
 
 # ===== Fix #1: cryptography version pin in packages.json =====
@@ -353,3 +355,44 @@ def test_packages_json_cryptography_pinned_below_44():
     assert int(version.split(".")[0]) < 44, (
         f'cryptography must be pinned below 44, got "{version}"'
     )
+
+
+# ===== Story 17.1 AC7: invalid periodic-frame config fails fast =====
+
+_ENTRY_POINT = Path(__file__).resolve().parents[2] / "resources" / "siadc09d" / "siadc09d.py"
+_MIN_DAEMON_ARGS = ["--host", "127.0.0.1", "--port", "1", "--account", "001234"]
+_SUBPROCESS_TIMEOUT_S = 30
+
+
+@pytest.mark.parametrize("extra_args, expected_fragment", [
+    (["--supervision-format", "none"], "aucune trame périodique active"),
+    (["--rp-enabled", "--rp-interval", "59"], "intervalle du test cyclique RP invalide"),
+])
+def test_entry_point_refuses_invalid_periodic_config(extra_args, expected_fragment):
+    """
+    Story 17.1 AC7: siadc09d.py exits with code 1 and one French stderr line
+    when CSRPreset refuses the periodic-frame combination.
+
+    Scenario: the entry point is run with the minimum required args plus either
+    "--supervision-format none" without RP, or RP on with a 59 s interval. The
+    refusal happens at CSRPreset construction, before SIADaemon(...).run(), so
+    no socket is opened.
+
+    Expected result:
+    - exit code 1
+    - stderr is a single line starting with "Configuration refusée : "
+    - no Python traceback
+    """
+    proc = subprocess.run(
+        [sys.executable, str(_ENTRY_POINT), *_MIN_DAEMON_ARGS, *extra_args],
+        capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT_S, check=False,
+    )
+    lines = proc.stderr.strip().splitlines()
+    # Assert: fail-fast exit code
+    assert proc.returncode == 1, proc.stderr
+    # Assert: exactly one stderr line
+    assert len(lines) == 1, proc.stderr
+    # Assert: French refusal line for this combination
+    assert lines[0].startswith("Configuration refusée : ") and expected_fragment in lines[0]
+    # Assert: no traceback leaked to the daemon log
+    assert "Traceback" not in proc.stderr

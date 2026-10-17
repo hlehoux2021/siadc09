@@ -25,6 +25,8 @@ from pathlib import Path
 # Ensure the package is importable when run as a script
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from siadc09d.presets import (RP_INTERVAL_DEFAULT_S, RP_INTERVAL_MAX_S, RP_INTERVAL_MIN_S,
+                              SUPERVISION_FORMAT_DEFAULT, SUPERVISION_FORMATS)
 from siadc09d.sia_crypto import AESKeyError, parse_hex_key
 from siadc09d.sia_protocol import SIAMessageBuilder
 from siadc09d.sia_transport import (
@@ -260,6 +262,43 @@ def _test_verdict(status: str, context: dict[str, object]) -> dict[str, str]:
     return {"status": ui_status, "detail": template.format(**context)}
 
 
+_REFUSAL_PREFIX = "Configuration refusée : "
+
+
+def _preset_refusal_message(
+    supervision_format: str, rp_enabled: bool, rp_interval: float, error: ValueError,
+) -> str:
+    """Build the one-line French refusal printed when CSRPreset rejects the CLI args.
+
+    Mirrors the rules of CSRPreset.__post_init__ and of deamon_info() Guard 3e
+    (core/class/siaDC09.class.php) so the daemon log explains the refusal in the
+    same terms as the Jeedom UI. Any other ValueError (transport, reconnect,
+    crc_format) keeps its technical detail after the French prefix.
+
+    Args:
+        supervision_format: Value of --supervision-format.
+        rp_enabled: Value of --rp-enabled.
+        rp_interval: Value of --rp-interval, in seconds.
+        error: The ValueError raised by CSRPreset.
+
+    Returns:
+        A single line, without a trailing newline.
+    """
+    if supervision_format not in SUPERVISION_FORMATS:
+        return f"{_REFUSAL_PREFIX}format de supervision inconnu « {supervision_format} »"
+    if supervision_format == "none" and not rp_enabled:
+        return (
+            f"{_REFUSAL_PREFIX}aucune trame périodique active "
+            "(supervision « none » et test cyclique RP désactivé)"
+        )
+    if rp_enabled and not RP_INTERVAL_MIN_S <= rp_interval <= RP_INTERVAL_MAX_S:
+        return (
+            f"{_REFUSAL_PREFIX}intervalle du test cyclique RP invalide ({rp_interval:g} s, "
+            f"attendu entre {RP_INTERVAL_MIN_S} et {RP_INTERVAL_MAX_S} s)"
+        )
+    return f"{_REFUSAL_PREFIX}{error}"
+
+
 async def run_connection_test(config: dict, timeout: int) -> None:
     """Run a standalone connection test and print JSON result to stdout.
 
@@ -303,9 +342,8 @@ async def run_connection_test(config: dict, timeout: int) -> None:
             print(json.dumps(_test_verdict(_FAIL_ENCRYPTION_KEY, {})), flush=True)
             return
 
-    frame = SIAMessageBuilder(
-        crc_format="SIA" if crc_format == "hex" else "ADM",
-    ).make_supervision_message(
+    # Story 17.1: the sender side only encodes the hex SIA CRC (crc_format=bin removed).
+    frame = SIAMessageBuilder(crc_format="SIA").make_supervision_message(
         account_number=account_number,
         encryption=encryption_enabled,
         encryption_key=key_bytes,
@@ -399,10 +437,17 @@ if __name__ == "__main__":
     _config.add_argument("--port", type=int, required=True)
     _config.add_argument("--transport", type=str, default="UDP")
     _config.add_argument("--account", type=str, required=True)
-    _config.add_argument("--crc-format", type=str, default="hex")
+    # Story 17.1 (ADR-06 note): "bin" removed from the sender side — hex only.
+    _config.add_argument("--crc-format", type=str, choices=["hex"], default="hex")
     _config.add_argument("--encryption-enabled", action="store_true")
     _config.add_argument("--encryption-key", type=str, default="")
     _config.add_argument("--supervision-interval", type=int, default=60)
+    # Story 17.1 (ADR-22): periodic-frame settings, resolved PHP-side — the daemon
+    # never sees a CSR profile name. Validated by CSRPreset.__post_init__.
+    _config.add_argument("--supervision-format", type=str,
+                         choices=list(SUPERVISION_FORMATS), default=SUPERVISION_FORMAT_DEFAULT)
+    _config.add_argument("--rp-enabled", action="store_true")
+    _config.add_argument("--rp-interval", type=int, default=RP_INTERVAL_DEFAULT_S)
     _config.add_argument("--retry-count", type=int, default=6)
     _config.add_argument("--reconnect-delay", type=float, default=30.0)
     _config.add_argument("--receiver-prefix", type=str, default="")
@@ -411,21 +456,37 @@ if __name__ == "__main__":
     # Fix #2: parse() must be called before accessing attributes (_args is None otherwise)
     _config.parse()
 
-    _preset = CSRPreset(
-        csr_provider="cli",
-        schema_version=1,
-        host=_config.host,
-        port=_config.port,
-        account_number=_config.account,
-        # Fix #3: PHP passes lowercase 'udp'/'tcp', TransportType enum expects uppercase
-        transport=_config.transport.upper(),
-        crc_format=_config.crc_format,
-        encryption_enabled=_config.encryption_enabled,
-        connect_timeout_s=5.0,
-        receive_timeout_s=10.0,
-        supervision_interval_s=float(_config.supervision_interval),
-        reconnect_delay_s=_config.reconnect_delay,
-        reconnect_max_attempts=_config.retry_count,
-    )
+    # Story 17.1 AC7: an invalid configuration exits with one French line on
+    # stderr (redirected to the siaDC09_daemon log by deamon_start) and code 1,
+    # never a traceback. deamon_info() Guard 3e refuses the same combinations
+    # PHP-side, so Jeedom's auto-restart does not loop on this exit.
+    try:
+        _preset = CSRPreset(
+            csr_provider="cli",
+            schema_version=1,
+            host=_config.host,
+            port=_config.port,
+            account_number=_config.account,
+            # Fix #3: PHP passes lowercase 'udp'/'tcp', TransportType enum expects uppercase
+            transport=_config.transport.upper(),
+            crc_format=_config.crc_format,
+            encryption_enabled=_config.encryption_enabled,
+            connect_timeout_s=5.0,
+            receive_timeout_s=10.0,
+            supervision_interval_s=float(_config.supervision_interval),
+            reconnect_delay_s=_config.reconnect_delay,
+            reconnect_max_attempts=_config.retry_count,
+            supervision_format=_config.supervision_format,
+            rp_enabled=_config.rp_enabled,
+            rp_interval_s=float(_config.rp_interval),
+        )
+    except ValueError as e:
+        print(
+            _preset_refusal_message(
+                _config.supervision_format, _config.rp_enabled, float(_config.rp_interval), e,
+            ),
+            file=sys.stderr, flush=True,
+        )
+        sys.exit(1)
 
     SIADaemon(preset=_preset, config=_config).run()

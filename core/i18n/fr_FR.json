@@ -35,7 +35,13 @@
         "Veuillez vérifier la configuration": "Veuillez vérifier la configuration",
         "Équipement absent — création automatique": "Équipement absent — création automatique",
         "État alarme": "État alarme",
-        "État supervision": "État supervision"
+        "État supervision": "État supervision",
+        "Aucune trame périodique active : supervision « none » et test cyclique RP désactivé (étape 1 de l'assistant, Options avancées).": "Aucune trame périodique active : supervision « none » et test cyclique RP désactivé (étape 1 de l'assistant, Options avancées).",
+        "Fichier des profils de télésurveillance illisible": "Fichier des profils de télésurveillance illisible",
+        "Fichier des profils de télésurveillance invalide (JSON ou schema_version)": "Fichier des profils de télésurveillance invalide (JSON ou schema_version)",
+        "Format CRC non pris en charge (seul « hex » est accepté) — réenregistrez l'équipement.": "Format CRC non pris en charge (seul « hex » est accepté) — réenregistrez l'équipement.",
+        "Format de supervision inconnu (étape 1 de l'assistant, Options avancées).": "Format de supervision inconnu (étape 1 de l'assistant, Options avancées).",
+        "Intervalle du test cyclique RP invalide — entre 60 et 86400 secondes (étape 1 de l'assistant, Options avancées).": "Intervalle du test cyclique RP invalide — entre 60 et 86400 secondes (étape 1 de l'assistant, Options avancées)."
     },
     "plugins/siaDC09/core/class/siaDC09Cmd.class.php": {
         "absente de la table des zones — trame envoyée sans numéro de zone": "absente de la table des zones — trame envoyée sans numéro de zone"

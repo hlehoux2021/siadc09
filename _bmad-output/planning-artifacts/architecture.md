@@ -185,6 +185,14 @@ existed, and the daemon never read a preset.
 *Note 2026-10-17:* `bin` has no effect on outgoing frames today (found while scoping Epic 17). Story 17.1 decides
 between implementing it and removing the value.
 
+*Note 2026-10-17 (Story 17.1, Herve):* `bin` **removed from the sender side.** `CSRPreset` and the daemon CLI
+(`--crc-format`, `choices=["hex"]`) accept only `hex`; the builder is always `SIAMessageBuilder(crc_format="SIA")`;
+`deamon_info()` refuses a stored `crc_format` other than `hex` (re-save the equipment). The `bin` value made the daemon
+send a hex-CRC frame and then expect a bin-CRC ACK, and no CSR in hand needs it (the Lupusec reason was never seen).
+`bin` is **kept on the receiver side** (`csr_simulator.py`, `detect_crc_format`, `decode()` / `decode_ack_nak()`
+parameters, `CrcFormat` in `sia_protocol.py`). Implementing ADM-CID CRC on encode would be a protocol feature, not
+plumbing.
+
 ---
 
 ### ADR-07 — Encryption Key Lifecycle at PHP/Daemon Boundary

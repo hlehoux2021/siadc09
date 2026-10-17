@@ -477,9 +477,8 @@ class SIADaemon(BaseDaemon):
 
         # State & data
         self._sia_seq: int = 0
-        # Fix #7: preset.crc_format is "hex"/"bin" but SIAMessageBuilder expects "SIA"/"ADM"
-        _builder_crc = "SIA" if preset.crc_format == "hex" else "ADM"
-        self._sia_builder: SIAMessageBuilder = SIAMessageBuilder(crc_format=_builder_crc)
+        # Story 17.1: CSRPreset accepts only crc_format="hex" → always the SIA hex CRC builder.
+        self._sia_builder: SIAMessageBuilder = SIAMessageBuilder(crc_format="SIA")
         self._ring_buffer: RingBuffer = RingBuffer()
         self._tasks: set[asyncio.Task] = set()
         self._logger = logging.getLogger(__name__)

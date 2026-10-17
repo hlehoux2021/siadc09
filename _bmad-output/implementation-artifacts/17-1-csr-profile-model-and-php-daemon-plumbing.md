@@ -3,13 +3,17 @@ story_id: "17-1"
 story_key: "17-1-csr-profile-model-and-php-daemon-plumbing"
 epic_id: "epic-17"
 epic_name: "CSR Behaviour Profiles & Periodic Frames"
-status: "ready-for-dev"
+status: "built"
 created: "2026-10-17"
+baseline_revision: "737320f9b85d4fdcd2b272b7f95b87e46938cf12"
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 ---
 
 # Story 17.1: CSR Profile Model & PHP → Daemon Plumbing
 
-Status: ready-for-dev
+Status: built
 
 First story of Epic 17 (ADR-22). It carries the three new periodic-frame settings from the equipment configuration to
 the daemon, validates them, and adds the profile file. **It changes no frame and no cadence.** The supervision loop
@@ -85,13 +89,13 @@ So that adding a CSR profile is a JSON entry and the daemon only ever sees resol
 
 ## Tasks / Subtasks
 
-- [ ] Task 1 — `CSRPreset` fields and validation (AC: 3, 7)
-  - [ ] 1.1 Add the `SupervisionFormat` Literal, plus named constants `RP_INTERVAL_MIN_S = 60` and
+- [x] Task 1 — `CSRPreset` fields and validation (AC: 3, 7)
+  - [x] 1.1 Add the `SupervisionFormat` Literal, plus named constants `RP_INTERVAL_MIN_S = 60` and
         `RP_INTERVAL_MAX_S = 86400`, in `presets.py`.
-  - [ ] 1.2 Append the three fields **after** `reconnect_max_attempts`. Every field there has a default, and the
+  - [x] 1.2 Append the three fields **after** `reconnect_max_attempts`. Every field there has a default, and the
         existing `CSRPreset(...)` calls in tests use keywords.
-  - [ ] 1.3 Extend `__post_init__` with the three checks. Each message names the field and the value.
-  - [ ] 1.4 Tests in `tests/level1/test_csr_preset_validation.py`:
+  - [x] 1.3 Extend `__post_init__` with the three checks. Each message names the field and the value.
+  - [x] 1.4 Tests in `tests/level1/test_csr_preset_validation.py`:
     - the defaults;
     - each of the three formats is accepted;
     - `none` with RP off is rejected;
@@ -99,48 +103,48 @@ So that adding a CSR profile is a JSON entry and the daemon only ever sees resol
     - the RP bounds are inclusive at 60 and 86400, and 59 and 86401 are rejected;
     - an out-of-range `rp_interval_s` with RP off is accepted;
     - an unknown format is rejected.
-- [ ] Task 2 — Daemon arguments and fail-fast (AC: 4, 7, 9)
-  - [ ] 2.1 Add the three `_config.add_argument(...)` calls next to `--supervision-interval` in `siadc09d.py:405`.
-  - [ ] 2.2 Pass them into `CSRPreset(...)` (`siadc09d.py:414-429`). `rp_interval_s=float(_config.rp_interval)`.
-  - [ ] 2.3 Wrap the construction in `try/except ValueError as e`: one French stderr line, then `sys.exit(1)`.
+- [x] Task 2 — Daemon arguments and fail-fast (AC: 4, 7, 9)
+  - [x] 2.1 Add the three `_config.add_argument(...)` calls next to `--supervision-interval` in `siadc09d.py:405`.
+  - [x] 2.2 Pass them into `CSRPreset(...)` (`siadc09d.py:414-429`). `rp_interval_s=float(_config.rp_interval)`.
+  - [x] 2.3 Wrap the construction in `try/except ValueError as e`: one French stderr line, then `sys.exit(1)`.
         Existing transport and reconnect `ValueError`s get the same treatment, which is a free improvement.
-  - [ ] 2.4 Level-1 test: run `siadc09d.py` as a subprocess with `--supervision-format none` and no
+  - [x] 2.4 Level-1 test: run `siadc09d.py` as a subprocess with `--supervision-format none` and no
         `--rp-enabled`, plus the minimum required args. Assert exit code 1 and the French line on stderr, with no
         traceback. Check how `tests/level1/test_daemon_startup_regressions.py` launches the entry point and reuse
         its pattern.
-- [ ] Task 3 — PHP `deamon_start` and `deamon_info` (AC: 5, 7)
-  - [ ] 3.1 After the `--supervision-interval` block (`siaDC09.class.php:266-269`), add `--supervision-format` with
+- [x] Task 3 — PHP `deamon_start` and `deamon_info` (AC: 5, 7)
+  - [x] 3.1 After the `--supervision-interval` block (`siaDC09.class.php:266-269`), add `--supervision-format` with
         `escapeshellarg`. Add `--rp-enabled --rp-interval <int>` only when `rp_enabled` is truthy.
-  - [ ] 3.2 Guard 3e in `deamon_info()`, right after Guard 3d (`siaDC09.class.php:161-171`):
+  - [x] 3.2 Guard 3e in `deamon_info()`, right after Guard 3d (`siaDC09.class.php:161-171`):
     - an unknown `supervision_format` → `nok`;
     - `none` with RP off → `nok`;
     - RP on with an interval outside 60-86400 → `nok`.
 
     Messages point at "étape 1 de l'assistant (Options avancées)". Use class constants for the bounds, mirrored from
     the Python ones.
-  - [ ] 3.3 Make Guard 3d conditional on `supervision_format !== 'none'`.
-  - [ ] 3.4 Add the new French strings to `core/i18n/fr_FR.json` if the round-trip test from 11-4 requires them. Run
+  - [x] 3.3 Make Guard 3d conditional on `supervision_format !== 'none'`.
+  - [x] 3.4 Add the new French strings to `core/i18n/fr_FR.json` if the round-trip test from 11-4 requires them. Run
         it to find out.
-- [ ] Task 4 — Profile file and PHP reader (AC: 1, 2)
-  - [ ] 4.1 Create `core/config/csr_presets.json` (shape in Dev Notes). The directory does not exist yet.
-  - [ ] 4.2 Add `public static function getCsrProfiles(): array` in `siaDC09.class.php`. Use
+- [x] Task 4 — Profile file and PHP reader (AC: 1, 2)
+  - [x] 4.1 Create `core/config/csr_presets.json` (shape in Dev Notes). The directory does not exist yet.
+  - [x] 4.2 Add `public static function getCsrProfiles(): array` in `siaDC09.class.php`. Use
         `file_get_contents` + `json_decode(..., true)`, check `schema_version === 1`, and log an error and return
         `[]` on any failure. Nothing calls it until 17.4. That is expected; say so in its docblock.
-  - [ ] 4.3 Level-1 Python test, `tests/level1/test_csr_presets_json.py`:
+  - [x] 4.3 Level-1 Python test, `tests/level1/test_csr_presets_json.py`:
     - the file parses and `schema_version == 1`;
     - `ajax` and `scutum` exist with the Epic 17 table values;
     - every profile key is in `{label, supervision_format, supervision_interval, rp_enabled, rp_interval}`;
     - no profile is the invalid `none` + RP-off combination;
     - no file under `resources/siadc09d/` contains `csr_presets`, which pins AC2.
-  - [ ] 4.4 `php -l core/class/siaDC09.class.php`.
-- [ ] Task 5 — Remove `crc_format=bin` from the sender side (AC: 8)
-  - [ ] 5.1 Add `choices=["hex"]` to `--crc-format` in `siadc09d.py`. Make `CSRPreset` reject anything other than
+  - [x] 4.4 `php -l core/class/siaDC09.class.php`.
+- [x] Task 5 — Remove `crc_format=bin` from the sender side (AC: 8)
+  - [x] 5.1 Add `choices=["hex"]` to `--crc-format` in `siadc09d.py`. Make `CSRPreset` reject anything other than
         `"hex"`, with a `ValueError` that Task 2.3 already handles.
-  - [ ] 5.2 Remove the dead `"SIA" if … else "ADM"` mapping: `daemon.py:481` and `siadc09d.py:307` become
+  - [x] 5.2 Remove the dead `"SIA" if … else "ADM"` mapping: `daemon.py:481` and `siadc09d.py:307` become
         `SIAMessageBuilder(crc_format="SIA")`. Keep the edit to `daemon.py` minimal (see "Parallel work").
-  - [ ] 5.3 Make `deamon_info()` refuse a stored `crc_format` other than `hex`, with a `launchable_message` that asks
+  - [x] 5.3 Make `deamon_info()` refuse a stored `crc_format` other than `hex`, with a `launchable_message` that asks
         for the equipment to be re-saved. That keeps a manually edited DB from triggering the restart loop.
-  - [ ] 5.4 Rework the sender-side tests that pin `bin`. Known on 2026-10-17:
+  - [x] 5.4 Rework the sender-side tests that pin `bin`. Known on 2026-10-17:
     - `test_daemon_startup_regressions.py:222-293` (Fix #7, `bin`→`ADM` mapping): replace with "CSRPreset rejects
       `bin`" plus "the builder is always `SIA`";
     - `test_wizard_config_ipc.py:303` and `:582` (`_make_wizard_preset(crc_format="bin")`): drop them, or turn them
@@ -151,18 +155,18 @@ So that adding a CSR profile is a JSON entry and the daemon only ever sees resol
     `test_csr_simulator.py`, `test_simulator_cli.py`, `test_sia_protocol_ack_nak.py`,
     `test_ack_nak_assertion_hardening.py`, `test_parse_response_garbled.py` (transport ACK parsing) and
     `tests/harness/`.
-  - [ ] 5.5 Update the ADR-06 note in `architecture.md`: `bin` removed from the sender side on 2026-10-17 (Story
+  - [x] 5.5 Update the ADR-06 note in `architecture.md`: `bin` removed from the sender side on 2026-10-17 (Story
         17.1), kept on the receiver side.
-- [ ] Task 6 — Key consistency and regression run (AC: 6, 9)
-  - [ ] 6.1 Add `_PERIODIC_FRAME_KEYS` and its three parametrized tests (PHP class, Python CLI, and the PHP page as
+- [x] Task 6 — Key consistency and regression run (AC: 6, 9)
+  - [x] 6.1 Add `_PERIODIC_FRAME_KEYS` and its three parametrized tests (PHP class, Python CLI, and the PHP page as
         `xfail(strict=True)`). Add a `php_class` fixture reading `core/class/siaDC09.class.php`.
-  - [ ] 6.2 Level-2 test: a daemon built from a default `CSRPreset` keeps one supervision loop at
+  - [x] 6.2 Level-2 test: a daemon built from a default `CSRPreset` keeps one supervision loop at
         `supervision_interval_s`, with frames unchanged. Use an existing supervision-cadence test if one already pins
         this; add one only if none does.
-  - [ ] 6.3 Run `python3 -m pytest tests/level1/`, `tests/level2/` and `tests/level2_5/`. Compare against the
+  - [x] 6.3 Run `python3 -m pytest tests/level1/`, `tests/level2/` and `tests/level2_5/`. Compare against the
         baseline measured on clean master before starting (memory: level-1 test baseline failures; re-measure, don't
         copy).
-  - [ ] 6.4 `python3 -m pylint resources/siadc09d/`, and run `php -l` on every touched PHP file.
+  - [x] 6.4 `python3 -m pylint resources/siadc09d/`, and run `php -l` on every touched PHP file.
 
 ## Dev Notes
 
@@ -287,13 +291,81 @@ the AC8 removal could simplify the `"SIA" if … else "ADM"` mapping at line 481
 
 ### Agent Model Used
 
-(to be filled by dev agent)
+Claude Opus 5.5 (eu.anthropic.claude-opus-5-5), 2026-10-17.
 
 ### Debug Log References
 
+- Baseline measured on clean HEAD 737320f in a detached worktree: level1 1336 passed / 0 failed; level2 5 failed
+  (4 × `test_connection_test_async.py::test_send_raw_once_*`, `test_supervision_loop_integration.py::test_update_info_commands_full_payload_healthy`);
+  level2_5 1 failed (`test_ipc_integration.py::TestUpdateInfoCommands::test_update_info_commands_emits_info_update`).
+- After: level1 1374 passed, 3 xfailed (the strict 17.4 `data-l2key` xfails), 0 failed; level2 380 passed, the same 5
+  failures; level2_5 79 passed, the same 1 failure. No new failure.
+- `pylint resources/siadc09d/`: no new message class. Only deltas: `R0902` on `CSRPreset` 13→16 attributes, and one
+  more `C0413 wrong-import-position` in `siadc09d.py` (the presets import sits after the `sys.path` insert, like the
+  module's other package imports).
+- `php -l` clean on every PHP file under `core/` and `desktop/`.
+
 ### Completion Notes List
 
+- **Task 1.** `presets.py`: `SupervisionFormat` Literal + `SUPERVISION_FORMATS`, `RP_INTERVAL_MIN_S`/`MAX_S`,
+  `SENDER_CRC_FORMATS = ("hex",)`. Three fields appended after `reconnect_max_attempts`; `__post_init__` rejects a
+  non-hex CRC, an unknown format, `none` + RP off, and RP on outside 60-86400 (inclusive). No other `CSRPreset(...)`
+  builder needed changing.
+- **Task 2.** `siadc09d.py`: `--supervision-format` (choices), `--rp-enabled`, `--rp-interval`, passed into
+  `CSRPreset`. The construction is wrapped in `except ValueError`: one French line on stderr
+  (`_preset_refusal_message()`, prefix `Configuration refusée : `), exit 1. Transport/reconnect/CRC `ValueError`s
+  get the same treatment, with their technical detail after the French prefix. Subprocess test added to
+  `test_daemon_startup_regressions.py` (that file had no subprocess pattern to reuse; it uses `sys.executable` +
+  the minimum required args, no socket opened).
+- **Task 3.** `deamon_start` always passes `--supervision-format` (escaped) and passes `--rp-enabled --rp-interval`
+  only when `rp_enabled` is truthy. Guard 3e is factored into `siaDC09::periodicFrameConfigError()` (pure, public
+  static) so a level-1 test runs it with the php CLI against `CSRPreset` over the same cases (same drift-proof
+  pattern as `test_php_encryption_key_guard.py`). Bounds are class constants mirrored from Python, with a sync test.
+  Guard 3d is skipped when `supervision_format === 'none'`. 6 new strings added to `fr_FR.json` (the 11-4 round-trip
+  test required them); `en_US.json` not touched (partial by design).
+- **Task 4.** `core/config/csr_presets.json` created (shape from Dev Notes). `siaDC09::getCsrProfiles()` logs at
+  `error` and returns `[]` on a missing/unreadable file, invalid JSON, `schema_version !== 1` (strict int), or no
+  `profiles` object; executed in tests against the real file and 5 broken variants. No caller until 17.4 (docblock).
+- **Task 5.** `--crc-format` has `choices=["hex"]` (argparse exits 2 with its own usage line on `bin`; the PHP guard
+  stops it first). `daemon.py` edit is the 3-line mapping only → `SIAMessageBuilder(crc_format="SIA")`; same in the
+  connection-test path. `deamon_info()` Guard 3c' refuses a stored `crc_format` other than `hex` ("réenregistrez
+  l'équipement"). Sender-side `bin` tests reworked (Fix #7 → "CSRPreset rejects bin" + "builder always SIA";
+  `test_wizard_config_ipc.py` transport test now pins `hex`, the wizard-mapping test became a rejection test).
+  Receiver-side tests untouched. ADR-06 note added in `architecture.md`.
+- **Task 6.** `_PERIODIC_FRAME_KEYS` + `php_class` fixture + 3 parametrized tests (the `data-l2key` one
+  `xfail(strict=True)`), plus the RP-bound sync test. No existing level-2 test pinned cadence with a real default
+  preset (`test_supervision_queue_integration.py` swaps the preset for a MagicMock), so
+  `tests/level2/test_supervision_default_preset.py` was added: defaults, loop sleeps exactly
+  `supervision_interval_s`, frame still `"SIA-DCS"…[#001234|0000]`.
+- **Not done here:** the deploy check on test-jeedom (log shows `--supervision-format 'sia-dcs'`, widget
+  `supervision_state` OK). Code arrives by `git pull`, so it needs a commit + push first; nothing was committed.
+
 ### File List
+
+- `core/class/siaDC09.class.php` (modified)
+- `core/config/csr_presets.json` (new)
+- `core/i18n/fr_FR.json` (modified)
+- `resources/siadc09d/presets.py` (modified)
+- `resources/siadc09d/siadc09d.py` (modified)
+- `resources/siadc09d/daemon.py` (modified — builder CRC line only)
+- `tests/level1/test_csr_preset_validation.py` (modified)
+- `tests/level1/test_daemon_startup_regressions.py` (modified)
+- `tests/level1/test_wizard_config_key_consistency.py` (modified)
+- `tests/level1/test_csr_presets_json.py` (new)
+- `tests/level1/test_php_periodic_frame_guard.py` (new)
+- `tests/level2/test_supervision_default_preset.py` (new)
+- `tests/level2_5/test_wizard_config_ipc.py` (modified)
+- `_bmad-output/planning-artifacts/architecture.md` (ADR-06 note)
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` (17-1 → review)
+
+## Review Triage Log
+
+| # | Location | Finding | Verdict | Evidence | Route |
+|---|---|---|---|---|---|
+| 1 | `tests/level2/test_supervision_default_preset.py` | Cadence test cannot tell `supervision_interval_s` from `rp_interval_s` | low | `make_daemon_preset()` sets `supervision_interval_s=60.0` and the new `rp_interval_s` default is also 60.0, so a loop switched to `rp_interval_s` still yields `[60.0, 60.0]`. 17.3 touches exactly this loop. | patch |
+| 2 | `tests/level1/test_wizard_config_key_consistency.py` + `test_php_periodic_frame_guard.py::test_deamon_start_passes_periodic_frame_args` | AC6 "deamon_start reads it" checked against the whole class file | low | `deamon_info()` Guard 3e already reads all three keys, so the key test passes even if `deamon_start` stops reading them. The companion regexes stop at `escapeshellarg(` / `(int)` and never check the `supervision_format` / `rp_interval` key names. | patch |
+| 3 | `core/class/siaDC09.class.php` `periodicFrameConfigError()` | RP bounds written as literals "60 et 86400" in the message | low | True, but the bounds are a spec-level choice unlikely to change, and the fix means a `sprintf` placeholder key plus an i18n change. Rejected: low, unlikely, fix is more than a direct correction. | reject |
+| 4 | `resources/siadc09d/presets.py`, `siadc09d.py` | Bare default literals (`"sia-dcs"`, `60`/`60.0`) break `.claude/rules/python-style.md` "no magic numbers" | low | Confirmed at the dataclass defaults and the two `add_argument` defaults. PHP has `SUPERVISION_FORMAT_DEFAULT` / `RP_INTERVAL_DEFAULT_S`; Python has no named counterpart. The `"none"` literal is a member of the `SupervisionFormat` Literal, which the type checker enforces, so it is left as is. | patch |
 
 ## Change Log
 
@@ -301,3 +373,5 @@ the AC8 removal could simplify the `"SIA" if … else "ADM"` mapping at line 481
 |------|--------|
 | 2026-10-17 | Story file created (backlog → ready-for-dev) from Epic 17 / ADR-22, grounded in code reading of presets.py, siadc09d.py, daemon.py, siaDC09.class.php and the key-consistency test. AC5 clarified: RP range checked only when RP is enabled. AC8 decision proposed (remove `bin` on the sender side), pending Herve. |
 | 2026-10-17 | Herve approved both: `bin` removed from the sender side (AC8, Task 5 rewritten with the affected tests listed), and the RP range checked only when RP is on (AC7). Checked against the bmad-create-epics-and-stories final-validation criteria: requirement refs added (NFR7, NFR4, FR11 as amended). |
+| 2026-10-17 | Dev: Tasks 1-6 implemented (in-progress → review). Guard 3e factored into `siaDC09::periodicFrameConfigError()` and executed against `CSRPreset` in a level-1 parity test; crc_format guard added to `deamon_info()`. No regression vs the re-measured baseline. Test-jeedom deploy check left open (needs a push). |
+| 2026-10-17 | Quick review: 4 findings, 3 patched (cadence test now distinguishes `supervision_interval_s` from `rp_interval_s`; `deamon_start` key checks scoped to its body; named `SUPERVISION_FORMAT_DEFAULT` / `RP_INTERVAL_DEFAULT_S` in Python), 1 rejected (RP bounds literal in the PHP message). Suites re-run: level1 green, level2/level2_5 same baseline failures. Status → built. |

@@ -210,3 +210,126 @@ def test_reconnect_delay_s_negative_raises():
     """
     with pytest.raises(ValueError):
         _make_preset(reconnect_delay_s=-1.0)
+
+
+# ===== Story 17.1: periodic-frame fields (supervision_format, RP) =====
+
+
+def test_periodic_frame_defaults_match_previous_behaviour():
+    """
+    Story 17.1 AC3/AC9: a preset built without the new fields keeps today's behaviour.
+
+    Expected result:
+    - supervision_format defaults to "sia-dcs"
+    - rp_enabled defaults to False
+    - rp_interval_s defaults to 60.0
+    """
+    preset = _make_preset()
+    # Assert: supervision frame format unchanged
+    assert preset.supervision_format == "sia-dcs"
+    # Assert: RP cyclic test off
+    assert preset.rp_enabled is False
+    # Assert: RP interval default
+    assert preset.rp_interval_s == 60.0
+
+
+@pytest.mark.parametrize("fmt", ["sia-dcs", "null", "none"])
+def test_each_supervision_format_accepted(fmt):
+    """
+    Story 17.1 AC3: the three SupervisionFormat values are accepted.
+
+    Scenario: RP is enabled so that "none" is a valid combination.
+
+    Expected result:
+    - the preset stores the given format
+    """
+    preset = _make_preset(supervision_format=fmt, rp_enabled=True)
+    # Assert: format stored as given
+    assert preset.supervision_format == fmt
+
+
+def test_supervision_none_without_rp_rejected():
+    """
+    Story 17.1 AC7: "none" with RP off leaves no periodic frame at all.
+
+    Expected result:
+    - ValueError naming supervision_format
+    """
+    # Assert: no-periodic-frame combination refused
+    with pytest.raises(ValueError, match="supervision_format"):
+        _make_preset(supervision_format="none", rp_enabled=False)
+
+
+def test_supervision_none_with_rp_accepted():
+    """
+    Story 17.1 AC7: "none" with RP on is the Ajax/Scutum profile combination.
+
+    Expected result:
+    - preset built, RP enabled
+    """
+    preset = _make_preset(supervision_format="none", rp_enabled=True, rp_interval_s=60.0)
+    # Assert: RP carries the periodic frame
+    assert preset.rp_enabled is True
+
+
+@pytest.mark.parametrize("interval", [60.0, 86400.0])
+def test_rp_interval_bounds_inclusive(interval):
+    """
+    Story 17.1 AC7: the RP interval bounds 60 and 86400 s are inclusive.
+
+    Expected result:
+    - preset built with the bound value
+    """
+    preset = _make_preset(rp_enabled=True, rp_interval_s=interval)
+    # Assert: bound value accepted
+    assert preset.rp_interval_s == interval
+
+
+@pytest.mark.parametrize("interval", [59.0, 86401.0])
+def test_rp_interval_out_of_range_rejected_when_enabled(interval):
+    """
+    Story 17.1 AC7: with RP on, an interval outside [60, 86400] is refused.
+
+    Expected result:
+    - ValueError naming rp_interval_s
+    """
+    # Assert: out-of-range interval refused
+    with pytest.raises(ValueError, match="rp_interval_s"):
+        _make_preset(rp_enabled=True, rp_interval_s=interval)
+
+
+def test_rp_interval_out_of_range_ignored_when_disabled():
+    """
+    Story 17.1 AC7 (clarification approved 2026-10-17): a stored but unused
+    rp_interval must not block the daemon.
+
+    Expected result:
+    - preset built with RP off and rp_interval_s=5
+    """
+    preset = _make_preset(rp_enabled=False, rp_interval_s=5.0)
+    # Assert: unused interval accepted as-is
+    assert preset.rp_interval_s == 5.0
+
+
+def test_unknown_supervision_format_rejected():
+    """
+    Story 17.1 AC7: a format outside SupervisionFormat is refused.
+
+    Expected result:
+    - ValueError naming supervision_format
+    """
+    # Assert: unknown format refused
+    with pytest.raises(ValueError, match="supervision_format"):
+        _make_preset(supervision_format="keepalive")
+
+
+def test_crc_format_bin_rejected():
+    """
+    Story 17.1 AC8: crc_format "bin" was removed from the sender side.
+
+    Expected result:
+    - ValueError naming crc_format
+    """
+    # Assert: bin refused on the sender side
+    with pytest.raises(ValueError, match="crc_format"):
+        _make_preset(crc_format="bin")

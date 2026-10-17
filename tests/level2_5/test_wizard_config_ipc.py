@@ -296,11 +296,12 @@ class TestPresetToTransport:
         """
         Wizard preset crc_format is passed to transport constructor.
         A mismatch would cause CRC validation failures on CSR responses.
+        Story 17.1: "hex" is the only sender-side value ("bin" removed).
 
         Expected result:
-        - Transport created with crc_format from preset
+        - Transport created with crc_format="hex" from preset
         """
-        preset = _make_wizard_preset(crc_format="bin")
+        preset = _make_wizard_preset(crc_format="hex")
         with patch("sys.argv", ["test"]):
             daemon = SIADaemon(preset=preset)
         daemon._account = "ABC123"
@@ -318,9 +319,7 @@ class TestPresetToTransport:
 
         try:
             # Assert: crc_format from preset passed to transport
-            call_kwargs = MockUDP.call_args[1] if MockUDP.call_args[1] else {}
-            call_args = MockUDP.call_args[0] if MockUDP.call_args[0] else ()
-            assert "bin" in str(call_args) + str(call_kwargs)
+            assert MockUDP.call_args.kwargs.get("crc_format") == "hex"
         finally:
             await daemon.on_stop()
 
@@ -572,16 +571,17 @@ class TestWizardConfigPresetMapping:
         # Assert: account stored in preset
         assert preset.account_number == "DEADBEEF"
 
-    def test_preset_crc_format_from_wizard(self) -> None:
+    def test_preset_crc_format_bin_rejected(self) -> None:
         """
-        Wizard step 1 crc_format → CSRPreset.crc_format → determines CRC algorithm.
+        Story 17.1 AC8: crc_format="bin" was removed from the sender side.
+        A stored "bin" (manual DB edit only) is refused at CSRPreset construction.
 
         Expected result:
-        - CSRPreset.crc_format matches configured value
+        - ValueError naming crc_format
         """
-        preset = _make_wizard_preset(crc_format="bin")
-        # Assert: crc_format stored in preset
-        assert preset.crc_format == "bin"
+        # Assert: bin refused by CSRPreset
+        with pytest.raises(ValueError, match="crc_format"):
+            _make_wizard_preset(crc_format="bin")
 
     def test_preset_supervision_interval_from_wizard(self) -> None:
         """

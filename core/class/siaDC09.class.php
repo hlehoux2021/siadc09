@@ -28,6 +28,25 @@ class siaDC09 extends eqLogic {
     const ENCRYPTION_KEY_HEX_LENGTHS = [32, 48, 64];
 
     /**
+     * Periodic-frame settings (ADR-22, Story 17.1). Mirrored from
+     * resources/siadc09d/presets.py (SupervisionFormat, RP_INTERVAL_MIN_S/MAX_S) —
+     * deamon_info() Guard 3e and CSRPreset.__post_init__ must refuse the same
+     * combinations, or Jeedom's auto-restart loops on a daemon that exits at start.
+     */
+    const SUPERVISION_FORMATS = ['none', 'sia-dcs', 'null'];
+    const SUPERVISION_FORMAT_DEFAULT = 'sia-dcs';
+    const RP_INTERVAL_MIN_S = 60;
+    const RP_INTERVAL_MAX_S = 86400;
+    const RP_INTERVAL_DEFAULT_S = 60;
+
+    /** Sender-side CRC formats: 'bin' removed on 2026-10-17 (Story 17.1, ADR-06 note). */
+    const SENDER_CRC_FORMATS = ['hex'];
+
+    /** CSR profile file (ADR-22) — read PHP-side only, never by the daemon. */
+    const CSR_PROFILES_FILE = __DIR__ . '/../config/csr_presets.json';
+    const CSR_PROFILES_SCHEMA_VERSION = 1;
+
+    /**
      * Jeedom internal actions the plugin knows how to run as a critical alert, stored in
      * `sia_notify_internal`. Adding one means: an <option> at step 4, a case in
      * _runNotifyInternal() and, if it needs a target, a config key + a check in
@@ -158,15 +177,46 @@ class siaDC09 extends eqLogic {
             return $return;
         }
 
+        // Guard 3c' — sender-side CRC format (Story 17.1): only 'hex' since 'bin' was
+        // removed. The wizard has no crc_format field, so a different value can only
+        // come from a manual DB edit; refusing it here keeps the daemon's own
+        // refusal from triggering Jeedom's restart loop.
+        if (!in_array($eqLogic->getConfiguration('crc_format', 'hex'), self::SENDER_CRC_FORMATS, true)) {
+            $return['launchable'] = 'nok';
+            $return['launchable_message'] = __(
+                "Format CRC non pris en charge (seul « hex » est accepté) — réenregistrez l'équipement.", __FILE__
+            );
+            return $return;
+        }
+
+        $supervisionFormat = $eqLogic->getConfiguration('supervision_format', self::SUPERVISION_FORMAT_DEFAULT);
+
         // Guard 3d — supervision interval must be positive. Default 60 matches the
         // system-wide default (deamon_start(), siadc09d.py's --supervision-interval),
         // so leaving the wizard field blank (trusting its "60" placeholder, which sets
         // no actual value) does not incorrectly block the daemon from launching.
-        if ((int) $eqLogic->getConfiguration('supervision_interval', 60) <= 0) {
+        // Irrelevant when supervision_format is 'none' (no supervision frame sent).
+        if ($supervisionFormat !== 'none'
+            && (int) $eqLogic->getConfiguration('supervision_interval', 60) <= 0) {
             $return['launchable'] = 'nok';
             $return['launchable_message'] = __(
                 "Intervalle de supervision invalide (étape 1 de l'assistant).", __FILE__
             );
+            return $return;
+        }
+
+        // Guard 3e — periodic-frame combination (Story 17.1, ADR-22). Same three rules
+        // and bounds as CSRPreset.__post_init__ (resources/siadc09d/presets.py). The RP
+        // range is checked only when RP is enabled: a stored but unused rp_interval
+        // must not block the daemon.
+        $periodicFrameError = self::periodicFrameConfigError(
+            (string) $supervisionFormat,
+            (bool) $eqLogic->getConfiguration('rp_enabled', 0),
+            (int) $eqLogic->getConfiguration('rp_interval', self::RP_INTERVAL_DEFAULT_S)
+        );
+        if ($periodicFrameError !== null) {
+            $return['launchable'] = 'nok';
+            $return['launchable_message'] = $periodicFrameError;
             return $return;
         }
 
@@ -266,6 +316,15 @@ class siaDC09 extends eqLogic {
         $supervisionInterval = (int) $eqLogic->getConfiguration('supervision_interval', 60);
         if ($supervisionInterval > 0) {
             $cmd .= ' --supervision-interval ' . $supervisionInterval;
+        }
+
+        // Story 17.1 (ADR-22): resolved periodic-frame values only — never a profile name.
+        $cmd .= ' --supervision-format ' . escapeshellarg(
+            (string) $eqLogic->getConfiguration('supervision_format', self::SUPERVISION_FORMAT_DEFAULT)
+        );
+        if ((bool) $eqLogic->getConfiguration('rp_enabled', 0)) {
+            $cmd .= ' --rp-enabled';
+            $cmd .= ' --rp-interval ' . (int) $eqLogic->getConfiguration('rp_interval', self::RP_INTERVAL_DEFAULT_S);
         }
 
         $retryCount = (int) $eqLogic->getConfiguration('retry_count', 6);
@@ -381,6 +440,65 @@ class siaDC09 extends eqLogic {
     public static function isValidEncryptionKey(?string $key): bool {
         $key = trim($key ?? '');
         return ctype_xdigit($key) && in_array(strlen($key), self::ENCRYPTION_KEY_HEX_LENGTHS, true);
+    }
+
+    /**
+     * deamon_info() Guard 3e (Story 17.1, ADR-22): why a periodic-frame combination is
+     * refused, or null when it is valid. Same three rules and bounds as
+     * CSRPreset.__post_init__ in resources/siadc09d/presets.py:
+     * - an unknown supervision format;
+     * - supervision 'none' with RP off (no periodic frame at all);
+     * - RP on with an interval outside RP_INTERVAL_MIN_S..RP_INTERVAL_MAX_S (inclusive).
+     * The RP range is not checked when RP is off: a stored but unused rp_interval must not
+     * block the daemon.
+     */
+    public static function periodicFrameConfigError(string $format, bool $rpEnabled, int $rpInterval): ?string {
+        if (!in_array($format, self::SUPERVISION_FORMATS, true)) {
+            return __("Format de supervision inconnu (étape 1 de l'assistant, Options avancées).", __FILE__);
+        }
+        if ($format === 'none' && !$rpEnabled) {
+            return __(
+                "Aucune trame périodique active : supervision « none » et test cyclique RP désactivé (étape 1 de l'assistant, Options avancées).",
+                __FILE__
+            );
+        }
+        if ($rpEnabled && ($rpInterval < self::RP_INTERVAL_MIN_S || $rpInterval > self::RP_INTERVAL_MAX_S)) {
+            return __(
+                "Intervalle du test cyclique RP invalide — entre 60 et 86400 secondes (étape 1 de l'assistant, Options avancées).",
+                __FILE__
+            );
+        }
+        return null;
+    }
+
+    /**
+     * CSR behaviour profiles from core/config/csr_presets.json (ADR-22, Story 17.1).
+     *
+     * Each profile maps a name to a French `label` plus the equipment config keys it sets
+     * (supervision_format, supervision_interval, rp_enabled, rp_interval). The file is read
+     * PHP-side only: the daemon receives resolved values, never a profile name.
+     *
+     * No caller yet — the wizard profile selector arrives with Story 17.4. This is expected.
+     *
+     * @return array<string, array<string, mixed>> The `profiles` object, or [] when the file
+     *         is missing, unreadable, not valid JSON or not schema_version 1 (logged at
+     *         `error`; never throws).
+     */
+    public static function getCsrProfiles(): array {
+        $path = self::CSR_PROFILES_FILE;
+        $raw = is_readable($path) ? @file_get_contents($path) : false;
+        if ($raw === false) {
+            log::add(__CLASS__, 'error', __('Fichier des profils de télésurveillance illisible', __FILE__) . ' : ' . $path);
+            return [];
+        }
+        $data = json_decode($raw, true);
+        if (!is_array($data)
+            || ($data['schema_version'] ?? null) !== self::CSR_PROFILES_SCHEMA_VERSION
+            || !is_array($data['profiles'] ?? null)) {
+            log::add(__CLASS__, 'error', __('Fichier des profils de télésurveillance invalide (JSON ou schema_version)', __FILE__) . ' : ' . $path);
+            return [];
+        }
+        return $data['profiles'];
     }
 
     /**
