@@ -33,3 +33,5 @@ _bmad/
 .claude/skills/bmad-*/
 node_modules/
 .claude/worktrees/
+# Real CSR endpoints and account numbers — local only, never committed
+internal-docs/telesurveillances.txt

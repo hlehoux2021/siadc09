@@ -153,9 +153,9 @@ class SIAProtocolError(ValueError):
 Per section 5.4.3–5.4.4, everything after the opening `[` is encrypted: the data, its closing `]`, any extended data and the timestamp. Everything up to and including `[` stays clear. The plaintext is `pad | content`; the ciphertext is written as uppercase hex and **nothing follows it** (no closing `]` after the hex — the `]` is inside the ciphertext).
 
 ```
-Unencrypted: "SIA-DCS"SSSS...#ACCOUNT[#ACCOUNT|BA 001]_HH:MM:SS,MM-DD-YYYY
+Unencrypted: "SIA-DCS"SSSS...#ACCOUNT[#ACCOUNT|Nri1/BA001]_HH:MM:SS,MM-DD-YYYY
 Encrypted:   "*SIA-DCS"SSSS...#ACCOUNT[<HEX>
-             <HEX> = hex(AES-CBC(pad + "|" + "#ACCOUNT|BA 001]_HH:MM:SS,MM-DD-YYYY"))
+             <HEX> = hex(AES-CBC(pad + "|" + "#ACCOUNT|Nri1/BA001]_HH:MM:SS,MM-DD-YYYY"))
 Supervision: "*NULL"SSSS...#ACCOUNT[<HEX of pad|]_timestamp>
 ```
 
@@ -166,7 +166,7 @@ The pad is random printable ASCII (never `|`, `[` or `]`, § 5.4.4.2), sized so 
 | `id_type` | `str` | Frame identifier token (see table above) |
 | `account` | `str` | Account number, 3–16 hex chars |
 | `seq` | `int` | Sequence number 0–9999; initialized to 0, wraps `9999 → 0000`. Formatted as 4 zero-padded digits: `f"{seq:04d}"`. |
-| `zone` | `str` | Already-formatted zone field for alarm events — the **zone order number, zero-padded to 3 digits** (`"001"`); empty string `''` for `'NULL'` supervision frames **and for an alarm whose zone could not be resolved** (the field is then absent from the data block: `[#001234|BA]`). The caller (`_build_event_frame()`) does the padding; `encode_message()` inserts the value verbatim. Never a zone label. |
+| `zone` | `str` | Already-formatted zone field for alarm events — the **zone order number, zero-padded to 3 digits** (`"001"`); empty string `''` for `'NULL'` supervision frames **and for an alarm whose zone could not be resolved** (the field is then absent from the data block: `[#001234|Nri1/BA]`). The caller (`_build_event_frame()`) does the padding; `encode_message()` inserts the value verbatim. Never a zone label. |
 | `timestamp` | `str` | UTC timestamp from `make_timestamp()`. `encode_message()` prepends the mandatory `_` separator before embedding it in the frame — do **not** include `_` in the value returned by `make_timestamp()`. |
 | `receiver_prefix` | `str` | Optional 0–6 hex char receiver prefix. Default `''` → field omitted; CSR interprets as `R0`. **IMA Protect: unconfirmed — verify at integration time.** |
 | `account_prefix` | `str` | Optional 0–6 hex char account prefix. Default `''` → field omitted; CSR interprets as `L0`. **IMA Protect: unconfirmed — verify at integration time.** |
@@ -177,7 +177,7 @@ The pad is random printable ASCII (never `|`, `[` or `]`, § 5.4.4.2), sized so 
 
 **Example frame (alarm, unencrypted, with media URL):**
 ```
-"SIA-DCS"0007L0#ABC123[#ABC123|BA 001][Vhttp://192.168.1.50/snap.jpg]_14:32:11,03-06-2026
+"SIA-DCS"0007L0#ABC123[#ABC123|Nri1/BA001][Vhttp://192.168.1.50/snap.jpg]_14:32:11,03-06-2026
 ```
 
 **Same alarm, zone unresolved** (the label sent by the alarm plugin matched no row in
@@ -451,8 +451,8 @@ message_string:
                | SIA-DCS (alarm, clear) | *SIA-DCS (alarm, encrypted)
   └── SSSS: 0001–9999, wraps
   └── receiver/account prefixes: optional, default R0L0
-  └── [event_data]: e.g. [#1234|BA 001] — zone ORDER NUMBER, 3-digit zero-padded (Annex B),
-       never the zone label; omitted entirely when the zone is unresolved → [#1234|BA]
+  └── [event_data]: e.g. [#1234|Nri1/BA001] — area (ri, fixed 1), then zone ORDER NUMBER, 3-digit zero-padded (Annex B),
+       never the zone label; omitted entirely when the zone is unresolved → [#1234|Nri1/BA]
   └── [Vmedia_url]: optional — SIA DC-09 Verification extended data field (section 5.5.1.8)
        Appended after [event_data], before timestamp.
        Forbidden chars in URL: '[', ']', '|'. Encoding: Windows 1252.
@@ -1160,10 +1160,17 @@ Receives `{cmd: 'burglarAlarm'|'fireAlarm'|'panicAlarm', zone: zone_name, zone_n
 | `zone_number` | `int \| None` | PHP resolved the label against `sia_zone_mappings` | **the frame, and nothing else** |
 
 `_build_event_frame()` sets `extended_data['zone']` from `zone_number`, zero-padded to 3
-digits (`1` → `"001"`, per DC-09 Annex B usage: `[#1234|FA 129]`, Contact ID `[#1234|1130 02 065]`).
+digits (`1` → `"001"`, per DC-09 Annex B usage: `[#1234|NFA129]`, Contact ID `[#1234|1130 02 065]`).
 When `zone_number` is `None` — the label matched no row in the zone table, or the title was
-empty — **no zone field is emitted at all** (`[#001234|BA]`). The label is never transmitted:
+empty — **no zone field is emitted at all** (`[#001234|Nri1/BA]`). The label is never transmitted:
 a CSR indexes incidents by zone number, and free text is not actionable for an operator.
+
+Every event frame also carries the DC-03 area as `ri`, between `N` and the code:
+`_build_event_frame()` sets `extended_data['area']` from the daemon constant
+`SIA_AREA_NUMBER` (fixed `1`: the plugin has a single siaDC09 equipment, so a single area),
+and `_format_data_field()` emits `Nri1/BA001`. This is what Ajax hubs send. Scutum shows
+CL/OP as "CODE INCONNU" without it (live probe, 2026-10-16, `internal-docs/ajax.md`).
+Supervision frames carry no area.
 
 The label is deliberately kept in the payload so an unresolved zone is still diagnosable:
 the log and the notification say which zone name arrived, even though the frame carries none.

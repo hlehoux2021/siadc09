@@ -59,9 +59,11 @@ Both formats must be supported. Default to hex when encoding.
 ```
 - `ID_TOKEN`: `SIA-DCS` (clear) or `*SIA-DCS` (encrypted) — `*` prefix triggers encryption
 - `SSSS`: 4-digit sequence number (0001–9999, wraps)
-- `Rreceiver_prefix` / `Laccount_prefix`: optional (0–6 hex chars), default `R0L0` if absent
+- `Rreceiver_prefix`: optional (1–6 hex chars), omitted entirely when unused (never `R0`); `Laccount_prefix`: required (1–6 hex chars), `L0` when no prefix is needed
 - `ACCOUNT`: 3–16 hex chars
-- Timestamp format: `HH:MM:SS,MM-DD-YYYY` (UTC strict)
+- Timestamp format: `_HH:MM:SS,MM-DD-YYYY` (leading underscore, UTC strict, exactly 20 chars)
+- `[data]` for `SIA-DCS`: `[#ACCOUNT|N<code><address>]` — `N` (new event) + 2-letter SIA code + address, no space or separator. Annex B of the original PDF: `[#12345A|NFA129]`, `[#12345A|Nid3OG2]` (`OG` = Open Area, so `id3` = user 3 and the address 2 = area). The address meaning depends on the code (DC-03 table in `internal-docs/SIA Codes … Peoplecall Cloud.pdf`): `BA`/`FA`/`PA` = zone or point; `BC`, `CL`, `OP`, `CR`, `OR`, `CF` = user number; `CG`, `OG`, `CA`, `OA`, `NL`, `CI`, `OI` = area. DC-03 optional fields (`ri` area, `id` user, `ti` time…) go between `N` and the code, `/`-separated: `Nri1/CL001`. Never `FA 129` / `BA 001` — that form only appears in the Markdown conversion of the spec (corrupted), not in the PDF. For `ADM-CID`: `[#ACCOUNT|1110 00 129]` (spaces are part of that format)
+- Content of the data field is defined by DC-07-2001.04 Appendix A (not in `internal-docs/`); the PDF `internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.pdf` is the reference, the `.md` is a lossy conversion
 
 ### CRC Algorithm
 CRC-16 MODBUS with polynomial `0xA001` (bit-reversal of 0x8005):

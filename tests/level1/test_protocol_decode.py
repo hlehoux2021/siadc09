@@ -206,7 +206,7 @@ class TestDecodeEncryptedFrame:
         decode() with the key returns the region content and the plaintext timestamp.
 
         Expected result:
-        - data_decrypted == '#1234|BA 001][Vhttp://c/s]_12:00:00,09-27-2026'
+        - data_decrypted == '#1234|NBA001][Vhttp://c/s]_12:00:00,09-27-2026'
         - timestamp_str parsed from the plaintext
         - key and pad never appear in the result
         """
@@ -216,7 +216,7 @@ class TestDecodeEncryptedFrame:
             timestamp=_TS, encryption=True, encryption_key=_KEY_128)
         result = decode(frame.hex(), key=_KEY_128)
         # Assert: decrypted region content, pad and '|' stripped
-        assert result.data_decrypted == "#1234|BA 001][Vhttp://c/s]_12:00:00,09-27-2026"
+        assert result.data_decrypted == "#1234|NBA001][Vhttp://c/s]_12:00:00,09-27-2026"
         # Assert: timestamp comes from the plaintext
         assert result.timestamp_str == "12:00:00,09-27-2026"
         # Assert: CRC and length valid on the wire form
@@ -324,7 +324,7 @@ class TestDecodeEncryptedFrame:
         assert result.returncode == 0, result.stderr
         data = json.loads(result.stdout)
         # Assert: decrypted content returned
-        assert data["data_decrypted"] == "#1234|BA]_12:00:00,09-27-2026"
+        assert data["data_decrypted"] == "#1234|NBA]_12:00:00,09-27-2026"
         # Assert: key never echoed
         assert _KEY_128.hex() not in result.stdout.lower()
 

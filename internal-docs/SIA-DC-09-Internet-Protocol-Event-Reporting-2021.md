@@ -863,7 +863,7 @@ This annex provides example message frames to illustrate the protocol format.
 ### B.1 Fire Alarm, Zone 129, SIA DC-04 Format, Non-Encrypted, No Timestamp
 
 ```
-<LF>B3680040"SIA-DCS"0001L0#1234[#1234|FA 129]<CR>
+<LF>CE110032"SIA-DCS"9876R579BDFL789ABC#12345A[#12345A|NFA129]<CR>
 ```
 
 ### B.2 Fire Alarm, Zone 129, Contact ID DC-05 Format, Non-Encrypted, No Timestamp, Group 0
@@ -875,7 +875,7 @@ This annex provides example message frames to illustrate the protocol format.
 ### B.3 Fire Alarm, Zone 129, SIA DC-04 Format, Non-Encrypted, With Timestamp
 
 ```
-<LF>E9F8005C"SIA-DCS"0001L0#1234[#1234|FA 129]_22:49:34,01-22-2012<CR>
+<LF>DC530046"SIA-DCS"9876R579BDFL789ABC#12345A[#12345A|NFA129]_13:14:15,02-15-2006<CR>
 ```
 
 ### B.4 Fire Alarm, Zone 129, SIA DC-04 Format, Encrypted
@@ -889,7 +889,7 @@ Note: The encrypted data is shown as hexadecimal characters representing the enc
 ### B.5 Fire Alarm, Zone 129, SIA DC-04 Format, Non-Encrypted, No Timestamp, MAC Address
 
 ```
-<LF>7A3C0055"SIA-DCS"0001L0#1234[#1234|FA 129][M1234567890AB]<CR>
+<LF>8C860043"SIA-DCS"9876R579BDFL789ABC#123456A[#123456A|NFA129][M1234567890AB]<CR>
 ```
 
 ### B.6 Intrusion Alarm, Zone 65, Contact ID DC-05 Format, Non-Encrypted, Group 2, MAC Address, Validation Data (future)
@@ -901,13 +901,13 @@ Note: The encrypted data is shown as hexadecimal characters representing the enc
 ### B.7 Open Area 2, User 3, SIA DC-04 Format, Non-Encrypted, No Timestamp
 
 ```
-<LF>9C4E0042"SIA-DCS"0001L0#1234[#1234|OP 002 003]<CR>
+<LF>463A0033"SIA-DCS"9876R579BDFL789ABC#12345A[#12345A|Nid3OG2]<CR>
 ```
 
 ### B.8 Fire Alarm, Zone 129, SIA DC-04 Format, Non-Encrypted, No Timestamp, Network Address
 
 ```
-<LF>AD5F0058"SIA-DCS"0001L0#1234[#1234|FA 129][N1234567890ABCDEF]<CR>
+<LF>698C0042"SIA-DCS"9876R579BDFL789ABC#123456A[#123456A|NFA129][N1234567890AB]<CR>
 ```
 
 ---
@@ -1319,7 +1319,7 @@ This example illustrates the DUH response for unsupported message elements:
 
 **Sequence:**
 ```
-PE → CSR: Event message [#1234|BA 001][X123.456][Y45.678] (seq 0045)
+PE → CSR: Event message [#1234|NBA001][X123.456][Y45.678] (seq 0045)
 CSR → PE: DUH (seq 0045) - Cannot process X/Y coordinates
 PE: Reports or handles per configuration
 ```

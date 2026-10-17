@@ -720,14 +720,14 @@ def test_data_field_parametrized(builder, account: str, event_code: str, expecte
 def test_data_field_zone_in_extended_data(builder):
     """
     Test that zone from extended_data is appended after event code.
-    Per SIA DC-09 Annex B (e.g. [#1234|FA 129]), zone follows event code with a space.
+    Per SIA DC-09 Annex B (e.g. [#12345A|NFA129]), the address follows the code with no separator.
 
     Expected result:
-    - Zone appears as "[#{account}|{event_code} {zone}]"
+    - Zone appears as "[#{account}|N{event_code}{zone}]"
     """
     result = builder._format_data_field("000001", "BA", {"zone": "Piece1"})
-    # Assert: zone appears after event code separated by space
-    assert result == "[#000001|BA Piece1]"
+    # Assert: N prefix, then code and zone with no separator
+    assert result == "[#000001|NBAPiece1]"
 
 
 def test_data_field_no_zone_in_extended_data(builder):
@@ -740,7 +740,37 @@ def test_data_field_no_zone_in_extended_data(builder):
     """
     result = builder._format_data_field("000001", "BA", {"zone": ""})
     # Assert: no zone in output when zone is empty string
-    assert result == "[#000001|BA]"
+    assert result == "[#000001|NBA]"
+
+
+def test_data_field_area_emitted_as_ri_before_code(builder):
+    """
+    Test that an area from extended_data is emitted as the DC-03 "ri" field.
+    DC-03 optional fields sit between "N" and the code, '/'-terminated — the shape an Ajax
+    hub sends and Scutum needs for CL/OP (internal-docs/ajax.md, probe of 2026-10-16).
+
+    Expected result:
+    - area "1" + zone "001" on CL yields "[#27099|Nri1/CL001]"
+    - area without zone yields "[#27099|Nri1/BA]"
+    - empty area yields the plain "[#27099|NBA001]"
+    """
+    # Assert: ri field between N and the code, address right after the code
+    assert builder._format_data_field("27099", "CL", {"area": "1", "zone": "001"}) == "[#27099|Nri1/CL001]"
+    # Assert: area alone, no address
+    assert builder._format_data_field("27099", "BA", {"area": "1"}) == "[#27099|Nri1/BA]"
+    # Assert: empty area emits no ri field
+    assert builder._format_data_field("27099", "BA", {"area": "", "zone": "001"}) == "[#27099|NBA001]"
+
+
+def test_data_field_area_ignored_for_non_sia_codes(builder):
+    """
+    Test that the area is only applied to 2-letter SIA codes, never to "0000" supervision.
+
+    Expected result:
+    - "0000" with an area still yields "[#001234|0000]"
+    """
+    # Assert: supervision data block unchanged by an area
+    assert builder._format_data_field("001234", "0000", {"area": "1"}) == "[#001234|0000]"
 
 
 def test_data_field_none_extended_data_no_zone(builder):
@@ -817,7 +847,7 @@ def test_encode_message_places_v_block_between_data_field_and_timestamp(builder)
     before the timestamp — never folded into the [Data] brackets.
 
     Expected result:
-    - message core contains "[#20881|BA 002][Vhttp://host/snapshot.jpg]_12:00:00,09-23-2026"
+    - message core contains "[#20881|NBA002][Vhttp://host/snapshot.jpg]_12:00:00,09-23-2026"
       as one contiguous substring (data field, then V-block, then timestamp, no gaps)
     """
     frame = builder.encode_message(
@@ -828,7 +858,7 @@ def test_encode_message_places_v_block_between_data_field_and_timestamp(builder)
     )
     message_core = parse_frame(frame)["message_core"].decode("ascii")
     # Assert: data field, V-block and timestamp are contiguous and in spec order
-    assert "[#20881|BA 002][Vhttp://host/snapshot.jpg]_12:00:00,09-23-2026" in message_core
+    assert "[#20881|NBA002][Vhttp://host/snapshot.jpg]_12:00:00,09-23-2026" in message_core
 
 
 def test_encode_message_no_v_block_when_media_url_absent(builder):
