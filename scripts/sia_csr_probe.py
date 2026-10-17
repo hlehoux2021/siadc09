@@ -16,6 +16,7 @@ Usage:
     python3 scripts/sia_csr_probe.py --account 27099
     python3 scripts/sia_csr_probe.py --account 27099 --host 194.250.35.75 --port 10657 --send
     python3 scripts/sia_csr_probe.py --account 27099 --event Nri1/CL001 --event Nri1/BA1 --send
+    python3 scripts/sia_csr_probe.py --account 27099 --event 'Nri1/BA1##[Vhttps://h/s.jpg]'
 """
 
 from __future__ import annotations
@@ -37,6 +38,7 @@ DEFAULT_SEQ_START = 1
 ACK_TIMEOUT_S = 10.0
 CLOSE_WAIT_S = 15.0
 EVENT_GAP_S = 1.0
+EXTENDED_SEPARATOR = "##"
 
 
 def utc_timestamp() -> str:
@@ -55,9 +57,18 @@ def null_frame(account: str) -> bytes:
     return build_frame(f'"NULL"0000L0#{account}[]{utc_timestamp()}')
 
 
-def event_frame(account: str, seq: int, data: str) -> bytes:
-    """SIA-DCS event frame: "SIA-DCS"seqL0#acct[#acct|data]_ts."""
-    return build_frame(f'"SIA-DCS"{seq:04d}L0#{account}[#{account}|{data}]{utc_timestamp()}')
+def split_event(spec: str) -> tuple[str, str]:
+    """Split an --event value into (data, extended block); "DATA##[Vurl]" -> ("DATA", "[Vurl]")."""
+    data, _, extended = spec.partition(EXTENDED_SEPARATOR)
+    return data, extended
+
+
+def event_frame(account: str, seq: int, spec: str) -> bytes:
+    """SIA-DCS event frame: "SIA-DCS"seqL0#acct[#acct|data]<extended>_ts."""
+    data, extended = split_event(spec)
+    return build_frame(
+        f'"SIA-DCS"{seq:04d}L0#{account}[#{account}|{data}]{extended}{utc_timestamp()}'
+    )
 
 
 def show(direction: str, raw: bytes) -> None:
@@ -116,7 +127,9 @@ def main() -> int:
     parser.add_argument("--host", default="194.250.35.75")
     parser.add_argument("--port", type=int, default=10657)
     parser.add_argument("--event", action="append", dest="events",
-                        help=f"data after '|', repeatable (default: {' '.join(DEFAULT_EVENTS)})")
+                        help=f"data after '|', repeatable (default: {' '.join(DEFAULT_EVENTS)}); "
+                             "append '##' + a verbatim bracket block to add an extended "
+                             "block, e.g. 'Nri1/BA1##[Vhttps://h/snapshot.jpg]'")
     parser.add_argument("--seq-start", type=int, default=DEFAULT_SEQ_START,
                         help="first event sequence number")
     parser.add_argument("--no-null", action="store_true", help="do not send the NULL frame first")
