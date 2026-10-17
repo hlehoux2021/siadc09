@@ -74,7 +74,7 @@ Continuous supervision health monitoring is a first-class feature, not an aftert
 
 ### Technical Success
 
-- Full SIA DC-09-2021 protocol compliance: AES-128 CBC encryption, correct timestamp handling, supervision NULL keep-alive, ACK/NAK dialog
+- Full SIA DC-09-2021 protocol compliance: AES-128 CBC encryption, correct timestamp handling, supervision NULL keep-alive, ACK/NAK dialog, SIA-DCS data block per Annex B with DC-03 area (`Nri1/…`, ADR-21 — corrected 2026-10-17)
 - Supervision heartbeat maintained continuously; SM1 state machine detects connection degradation within 3 missed supervision cycles and notifies the user
 - Alarm event delivery: immediate failure report on error; at least one retry on timeout before declaring failure and triggering critical notification
 - CSR assumed always available (no failover in v1.0); network-level transient errors handled via SM1 reconnection logic (TCP) or supervision timeout detection (UDP)

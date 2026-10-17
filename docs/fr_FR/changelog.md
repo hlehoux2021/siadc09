@@ -18,5 +18,6 @@ Version de pré-diffusion, destinée aux premiers testeurs. Ce n'est pas une ver
 - Documentation utilisateur, administrateur et développeur ; traduction française complète de l'interface.
 - **Chiffrement AES** conforme à DC-09-2021 (§ 5.4) pour la supervision et les alarmes, clé de 128, 192 ou 256 bits saisie en hexadécimal. Une clé absente ou invalide bloque tout envoi (jamais d'envoi en clair). Pas encore validé avec un vrai récepteur.
 - Une trame refusée par la centrale (NAK) est renvoyée immédiatement avec un horodatage mis à jour.
+- Trames d'alarme conformes à l'annexe B de DC-09 et à DC-03 (préfixe `N`, partition `ri1`) : reconnues par un centre de télésurveillance exigeant, qui affichait auparavant « CODE INCONNU » pour l'armement et le désarmement.
 
 Limitations connues de cette version de test : voir la [documentation](index.md#limitations-connues), notamment : **chiffrement AES pas encore validé avec un vrai récepteur**, UDP testé uniquement avec un simulateur.

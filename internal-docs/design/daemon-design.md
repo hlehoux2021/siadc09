@@ -183,7 +183,7 @@ The pad is random printable ASCII (never `|`, `[` or `]`, § 5.4.4.2), sized so 
 **Same alarm, zone unresolved** (the label sent by the alarm plugin matched no row in
 `sia_zone_mappings`) — no zone field at all, the alarm is still transmitted:
 ```
-"SIA-DCS"0007L0#ABC123[#ABC123|BA][Vhttp://192.168.1.50/snap.jpg]_14:32:11,03-06-2026
+"SIA-DCS"0007L0#ABC123[#ABC123|Nri1/BA][Vhttp://192.168.1.50/snap.jpg]_14:32:11,03-06-2026
 ```
 
 ---

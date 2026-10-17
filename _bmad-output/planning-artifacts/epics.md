@@ -253,6 +253,32 @@ Story file: `_bmad-output/implementation-artifacts/1-5-dc09-conformant-send-path
 
 ---
 
+### Story 1.6: SIA-DCS Data Block per DC-09 Annex B — `N` Prefix and DC-03 Area
+
+*Added retroactively 2026-10-17 via correct-course (sprint-change-proposal-2026-10-17.md). The work landed outside the backlog on branch `fix/sia-dcs-n-prefix` (commits ee74db6, d35ec5a, merge 273bf75). It corrects Story 1.1's data block, which followed altered Annex B examples in the Markdown copy of the spec instead of the PDF (`[#12345A|NFA129]`).*
+
+As a Jeedom user reporting to a strict monitoring station,
+I want every SIA-DCS event's data block to follow DC-09 Annex B and DC-03,
+So that the receiver recognises each code instead of showing "CODE INCONNU".
+
+**Acceptance Criteria:**
+
+**Given** a 2-letter SIA event code and an optional address
+**When** the daemon builds the event frame
+**Then** the data block is `[#acct|Nri1/<code><addr>]` — `N` new-event prefix, DC-03 area `ri<n>/` taken from the daemon constant `SIA_AREA_NUMBER` (= 1), no separator between code and address, address zero-padded to 3 digits — e.g. `[#001234|Nri1/BA001]`, `[#001234|Nri1/CL501]`
+
+**And** an unmapped zone gives `[#acct|Nri1/BA]` (no address), unchanged from the existing rule
+
+**And** the same block is used in clear and encrypted mode; supervision (`NULL`, `*NULL`) carries no data block and no area
+
+**And** the area is a daemon constant, not a plugin setting (a single siaDC09 equipment = one area)
+
+**And** it is validated live at Scutum (2026-10-17): CL, BA, BC and OP all recognised (`internal-docs/ajax.md`)
+
+Status: done — no story file; evidence is the commits above, the level1/level2 tests, and `internal-docs/ajax.md`.
+
+---
+
 ## Epic 2: CSR Simulator (Standalone Tool)
 
 **⚠️ SCOPE CLARIFICATION (2026-04-07):** This is **Internal Testing Infrastructure**, not a v1.0 user-facing epic. It provides developer and QA tools for protocol validation. Can be implemented in parallel with or after Epic 1 based on resource availability. Core v1.0 implementation (Epics 1, 5-10) can proceed with mock CSR responses if simulator is deferred.
@@ -1572,6 +1598,8 @@ Full integration testing with real Ajax alarm system, CSR Simulator validation a
 **Dependencies:** Epic 1-10 (all features complete)
 
 ### Story 11.1: Protocol Conformance — Capture & Compare Ajax Frames
+
+*Note 2026-10-17 (correct-course): Ajax frames were captured and compared on 2026-10-16/17, against the real Scutum receiver rather than the CSR Simulator (`internal-docs/ajax.md`, 4 pcapng files under `internal-docs/`, probe `scripts/sia_csr_probe.py`). The comparison drove Story 1.6 / ADR-21 (data block). It also surfaced supervision differences (Ajax: `NULL` with an empty block, a periodic `Nri0/RP0000`, its own TCP connection handling), which are deliberately not adopted yet and still under discussion. The ACs below (simulator, `test_data/` hex files, `compare_frames.py`) are unchanged and still open; they will be revisited when that discussion concludes.*
 
 As a protocol engineer,
 I want to verify our daemon generates frames identical to Ajax,

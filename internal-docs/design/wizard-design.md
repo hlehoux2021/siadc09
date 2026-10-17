@@ -328,8 +328,8 @@ resolved against this table:
 
 | Case | Frame |
 |------|-------|
-| Label matches a `zone_name` (case-insensitive, trimmed) | `[#001234|NBA001]` — the matched `zone_number`, zero-padded to 3 digits |
-| No match, or empty title | `[#001234|BA]` — **no zone field at all**, plus a warning in the log |
+| Label matches a `zone_name` (case-insensitive, trimmed) | `[#001234|Nri1/BA001]` — the matched `zone_number`, zero-padded to 3 digits |
+| No match, or empty title | `[#001234|Nri1/BA]` — **no zone field at all**, plus a warning in the log |
 
 The label is never transmitted. Rationale: a CSR indexes incidents by zone number; a free
 text label is not actionable for an operator and is not what the DC-09 Annex B examples

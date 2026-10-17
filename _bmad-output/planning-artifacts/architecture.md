@@ -689,6 +689,39 @@ promotion de scope PRD.
 
 ---
 
+### ADR-21 — SIA-DCS data block per DC-09 Annex B and DC-03 *(added 2026-10-17)*
+
+**Context.** Story 1.1 built the event data block as `[#acct|BA 001]`, from Annex B examples that had been
+altered in the Markdown copy of the spec. The PDF has `[#12345A|NFA129]` and `[#12345A|Nid3OG2]`. Lenient
+receivers (`192.168.100.15:10002`) accepted the old form, but Scutum, a strict receiver, showed CL/OP as "CODE INCONNU". The Ajax↔Scutum
+captures (`internal-docs/ajax.md`) showed the expected shape `Nri<area>/<code><addr>`.
+
+**Decision.**
+- A 2-letter SIA event code is sent as `[#acct|Nri<area>/<code><addr>]`, built only by
+  `SIAProtocol._format_data_field()`:
+  - `N` = new event;
+  - `ri<area>/` = DC-03 area field, `/`-terminated;
+  - no separator between code and address;
+  - the address is zero-padded to 3 digits (zone number per §Zone Mapping, user number per ADR-18).
+- The area comes from the daemon constant `SIA_AREA_NUMBER = 1` (`daemon.py`). It is not a plugin
+  setting, because one siaDC09 equipment reports one area.
+- Codes that are not 2-letter (clear-mode supervision `[#acct|0000]`, D-86) get neither `N` nor area.
+  Encrypted supervision is `*NULL` (§ 5.5.2.1), with no data block.
+- Encryption wraps the same block unchanged.
+- Spec reference order: the PDF's Annex B wins over the Markdown copy when they disagree.
+
+**Rejected.**
+- Area as a wizard or preset setting: YAGNI for one equipment. Revisit if multi-area reporting is requested.
+- A per-CSR content format (ADR-19): withdrawn, because the "IP" layout was a receiver's display of this same block.
+
+**Consequences.**
+- AC examples in done stories (8.2, 12.5, 13.1, 13.4) still show the old `BA 001` / `BC {user:03d}`
+  notation. They are kept as history; this ADR and Story 1.6 take precedence.
+- Validated live at Scutum on 2026-10-17 (CL, BA, BC, OP recognised). Not yet checked at Aremis,
+  where `ZONE=0008` is believed to be `ri8`.
+
+---
+
 ### ADR-18 — User-addressed event codes and the configured SIA user *(added 2026-09-25)*
 
 **Context.** DC-03 addresses BC, OP and CL by **user number**, and BA/FA/PA by zone. The Jeedom alarm
@@ -1348,7 +1381,7 @@ renumbered by table position on the first step-3 save.
 ```python
 mapping = next((z for z in self._zone_mappings if z["zone_name"] == zone_name), None)
 ```
-Unmapped zone: alarm frame sent **without any zone field** (`[#001234|BA]`, not the label),
+Unmapped zone: alarm frame sent **without any zone field** (`[#001234|Nri1/BA]`, not the label),
 without camera/media, WARNING logged. Daemon never crashes on unmapped zone.
 
 **Two fields travel in the IPC payload, on purpose:** `zone` (the label — logs, notification

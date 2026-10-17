@@ -462,7 +462,7 @@ private function _findZoneEntry(string $zone, array $zoneMapping): ?array {
 in `zoneMapping`, `_findZoneEntry()` returns `null`. Both `camera_action_cmd_id` and
 `media_url_cmd_id` checks are skipped (empty entry), the alarm is sent with an empty
 `media_url`, and `zone_number` is `null` so the frame carries **no zone field at all**
-(`[#001234|BA]`) — never the unresolved label. A warning names the zone so the operator can
+(`[#001234|Nri1/BA]`) — never the unresolved label. A warning names the zone so the operator can
 fix the mapping. An alarm must never be blocked by a configuration issue.
 
 **Zone number formatting:** the number is an `int` in the payload; zero-padding to 3 digits
