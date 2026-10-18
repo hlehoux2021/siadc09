@@ -174,6 +174,27 @@ $('#bt_siaDC09_toggleAdvanced').on('click', function() {
   $('#siaDC09-advanced').toggle()
 })
 
+// Summary lines [label, text] for the profile, the periodic frames and the reconnection policy.
+// Absent keys read as the daemon-side defaults (sia-dcs, 60 s, RP off) — a legacy equipment.
+function siaDC09_periodicSummaryLines(cfg) {
+  var profiles = (typeof siaDC09_csrProfiles === 'object' && siaDC09_csrProfiles) || {}
+  var profile = cfg.csr_profile ? profiles[cfg.csr_profile] : null
+  var format = cfg.supervision_format || 'sia-dcs'
+  var interval = parseInt(cfg.supervision_interval, 10) || 60
+  var rpInterval = parseInt(cfg.rp_interval, 10) || 60
+  // Checkbox config comes back as "0"/"1" strings — compare explicitly.
+  var rpOn = cfg.rp_enabled === true || cfg.rp_enabled === '1' || cfg.rp_enabled === 1
+  var supervision = format === 'none'
+    ? 'aucune trame de supervision'
+    : (format === 'null' ? 'NULL' : 'SIA-DCS') + ' toutes les ' + interval + ' s'
+  return [
+    ['Profil : ', profile ? (profile.label || cfg.csr_profile) : 'Personnalisé'],
+    ['Supervision : ', supervision],
+    ['Test cyclique (RP) : ', rpOn ? 'activé, toutes les ' + rpInterval + ' s' : 'désactivé'],
+    ['Reconnexion : ', (cfg.retry_count || 6) + ' tentatives de reconnexion'],
+  ]
+}
+
 // ===== STEP 1 VALIDATION =====
 
 function siaDC09_validateStep1() {
@@ -678,11 +699,9 @@ function siaDC09_populateConfigSummary(eqLogic) {
   ).append(
     $('<span>').text((cfg.csr_ip || '') + ':' + (cfg.csr_port || '') + ' (' + ((cfg.transport || 'udp').toUpperCase()) + ')')
   ).appendTo($conn)
-  $('<div>').append(
-    $('<strong>').text('Supervision : ')
-  ).append(
-    $('<span>').text((cfg.supervision_interval || 60) + 's, ' + (cfg.retry_count || 6) + ' tentatives de reconnexion')
-  ).appendTo($conn)
+  siaDC09_periodicSummaryLines(cfg).forEach(function(line) {
+    $('<div>').append($('<strong>').text(line[0])).append($('<span>').text(line[1])).appendTo($conn)
+  })
   // Persisted checkbox config comes back as the string "0" when unchecked, not absent —
   // a bare truthy check on cfg.encryption_enabled treats "0" as truthy and always shows
   // "activé" (bug found live 2026-09-26). Compare explicitly.

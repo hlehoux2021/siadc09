@@ -65,12 +65,14 @@ for (const [key, value] of Object.entries(scenario.fields || {})) {
 }
 
 const validate = []
+const summaries = []
 for (const action of scenario.actions || []) {
   if (action.op === 'apply') window.siaDC09_applyProfile(action.profile, action.fill)
+  else if (action.op === 'summary') summaries.push(window.siaDC09_periodicSummaryLines(action.cfg))
   else if (action.op === 'validate') validate.push(window.siaDC09_validateStep1())
 }
 
-const out = { fields: {}, validate }
+const out = { fields: {}, validate, summaries }
 for (const key of ['supervision_format', 'supervision_interval', 'rp_interval']) out.fields[key] = field(key).val()
 out.fields.rp_enabled = field('rp_enabled').is(':checked')
 out.locked = $('.siaDC09-locked').length

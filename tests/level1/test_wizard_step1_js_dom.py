@@ -116,3 +116,40 @@ def test_validate_step1_periodic_frame_rules(
     assert out["advancedVisible"] is advanced_open
     # Assert: error box filled only on refusal
     assert bool(out["errors"]) is (not expected_ok)
+
+
+_LABELS_PROFILES = {"scutum": {"label": "Scutum", "supervision_format": "none"}}
+
+
+@pytest.mark.parametrize("cfg, expected", [
+    # Legacy equipment: no new key -> daemon-side defaults
+    ({}, [["Profil : ", "Personnalisé"], ["Supervision : ", "SIA-DCS toutes les 60 s"],
+          ["Test cyclique (RP) : ", "désactivé"],
+          ["Reconnexion : ", "6 tentatives de reconnexion"]]),
+    # Scutum profile as stored by the wizard (checkbox as "1" string)
+    ({"csr_profile": "scutum", "supervision_format": "none", "rp_enabled": "1",
+      "rp_interval": "60", "retry_count": "4"},
+     [["Profil : ", "Scutum"], ["Supervision : ", "aucune trame de supervision"],
+      ["Test cyclique (RP) : ", "activé, toutes les 60 s"],
+      ["Reconnexion : ", "4 tentatives de reconnexion"]]),
+    # Custom NULL supervision; unchecked RP stored as "0" must read as off
+    ({"supervision_format": "null", "supervision_interval": "120", "rp_enabled": "0",
+      "rp_interval": "300"},
+     [["Profil : ", "Personnalisé"], ["Supervision : ", "NULL toutes les 120 s"],
+      ["Test cyclique (RP) : ", "désactivé"],
+      ["Reconnexion : ", "6 tentatives de reconnexion"]]),
+])
+def test_periodic_summary_lines(cfg: dict[str, Any], expected: list[list[str]]) -> None:
+    """
+    The configuration summary names the profile, supervision frame, RP and reconnection.
+
+    Expected result:
+    - absent keys read as the daemon defaults (legacy equipment)
+    - RP "0" string is off, "1" is on, with its own interval
+    - supervision 'none' states there is no frame instead of an interval
+    - an unknown/empty profile reads Personnalisé
+    """
+    out = _run({"profiles": _LABELS_PROFILES, "actions": [{"op": "summary", "cfg": cfg}]})
+
+    # Assert: summary lines match the specification
+    assert out["summaries"] == [expected]
