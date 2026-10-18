@@ -473,7 +473,7 @@ def build_notification(code: ErrorCode, context: dict[str, Any]) -> Notification
 
     title_map: dict[ErrorCode, str] = {
         ErrorCode.SUPERVISION_TIMEOUT: "siaDC09 — Timeout supervision (auto-résolu)",
-        ErrorCode.SUPERVISION_NAK: "siaDC09 — NAK supervision (horodatage rejeté — auto-résolu)",
+        ErrorCode.SUPERVISION_NAK: "siaDC09 — NAK supervision (trame refusée — auto-résolu)",
         ErrorCode.BAD_CSR_RESPONSE: "siaDC09 — Réponse incompréhensible de la centrale",
         ErrorCode.SUPERVISION_DISCONNECTED: "siaDC09 — Supervision perdue",
         ErrorCode.EVENT_FAILED: f"siaDC09 — {_event_title_subject} non transmis{_event_gender_e}",
@@ -492,8 +492,8 @@ def build_notification(code: ErrorCode, context: dict[str, Any]) -> Notification
             f"Centrale: {csr_address} ({transport})."
         ),
         ErrorCode.SUPERVISION_NAK: (
-            f"NAK supervision (strike {strike_count}/3) — la centrale a rejeté "
-            f"l'horodatage du message.\nCentrale: {csr_address} ({transport})."
+            f"NAK supervision (strike {strike_count}/3) — la centrale a refusé "
+            f"la trame (cause non précisée par la centrale).\nCentrale: {csr_address} ({transport})."
         ),
         ErrorCode.BAD_CSR_RESPONSE: (
             "La centrale a renvoyé une réponse que le plugin ne peut pas interpréter.\n"

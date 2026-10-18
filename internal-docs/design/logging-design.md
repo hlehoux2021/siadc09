@@ -106,11 +106,11 @@ Every transition produces an INFO/WARNING/ERROR line (human-friendly) and a DEBU
 | | | `DEBUG` | `SM1: INIT→DEGRADED \| seq={n} strike=1 elapsed={t}ms \| no response` |
 | `HEALTHY → DEGRADED` | Timeout (strike=1) | `WARNING` | `Timeout supervision (strike 1/3) — nouvelle tentative` |
 | | | `DEBUG` | `SM1: HEALTHY→DEGRADED \| seq={n} strike=1 elapsed={t}ms \| no response` |
-| `HEALTHY → DEGRADED` | Parseable NAK (strike=1) | `WARNING` | `NAK supervision (strike 1/3) — horodatage rejeté par la centrale` |
+| `HEALTHY → DEGRADED` | Parseable NAK (strike=1) | `WARNING` | `NAK supervision (strike 1/3) — trame refusée par la centrale` |
 | | | `DEBUG` | `SM1: HEALTHY→DEGRADED \| seq={n} strike=1 cause=nak_timestamp \| NAK: raw={hex}` |
 | `DEGRADED → DEGRADED` | Timeout (strike=2) | `WARNING` | `Timeout supervision (strike 2/3) — nouvelle tentative` |
 | | | `DEBUG` | `SM1: DEGRADED→DEGRADED \| seq={n} strike=2 elapsed={t}ms \| no response` |
-| `DEGRADED → DEGRADED` | Parseable NAK (strike=2) | `WARNING` | `NAK supervision (strike 2/3) — horodatage rejeté par la centrale` |
+| `DEGRADED → DEGRADED` | Parseable NAK (strike=2) | `WARNING` | `NAK supervision (strike 2/3) — trame refusée par la centrale` |
 | | | `DEBUG` | `SM1: DEGRADED→DEGRADED \| seq={n} strike=2 cause=nak_timestamp \| NAK: raw={hex}` |
 | `DEGRADED → DEGRADED` | Timeout (strike=3, T3 fires) | `ERROR` | `Supervision perdue — 3 tentatives sans réponse (T3 notification envoyée)` |
 | | | `DEBUG` | `SM1: DEGRADED→DEGRADED \| seq={n} strike=3 elapsed={t}ms \| no response \| T3 fired` |
@@ -617,7 +617,7 @@ SM1_TIMEOUT_STARTUP       = "Timeout supervision au démarrage (strike 1/3) — 
 SM1_TIMEOUT_WARNING       = "Timeout supervision (strike {strike}/3) — nouvelle tentative"
 SM1_STILL_ABSENT          = "Supervision toujours absente — en attente de rétablissement"
 SM1_TCP_DROP              = "Connexion TCP perdue — tentative de reconnexion (depuis état {prev_state})"
-SM1_NAK_TIMESTAMP         = "NAK supervision (strike {strike}/3) — horodatage rejeté par la centrale"
+SM1_NAK_TIMESTAMP         = "NAK supervision (strike {strike}/3) — trame refusée par la centrale"
 SM1_NAK_BAD               = "Réponse invalide de la centrale — NAK non décodable (strike {strike}/3)"
 SM1_LOST                  = "Supervision perdue — 3 tentatives sans réponse (T3 notification envoyée)"
 SM1_TCP_RECONNECT_FAIL_1  = "Reconnexion TCP échouée — centrale injoignable"

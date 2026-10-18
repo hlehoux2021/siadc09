@@ -283,7 +283,7 @@ be consistent per error type (same error = same title) and distinct across types
 | Code | Title |
 |------|-------|
 | `supervision_timeout` | `siaDC09 — Timeout supervision (auto-résolu)` |
-| `supervision_nak` | `siaDC09 — NAK supervision (horodatage rejeté — auto-résolu)` |
+| `supervision_nak` | `siaDC09 — NAK supervision (trame refusée — auto-résolu)` |
 | `bad_csr_response` | `siaDC09 — Réponse incompréhensible de la centrale` |
 | `supervision_disconnected` | `siaDC09 — ` + T3_PREFIX + `Supervision perdue` |
 | `event_failed` | `siaDC09 — ` + T3_PREFIX + `Alarme non transmise` |

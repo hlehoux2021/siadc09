@@ -1549,7 +1549,7 @@ class SIADaemon(BaseDaemon):
                 n_ctx = cast(SM1NakLogCtx, ctx)
                 strike = n_ctx["strike"]
                 elapsed_s = n_ctx["elapsed_ms"] / 1000
-                info_msg = f"NAK supervision (strike {strike}/3) — horodatage rejeté par la centrale"
+                info_msg = f"NAK supervision (strike {strike}/3) — trame refusée par la centrale"
                 self._logger.info(info_msg)
                 self._logger.debug(
                     f"Supervision NAK (parseable): account={self._account}, "
