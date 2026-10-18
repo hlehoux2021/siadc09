@@ -153,3 +153,106 @@ def test_periodic_summary_lines(cfg: dict[str, Any], expected: list[list[str]]) 
 
     # Assert: summary lines match the specification
     assert out["summaries"] == [expected]
+
+
+_SEL_PROFILE = "#siaDC09-csr-profile"
+_SEL_FORMAT = '.eqLogicAttr[data-l2key="supervision_format"]'
+
+
+def test_print_eqlogic_legacy_equipment_opens_on_defaults_unlocked() -> None:
+    """
+    Equipment saved before 17-4 (no csr_profile, no new keys) opens on Personnalisé.
+
+    Expected result:
+    - selector empty, format sia-dcs, RP interval 60, RP off
+    - nothing locked
+    """
+    out = _run({"profiles": _PROFILES, "actions": [
+        {"op": "printEqLogic", "eqLogic": {"configuration": {"account_number": "001234"}}},
+    ]})
+
+    # Assert: daemon-side defaults, not the first <option>
+    assert out["selectedProfile"] in ("", None)
+    assert out["fields"]["supervision_format"] == "sia-dcs"
+    assert out["fields"]["rp_interval"] == "60"
+    assert out["fields"]["rp_enabled"] is False
+    # Assert: unlocked
+    assert (out["locked"], out["readonlyInputs"]) == (0, 0)
+
+
+def test_print_eqlogic_saved_profile_keeps_saved_values_and_locks() -> None:
+    """
+    Reloading equipment saved with a profile restores the selector and locks, without refill.
+
+    Expected result:
+    - selector on scutum, saved rp_interval 300 not overwritten by the preset's 60
+    - four fields locked
+    """
+    cfg = {"csr_profile": "scutum", "supervision_format": "none", "rp_enabled": "1",
+           "rp_interval": "300"}
+    out = _run({"profiles": _PROFILES, "actions": [
+        {"op": "printEqLogic", "eqLogic": {"configuration": cfg}},
+    ]})
+
+    # Assert: selector restored, saved value kept
+    assert out["selectedProfile"] == "scutum"
+    assert out["fields"]["rp_interval"] == "300"
+    # Assert: locked
+    assert out["locked"] == 4
+
+
+def test_profile_change_fills_fields_and_opens_advanced() -> None:
+    """
+    Picking a profile in the selector (change event) applies it and unfolds the advanced block.
+
+    Expected result:
+    - preset values in the fields, fields locked, "Options avancées" visible
+    - back to Personnalisé unlocks and keeps the values
+    """
+    out = _run({"profiles": _PROFILES, "actions": [
+        {"op": "trigger", "selector": _SEL_PROFILE, "value": "ajax"},
+    ]})
+
+    # Assert: filled, locked, unfolded
+    assert out["fields"]["rp_interval"] == "90"
+    assert out["locked"] == 4
+    assert out["advancedVisible"] is True
+
+    back = _run({"profiles": _PROFILES, "actions": [
+        {"op": "trigger", "selector": _SEL_PROFILE, "value": "ajax"},
+        {"op": "trigger", "selector": _SEL_PROFILE, "value": ""},
+    ]})
+
+    # Assert: unlocked, values kept
+    assert back["locked"] == 0
+    assert back["fields"]["rp_interval"] == "90"
+
+
+@pytest.mark.parametrize("rp_enabled", [0, "0"])
+def test_profile_with_rp_off_unchecks_rp(rp_enabled: Any) -> None:
+    """A preset with rp_enabled 0 or "0" must switch RP off, whatever it was before."""
+    profiles = {"quiet": {"supervision_format": "sia-dcs", "rp_enabled": rp_enabled}}
+    out = _run({"profiles": profiles, "fields": {"rp_enabled": True},
+                "actions": [{"op": "apply", "profile": "quiet", "fill": True}]})
+
+    # Assert: RP off
+    assert out["fields"]["rp_enabled"] is False
+
+
+def test_profile_with_supervision_interval_copies_it() -> None:
+    """A preset carrying supervision_interval writes it into the field."""
+    profiles = {"p": {"supervision_format": "sia-dcs", "supervision_interval": 120}}
+    out = _run({"profiles": profiles,
+                "actions": [{"op": "apply", "profile": "p", "fill": True}]})
+
+    # Assert: interval copied
+    assert out["fields"]["supervision_interval"] == "120"
+
+
+@pytest.mark.parametrize("value, visible", [("null", True), ("sia-dcs", False), ("none", False)])
+def test_null_format_warning_follows_format_select(value: str, visible: bool) -> None:
+    """The NULL-format warning is shown only while the format select is on null."""
+    out = _run({"actions": [{"op": "trigger", "selector": _SEL_FORMAT, "value": value}]})
+
+    # Assert: warning visibility
+    assert out["nullWarningVisible"] is visible

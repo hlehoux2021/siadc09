@@ -99,3 +99,26 @@ Locking caveat: disabled inputs may be skipped by Jeedom's form serialisation; p
 
 **Manual checks (if no CLI):**
 - test-jeedom UI (push first; host pulls by git): walk the AC scenarios above and report observed results.
+
+## Code Review
+
+### 2026-10-18 — 0 decision-needed, 2 patch, 0 defer, 14 rejected (second pass; lenses: blind-hunter, edge-case-hunter, verification-gap, intent-alignment)
+
+- [x] [Review][Patch] jsdom harness never runs `printEqLogic` nor the change handlers: legacy defaults (no csr_profile → sia-dcs / RP 60, unlocked), saved-profile restore with `fill=false`, selector `change` opening `#siaDC09-advanced`, NULL-warning toggle (`nullWarningVisible` is output but never asserted), `rp_enabled: 0` / `"0"` preset, preset carrying `supervision_interval` [tests/level1/test_wizard_step1_js_dom.py, tests/fixtures/js_wizard_step1_harness.js]
+- [x] [Review][Patch] Periodic-frame rule duplicated in `siaDC09_validateStep1` (error pushes and the "open advanced" condition): compute two booleans once [desktop/js/siaDC09.js:226-243]
+
+#### Rejected
+- Unknown saved `csr_profile` blanks the selector — low, already rejected in pass 1: needs a removed preset, fix adds a branch.
+- Locked select/checkbox changeable from keyboard/label (3 lenses) — false: `pointer-events:none` prevents focus by click, `tabindex=-1` by Tab; no label wraps the controls. Same as pass 1.
+- Switching profile leaves stale `supervision_interval` in a locked field — low: both presets use `none`, where the interval is unused.
+- `printEqLogic` does not reset `supervision_interval` / `rp_enabled` between equipments — false: Jeedom reloads the page per equipment.
+- Saved `supervision_format` not in none/sia-dcs/null — low: needs hand-edited config; PHP Guard 3e rejects it at daemon start.
+- Preset `rp_enabled` as boolean/"true" — low: `csr_presets.json` is repo-owned and uses integers.
+- `rp_interval` 60.5 passes `parseInt` — low: number input, negligible.
+- Config summary shows 60 s with format none — false: `siaDC09_periodicSummaryLines` already prints "aucune trame de supervision" for none.
+- Preset drifting from stored values after upgrade — low: design choice (`fill=false` keeps saved values), no preset change planned.
+- `supervision_interval` has no range check — pre-existing field, outside this story.
+- Harness brittleness (marker slicing, node/jsdom skip) — low: matches repo test pattern.
+- Source-string assertions — low, rejected in pass 1.
+- `tentatives de reconnexion` / en_US not translated — low: en_US is hand-maintained and partial (known).
+- a11y (`aria-expanded`, lock explanation), PHP twin comment, intent divergences (UI/save path only verifiable on test-jeedom) — no defect; the UI validation run is the plan's own gate.

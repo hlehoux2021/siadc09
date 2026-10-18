@@ -227,17 +227,19 @@ function siaDC09_validateStep1() {
   var supFormat = $('.eqLogicAttr[data-l2key="supervision_format"]').val() || 'sia-dcs'
   var rpOn = $('.eqLogicAttr[data-l2key="rp_enabled"]').is(':checked')
   var rpInterval = parseInt($('.eqLogicAttr[data-l2key="rp_interval"]').val(), 10)
-  if (supFormat === 'none' && !rpOn) {
+  var noPeriodicFrame = supFormat === 'none' && !rpOn
+  var badRpInterval = rpOn && (isNaN(rpInterval) || rpInterval < 60 || rpInterval > 86400)
+  if (noPeriodicFrame) {
     errors.push('{{Au moins une trame périodique est requise : activez la supervision ou le test cyclique (RP)}}')
   }
-  if (rpOn && (isNaN(rpInterval) || rpInterval < 60 || rpInterval > 86400)) {
+  if (badRpInterval) {
     errors.push('{{Intervalle RP : nombre entre 60 et 86400 secondes requis}}')
   }
 
   if (errors.length > 0) {
     $('#siaDC09-step1-errors').html(errors.join('<br>')).show()
     // The periodic-frame errors concern fields folded in "Options avancées" — open it.
-    if ((supFormat === 'none' && !rpOn) || (rpOn && (isNaN(rpInterval) || rpInterval < 60 || rpInterval > 86400))) {
+    if (noPeriodicFrame || badRpInterval) {
       $('#siaDC09-advanced').show()
     }
     return false
