@@ -181,7 +181,7 @@ development_status:
   17-2-configurable-supervision-frame-sia-dcs-null: review  # committed e0732f5 (no story file; walkthrough b61fc51), unreviewed; includes the D-42 first-frame-at-startup fix
   17-3-rp-periodic-test: review  # committed 4a8893c locally, unpushed, unreviewed
   17-4-wizard-profile-choice-and-advanced-options: review  # UI-validated on test-jeedom 2026-10-18 (profile lock/save/reload, Personnalisé rules, NULL warning)
-  17-5-field-validation-per-profile: backlog  # Scutum sends by Herve; ioBroker.sia ACK proves framing only
+  17-5-field-validation-per-profile: review  # 2026-10-18: test receiver cases 1-3 + Scutum 10 min RP (11 frames, extranet 1/min, no alarm); Ajax real hub not covered
   epic-17-retrospective: optional
 
 # Summary Statistics
