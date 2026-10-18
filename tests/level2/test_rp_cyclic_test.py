@@ -10,9 +10,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from resources.siadc09d.daemon import SIADaemon, SM1State, SM2State
+from resources.siadc09d.daemon import SUPERVISION_NAK_RESENDS, SIADaemon, SM1State, SM2State
 from resources.siadc09d.error_handler import ErrorCode
 from resources.siadc09d.sia_protocol import parse_frame_header
+from resources.siadc09d.sia_transport import SIATransportError
 from tests.conftest import make_daemon_preset
 
 _ACK = {"status": "ack", "raw_nak": None}
@@ -106,31 +107,95 @@ async def test_rp_ack_refreshes_sm1_without_touching_event_state() -> None:
 
 
 @pytest.mark.asyncio
-async def test_rp_not_acked_notifies_event_failed_only() -> None:
+async def test_rp_timeout_is_one_attempt_and_one_sm1_strike() -> None:
     """
-    Retries exhausted: EVENT_FAILED for RP, no strike, no event state change.
+    No ACK: a single attempt and a supervision strike, like a missed supervision frame.
 
     Expected result:
-    - one EVENT_FAILED notification with sia_code RP and last_error timeout
-    - 4 attempts all with the same wire seq
-    - strike counter 0; SM2 stays IDLE and event_sia_code None
+    - exactly one frame sent and no backoff sleep (the next cycle is the retry)
+    - strike counter 1, SM1 DEGRADED, one SUPERVISION_TIMEOUT notification
+    - no EVENT_FAILED; SM2 stays IDLE and event_sia_code None
     """
     daemon = _make_daemon()
     daemon._sia_transport.send_frame = AsyncMock(return_value={"status": "timeout", "raw_nak": None})
-    with patch("resources.siadc09d.daemon.asyncio.sleep", new=AsyncMock()):
+    with patch("resources.siadc09d.daemon.asyncio.sleep", new=AsyncMock()) as sleep:
         await daemon._send_rp()
-    # Assert: one EVENT_FAILED naming the RP
+    # Assert: one attempt, no backoff
+    assert daemon._sia_transport.send_frame.await_count == 1
+    sleep.assert_not_called()
+    # Assert: one strike, SM1 degraded
+    assert daemon._strike_counter == 1
+    assert daemon._sm1_state == SM1State.DEGRADED
+    # Assert: T1 supervision timeout only, no EVENT_FAILED
     daemon._notify.assert_called_once()
-    code, ctx = daemon._notify.call_args.args
-    assert code == ErrorCode.EVENT_FAILED
-    assert (ctx.sia_code, ctx.last_error, ctx.attempts_made) == ("RP", "timeout", 4)
-    # Assert: all attempts re-send the same wire seq
-    seqs = {parse_frame_header(c.args[0])[1] for c in daemon._sia_transport.send_frame.await_args_list}
-    assert len(seqs) == 1
-    # Assert: no strike, no event state
-    assert daemon._strike_counter == 0
+    assert daemon._notify.call_args.args[0] == ErrorCode.SUPERVISION_TIMEOUT
+    # Assert: user-facing event state untouched
     assert daemon._sm2_state == SM2State.IDLE
     assert daemon._event_sia_code is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("supervision_format", ["none", "sia-dcs"])
+async def test_rp_three_missed_cycles_reach_t3_whatever_the_supervision_format(
+    supervision_format: str,
+) -> None:
+    """
+    Three missed RP cycles lose the CSR, including when RP is the only periodic frame (D-1b).
+
+    Expected result:
+    - strike counter 3 and one SUPERVISION_DISCONNECTED (T3) notification
+    - SM1 DEGRADED on UDP (no TCP_RECONNECTING)
+    """
+    daemon = _make_daemon(supervision_format=supervision_format)
+    daemon._sia_transport.send_frame = AsyncMock(return_value={"status": "timeout", "raw_nak": None})
+    for _ in range(3):
+        await daemon._send_rp()
+    # Assert: strike cap reached
+    assert daemon._strike_counter == 3
+    # Assert: T3 fired exactly once
+    codes = [c.args[0] for c in daemon._notify.call_args_list]
+    assert codes.count(ErrorCode.SUPERVISION_DISCONNECTED) == 1
+    # Assert: UDP stays DEGRADED
+    assert daemon._sm1_state == SM1State.DEGRADED
+
+
+@pytest.mark.asyncio
+async def test_rp_tcp_drop_starts_reconnect_without_strike() -> None:
+    """
+    A TCP drop on an RP goes through the SM1 reconnect logic, not an RP retry.
+
+    Expected result:
+    - SM1 TCP_RECONNECTING, tcp_reconnect_loop tracked
+    - no strike; a single frame sent
+    """
+    daemon = _make_daemon(supervision_format="none")
+    daemon._sia_transport.send_frame = AsyncMock(return_value={"status": "tcp_drop", "raw_nak": None})
+    daemon._tcp_reconnect_loop = AsyncMock()
+    await daemon._send_rp()
+    await asyncio.gather(*daemon._tasks)
+    # Assert: reconnect started via SM1
+    assert daemon._sm1_state == SM1State.TCP_RECONNECTING
+    daemon._tcp_reconnect_loop.assert_awaited_once()
+    # Assert: no strike, no RP retry
+    assert daemon._strike_counter == 0
+    assert daemon._sia_transport.send_frame.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_rp_transport_error_counts_as_timeout() -> None:
+    """
+    A transport exception on an RP is a missed frame, like for supervision.
+
+    Expected result:
+    - strike counter 1, one SUPERVISION_TIMEOUT notification
+    """
+    daemon = _make_daemon()
+    daemon._sia_transport.send_frame = AsyncMock(side_effect=SIATransportError("boom"))
+    await daemon._send_rp()
+    # Assert: one strike
+    assert daemon._strike_counter == 1
+    # Assert: T1 notification
+    assert daemon._notify.call_args.args[0] == ErrorCode.SUPERVISION_TIMEOUT
 
 
 @pytest.mark.asyncio
@@ -261,63 +326,44 @@ async def test_rp_nak_then_ack_resends_with_same_wire_seq() -> None:
 
 
 @pytest.mark.asyncio
-async def test_rp_nak_every_attempt_notifies_bad_csr_response() -> None:
+async def test_rp_nak_every_attempt_is_one_sm1_strike() -> None:
     """
-    NAK on every attempt: BAD_CSR_RESPONSE after the last re-send, no EVENT_FAILED.
+    NAK on every re-send: one supervision strike, like a NAKed supervision frame.
 
     Expected result:
-    - 4 frames sent (1 + 3 re-sends)
-    - one BAD_CSR_RESPONSE notification
+    - 1 + SUPERVISION_NAK_RESENDS frames sent (same re-send budget as supervision)
+    - strike counter 1, SM1 DEGRADED
+    - unparseable NAK -> one BAD_CSR_RESPONSE notification, no EVENT_FAILED
     """
     daemon = _make_daemon()
     daemon._sia_transport.send_frame = AsyncMock(return_value=dict(_NAK))
     await daemon._send_rp()
-    # Assert: all attempts used
-    assert daemon._sia_transport.send_frame.await_count == 4
+    # Assert: supervision re-send budget
+    assert daemon._sia_transport.send_frame.await_count == SUPERVISION_NAK_RESENDS + 1
+    # Assert: one strike
+    assert daemon._strike_counter == 1
+    assert daemon._sm1_state == SM1State.DEGRADED
     # Assert: a single BAD_CSR_RESPONSE
     daemon._notify.assert_called_once()
     assert daemon._notify.call_args.args[0] == ErrorCode.BAD_CSR_RESPONSE
 
 
 @pytest.mark.asyncio
-async def test_rp_failure_notifies_once_per_outage_and_rearms_on_ack() -> None:
+async def test_rp_ack_after_missed_cycles_resets_strikes() -> None:
     """
-    A CSR outage notifies once, not every cycle; the next ACK re-arms the notification.
+    An RP ACK after missed cycles restores SM1, as a supervision ACK would.
 
     Expected result:
-    - two failing cycles -> one notification
-    - one ACKed cycle then a failing cycle -> a second notification
+    - two missed cycles -> strike 2; the next ACK -> strike 0, SM1 HEALTHY
     """
     daemon = _make_daemon()
     daemon._sia_transport.send_frame = AsyncMock(return_value={"status": "timeout", "raw_nak": None})
-    with patch("resources.siadc09d.daemon.asyncio.sleep", new=AsyncMock()):
-        await daemon._send_rp()
-        await daemon._send_rp()
-        # Assert: one notification for the whole outage
-        assert daemon._notify.call_count == 1
-        daemon._sia_transport.send_frame = AsyncMock(return_value=dict(_ACK))
-        await daemon._send_rp()
-        daemon._sia_transport.send_frame = AsyncMock(return_value={"status": "timeout", "raw_nak": None})
-        await daemon._send_rp()
-    # Assert: a new outage after an ACK notifies again
-    assert daemon._notify.call_count == 2
-
-
-@pytest.mark.asyncio
-async def test_rp_failure_reports_wire_seq() -> None:
-    """
-    The EVENT_FAILED context carries the RP's wire seq, not the event counter.
-
-    Expected result:
-    - ctx.sia_seq == int(wire seq of the frames sent) and differs from daemon._sia_seq
-    """
-    daemon = _make_daemon()
-    daemon._sia_transport.send_frame = AsyncMock(return_value={"status": "timeout", "raw_nak": None})
-    with patch("resources.siadc09d.daemon.asyncio.sleep", new=AsyncMock()):
-        await daemon._send_rp()
-    wire_seq = int(parse_frame_header(_sent(daemon))[1])
-    ctx = daemon._notify.call_args.args[1]
-    # Assert: wire seq reported
-    assert ctx.sia_seq == wire_seq
-    # Assert: not the event counter
-    assert ctx.sia_seq != daemon._sia_seq
+    await daemon._send_rp()
+    await daemon._send_rp()
+    # Assert: two strikes accumulated
+    assert daemon._strike_counter == 2
+    daemon._sia_transport.send_frame = AsyncMock(return_value=dict(_ACK))
+    await daemon._send_rp()
+    # Assert: recovered
+    assert daemon._strike_counter == 0
+    assert daemon._sm1_state == SM1State.HEALTHY

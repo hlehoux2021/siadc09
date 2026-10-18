@@ -755,7 +755,16 @@ captures (`internal-docs/ajax.md`) showed the expected shape `Nri<area>/<code><a
   - `null` in clear is `"NULL"0000L0#acct[]_ts`; encrypted supervision stays `*NULL` (ADR-21);
   - `sia-dcs` keeps the D-86 shape;
   - RP is built by `_format_data_field()` (ADR-21) as `[#acct|Nri0/RP0000]`, with area `0` (system) rather than
-    `SIA_AREA_NUMBER`. It uses the global sequence counter and the normal event send path.
+    `SIA_AREA_NUMBER`. It uses the global sequence counter and the queue, but the SM1 failure model of
+    supervision, not the event retry budget (amended 2026-10-18).
+- **Failure model (amended 2026-10-18):**
+  - both periodic frames make one attempt per cycle; the next cycle is the retry;
+  - an immediate NAK re-send with updated timestamp is kept (§ 5.6.1.2), at most `SUPERVISION_NAK_RESENDS` times;
+  - a missed frame (timeout, NAK on every re-send) is one SM1 strike for either frame: DEGRADED, T1 at strike 1,
+    T3 and TCP reconnect at strike 3. With supervision `none`, RP alone drives SM1;
+  - a TCP drop starts the SM1 reconnect, with no strike;
+  - an in-flight periodic frame is not preempted by an alarm: the residual delay is one 10 s wait, the same for
+    supervision and RP (accepted).
 - **Cadence:**
   - each period is counted from the end of the previous exchange of that frame; an event does not shift it;
   - the first frame of each kind leaves at daemon start (D-42), at start only, not on every INITIALIZING.

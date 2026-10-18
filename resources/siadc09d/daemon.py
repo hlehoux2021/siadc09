@@ -248,14 +248,15 @@ QUEUE_PRIORITY_RP: Final[int] = QUEUE_PRIORITY_SUPERVISION
 # RP frame address: area 0, zone 0000 (never SIA_AREA_NUMBER) -> [#acct|Nri0/RP0000]
 RP_AREA: Final[str] = "0"
 RP_ZONE: Final[str] = "0000"
+RP_SIA_CODE: Final[str] = "RP"
 
 # Type alias for the item_type field (Literal for static analysis)
 QueueItemType = Literal["EVENT", "SUPERVISION", "RP"]
 
 # Default retry budget when enqueuing a new alarm event
 MAX_RETRY_DEFAULT: Final[int] = 3
-# NAK/timeout retry budget of one RP exchange (story 17-3): same as an event.
-RP_MAX_RETRIES: Final[int] = MAX_RETRY_DEFAULT
+# Wait for the CSR's answer to one RP frame (story 17-3); a miss is one SM1 strike.
+RP_SEND_TIMEOUT_S: Final[float] = 10.0
 
 
 class OnMessageParams(TypedDict, total=False):
@@ -482,9 +483,6 @@ class SIADaemon(BaseDaemon):
             _enc_key_error = str(e)  # parse_hex_key messages never contain the key
         # Set once the CONFIG_ERROR notification went out (sent once per daemon run).
         self._encryption_config_notified: bool = False
-        # Story 17-3 review: set once an RP failure was reported; cleared by the next RP ACK,
-        # so a CSR outage notifies once (like _sm1_t3_fired for supervision), not every cycle.
-        self._rp_failure_notified: bool = False
         self._sia_transport: SIABaseTransport | None = None  # Active transport; None before on_start()
 
         # State & data
@@ -2052,7 +2050,7 @@ class SIADaemon(BaseDaemon):
         try:
             return self._sia_builder.encode_message(
                 account_number=self._account,
-                event_code="RP",
+                event_code=RP_SIA_CODE,
                 account_prefix=self._account_prefix or "L0",
                 receiver_number=self._receiver_prefix,
                 extended_data={'area': RP_AREA, 'zone': RP_ZONE},
@@ -2067,105 +2065,82 @@ class SIADaemon(BaseDaemon):
             self._logger.error(f"Error building RP frame: {e!r}")
             raise SIAProtocolError(f"RP frame build failed: {e}") from e
 
-    def _notify_rp_failed(
-        self, attempts_made: int, last_error: str, wire_seq: str | None = None,
-    ) -> None:
-        """Report a missed RP through the existing EVENT_FAILED path (story 17-3).
+    async def _send_rp(self) -> None:
+        """Send one RP cyclic test and route the result through SM1 (story 17-3, D-1b).
 
-        Reported once per outage: later failures stay silent until an RP is ACKed.
-
-        Args:
-            attempts_made: Number of send attempts.
-            last_error: Failure reason.
-            wire_seq: Wire seq of the failed frame (RP draws it from the tracker, not
-                from ``_sia_seq``); None when nothing was built.
-        """
-        if self._rp_failure_notified:
-            return
-        self._rp_failure_notified = True
-        self._notify(
-            ErrorCode.EVENT_FAILED,
-            EventFailedCtx(
-                sia_code="RP",
-                sia_seq=int(wire_seq) if wire_seq is not None else self._sia_seq,
-                zone_name=None,
-                max_retries=RP_MAX_RETRIES,
-                attempts_made=attempts_made,
-                last_error=last_error,
-            )
-        )
-
-    async def _send_rp(self, max_retries: int = RP_MAX_RETRIES) -> None:  # pylint: disable=too-many-branches
-        """Send one RP cyclic test with ACK/NAK/timeout retries (story 17-3).
-
-        Reuses the event wire mechanics (shared wire seq on re-sends, § 5.5.1.5;
-        immediate NAK re-send with updated timestamp, § 5.6.1.2; 1 s backoff on
-        timeout) but touches none of the user-facing event state (SM2, event_state,
-        event_label, _event_sia_code/_zone/_user_number) and gives no SM1 strike.
+        Same failure model as ``_send_supervision``: one attempt per cycle (the next
+        cycle is the retry), an immediate NAK re-send with updated timestamp
+        (§ 5.6.1.2, same wire seq § 5.5.1.5), and the SM1 handlers for the outcome. A
+        missed RP is a strike, so with supervision format ``none`` it is the RP that
+        drives DEGRADED, T3 and the TCP reconnect. The user-facing event state (SM2,
+        event_state, event_label, _event_sia_code/_zone/_user_number) is never touched.
 
         - ACK: SM1 refreshed (HEALTHY, strike 0) and ``supervision_state`` pushed.
-        - Retries exhausted by timeout: EVENT_FAILED (sia_code RP).
-        - Retries exhausted by NAK: BAD_CSR_RESPONSE, as for events.
-        - Encryption key invalid: nothing sent, EVENT_FAILED (encryption_key).
+        - NAK on every re-send: ``_handle_supervision_nak`` (one strike).
+        - Timeout / transport error: ``_handle_supervision_timeout`` (one strike).
+        - TCP drop: ``_handle_supervision_tcp_drop`` (reconnect, no strike).
+        - Encryption key invalid: nothing sent, EVENT_FAILED (encryption_key), once per run.
         """
         if self._encryption_config_error():
             first_entry = not self._encryption_config_notified
             await self._enter_encryption_config_error()
             if first_entry:  # notify once per run, like the supervision loop
-                self._notify_rp_failed(0, EVENT_FAILED_ENCRYPTION_KEY)
+                self._notify(
+                    ErrorCode.EVENT_FAILED,
+                    EventFailedCtx(
+                        sia_code=RP_SIA_CODE,
+                        sia_seq=self._sia_seq,
+                        zone_name=None,
+                        max_retries=0,
+                        attempts_made=0,
+                        last_error=EVENT_FAILED_ENCRYPTION_KEY,
+                    )
+                )
             return
 
         wire_seq: str | None = None
         nak_offset: timedelta | None = None
-        attempts = 0
-        for attempt in range(max_retries + 1):
-            attempts = attempt + 1
+        for attempt in range(SUPERVISION_NAK_RESENDS + 1):
             try:
                 frame = self._build_rp_frame(seq=wire_seq, nak_offset=nak_offset)
                 if wire_seq is None:
                     wire_seq = parse_frame_header(frame)[1]
-                result = await asyncio.wait_for(self._send_raw(frame), timeout=10.0)
-            except (asyncio.TimeoutError, SIATransportError):
-                result = None
             except (SIAProtocolError, AESEncryptionError, AESKeyError) as e:
-                self._logger.error(f"Protocol error in _send_rp: {e}")
-                self._notify_rp_failed(attempts, 'protocol_error', wire_seq)
+                self._logger.error(f"Failed to encode RP frame: {e}")
                 return
 
-            status = result['status'] if result is not None else 'timeout'
-            if status == "ack":
-                self._rp_failure_notified = False  # re-arm the once-per-outage notification
-                await self._refresh_sm1_on_ack()
-                self._logger.debug(f"RP ACKed (seq={wire_seq}, attempt={attempts})")
-                await self._update_info_commands({
-                    'supervision_state': self._supervision_value(),
-                    'supervision_label': self._supervision_label(),
-                })
+            send_start = time.monotonic()
+            try:
+                result = await asyncio.wait_for(self._send_raw(frame), timeout=RP_SEND_TIMEOUT_S)
+            except asyncio.CancelledError:
+                raise  # never swallow cancellation (daemon-design.md § CancelledError safety rule)
+            except (asyncio.TimeoutError, SIATransportError) as e:
+                self._logger.error(f"Transport error sending RP: {e!r}")
+                await self._handle_supervision_timeout((time.monotonic() - send_start) * 1000)
+                await self._update_info_commands()
                 return
-            if status == "nak" and result is not None:
-                if attempt < max_retries:
-                    nak_offset = self._nak_offset(result['raw_nak'])
-                    continue
-                if self._rp_failure_notified:
-                    return
-                self._rp_failure_notified = True
-                self._notify(
-                    ErrorCode.BAD_CSR_RESPONSE,
-                    BadCSRResponseCtx(
-                        raw_frame=result['raw_nak'] or b"",
-                        parse_error="RP NAK",
-                        csr_host=self._preset.host,
-                        csr_port=self._preset.port,
-                        transport="tcp" if self._preset.transport is TransportType.TCP else "udp",
-                    )
-                )
-                return
-            # timeout / tcp_drop: retry after a 1 s backoff, then EVENT_FAILED
-            if attempt < max_retries:
-                await asyncio.sleep(1.0)
-                continue
-            self._notify_rp_failed(attempts, 'timeout', wire_seq)
+
+            elapsed_ms = (time.monotonic() - send_start) * 1000
+            if result['status'] != "nak" or attempt == SUPERVISION_NAK_RESENDS:
+                break
+            nak_offset = self._nak_offset(result['raw_nak'])
+
+        status = result['status']
+        if status == "ack":
+            await self._refresh_sm1_on_ack()
+            self._logger.debug(f"RP ACKed (seq={wire_seq})")
+            await self._update_info_commands({
+                'supervision_state': self._supervision_value(),
+                'supervision_label': self._supervision_label(),
+            })
             return
+        if status == "nak":
+            await self._handle_supervision_nak(result, elapsed_ms)
+        elif status == "timeout":
+            await self._handle_supervision_timeout(elapsed_ms)
+        elif status == "tcp_drop":
+            await self._handle_supervision_tcp_drop()
+        await self._update_info_commands()
 
     async def _log_sm2_event(
         self,

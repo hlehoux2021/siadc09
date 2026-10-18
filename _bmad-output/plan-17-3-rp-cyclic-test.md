@@ -40,7 +40,7 @@ context:
 | First frame | daemon start | Enqueued before the first sleep | No error expected |
 | Period | exchange takes T s | Next sleep starts after the exchange ends; an event in between does not shift it | Wait released on ACK, NAK, timeout, drop, cancel |
 | RP ACK | CSR ACKs | SM1 HEALTHY, strike counter 0, `supervision_state` pushed | No error expected |
-| RP not ACKed | retries exhausted | `EVENT_FAILED` notification; event state and label untouched | Existing retry budget |
+| RP not ACKed | timeout or NAK on every re-send | One SM1 strike (T1, T3 at 3); event state and label untouched (amended 2026-10-18, see Plan Change Log) | No in-cycle retry |
 | NO_NETWORK | consumer drops RP | Loop wait released, no deadlock | Release in `finally` |
 | rp off | `rp_enabled = false` | No RP task, no frame | No error expected |
 | Staleness | supervision 60 s + RP 120 s | Threshold 180 s | `none` ignores the supervision interval; RP off ignores RP |
@@ -81,6 +81,17 @@ context:
 ## Implementation Notes
 
 ## Plan Change Log
+
+- **2026-10-18 (Herve, after /bmad-review of 17-1..17-4):** the intent above is renegotiated on failure handling.
+  - Before: a missed RP gave `EVENT_FAILED` only, no SM1 strike, with a 4-attempt retry loop (up to about 43 s per
+    cycle). Two problems: with supervision `none` (Ajax, Scutum) nothing drove SM1, so a dead CSR never reached T3 or
+    the TCP reconnect; and the retry loop held the queue, delaying alarms (ADR: events win).
+  - After: `_send_rp` makes one attempt per cycle and uses the SM1 handlers of supervision (timeout and NAK are one
+    strike, TCP drop starts the reconnect). The NAK re-send is kept, limited to `SUPERVISION_NAK_RESENDS`. T3 now needs
+    3 missed cycles. `_notify_rp_failed`, `RP_MAX_RETRIES` and the once-per-outage flag are removed; EVENT_FAILED for RP
+    remains only for the invalid encryption key (once per run).
+  - Not changed: the 10 s in-flight wait (accepted, same as supervision).
+  - Matrix row "RP not ACKed" now reads: timeout, one SM1 strike (T1 / T3), event state and label untouched.
 
 ## Review Triage Log
 

@@ -2728,8 +2728,9 @@ So that the CSR shows "Test Cyclique" and does not raise a link alarm.
 - built by `_format_data_field()` with area `0` (system), not `SIA_AREA_NUMBER`;
 - with the global sequence counter shared with events.
 
-**And** RP goes through the normal event send path (queue, ACK/NAK, retries); a missing ACK is reported like any failed
-event.
+**And** RP goes through the queue with the SM1 failure model of supervision (amended 2026-10-18): one attempt per
+cycle, an immediate NAK re-send, and a missed RP is one SM1 strike (T1 at strike 1, T3 and reconnect at strike 3). With
+supervision `none`, RP alone drives SM1. A TCP drop starts the SM1 reconnect.
 
 **And** the period is counted from the end of the previous RP exchange; an event in between does not shift it (as
 observed on Ajax).
