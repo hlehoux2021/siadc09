@@ -303,8 +303,9 @@ async def run_connection_test(config: dict, timeout: int) -> None:
     """Run a standalone connection test and print JSON result to stdout.
 
     Reads CSR parameters from config dict (populated by the wizard, preset or
-    manual — the daemon does not distinguish). Builds a NULL frame, sends it
-    via _send_raw_once(), prints result.
+    manual — the daemon does not distinguish). Builds the periodic frame of the
+    configured supervision_format (RP for "none", NULL or SIA-DCS 0000 otherwise),
+    sends it via _send_raw_once(), prints result.
 
     With encryption enabled the key (SIA_ENCRYPTION_KEY) must pass
     parse_hex_key(); otherwise nothing is sent and the encryption-key verdict
@@ -343,11 +344,24 @@ async def run_connection_test(config: dict, timeout: int) -> None:
             return
 
     # Story 17.1: the sender side only encodes the hex SIA CRC (crc_format=bin removed).
-    frame = SIAMessageBuilder(crc_format="SIA").make_supervision_message(
-        account_number=account_number,
-        encryption=encryption_enabled,
-        encryption_key=key_bytes,
-    )
+    # The test sends the periodic frame the daemon will really send (story 17-3/17-4):
+    # RP when supervision is "none" (RP is then the only periodic frame), else the
+    # configured supervision frame. A missing/unknown format keeps the sia-dcs default.
+    builder = SIAMessageBuilder(crc_format="SIA")
+    supervision_format = config.get("supervision_format") or "sia-dcs"
+    if supervision_format == "none":
+        frame = builder.make_rp_message(
+            account_number=account_number,
+            encryption=encryption_enabled,
+            encryption_key=key_bytes,
+        )
+    else:
+        frame = builder.make_supervision_message(
+            account_number=account_number,
+            encryption=encryption_enabled,
+            encryption_key=key_bytes,
+            supervision_format="null" if supervision_format == "null" else "sia-dcs",
+        )
 
     start_time = time.monotonic()
     result = await _send_raw_once(

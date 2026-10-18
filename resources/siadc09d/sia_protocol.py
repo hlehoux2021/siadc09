@@ -35,6 +35,11 @@ CR = b'\x0D'  # Carriage return (0x0D)
 # NULL code for supervision messages
 SIA_NULL_CODE = "0000"
 
+# RP cyclic test (story 17-3): area 0, zone 0000 (never SIA_AREA_NUMBER) -> [#acct|Nri0/RP0000]
+RP_AREA = "0"
+RP_ZONE = "0000"
+RP_SIA_CODE = "RP"
+
 # Event type codes (per SIA spec)
 BURGLARY = "1"
 FIRE = "2"
@@ -305,6 +310,49 @@ class SIAMessageBuilder:
             core = (f'"{ENCRYPTED_MARKER}{SIA_DCS_TOKEN}"{seq}{account_id_str}['
                     f'{cipher.encrypt(region.encode("ascii"))}{ENCRYPTED_REGION_TERMINATOR}')
         return self._frame(core.encode('ascii'))
+
+    def make_rp_message(
+        self,
+        account_number: str,
+        account_prefix: str = "L0",
+        receiver_number: str | None = None,
+        encryption: bool = False,
+        encryption_key: bytes | None = None,
+        timestamp: datetime | None = None,
+        seq: str | None = None,
+    ) -> bytes:
+        """
+        Create the RP cyclic-test frame (story 17-3).
+
+        ``"SIA-DCS"<seq>L0#acct[#acct|Nri0/RP0000]_ts``: area 0, zone 0000. Shared by
+        the daemon's RP loop and the wizard connection test so both send the same frame.
+
+        Args:
+            account_number: 3-16 hex ASCII characters
+            account_prefix: Optional prefix (default "L0")
+            receiver_number: Optional receiver number
+            encryption: Whether to encrypt (default False)
+            encryption_key: Raw AES key, required when encrypting
+            timestamp: Frame timestamp (None = UTC now)
+            seq: Explicit wire seq for a NAK re-send; None draws from the tracker
+
+        Returns:
+            Complete RP frame as bytes
+
+        Raises:
+            AESKeyError: If encryption is requested without a valid key
+        """
+        return self.encode_message(
+            account_number=account_number,
+            event_code=RP_SIA_CODE,
+            account_prefix=account_prefix,
+            receiver_number=receiver_number,
+            extended_data={'area': RP_AREA, 'zone': RP_ZONE},
+            timestamp=timestamp or datetime.now(timezone.utc),
+            encryption=encryption,
+            encryption_key=encryption_key,
+            seq=seq,
+        )
 
     def make_supervision_message(
         self,

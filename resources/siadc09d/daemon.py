@@ -70,6 +70,7 @@ from .frigate_prefetch import PrefetchResult, prefetch_alarm_media
 from .ring_buffer import RingBuffer, make_message_entry
 from .sia_protocol import (
     NULL_TOKEN,
+    RP_SIA_CODE,
     SIA_DCS_TOKEN,
     SIAMessageBuilder,
     SIAProtocolError,
@@ -245,10 +246,6 @@ QUEUE_TYPE_SUPERVISION: Final[Literal["SUPERVISION"]] = "SUPERVISION"
 # item has none). Shares the supervision priority; ties fall back to the counter.
 QUEUE_TYPE_RP: Final[Literal["RP"]] = "RP"
 QUEUE_PRIORITY_RP: Final[int] = QUEUE_PRIORITY_SUPERVISION
-# RP frame address: area 0, zone 0000 (never SIA_AREA_NUMBER) -> [#acct|Nri0/RP0000]
-RP_AREA: Final[str] = "0"
-RP_ZONE: Final[str] = "0000"
-RP_SIA_CODE: Final[str] = "RP"
 
 # Type alias for the item_type field (Literal for static analysis)
 QueueItemType = Literal["EVENT", "SUPERVISION", "RP"]
@@ -2048,12 +2045,10 @@ class SIADaemon(BaseDaemon):
             SIAProtocolError: frame build failed (bad key, ...).
         """
         try:
-            return self._sia_builder.encode_message(
+            return self._sia_builder.make_rp_message(
                 account_number=self._account,
-                event_code=RP_SIA_CODE,
                 account_prefix=self._account_prefix or "L0",
                 receiver_number=self._receiver_prefix,
-                extended_data={'area': RP_AREA, 'zone': RP_ZONE},
                 timestamp=datetime.now(timezone.utc) + (nak_offset or timedelta(0)),
                 encryption=bool(self._preset.encryption_enabled),
                 encryption_key=self._encryption_key or None,

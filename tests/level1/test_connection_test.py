@@ -547,3 +547,49 @@ def test_run_connection_test_output_is_valid_json(capsys, monkeypatch):
     parsed = json.loads(raw)
     # Assert: parsed value is a dict (not a list or scalar)
     assert isinstance(parsed, dict)
+
+
+# ── run_connection_test — frame follows the configured periodic frame (#3) ────
+
+
+def _sent_frame_for(config: dict, monkeypatch) -> bytes:
+    """Run the connection test with a capturing fake sender and return the frame."""
+    monkeypatch.setenv("SIA_ENCRYPTION_KEY", "")
+    captured: dict = {}
+
+    async def fake_send(*args, **kwargs):
+        captured["frame"] = kwargs["frame"]
+        return {"status": "ack"}
+
+    with patch("resources.siadc09d.siadc09d._send_raw_once", new=fake_send):
+        _run(run_connection_test(config, timeout=5))
+    return captured["frame"]
+
+
+@pytest.mark.parametrize(
+    ("overrides", "header", "needle"),
+    [
+        ({"supervision_format": "none", "rp_enabled": 1}, "SIA-DCS", b"Nri0/RP0000"),
+        ({"supervision_format": "null"}, "NULL", b"[]"),
+        ({"supervision_format": "sia-dcs"}, "SIA-DCS", b"|0000]"),
+        ({}, "SIA-DCS", b"|0000]"),  # legacy eqLogic without the field
+    ],
+)
+def test_run_connection_test_sends_the_frame_the_daemon_will_send(
+    monkeypatch, overrides, header, needle,
+):
+    """
+    The wizard test sends the periodic frame the daemon will really send (§ 5.5.2.1, 17-3).
+
+    Expected result:
+    - none + RP: the RP frame (area 0, zone 0000)
+    - null: the § 5.5.2.1 Null Message
+    - sia-dcs, or no supervision_format at all: the SIA-DCS 0000 supervision event
+    """
+    frame = _sent_frame_for({**_VALID_MANUAL_CONFIG, **overrides}, monkeypatch)
+    # Assert: token matches the configured format
+    assert parse_frame_header(frame)[0] == header
+    # Assert: body carries the format-specific marker
+    assert needle in frame
+    # Assert: an RP frame is never sent unless it is the configured one
+    assert (b"RP0000" in frame) == (overrides.get("supervision_format") == "none")
