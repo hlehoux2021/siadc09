@@ -38,6 +38,37 @@ NAK/timeout conditions are provoked the same way Task 12's original dev notes al
 undeclared/wrong `account_number` for a NAK, or a closed local port for a timeout — no simulator needed on
 this host.
 
+## Refresh for Epic 17 (2026-10-18)
+
+Epic 17 (CSR profiles, configurable supervision frame, RP cyclic test) landed after the rescope. What changes
+for AC12-16 / Tasks A-F, checked against `daemon.py` and `messages.py`:
+
+1. **Run on the `sia-dcs` supervision format (Personnalisé profile, `supervision_format=sia-dcs`, RP off).**
+   The strike counter (1/3 → 3/3 → reconnect loop → NO_NETWORK) is driven by the supervision frame only. With
+   the Scutum/Ajax profiles (`supervision_format=none`, RP on) there is no supervision frame: a network outage
+   there produces a single `BAD_CSR_RESPONSE` (T2) per outage from the RP cycle (notified once, re-armed on
+   the next RP ACK), never `supervision_timeout` / `supervision_disconnected`. Tasks B and E are therefore
+   only valid on `sia-dcs`. Switch the profile in the wizard step 1 and restart the daemon before Task A.
+   Optional extra (Task G): on a Scutum profile, check the once-per-outage `bad_csr_response` and its re-arm.
+2. **Test receiver for Tasks C/D, not Scutum.** Use ioBroker.sia (`192.168.100.15:10002`, account 001234,
+   encryption disabled on that account: with encryption left on, every unencrypted frame is NAKed with
+   "Could not parse SIA message"). Do not provoke failures against the real Scutum extranet (alarm noise).
+3. **TCP labels and states** at strike 3: `supervision_label` = "Tentative de reconnexion en cours"
+   (`SM1_TCP_RECONNECTING_FR`), then "Hors Réseau" (`SM1_NO_NETWORK_FR`) after exhaustion. "PERDUE" is UDP only.
+4. **Reconnect exhaustion duration (AC15 / Task E):** base delay 30 s with factors (1, 2, 4, 10, 10, 10), cap
+   300 s, 6 attempts: 30 + 60 + 120 + 300 + 300 + 300 = **1110 s (about 18.5 min)** of waiting, plus up to
+   `connect_timeout_s` per probe if the outage drops packets instead of refusing them. Add the ~180 s needed to
+   reach strike 3: plan for roughly 25 minutes of outage. Probes are TCP connects, so any block of
+   `192.168.100.15:10002` works (DROP or REJECT).
+5. **NAK wording (commit c1728df):** the supervision NAK message is now "NAK supervision (strike N/3) — trame
+   refusée par la centrale" (title "NAK supervision (trame refusée — auto-résolu)"). The original AC3 still
+   quotes "horodatage rejeté": read it as the new text. A wrong account on the ioBroker.sia receiver NAKs the
+   alarm frame (T2, Task C); NAK on supervision (T1) is provoked the same way if supervision is on.
+6. **Daemon log:** `siaDC09_daemon` at DEBUG shows `Try sending to jeedom: {... 'type': ...}` lines; a
+   `notify` payload with "CRITIQUE" in its title is the cross-check for T3 when SSH is unavailable.
+7. **State to restore at the end:** profile, account number and `csr_port` back to their values before the
+   story; the wizard save must be followed by a daemon restart.
+
 ## Acceptance Criteria (original — UDP/VM-targeted, kept as historical record, not executed by this story)
 
 1. **T1 SUPERVISION_TIMEOUT — message center only:** Given daemon HEALTHY, when CSR simulator is stopped (silent drop) so that strike escalates to 1, then a Jeedom message center entry is created with `logicalId=supervision_timeout`, French French text matches `SM1_TIMEOUT_WARNING` template (`"Timeout supervision (strike 1/3) — nouvelle tentative"` style), AND the configured notification command (`sia_notify_cmd_id`) is **NOT** triggered (no SMS/push event in the notification cmd's event log/log file).
@@ -84,6 +115,8 @@ For each "Verify" step:
 ## Tasks / Subtasks (rescoped — this is what the story now executes)
 
 - [ ] Task A: Baseline (AC: 12-16)
+  - [ ] A.0 Set the equipment to `supervision_format=sia-dcs`, RP off, account 001234 on the ioBroker.sia
+        receiver (192.168.100.15:10002, encryption off); save and restart the daemon (see "Refresh for Epic 17").
   - [ ] A.1 Confirm daemon HEALTHY over TCP on `test-jeedom.lehoux.net` against the real receiver (via Jeedom
         API `type=cmd&id=<supervision_state cmd>`, or the eqLogic's Diagnostic tab).
   - [ ] A.2 Confirm `sia_notify_cmd_id` is configured and note the `Notify` equipment's current
@@ -101,8 +134,8 @@ For each "Verify" step:
         the Jeedom API.
   - [ ] B.2 Wait for strike=1 (~60s per the supervision interval). **Verify** via API/UI: `supervision_state=1`,
         a `supervision_timeout` message-center entry exists, no new `Notify` entry.
-  - [ ] B.3 Wait for strike=3 (~180s). **Verify**: `supervision_label` shows the TCP-specific text (NOT
-        "PERDUE"), a `supervision_disconnected` message-center entry with "CRITIQUE — " prefix, one new
+  - [ ] B.3 Wait for strike=3 (~180s). **Verify**: `supervision_label` = "Tentative de reconnexion en cours"
+        (NOT "PERDUE"), a `supervision_disconnected` message-center entry with "CRITIQUE — " prefix, one new
         `Notify` entry.
   - [ ] B.4 Wait one more supervision cycle. **Verify** no second `supervision_disconnected` entry/notify
         (dedup via `_sm1_t3_fired`).
@@ -128,8 +161,9 @@ For each "Verify" step:
   - [ ] D.4 Revert `csr_port` immediately (Herve's action). Verify normal operation resumes.
 
 - [ ] Task E: TRANSPORT_PERMANENT — full reconnect exhaustion (AC: 15)
-  - [ ] E.1 Extend Task B's network outage past strike 3 until the TCP reconnect loop exhausts all attempts
-        (longer wait — depends on configured reconnect backoff schedule).
+  - [ ] E.1 Extend Task B's network outage past strike 3 until the TCP reconnect loop exhausts all attempts:
+        6 attempts, waits 30/60/120/300/300/300 s = 1110 s (about 18.5 min) after strike 3, so about 25 min
+        of outage in total. Run B and E as one continuous outage.
   - [ ] E.2 **Verify**: daemon enters NO_NETWORK, a `transport_permanent` message-center entry with
         "CRITIQUE — ", one new `Notify` entry, and the daemon process has exited (needs a way to check —
         either Herve confirms via the host, or the supervision cmd simply stops updating entirely).
@@ -140,6 +174,13 @@ For each "Verify" step:
   - [ ] F.1 Review every message-center entry and `Notify` history entry created by Tasks B-E via Jeedom's UI.
         **Verify** all-French text, no English fragments, no raw `ErrorCode` names, no unresolved
         `{placeholder}` literals.
+
+- [ ] Task G (optional, Epic 17): RP-only profile outage (AC: 12 variant)
+  - [ ] G.1 Switch to the Scutum-like settings (`supervision_format=none`, RP on, 60 s) against ioBroker.sia;
+        block the receiver for about 3 minutes.
+  - [ ] G.2 **Verify** exactly one `bad_csr_response` message-center entry and one notification for the whole
+        outage, no `supervision_*` entry. Restore access: **Verify** the next RP is ACKed and a second outage
+        notifies again (re-arm).
 
 ## Tasks / Subtasks (original — UDP/VM-targeted, kept as historical record, NOT executed by this story)
 
@@ -602,6 +643,7 @@ This is a Level 3 (`tests/level3/`) integration test executed manually on the re
 
 | Date | Change |
 |------|--------|
+| 2026-10-18 | Refreshed for Epic 17: new "Refresh for Epic 17" section (sia-dcs format required for B/E, ioBroker.sia as target, TCP labels, reconnect exhaustion about 18.5 min, NAK wording of c1728df), Task A.0, B.3/E.1 wording, optional Task G (RP-only outage). Status unchanged, not executed. |
 | 2026-09-27 | Rescoped (Herve's explicit call): the original AC1-11/Task 0-14 targeted the old VM (`192.168.5.103`) and its local CSR simulator over UDP, which Herve has never run and has no real UDP receiver to validate against (memory `udp-simulator-not-real-validation` — corrects an earlier session's overstatement that 12-4/12-5's simulator evidence was "live-validated"). Kept AC1-11/Task 0-14 as a historical record only. Added AC12-16/Task A-F, retargeting TCP-path validation to `test-jeedom.lehoux.net` against the real receiver (`192.168.100.15:10002`), using network-level/config-level provocation (blocked outbound, wrong account, closed port) instead of a simulator, and Jeedom's native UI (Analyse → Messages) instead of SSH/PHP CLI where possible. Status stays `ready-for-dev` — not yet executed.
 
 | Date | Change |
