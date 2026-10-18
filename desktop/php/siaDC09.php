@@ -133,6 +133,22 @@ $scenarios = scenario::all();
 								<div id="siaDC09-step1" class="siaDC09-step" style="display:none;">
 									<legend><i class="fas fa-satellite-dish"></i> {{Étape 1 — Centrale de télésurveillance}}</legend>
 
+									<!-- Profile first: it presets the periodic-frame options (ADR-22) -->
+									<div class="form-group">
+										<label class="col-sm-4 control-label">{{Profil de la centrale}}</label>
+										<div class="col-sm-6">
+											<select class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="csr_profile" id="siaDC09-csr-profile">
+												<?php
+												foreach (siaDC09::getCsrProfiles() as $profileId => $profile) {
+													echo '<option value="' . htmlspecialchars((string) $profileId) . '">' . htmlspecialchars((string) ($profile['label'] ?? $profileId)) . '</option>';
+												}
+												?>
+												<option value="">{{Personnalisé}}</option>
+											</select>
+											<span class="help-block">{{Choisissez d'abord le profil de votre centrale : il règle automatiquement les options avancées.}}</span>
+										</div>
+									</div>
+
 									<!-- CSR fields -->
 									<div class="form-group">
 										<label class="col-sm-4 control-label">{{Adresse IP}}</label>
@@ -171,19 +187,6 @@ $scenarios = scenario::all();
 										<label class="col-sm-4 control-label">{{Clé AES}}</label>
 										<div class="col-sm-6">
 											<input type="password" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="encryption_key" placeholder="32, 48 ou 64 caractères hex">
-										</div>
-									</div>
-									<div class="form-group">
-										<label class="col-sm-4 control-label">{{Profil de la centrale}}</label>
-										<div class="col-sm-6">
-											<select class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="csr_profile" id="siaDC09-csr-profile">
-												<?php
-												foreach (siaDC09::getCsrProfiles() as $profileId => $profile) {
-													echo '<option value="' . htmlspecialchars((string) $profileId) . '">' . htmlspecialchars((string) ($profile['label'] ?? $profileId)) . '</option>';
-												}
-												?>
-												<option value="">{{Personnalisé}}</option>
-											</select>
 										</div>
 									</div>
 									<div class="form-group">
