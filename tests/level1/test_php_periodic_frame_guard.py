@@ -153,6 +153,77 @@ def test_deamon_info_wires_guards() -> None:
     assert "self::SENDER_CRC_FORMATS" in body
 
 
+_GUARD_SEQUENCE_START = "// Guard 3c'"
+_GUARD_SEQUENCE_END = "// Guard 4 "
+
+# (equipment config, expected launchable) — each case flips one condition of Guards 3c'/3d/3e.
+_DEAMON_INFO_CASES: list[tuple[dict, str]] = [
+    ({}, "ok"),                                                         # legacy equipment: defaults
+    ({"crc_format": "bin"}, "nok"),                                     # Guard 3c'
+    ({"crc_format": "hex"}, "ok"),
+    ({"supervision_format": "none"}, "nok"),                            # 3e: rp_enabled defaults to 0
+    ({"supervision_format": "none", "rp_enabled": 0}, "nok"),
+    ({"supervision_format": "none", "rp_enabled": 1, "rp_interval": 60,
+      "supervision_interval": 0}, "ok"),                                # 3d skipped when 'none'
+    ({"supervision_format": "sia-dcs", "supervision_interval": 0}, "nok"),   # Guard 3d
+    ({"supervision_format": "null", "supervision_interval": 0}, "nok"),
+    ({"supervision_format": "sia-dcs", "rp_enabled": 1, "rp_interval": 59}, "nok"),
+    ({"supervision_format": "sia-dcs", "rp_enabled": 1, "rp_interval": 120}, "ok"),
+    ({"supervision_format": "sia-dcs", "rp_enabled": 0, "rp_interval": 5}, "ok"),
+    ({"supervision_format": "keepalive"}, "nok"),
+]
+
+
+def _php_deamon_info_guard_results(cases: list[tuple[dict, str]]) -> list[str]:
+    """Run the Guard 3c'..3e source slice of deamon_info() for each stubbed config."""
+    source = _PHP_CLASS_FILE.read_text(encoding="utf-8")
+    body = _extract_method_body(source, "deamon_info")
+    start, end = body.find(_GUARD_SEQUENCE_START), body.find(_GUARD_SEQUENCE_END)
+    assert 0 <= start < end, "Guard 3c'..Guard 4 markers missing from deamon_info"
+    guards = body[start:end]
+    guard_body = _extract_method_body(source, "periodicFrameConfigError")
+    consts = _class_constants(source, [
+        "SENDER_CRC_FORMATS", "SUPERVISION_FORMATS", "SUPERVISION_FORMAT_DEFAULT",
+        "RP_INTERVAL_DEFAULT_S", "RP_INTERVAL_MIN_S", "RP_INTERVAL_MAX_S",
+    ])
+    script = (
+        _PHP_STUBS
+        + " class StubEq { public function __construct(private array $c) {}"
+        " public function getConfiguration($k, $d = null) {"
+        " return array_key_exists($k, $this->c) ? $this->c[$k] : $d; } }"
+        " class siaDC09 { " + consts
+        + " public static function periodicFrameConfigError(string $format, bool $rpEnabled,"
+        " int $rpInterval): ?string {" + guard_body + "}"
+        " public static function run($eqLogic) { $return = ['launchable' => 'ok'];"
+        + guards + " return $return; } }"
+        " $cases = json_decode(stream_get_contents(STDIN), true);"
+        " echo json_encode(array_map(fn($c) =>"
+        " siaDC09::run(new StubEq($c))['launchable'], $cases));"
+    )
+    return json.loads(_run_php(script, json.dumps([c for c, _ in cases])))
+
+
+@_requires_php
+def test_deamon_info_guards_execute_as_specified() -> None:
+    """
+    deamon_info() Guards 3c', 3d and 3e give the expected verdict when actually executed.
+
+    Source-text checks cannot catch an inverted condition, swapped arguments, a wrong
+    default or a dropped early `return`; each case here flips exactly one of those.
+
+    Expected result:
+    - non-hex crc_format -> nok; hex -> ok
+    - format 'none' + RP off (explicit or defaulted) -> nok
+    - Guard 3d (interval <= 0) applies to sia-dcs / null, not to 'none'
+    - RP interval below 60 -> nok only when RP is on
+    - unknown format -> nok
+    """
+    results = _php_deamon_info_guard_results(_DEAMON_INFO_CASES)
+
+    # Assert: one verdict per case, matching the specification
+    assert results == [expected for _, expected in _DEAMON_INFO_CASES]
+
+
 def test_deamon_start_passes_periodic_frame_args() -> None:
     """
     deamon_start() always passes --supervision-format and passes RP args only when on (AC5).
@@ -250,6 +321,47 @@ def test_shortest_periodic_interval_staleness_basis() -> None:
     result = json.loads(_run_php(script, json.dumps(cases)))
     # Assert: shortest active interval per case
     assert result == [60, 60, 90, 120]
+
+
+@_requires_php
+def test_shortest_periodic_interval_of_reads_equipment_config() -> None:
+    """
+    _shortestPeriodicIntervalOf() feeds shortestPeriodicInterval() the right config keys.
+
+    The helper test above passes literal arguments; a swapped key, a wrong default or a
+    dropped cast in the wrapper would go unnoticed without running it on a config.
+
+    Expected result:
+    - legacy equipment (no key) -> default format sia-dcs, supervision 60 -> 60
+    - format none + RP 120 -> 120 (supervision interval ignored)
+    - RP configured but disabled -> supervision interval 90
+    - string values from the Jeedom config are cast ("45" -> 45)
+    """
+    source = _PHP_CLASS_FILE.read_text(encoding="utf-8")
+    helper = _extract_method_body(source, "shortestPeriodicInterval")
+    wrapper = _extract_method_body(source, "_shortestPeriodicIntervalOf")
+    assert helper and wrapper, "shortest-interval methods missing"
+    consts = _class_constants(source, ["SUPERVISION_FORMAT_DEFAULT", "RP_INTERVAL_DEFAULT_S"])
+    configs = [
+        {},
+        {"supervision_format": "none", "supervision_interval": 999, "rp_enabled": 1, "rp_interval": 120},
+        {"supervision_interval": 90, "rp_enabled": 0, "rp_interval": 60},
+        {"supervision_interval": "45", "rp_enabled": "0"},
+    ]
+    script = (
+        " class StubEq { public function __construct(private array $c) {}"
+        " public function getConfiguration($k, $d = null) {"
+        " return array_key_exists($k, $this->c) ? $this->c[$k] : $d; } }"
+        " class siaDC09 { " + consts
+        + " public static function shortestPeriodicInterval(string $format,"
+        " int $supervisionInterval, bool $rpEnabled, int $rpInterval): int {" + helper + "}"
+        " public static function _shortestPeriodicIntervalOf($eqLogic): int {" + wrapper + "} }"
+        " $cases = json_decode(stream_get_contents(STDIN), true);"
+        " echo json_encode(array_map(fn($c) => siaDC09::_shortestPeriodicIntervalOf(new StubEq($c)), $cases));"
+    )
+    result = json.loads(_run_php(script, json.dumps(configs)))
+    # Assert: shortest active interval per equipment config
+    assert result == [60, 120, 90, 45]
 
 
 def test_freshness_and_widget_use_shortest_interval() -> None:

@@ -230,3 +230,94 @@ async def test_rp_bad_key_notifies_once_across_cycles() -> None:
     failed = [c for c in daemon._notify.call_args_list if c.args[0] == ErrorCode.EVENT_FAILED]
     assert len(failed) == 1
     assert failed[0].args[1].last_error == "encryption_key"
+
+
+_NAK = {"status": "nak", "raw_nak": b""}
+
+
+@pytest.mark.asyncio
+async def test_rp_nak_then_ack_resends_with_same_wire_seq() -> None:
+    """
+    A NAK is answered by an immediate re-send on the same wire seq, then an ACK ends the cycle.
+
+    Expected result (§ 5.6.1.2, § 5.5.1.5):
+    - two frames sent, no sleep, same wire seq
+    - no notification; SM1 refreshed by the ACK
+    """
+    daemon = _make_daemon()
+    daemon._sia_transport.send_frame = AsyncMock(side_effect=[dict(_NAK), dict(_ACK)])
+    daemon._refresh_sm1_on_ack = AsyncMock()
+    with patch("resources.siadc09d.daemon.asyncio.sleep", new=AsyncMock()) as sleep:
+        await daemon._send_rp()
+    # Assert: NAK re-send, no backoff
+    assert daemon._sia_transport.send_frame.await_count == 2
+    sleep.assert_not_called()
+    # Assert: same wire seq on both frames
+    seqs = {parse_frame_header(c.args[0])[1] for c in daemon._sia_transport.send_frame.await_args_list}
+    assert len(seqs) == 1
+    # Assert: nothing reported, SM1 refreshed
+    daemon._notify.assert_not_called()
+    daemon._refresh_sm1_on_ack.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_rp_nak_every_attempt_notifies_bad_csr_response() -> None:
+    """
+    NAK on every attempt: BAD_CSR_RESPONSE after the last re-send, no EVENT_FAILED.
+
+    Expected result:
+    - 4 frames sent (1 + 3 re-sends)
+    - one BAD_CSR_RESPONSE notification
+    """
+    daemon = _make_daemon()
+    daemon._sia_transport.send_frame = AsyncMock(return_value=dict(_NAK))
+    await daemon._send_rp()
+    # Assert: all attempts used
+    assert daemon._sia_transport.send_frame.await_count == 4
+    # Assert: a single BAD_CSR_RESPONSE
+    daemon._notify.assert_called_once()
+    assert daemon._notify.call_args.args[0] == ErrorCode.BAD_CSR_RESPONSE
+
+
+@pytest.mark.asyncio
+async def test_rp_failure_notifies_once_per_outage_and_rearms_on_ack() -> None:
+    """
+    A CSR outage notifies once, not every cycle; the next ACK re-arms the notification.
+
+    Expected result:
+    - two failing cycles -> one notification
+    - one ACKed cycle then a failing cycle -> a second notification
+    """
+    daemon = _make_daemon()
+    daemon._sia_transport.send_frame = AsyncMock(return_value={"status": "timeout", "raw_nak": None})
+    with patch("resources.siadc09d.daemon.asyncio.sleep", new=AsyncMock()):
+        await daemon._send_rp()
+        await daemon._send_rp()
+        # Assert: one notification for the whole outage
+        assert daemon._notify.call_count == 1
+        daemon._sia_transport.send_frame = AsyncMock(return_value=dict(_ACK))
+        await daemon._send_rp()
+        daemon._sia_transport.send_frame = AsyncMock(return_value={"status": "timeout", "raw_nak": None})
+        await daemon._send_rp()
+    # Assert: a new outage after an ACK notifies again
+    assert daemon._notify.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_rp_failure_reports_wire_seq() -> None:
+    """
+    The EVENT_FAILED context carries the RP's wire seq, not the event counter.
+
+    Expected result:
+    - ctx.sia_seq == int(wire seq of the frames sent) and differs from daemon._sia_seq
+    """
+    daemon = _make_daemon()
+    daemon._sia_transport.send_frame = AsyncMock(return_value={"status": "timeout", "raw_nak": None})
+    with patch("resources.siadc09d.daemon.asyncio.sleep", new=AsyncMock()):
+        await daemon._send_rp()
+    wire_seq = int(parse_frame_header(_sent(daemon))[1])
+    ctx = daemon._notify.call_args.args[1]
+    # Assert: wire seq reported
+    assert ctx.sia_seq == wire_seq
+    # Assert: not the event counter
+    assert ctx.sia_seq != daemon._sia_seq

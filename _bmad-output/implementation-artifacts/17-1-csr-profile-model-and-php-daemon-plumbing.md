@@ -375,3 +375,32 @@ Claude Opus 5.5 (eu.anthropic.claude-opus-5-5), 2026-10-17.
 | 2026-10-17 | Herve approved both: `bin` removed from the sender side (AC8, Task 5 rewritten with the affected tests listed), and the RP range checked only when RP is on (AC7). Checked against the bmad-create-epics-and-stories final-validation criteria: requirement refs added (NFR7, NFR4, FR11 as amended). |
 | 2026-10-17 | Dev: Tasks 1-6 implemented (in-progress → review). Guard 3e factored into `siaDC09::periodicFrameConfigError()` and executed against `CSRPreset` in a level-1 parity test; crc_format guard added to `deamon_info()`. No regression vs the re-measured baseline. Test-jeedom deploy check left open (needs a push). |
 | 2026-10-17 | Quick review: 4 findings, 3 patched (cadence test now distinguishes `supervision_interval_s` from `rp_interval_s`; `deamon_start` key checks scoped to its body; named `SUPERVISION_FORMAT_DEFAULT` / `RP_INTERVAL_DEFAULT_S` in Python), 1 rejected (RP bounds literal in the PHP message). Suites re-run: level1 green, level2/level2_5 same baseline failures. Status → built. |
+
+## Code Review
+
+### 2026-10-18 — 17-1 + probe commit (faafddb, d967ab1); 0 decision-needed, 2 patch, 2 defer, 16 rejected
+
+- [x] [Review][Patch] `deamon_info()` guard wiring (Guard 3c' non-hex crc_format, Guard 3d conditional on format != none, Guard 3e) is checked only by source-text regex; inverted condition, swapped `periodicFrameConfigError` args or a dropped early `return` would pass every test. Add a level-1 `php -r` extraction test running the guard sequence on stubbed `getConfiguration` values [core/class/siaDC09.class.php:177-221, tests/level1/test_php_periodic_frame_guard.py]
+- [x] [Review][Patch] `test_csr_presets_json.py` never runs each profile through `periodicFrameConfigError` / `CSRPreset`; a future profile with `rp_interval: 30` or an unknown `supervision_format` passes the tests, then traps the user in a daemon refusal. Validate every profile in the shipped file (bounds, format, none+RP-off) [tests/level1/test_csr_presets_json.py, core/config/csr_presets.json]
+- [x] [Review][Defer] Test-jeedom deploy check (AC5/AC9: command line shows `--supervision-format 'sia-dcs'`, supervision_state OK, Guard 3e message) never seen on the live host — deferred: needs a push and a UI run, already noted open in Completion Notes
+- [x] [Review][Defer] No test links the command line PHP `deamon_start` builds to the argparse parser (misspelled flag would exit 2 with `deamon_info` having allowed launch) [core/class/siaDC09.class.php:321-328] — deferred: cross-language test costs more than this story warrants; natural fit in 17-2/17-3
+
+**Rejected**
+- `run_connection_test` ignores a stored `crc_format=bin` (low): bin cannot be set from the UI and the daemon start guard already explains it.
+- `_preset_refusal_message` can blame a different cause when two errors coexist (low): argparse `choices` already restricts crc/transport, only a double misconfiguration is affected.
+- PHP `(bool)` cast of a string `rp_enabled` (false): Jeedom stores `0`/`1`; the UI cannot write `"false"`.
+- Non-numeric `rp_interval` cast to 0 reported as out of range (false): loud, correct failure.
+- Three copies of the rule set / mirrored defaults without sync test (low): parity test covers formats and bounds; fix adds complexity.
+- Hard-coded "60 et 86400" in the PHP message (low): already rejected in the quick review.
+- `getCsrProfiles()` entries unvalidated, uncached, logs full path (low/false): no consumer before 17-4; covered by the profile-validation patch above.
+- Parity tests skip silently without php (low): same convention as the existing PHP guard tests.
+- `test_daemon_builder_is_always_sia` greps `"ADM"` (low): fails loudly and is updated with the feature.
+- New strings missing in `en_US.json` (low): en_US is partial by design.
+- Wizard positive hex-mapping test replaced by rejection test (low).
+- Probe `##` separator untested / import-order pylint C0413 (low): developer script, cosmetic.
+- Story status `built` vs sprint `review`, stale "nothing was committed" note (rejected): fix edits the plan under review.
+- Strict xfail pinning the not-yet-built `data-l2key` (false): intentional, flips at 17.4.
+- `crc_format=bin` removal outside the intent's three keys (false): approved by Herve, AC8.
+- Other `CSRPreset` ValueErrors without a PHP guard (false): pre-existing, not touched by this change.
+
+_Coverage note: the edge-case lens read the production hunks fully but only skimmed the test hunks past line 1000 of the diff._

@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 import pytest
+from tests.level1.test_php_periodic_frame_guard import _php_guard_errors, _python_accepts, _requires_php
 
 _PROJECT_ROOT = Path(__file__).parent.parent.parent
 _PROFILES_FILE = _PROJECT_ROOT / "core/config/csr_presets.json"
@@ -93,6 +94,51 @@ def test_no_profile_without_periodic_frame(profiles_doc: dict) -> None:
         if profile.get("supervision_format") == "none":
             # Assert: RP carries the periodic frame
             assert profile.get("rp_enabled"), f"profile {name!r}: none + RP off"
+
+
+def _profile_periodic_config(profile: dict) -> tuple[str, bool, int]:
+    """Resolve a profile to the (format, rp_enabled, rp_interval) the equipment will carry."""
+    return (
+        profile.get("supervision_format", "sia-dcs"),
+        bool(profile.get("rp_enabled", 0)),
+        int(profile.get("rp_interval", 60)),
+    )
+
+
+def test_every_profile_is_accepted_by_csr_preset(profiles_doc: dict) -> None:
+    """
+    Every shipped profile resolves to a combination the daemon accepts (AC7).
+
+    A profile edit such as rp_interval 30 or an unknown format would otherwise pass
+    the shape tests and then leave the user with a daemon that refuses to start.
+
+    Expected result:
+    - CSRPreset accepts (format, rp_enabled, rp_interval) of each profile
+    - a profile-provided supervision_interval is positive
+    """
+    for name, profile in profiles_doc["profiles"].items():
+        # Assert: periodic-frame combination valid for the daemon
+        assert _python_accepts(*_profile_periodic_config(profile)), f"profile {name!r} refused"
+        # Assert: explicit supervision interval usable when a supervision frame is sent
+        if "supervision_interval" in profile:
+            assert int(profile["supervision_interval"]) > 0, f"profile {name!r}: interval <= 0"
+
+
+@_requires_php
+def test_every_profile_passes_php_guard_3e(profiles_doc: dict) -> None:
+    """
+    Every shipped profile is also accepted by deamon_info() Guard 3e (AC7).
+
+    Expected result:
+    - periodicFrameConfigError() returns null for each profile
+    """
+    names = sorted(profiles_doc["profiles"])
+    cases = [_profile_periodic_config(profiles_doc["profiles"][n]) for n in names]
+
+    errors = _php_guard_errors(cases)
+
+    # Assert: no profile is refused by the PHP guard
+    assert errors == [None] * len(names), dict(zip(names, errors))
 
 
 def test_daemon_never_reads_profile_file() -> None:

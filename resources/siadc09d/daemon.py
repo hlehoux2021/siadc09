@@ -482,6 +482,9 @@ class SIADaemon(BaseDaemon):
             _enc_key_error = str(e)  # parse_hex_key messages never contain the key
         # Set once the CONFIG_ERROR notification went out (sent once per daemon run).
         self._encryption_config_notified: bool = False
+        # Story 17-3 review: set once an RP failure was reported; cleared by the next RP ACK,
+        # so a CSR outage notifies once (like _sm1_t3_fired for supervision), not every cycle.
+        self._rp_failure_notified: bool = False
         self._sia_transport: SIABaseTransport | None = None  # Active transport; None before on_start()
 
         # State & data
@@ -2064,13 +2067,27 @@ class SIADaemon(BaseDaemon):
             self._logger.error(f"Error building RP frame: {e!r}")
             raise SIAProtocolError(f"RP frame build failed: {e}") from e
 
-    def _notify_rp_failed(self, attempts_made: int, last_error: str) -> None:
-        """Report a missed RP through the existing EVENT_FAILED path (story 17-3)."""
+    def _notify_rp_failed(
+        self, attempts_made: int, last_error: str, wire_seq: str | None = None,
+    ) -> None:
+        """Report a missed RP through the existing EVENT_FAILED path (story 17-3).
+
+        Reported once per outage: later failures stay silent until an RP is ACKed.
+
+        Args:
+            attempts_made: Number of send attempts.
+            last_error: Failure reason.
+            wire_seq: Wire seq of the failed frame (RP draws it from the tracker, not
+                from ``_sia_seq``); None when nothing was built.
+        """
+        if self._rp_failure_notified:
+            return
+        self._rp_failure_notified = True
         self._notify(
             ErrorCode.EVENT_FAILED,
             EventFailedCtx(
                 sia_code="RP",
-                sia_seq=self._sia_seq,
+                sia_seq=int(wire_seq) if wire_seq is not None else self._sia_seq,
                 zone_name=None,
                 max_retries=RP_MAX_RETRIES,
                 attempts_made=attempts_made,
@@ -2112,11 +2129,12 @@ class SIADaemon(BaseDaemon):
                 result = None
             except (SIAProtocolError, AESEncryptionError, AESKeyError) as e:
                 self._logger.error(f"Protocol error in _send_rp: {e}")
-                self._notify_rp_failed(attempts, 'protocol_error')
+                self._notify_rp_failed(attempts, 'protocol_error', wire_seq)
                 return
 
             status = result['status'] if result is not None else 'timeout'
             if status == "ack":
+                self._rp_failure_notified = False  # re-arm the once-per-outage notification
                 await self._refresh_sm1_on_ack()
                 self._logger.debug(f"RP ACKed (seq={wire_seq}, attempt={attempts})")
                 await self._update_info_commands({
@@ -2128,6 +2146,9 @@ class SIADaemon(BaseDaemon):
                 if attempt < max_retries:
                     nak_offset = self._nak_offset(result['raw_nak'])
                     continue
+                if self._rp_failure_notified:
+                    return
+                self._rp_failure_notified = True
                 self._notify(
                     ErrorCode.BAD_CSR_RESPONSE,
                     BadCSRResponseCtx(
@@ -2143,7 +2164,7 @@ class SIADaemon(BaseDaemon):
             if attempt < max_retries:
                 await asyncio.sleep(1.0)
                 continue
-            self._notify_rp_failed(attempts, 'timeout')
+            self._notify_rp_failed(attempts, 'timeout', wire_seq)
             return
 
     async def _log_sm2_event(

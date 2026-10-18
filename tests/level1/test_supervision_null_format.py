@@ -109,7 +109,7 @@ def test_unknown_format_rejected(builder):
     - SIAProtocolError
     """
     with pytest.raises(SIAProtocolError):
-        builder.make_supervision_message("001234", supervision_format="none")
+        builder.make_supervision_message("001234", supervision_format="keepalive")
 
 
 def test_decoder_accepts_clear_and_encrypted_null(builder):
