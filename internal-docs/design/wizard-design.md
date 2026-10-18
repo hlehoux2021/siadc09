@@ -1,8 +1,8 @@
 # Config Wizard Design — Jeedom siaDC09 Plugin
 
-**Version:** 0.2
-**Date:** 2026-04-03
-**Status:** Updated — aligned with architecture.md (sia_ prefix, canonical step map, exit contract)
+**Version:** 0.3
+**Date:** 2026-10-18
+**Status:** Step 1 rewritten for CSR profiles and periodic-frame options (Story 17.4, ADR-22)
 
 ---
 
@@ -32,7 +32,7 @@ The page has two modes, selected by checking `sia_wizard_step` on load:
 | `sia_wizard_step` | Meaning |
 |---|---|
 | `0` | Not started |
-| `1` | Preset selection complete |
+| `1` | Step 1 (CSR parameters) complete |
 | `2` | Connection test complete |
 | `3` | Zone mapping complete |
 | `4` | Configuration mode (wizard complete) |
@@ -63,7 +63,7 @@ and reloads immediately.
 
 | Step | Title | What the user configures |
 |---|---|---|
-| 1 | Votre opérateur | Provider selection + account number + encryption key (and all CSR fields) |
+| 1 | Centrale de télésurveillance | Profile, CSR address, account, encryption, periodic-frame options |
 | 2 | Test de connexion | Live connection test to the CSR |
 | 3 | Vos zones d'alarme | Zone → camera action + media URL mapping |
 | 4 | Alertes critiques | Jeedom command to call on critical errors |
@@ -72,99 +72,74 @@ Progress is shown as a horizontal stepper at the top (non-clickable, read-only).
 
 ---
 
-## Step 1 — Votre opérateur
+## Step 1 — Centrale de télésurveillance
 
-### Provider selection
+### Profile selection
 
-Two cards side by side. No badges.
+A `csr_profile` select (`data-l2key="csr_profile"`) offers the profiles of
+`core/config/csr_presets.json` (Ajax, Scutum) plus **Personnalisé** (empty value). The options
+are built server-side from `siaDC09::getCsrProfiles()`, and the same array is handed to JS with
+`sendVarToJS('siaDC09_csrProfiles', ...)`. Profile names stay PHP/JS-side (ADR-22): the daemon
+only receives the resolved values through `deamon_start()`.
 
-```
-+---------------------+    +---------------------+
-|                     |    |                     |
-|    IMA Protect      |    |    Personnalisé     |
-|                     |    |                     |
-+---------------------+    +---------------------+
-        (selected)
-```
-
-- Selecting a card sets the hidden `csr_provider` field (`ima_protect` or `manual`).
-- On page load, the **saved** `csr_provider` determines which card is pre-selected.
-  If no config saved yet, "IMA Protect" is pre-selected and fields pre-filled with preset.
-
-### "Personnaliser" button
-
-Visible only when "IMA Protect" card is active. When clicked:
-- Switches card selection to "Personnalisé"
-- Sets `csr_provider` to `manual`
-- Copies current pre-filled values into the now-editable fields
-- No data is lost — the user starts from the preset as a base
+- A profile fills the **advanced fields** from its preset and locks them. A preset that omits a key
+  (e.g. `supervision_interval`) leaves that field untouched.
+- **Personnalisé** unlocks the fields and keeps the current values.
+- Equipment saved before this step existed has no `csr_profile`: it opens on Personnalisé, shows
+  its current values, unlocked. Absent `supervision_format` shows `sia-dcs` and absent
+  `rp_interval` shows 60 (the daemon-side defaults).
 
 ### Fields
 
-All fields are **always rendered** in the DOM and always bound via `data-l2key` so they
-are saved to eqLogic on every save. Editability depends on mode:
-- "IMA Protect" active → CSR fields are **read-only** (`readonly` attribute, not `disabled`)
-- "Personnalisé" active → all fields are **editable**
+All fields are always rendered and bound via `data-l2key`.
 
-> **`readonly` not `disabled`:** `disabled` inputs are excluded from form submission.
-> `readonly` inputs submit normally. This ensures CSR field values are always persisted
-> to eqLogic by the standard save, regardless of mode.
+| Field | HTML binding | Notes |
+|---|---|---|
+| Profil de la centrale | `csr_profile` | '' = Personnalisé |
+| Adresse IP | `csr_ip` | |
+| Port | `csr_port` | 1–65535 |
+| Transport | `transport` | udp / tcp |
+| Numéro de compte | `account_number` | 3–16 hex chars |
+| Chiffrement activé / Clé AES | `encryption_enabled` / `encryption_key` | 32, 48 or 64 hex chars |
+| Tentatives de reconnexion | `retry_count` | reconnection attempts (previously mislabelled "Tentatives") |
+| Délai de reconnexion (s) | `reconnect_delay` | |
 
-| Field | HTML binding | IMA Protect preset | Notes |
-|---|---|---|---|
-| `csr_provider` | `data-l2key="csr_provider"` (hidden) | `ima_protect` | Card selection writes this |
-| Adresse IP / Nom de domaine | `data-l2key="csr_ip"` | _(from csr_presets.json)_ | `readonly` in preset mode |
-| Port | `data-l2key="csr_port"` | _(from csr_presets.json)_ | `readonly` in preset mode |
-| Transport | `data-l2key="transport"` | _(from csr_presets.json)_ | `readonly` in preset mode |
-| Numéro de compte | `data-l2key="account_number"` | _(empty, user fills)_ | Always editable — subscriber-specific |
-| Chiffrement | `data-l2key="encryption_enabled"` | _(from csr_presets.json)_ | `readonly` in preset mode |
-| Clé de chiffrement (AES) | `data-l2key="encryption_key"` | _(empty, user fills)_ | Always editable — subscriber-specific; visible only if encryption enabled; 32/48/64 hex chars (AES-128/192/256) |
-| Intervalle supervision | `data-l2key="supervision_interval"` | _(from csr_presets.json)_ | `readonly` in preset mode |
-| Nombre de tentatives | `data-l2key="retry_count"` | _(from csr_presets.json)_ | `readonly` in preset mode |
+**Options avancées** (collapsed panel `#siaDC09-advanced`, toggled by `#bt_siaDC09_toggleAdvanced`).
+These four carry the class `siaDC09-profile-field` and are the ones a profile locks:
 
-> **Note:** `account_number` and `encryption_key` are always editable even in
-> "IMA Protect" mode — they are subscriber-specific values that the preset cannot know.
+| Field | HTML binding | Notes |
+|---|---|---|
+| Trame de supervision | `supervision_format` | none / sia-dcs / null |
+| Intervalle supervision (s) | `supervision_interval` | |
+| Test cyclique (RP) | `rp_enabled` | checkbox |
+| Intervalle RP (s) | `rp_interval` | 60–86400 |
+
+> **Locking:** `disabled` controls may be skipped by Jeedom's `getValues()` serialisation, so
+> inputs use `readonly`; selects and the checkbox use `pointer-events:none` plus `tabindex=-1`.
+> All locked fields are therefore still saved.
+
+Selecting the `null` format shows a warning (`#siaDC09-null-warning`): some receivers reject it.
 
 ### Validation before "Suivant"
 
 - `account_number` non-empty, 3–16 hex chars
-- If `encryption_enabled`: `encryption_key` non-empty, **32, 48, or 64 hex chars** (AES-128 / AES-192 / AES-256 respectively — per section 5.4.5, CSR must support all three lengths)
-- `csr_ip` non-empty
-- `csr_port` numeric, 1–65535
+- If `encryption_enabled`: `encryption_key` non-empty, 32, 48 or 64 hex chars
+- `csr_ip` non-empty; `csr_port` numeric, 1–65535
+- Supervision `none` with RP off is refused (no periodic frame at all)
+- RP on with a period outside 60–86400 s is refused
 
-Errors shown inline (red border + message under the field). No advance if validation fails.
+The two periodic-frame rules are the JS twin of `siaDC09::periodicFrameConfigError()`. Errors go
+to `#siaDC09-step1-errors`; no advance when validation fails.
 
 ### Data flow
 
-**eqLogic config is the single source of truth** for all CSR parameters. After step 1 is
-saved, eqLogic always contains fully resolved values regardless of whether the user chose
-a preset or entered values manually.
-
-**How preset values reach eqLogic:** PHP renders the step 1 page by reading `csr_presets.json`
-server-side and pre-filling all CSR fields (`csr_ip`, `csr_port`, etc.) with the preset
-values. Those fields carry `data-l2key` bindings and `readonly` attribute — they submit
-their values on save just like editable fields. The standard Jeedom save writes them to
-eqLogic directly. No server-side resolution step is needed.
-
-`csr_provider` is saved to eqLogic to allow the wizard to restore the correct card
-selection on page reload, and to control whether the "Personnaliser" button is shown.
-It is not used by the daemon.
-
-`csr_presets.json` is read **only** at wizard page render time — it is never read by the
-daemon or by `deamon_start()`.
-
-| `csr_provider` | CSR field values come from | Daemon reads from |
-|---|---|---|
-| Any preset ID | PHP pre-fills from `csr_presets.json` → saved to eqLogic | eqLogic |
-| `"manual"` | User fills form fields → saved to eqLogic | eqLogic |
-
-> **Adding a new preset:** add an entry to `csr_presets.json` and add a card in the
-> wizard PHP. No daemon changes, no guard changes.
+eqLogic config is the single source of truth. The profile fills the form; the standard Jeedom save
+writes the resolved values (and `csr_profile`, used only to restore the selector) to eqLogic.
+`csr_presets.json` is read PHP-side only, never by the daemon.
 
 ### On "Suivant"
 
-Standard Jeedom save is triggered (`eqLogicAction[data-action="save"]` click), then
-the wizard advances to step 2.
+Validation, then `sia_wizard_step = 2` and a save, then the wizard advances to step 2.
 
 ---
 
@@ -490,7 +465,7 @@ Once `sia_wizard_step == 4`, the equipment config panel shows the standard Jeedo
 [Relancer l'assistant]
 
 === Connexion ===
-Opérateur: IMA Protect    IP: xxx.xxx.xxx.xxx    Port: 5000 (UDP)
+IP: xxx.xxx.xxx.xxx    Port: 5000 (UDP)
 Compte: XXXXXX            Chiffrement: activé    Supervision: 60s
 
 === Zones mappées ===
@@ -532,7 +507,7 @@ All stored in `eqLogic->getConfiguration()`. Fields introduced by the wizard:
 
 | Key | Type | Set in step |
 |---|---|---|
-| `csr_provider` | string | Step 1 |
+| `csr_profile` | string | Step 1 (profile id, '' = Personnalisé; replaces the removed `csr_provider`) |
 | `csr_ip` | string | Step 1 |
 | `csr_port` | int | Step 1 |
 | `transport` | string | Step 1 |
@@ -653,7 +628,7 @@ Called by `plugin.template.js` when the equipment is loaded. Handles:
 1. Determine display mode from `_eqLogic.configuration.sia_wizard_step`
 2. If wizard mode: show step `Math.max(1, sia_wizard_step)`, hide config section
 3. If config mode: hide wizard section, populate config summary cards
-4. Set active provider card based on `_eqLogic.configuration.csr_provider`
+4. Set the profile selector from `_eqLogic.configuration.csr_profile` and apply it (`siaDC09_applyProfile`)
 5. Populate zone table from `_eqLogic.configuration.sia_zone_mappings`
 6. Populate the notification summary from the selected kind — `sia_notify_cmd_human`, or the
    internal action / scenario name (`siaDC09_notifyTargetLabel()`)
@@ -776,16 +751,16 @@ Both are rendered server-side. JS controls visibility on `printEqLogic()`.
 
 ---
 
-### Task 3.2 — Step 1 HTML + JS: provider selection & credentials
+### Task 3.2 — Step 1 HTML + JS: CSR profile & credentials
 
-**What:** Provider cards, all form fields (always rendered), "Personnaliser" button.
+**What:** Profile selector (Ajax / Scutum / Personnalisé), connection fields, collapsed "Options avancées" panel (always rendered).
 
 **HTML fields** use `class="eqLogicAttr" data-l1key="configuration" data-l2key="..."`.
 
 **JS behaviors:**
-- Card click → update `csr_provider` hidden input + toggle field editability
+- Profile select change → `siaDC09_applyProfile()` fills and locks (or unlocks) the advanced fields
 - Encryption checkbox toggle → show/hide `encryption_key` field
-- "Personnaliser" button → switch to manual mode, copy current field values, enable editing
+- Profile "Personnalisé" → unlock the advanced fields, keeping their current values
 - Inline validation on "Suivant"
 
 ---
@@ -1112,95 +1087,30 @@ async def run_connection_test(config: dict, timeout: int) -> None:
 
 ## CSR Presets Configuration File
 
-**Location:** `resources/siadc09d/csr_presets.json`
+**Location:** `core/config/csr_presets.json` (ADR-22, Story 17.1)
 
-Loaded by the daemon at startup to resolve CSR parameters for preset providers.
-Also read by the PHP wizard (via `file_get_contents`) to populate read-only fields
-for preset providers.
+Read by PHP only (`siaDC09::getCsrProfiles()`). The daemon never reads it and never receives a
+profile name: `deamon_start` passes the resolved `supervision_format`, `supervision_interval`,
+`rp_enabled` and `rp_interval` values. The wizard receives the profiles through
+`sendVarToJS('siaDC09_csrProfiles', ...)`.
 
 ### Format
 
 ```json
 {
-  "version": 1,
-  "presets": [
-    {
-      "id": "ima_protect",
-      "label": "IMA Protect",
-      "csr_ip": "TBD",
-      "csr_port": 5000,
-      "transport": "udp",
-      "encryption_enabled": true,
-      "supervision_interval": 60,
-      "retry_count": 3
-    }
-  ]
+  "schema_version": 1,
+  "profiles": {
+    "scutum": { "label": "Scutum", "supervision_format": "none", "rp_enabled": 1, "rp_interval": 60 }
+  }
 }
 ```
 
-### Fields
+A profile may omit a key (e.g. `supervision_interval`); the wizard then leaves that field untouched.
 
-| Field | Type | Description |
-|---|---|---|
-| `id` | string | Matches `csr_provider` eqLogic config value |
-| `label` | string | Display label for the wizard card |
-| `csr_ip` | string | CSR IP or FQDN |
-| `csr_port` | int | UDP/TCP port |
-| `transport` | `"udp"` \| `"tcp"` | Protocol transport |
-| `encryption_enabled` | bool | Whether AES encryption is required |
-| `supervision_interval` | int (seconds) | Supervision NULL interval |
-| `retry_count` | int | Max event send retries |
+### Adding a profile
 
-### Daemon usage
-
-In `SIADaemon.__init__()`:
-
-```python
-csr_provider = self.get_config('csr_provider', 'manual')
-if csr_provider != 'manual':
-    try:
-        with open(PRESETS_PATH) as f:
-            presets_data = json.load(f)
-        preset = next(
-            (p for p in presets_data['presets'] if p['id'] == csr_provider),
-            None
-        )
-        if preset is None:
-            self._logger.error(
-                f"Preset '{csr_provider}' introuvable dans csr_presets.json — "
-                f"vérifiez la configuration ou mettez à jour le plugin."
-            )
-            self.stop()
-            return
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        self._logger.error(
-            f"Impossible de lire csr_presets.json : {e} — "
-            f"réinstallez le plugin."
-        )
-        self.stop()
-        return
-    self._csr_ip   = preset['csr_ip']
-    self._csr_port = preset['csr_port']
-    # ... etc.
-else:
-    self._csr_ip   = self.get_config('csr_ip')
-    self._csr_port = int(self.get_config('csr_port'))
-    # ... etc.
-# Always subscriber-specific:
-self._account = self.get_config('account_number')
-self._enc_key = os.environ.get('SIA_ENCRYPTION_KEY', '')
-```
-
-### Community contribution path
-
-The file format and location are documented here for community contributions. To add a
-new preset:
-1. Add a new entry to `csr_presets.json`
-2. Add a card to the Step 1 wizard UI (`desktop/php/siaDC09.php`)
-3. Open a PR — no daemon code changes required
-
-In v1.0, only the `ima_protect` preset is included. Additional presets (Sicur, Telematec,
-etc.) are out of scope for v1.0 but the file structure is designed for extensibility.
+1. Add an entry under `profiles` in `csr_presets.json`.
+2. No PHP, JS or daemon change: the selector is built from the file.
 
 ---
 
@@ -1208,9 +1118,9 @@ etc.) are out of scope for v1.0 but the file structure is designed for extensibi
 
 | Test | How |
 |---|---|
-| Step 1 IMA Protect preset | Select IMA Protect card → verify fields pre-filled and disabled |
-| Step 1 Personnaliser | Click "Personnaliser" → verify fields become editable with preset values copied |
-| Step 1 reload saved config | Save manual config, reload page → verify "Personnalisé" card selected, saved values shown |
+| Step 1 profile | Select Scutum → verify advanced fields pre-filled and read-only |
+| Step 1 Personnalisé | Select Personnalisé → verify advanced fields become editable, values kept |
+| Step 1 reload saved config | Save manual config, reload page → verify "Personnalisé" selected, saved values shown |
 | Step 1 validation | Leave account empty, click Suivant → verify error shown, no advance |
 | Step 2 auto-trigger | Arrive at step 2 → verify spinner appears immediately, subprocess test fires |
 | Step 2 ACK result | Subprocess returns ACK → green banner, "Suivant" enabled |

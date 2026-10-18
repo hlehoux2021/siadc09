@@ -329,7 +329,6 @@ def test_periodic_frame_key_in_python_cli(python_source: str, key: str) -> None:
     )
 
 
-@pytest.mark.xfail(strict=True, reason="wizard field added by Story 17.4")
 @pytest.mark.parametrize("key", _PERIODIC_FRAME_KEYS)
 def test_periodic_frame_key_in_php_page(php_page: str, key: str) -> None:
     """
@@ -361,3 +360,30 @@ def test_rp_interval_bounds_in_sync(php_class: str, constant: str, php_name: str
     assert py_match and php_match, f"{constant} missing on one side"
     # Assert: same bound value on both sides
     assert py_match.group(1) == php_match.group(1)
+
+
+# ── Story 17.4: profile selector JS rules ─────────────────────────────────────
+
+
+def test_js_profile_apply_and_validator_rules(js_source: str) -> None:
+    """
+    The JS applies profiles, runs it on printEqLogic and refuses a dead config.
+
+    Expected result:
+    - siaDC09_applyProfile defined and called from printEqLogic
+    - csr_profile key and the profiles variable are referenced
+    - validator rejects none + RP off and RP period outside 60..86400
+    - summary says "tentatives de reconnexion"
+    """
+    # Assert: apply function and its use at load time
+    assert "function siaDC09_applyProfile(" in js_source, "applyProfile missing"
+    body = _extract_method_body(js_source, "printEqLogic")
+    assert "siaDC09_applyProfile(" in body, "printEqLogic must apply the saved profile"
+    # Assert: profile data sources
+    assert "csr_profile" in js_source, "csr_profile key unused in JS"
+    assert "siaDC09_csrProfiles" in js_source, "profiles var unused in JS"
+    # Assert: validator rules
+    assert "supFormat === 'none' && !rpOn" in js_source, "none + RP off rule missing"
+    assert "rpInterval < 60 || rpInterval > 86400" in js_source, "RP range rule missing"
+    # Assert: relabel in summary
+    assert "tentatives de reconnexion" in js_source, "summary label not corrected"

@@ -504,7 +504,9 @@ class siaDC09 extends eqLogic {
      * (supervision_format, supervision_interval, rp_enabled, rp_interval). The file is read
      * PHP-side only: the daemon receives resolved values, never a profile name.
      *
-     * No caller yet — the wizard profile selector arrives with Story 17.4. This is expected.
+     * Callers: the wizard step 1 profile selector (desktop/php/siaDC09.php), which also hands the
+     * profiles to JS (Story 17.4). A preset may omit a key (e.g. supervision_interval); the wizard
+     * then leaves that field untouched.
      *
      * @return array<string, array<string, mixed>> The `profiles` object, or [] when the file
      *         is missing, unreadable, not valid JSON or not schema_version 1 (logged at

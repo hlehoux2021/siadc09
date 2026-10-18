@@ -467,3 +467,45 @@ def test_page_has_table_cmd(php_page: str) -> None:
     """
     # Assert: command table present
     assert 'id="table_cmd"' in php_page
+
+
+# ── Story 17.4: profile selector and advanced options ─────────────────────────
+
+
+def test_step1_profile_selector_and_advanced_panel(php_page: str) -> None:
+    """
+    Step 1 offers a CSR profile selector built from getCsrProfiles() plus
+    Personnalisé, and a collapsed advanced-options panel (ADR-22).
+
+    Expected result:
+    - csr_profile select bound with data-l2key, options from siaDC09::getCsrProfiles()
+    - profiles handed to JS through sendVarToJS
+    - #siaDC09-advanced hidden by default
+    - retry_count relabelled as reconnection attempts
+    """
+    # Assert: selector bound and filled from presets
+    assert 'data-l2key="csr_profile"' in php_page, "csr_profile select missing"
+    assert "siaDC09::getCsrProfiles()" in php_page, "options must come from the presets file"
+    # Assert: profiles passed to JS
+    assert "sendVarToJS('siaDC09_csrProfiles'" in php_page, "profiles not handed to JS"
+    # Assert: collapsed panel
+    assert 'id="siaDC09-advanced" style="display:none;"' in php_page, "advanced panel must start collapsed"
+    # Assert: relabel
+    assert "{{Tentatives de reconnexion}}" in php_page, "retry_count label not corrected"
+    assert "{{Tentatives}}" not in php_page, "old ambiguous label still present"
+
+
+def test_step1_advanced_fields_are_lockable(php_page: str) -> None:
+    """
+    The four profile-driven fields carry the siaDC09-profile-field class so the
+    JS can lock them.
+
+    Expected result:
+    - each of supervision_format, supervision_interval, rp_enabled, rp_interval has the class
+    """
+    import re
+
+    for key in ("supervision_format", "supervision_interval", "rp_enabled", "rp_interval"):
+        m = re.search(rf'<[^>]*data-l2key="{key}"[^>]*>', php_page)
+        # Assert: field exists and is lockable
+        assert m is not None and "siaDC09-profile-field" in m.group(0), f"{key} not lockable"

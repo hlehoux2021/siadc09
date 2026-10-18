@@ -4,6 +4,7 @@ if (!isConnect('admin')) {
 }
 $plugin = plugin::byId('siaDC09');
 sendVarToJS('eqType', $plugin->getId());
+sendVarToJS('siaDC09_csrProfiles', siaDC09::getCsrProfiles());
 // First access bootstraps the auto-equipment — the wizard runs with the daemon
 // stopped, so deamon_start() never gets the chance to create it (Story 12.1 AC8).
 siaDC09::ensureAutoEquipment();
@@ -173,13 +174,20 @@ $scenarios = scenario::all();
 										</div>
 									</div>
 									<div class="form-group">
-										<label class="col-sm-4 control-label">{{Intervalle supervision (s)}}</label>
+										<label class="col-sm-4 control-label">{{Profil de la centrale}}</label>
 										<div class="col-sm-6">
-											<input type="number" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="supervision_interval" placeholder="60">
+											<select class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="csr_profile" id="siaDC09-csr-profile">
+												<?php
+												foreach (siaDC09::getCsrProfiles() as $profileId => $profile) {
+													echo '<option value="' . htmlspecialchars((string) $profileId) . '">' . htmlspecialchars((string) ($profile['label'] ?? $profileId)) . '</option>';
+												}
+												?>
+												<option value="">{{Personnalisé}}</option>
+											</select>
 										</div>
 									</div>
 									<div class="form-group">
-										<label class="col-sm-4 control-label">{{Tentatives}}</label>
+										<label class="col-sm-4 control-label">{{Tentatives de reconnexion}}</label>
 										<div class="col-sm-6">
 											<input type="number" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="retry_count" placeholder="6">
 										</div>
@@ -188,6 +196,44 @@ $scenarios = scenario::all();
 										<label class="col-sm-4 control-label">{{Délai de reconnexion (s)}}</label>
 										<div class="col-sm-6">
 											<input type="number" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="reconnect_delay" placeholder="30">
+										</div>
+									</div>
+
+									<!-- Options avancées (ADR-22) -->
+									<div class="form-group">
+										<div class="col-sm-offset-4 col-sm-6">
+											<a class="btn btn-default btn-sm" id="bt_siaDC09_toggleAdvanced"><i class="fas fa-cog"></i> {{Options avancées}}</a>
+										</div>
+									</div>
+									<div id="siaDC09-advanced" style="display:none;">
+										<div class="form-group">
+											<label class="col-sm-4 control-label">{{Trame de supervision}}</label>
+											<div class="col-sm-6">
+												<select class="eqLogicAttr form-control siaDC09-profile-field" data-l1key="configuration" data-l2key="supervision_format">
+													<option value="none">{{Aucune}}</option>
+													<option value="sia-dcs">SIA-DCS</option>
+													<option value="null">NULL</option>
+												</select>
+												<div id="siaDC09-null-warning" class="alert alert-warning" style="display:none; margin-top:5px;">{{Le format NULL : certains récepteurs le rejettent.}}</div>
+											</div>
+										</div>
+										<div class="form-group">
+											<label class="col-sm-4 control-label">{{Intervalle supervision (s)}}</label>
+											<div class="col-sm-6">
+												<input type="number" class="eqLogicAttr form-control siaDC09-profile-field" data-l1key="configuration" data-l2key="supervision_interval" placeholder="60">
+											</div>
+										</div>
+										<div class="form-group">
+											<label class="col-sm-4 control-label">{{Test cyclique (RP)}}</label>
+											<div class="col-sm-6">
+												<input type="checkbox" class="eqLogicAttr siaDC09-profile-field" data-l1key="configuration" data-l2key="rp_enabled">
+											</div>
+										</div>
+										<div class="form-group">
+											<label class="col-sm-4 control-label">{{Intervalle RP (s)}}</label>
+											<div class="col-sm-6">
+												<input type="number" class="eqLogicAttr form-control siaDC09-profile-field" data-l1key="configuration" data-l2key="rp_interval" placeholder="60" min="60" max="86400">
+											</div>
 										</div>
 									</div>
 

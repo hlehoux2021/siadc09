@@ -20,6 +20,14 @@ var _siaDC09_testNakConfirmed = false
 // ===== JEEDOM PLUGIN HOOKS =====
 
 function printEqLogic(_eqLogic) {
+  // Empty / absent csr_profile = Personnalisé (legacy equipment keeps its current values, unlocked).
+  var savedProfile = _eqLogic.configuration && _eqLogic.configuration.csr_profile || ''
+  $('#siaDC09-csr-profile').val(savedProfile)
+  // Absent keys fall back to the daemon-side defaults (sia-dcs, RP off, 60 s), not to the first <option>.
+  var cfgSaved = _eqLogic.configuration || {}
+  if (!cfgSaved.supervision_format) $('.eqLogicAttr[data-l2key="supervision_format"]').val('sia-dcs')
+  if (!cfgSaved.rp_interval) $('.eqLogicAttr[data-l2key="rp_interval"]').val(60)
+  siaDC09_applyProfile(savedProfile, false)
   var wizardStep = parseInt(_eqLogic.configuration && _eqLogic.configuration.sia_wizard_step || 0)
   siaDC09_initDiagnosticTab(wizardStep)
   if (wizardStep >= 4) {
@@ -105,6 +113,67 @@ function siaDC09_setWizardStep(step) {
   $('.eqLogicAttr[data-l2key="sia_wizard_step"]').val(step)
 }
 
+// ===== STEP 1 PROFILE / ADVANCED OPTIONS =====
+
+// Locking uses readonly on inputs and pointer-events on select/checkbox: disabled controls may be
+// skipped by Jeedom's getValues() serialisation, readonly ones are always saved.
+function siaDC09_lockProfileFields(locked) {
+  $('.siaDC09-profile-field').each(function() {
+    var $f = $(this)
+    var isInput = $f.is('input[type="number"], input[type="text"]')
+    if (isInput) {
+      $f.prop('readonly', locked)
+    } else {
+      $f.css('pointer-events', locked ? 'none' : '').attr('tabindex', locked ? '-1' : null)
+    }
+    $f.toggleClass('siaDC09-locked', locked)
+  })
+}
+
+function siaDC09_updateNullWarning() {
+  var isNull = $('.eqLogicAttr[data-l2key="supervision_format"]').val() === 'null'
+  $('#siaDC09-null-warning').toggle(isNull)
+}
+
+// fill=true copies the preset values into the fields (user picked a profile);
+// fill=false only sets lock state (reload of an already-saved equipment).
+function siaDC09_applyProfile(profileId, fill) {
+  var profiles = (typeof siaDC09_csrProfiles === 'object' && siaDC09_csrProfiles) || {}
+  var preset = profileId ? profiles[profileId] : null
+  if (!preset) {
+    siaDC09_lockProfileFields(false)
+    siaDC09_updateNullWarning()
+    return
+  }
+  if (fill) {
+    if (preset.supervision_format !== undefined) {
+      $('.eqLogicAttr[data-l2key="supervision_format"]').val(preset.supervision_format)
+    }
+    if (preset.supervision_interval !== undefined) {
+      $('.eqLogicAttr[data-l2key="supervision_interval"]').val(preset.supervision_interval)
+    }
+    if (preset.rp_enabled !== undefined) {
+      $('.eqLogicAttr[data-l2key="rp_enabled"]').prop('checked', !!parseInt(preset.rp_enabled, 10))
+    }
+    if (preset.rp_interval !== undefined) {
+      $('.eqLogicAttr[data-l2key="rp_interval"]').val(preset.rp_interval)
+    }
+  }
+  siaDC09_lockProfileFields(true)
+  siaDC09_updateNullWarning()
+}
+
+$('#siaDC09-csr-profile').on('change', function() {
+  siaDC09_applyProfile($(this).val(), true)
+  if ($(this).val()) $('#siaDC09-advanced').show()
+})
+
+$('.eqLogicAttr[data-l2key="supervision_format"]').on('change', siaDC09_updateNullWarning)
+
+$('#bt_siaDC09_toggleAdvanced').on('click', function() {
+  $('#siaDC09-advanced').toggle()
+})
+
 // ===== STEP 1 VALIDATION =====
 
 function siaDC09_validateStep1() {
@@ -133,8 +202,23 @@ function siaDC09_validateStep1() {
     errors.push("{{Clé AES requise quand le chiffrement est activé}}")
   }
 
+  // PHP twin: siaDC09::periodicFrameConfigError() — keep the rules in sync.
+  var supFormat = $('.eqLogicAttr[data-l2key="supervision_format"]').val() || 'sia-dcs'
+  var rpOn = $('.eqLogicAttr[data-l2key="rp_enabled"]').is(':checked')
+  var rpInterval = parseInt($('.eqLogicAttr[data-l2key="rp_interval"]').val(), 10)
+  if (supFormat === 'none' && !rpOn) {
+    errors.push('{{Au moins une trame périodique est requise : activez la supervision ou le test cyclique (RP)}}')
+  }
+  if (rpOn && (isNaN(rpInterval) || rpInterval < 60 || rpInterval > 86400)) {
+    errors.push('{{Intervalle RP : nombre entre 60 et 86400 secondes requis}}')
+  }
+
   if (errors.length > 0) {
     $('#siaDC09-step1-errors').html(errors.join('<br>')).show()
+    // The periodic-frame errors concern fields folded in "Options avancées" — open it.
+    if ((supFormat === 'none' && !rpOn) || (rpOn && (isNaN(rpInterval) || rpInterval < 60 || rpInterval > 86400))) {
+      $('#siaDC09-advanced').show()
+    }
     return false
   }
   $('#siaDC09-step1-errors').hide()
@@ -597,7 +681,7 @@ function siaDC09_populateConfigSummary(eqLogic) {
   $('<div>').append(
     $('<strong>').text('Supervision : ')
   ).append(
-    $('<span>').text((cfg.supervision_interval || 60) + 's, ' + (cfg.retry_count || 6) + ' tentatives')
+    $('<span>').text((cfg.supervision_interval || 60) + 's, ' + (cfg.retry_count || 6) + ' tentatives de reconnexion')
   ).appendTo($conn)
   // Persisted checkbox config comes back as the string "0" when unchecked, not absent —
   // a bare truthy check on cfg.encryption_enabled treats "0" as truthy and always shows
