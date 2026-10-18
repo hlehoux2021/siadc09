@@ -180,7 +180,7 @@ development_status:
   17-1-csr-profile-model-and-php-daemon-plumbing: review
   17-2-configurable-supervision-frame-sia-dcs-null: review  # committed e0732f5 (no story file; walkthrough b61fc51), unreviewed; includes the D-42 first-frame-at-startup fix
   17-3-rp-periodic-test: review  # committed 4a8893c locally, unpushed, unreviewed
-  17-4-wizard-profile-choice-and-advanced-options: backlog  # UI validation on test-jeedom required
+  17-4-wizard-profile-choice-and-advanced-options: review  # UI-validated on test-jeedom 2026-10-18 (profile lock/save/reload, Personnalisé rules, NULL warning)
   17-5-field-validation-per-profile: backlog  # Scutum sends by Herve; ioBroker.sia ACK proves framing only
   epic-17-retrospective: optional
 

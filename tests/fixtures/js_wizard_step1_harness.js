@@ -74,7 +74,8 @@ const out = { fields: {}, validate }
 for (const key of ['supervision_format', 'supervision_interval', 'rp_interval']) out.fields[key] = field(key).val()
 out.fields.rp_enabled = field('rp_enabled').is(':checked')
 out.locked = $('.siaDC09-locked').length
-out.readonlyInputs = $('input[readonly]').length
+out.dimmed = $('.siaDC09-profile-field').filter(function() { return this.style.opacity === '0.6' }).length
+out.readonlyInputs =$('input[readonly]').length
 out.advancedVisible = $('#siaDC09-advanced').css('display') !== 'none'
 out.nullWarningVisible = $('#siaDC09-null-warning').css('display') !== 'none'
 out.errors = $('#siaDC09-step1-errors').html()

@@ -126,7 +126,7 @@ function siaDC09_lockProfileFields(locked) {
     } else {
       $f.css('pointer-events', locked ? 'none' : '').attr('tabindex', locked ? '-1' : null)
     }
-    $f.toggleClass('siaDC09-locked', locked)
+    $f.css('opacity', locked ? 0.6 : '').toggleClass('siaDC09-locked', locked)
   })
 }
 

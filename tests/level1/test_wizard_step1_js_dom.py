@@ -52,6 +52,8 @@ def test_apply_profile_fills_and_locks_fields() -> None:
     # Assert: all four profile fields locked, number inputs readonly
     assert out["locked"] == 4
     assert out["readonlyInputs"] == 2
+    # Assert: locked fields are visibly dimmed
+    assert out["dimmed"] == 4
 
 
 def test_apply_profile_without_fill_keeps_saved_values_but_locks() -> None:
@@ -84,7 +86,7 @@ def test_apply_empty_profile_unlocks_fields() -> None:
     ]})
 
     # Assert: everything editable again
-    assert (out["locked"], out["readonlyInputs"]) == (0, 0)
+    assert (out["locked"], out["readonlyInputs"], out["dimmed"]) == (0, 0, 0)
 
 
 @pytest.mark.parametrize("fields, expected_ok, advanced_open", [
