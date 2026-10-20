@@ -189,9 +189,15 @@
       'intrusion': 'fa-user-secret', 'incendie': 'fa-fire', 'panique': 'fa-bell',
       'armement': 'fa-lock', 'désarmement': 'fa-lock-open', 'annulation': 'fa-undo'
     };
+    // Card color follows the kind of event: alarms red, disarm and cancel orange,
+    // arm green. The status line keeps its own outcome color (confirmed = neutral).
+    var SM2_TYPE_COLORS = {
+      'intrusion': 'text-danger', 'incendie': 'text-danger', 'panique': 'text-danger',
+      'désarmement': 'text-warning', 'armement': 'text-success', 'annulation': 'text-warning'
+    };
     var SM2_STATUS = [
       { re: /en cours/i,       icon: 'fa-spinner fa-pulse', cls: 'text-warning' },
-      { re: /confirm/i,         icon: 'fa-check-circle',     cls: 'text-success' },
+      { re: /confirm/i,         icon: 'fa-check-circle',     cls: '' },
       { re: /refus/i,           icon: 'fa-ban',              cls: 'text-danger' },
       { re: /sans réponse/i,   icon: 'fa-times-circle',     cls: 'text-danger' },
       { re: /non transmise/i,  icon: 'fa-key',              cls: 'text-danger' }
@@ -200,7 +206,7 @@
     function colorize(el, cls) {
       if (!el) return;
       el.classList.remove.apply(el.classList, COLOR_CLASSES);
-      el.classList.add(cls);
+      if (cls) el.classList.add(cls);
     }
     var eventTimeMs = NaN;
     var showTime = false;
@@ -224,8 +230,16 @@
       }
       colorize(evStatusText, st ? st.cls : 'text-muted');
       colorize(evStatusIcon, st ? st.cls : 'text-muted');
-      colorize(evBar, st ? st.cls : 'text-muted');
-      colorize(evTypeWrap, st ? st.cls : 'text-muted');
+      var typeCls = 'text-muted';
+      var head = '', m = null, typeName = '';
+      if (st) {
+        head = raw.slice(0, idx);
+        m = /^(.*?)\s*\((zone|utilisateur)\s+(\d+)\)\s*$/i.exec(head);
+        typeName = m ? m[1] : head;
+        typeCls = SM2_TYPE_COLORS[typeName.toLowerCase()] || st.cls || 'text-muted';
+      }
+      colorize(evBar, typeCls);
+      colorize(evTypeWrap, typeCls);
       if (!st) {
         // Idle ("Inactif", "Aucun événement…") or an unknown text: discreet raw line.
         showTime = false;
@@ -236,9 +250,6 @@
         renderEventTime();
         return;
       }
-      var head = raw.slice(0, idx);
-      var m = /^(.*?)\s*\((zone|utilisateur)\s+(\d+)\)\s*$/i.exec(head);
-      var typeName = m ? m[1] : head;
       evTypeText.textContent = typeName;
       evWhere.textContent = m ? m[2] + ' ' + m[3] : '';
       evTypeIcon.className = 'siaDC09-event-type fas ' + (SM2_TYPES[typeName.toLowerCase()] || 'fa-bell');

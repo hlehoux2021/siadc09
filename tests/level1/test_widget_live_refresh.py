@@ -332,17 +332,17 @@ def test_sm1_stale_shows_clock_icon_then_live_push_restores() -> None:
 
 
 @pytest.mark.parametrize(
-    ("label", "type_icon", "where", "status_icon", "color"),
+    ("label", "type_icon", "where", "status_icon", "color", "card"),
     [
-        ("Intrusion (zone 3) : En cours", "fa-user-secret", "zone 3", "fa-spinner fa-pulse", "text-warning"),
-        ("Incendie (zone 1) : Confirmé par la centrale", "fa-fire", "zone 1", "fa-check-circle", "text-success"),
-        ("Panique (zone 2) : Refusé par la centrale", "fa-bell", "zone 2", "fa-ban", "text-danger"),
-        ("Armement (utilisateur 4) : Sans réponse de la centrale", "fa-lock", "utilisateur 4", "fa-times-circle", "text-danger"),
-        ("Désarmement (utilisateur 4) : Non transmise — clé de chiffrement invalide", "fa-lock-open", "utilisateur 4", "fa-key", "text-danger"),
-        ("Annulation (zone 3) : Confirmé par la centrale", "fa-undo", "zone 3", "fa-check-circle", "text-success"),
+        ("Intrusion (zone 3) : En cours", "fa-user-secret", "zone 3", "fa-spinner fa-pulse", "text-warning", "text-danger"),
+        ("Incendie (zone 1) : Confirmé par la centrale", "fa-fire", "zone 1", "fa-check-circle", "", "text-danger"),
+        ("Panique (zone 2) : Refusé par la centrale", "fa-bell", "zone 2", "fa-ban", "text-danger", "text-danger"),
+        ("Armement (utilisateur 4) : Sans réponse de la centrale", "fa-lock", "utilisateur 4", "fa-times-circle", "text-danger", "text-success"),
+        ("Désarmement (utilisateur 4) : Non transmise — clé de chiffrement invalide", "fa-lock-open", "utilisateur 4", "fa-key", "text-danger", "text-warning"),
+        ("Annulation (zone 3) : Confirmé par la centrale", "fa-undo", "zone 3", "fa-check-circle", "", "text-warning"),
     ],
 )
-def test_sm2_event_card_parses_label(label: str, type_icon: str, where: str, status_icon: str, color: str) -> None:
+def test_sm2_event_card_parses_label(label: str, type_icon: str, where: str, status_icon: str, color: str, card: str) -> None:
     """The event_label is split into type pill, zone/user and a colored status line.
 
     - type icon and zone/user come from the part before ' : '
@@ -356,10 +356,13 @@ def test_sm2_event_card_parses_label(label: str, type_icon: str, where: str, sta
     # Zone or user
     assert r["eventWhere"] == where
     # Status pictogram and color on both icon and text
-    assert status_icon in r["eventStatusIcon"] and color in r["eventStatusIcon"]
-    assert color in r["eventStatusTextClass"]
-    # The side bar and the type ring carry the outcome color too (colored card)
-    assert color in r["eventBar"] and color in r["eventTypeWrap"]
+    assert status_icon in r["eventStatusIcon"]
+    if color:
+        assert color in r["eventStatusIcon"] and color in r["eventStatusTextClass"]
+    else:  # confirmed stays neutral, never green
+        assert "text-success" not in r["eventStatusIcon"] + r["eventStatusTextClass"]
+    # The side bar and the type ring carry the event-type color
+    assert card in r["eventBar"] and card in r["eventTypeWrap"]
 
 
 @pytest.mark.parametrize("label", ["Inactif", "Aucun événement depuis le démarrage"])

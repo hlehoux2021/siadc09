@@ -119,8 +119,10 @@ and inline script are shared (a level-1 test keeps them identical).
 > **SM2** — `event_label` (`{Type} (zone N|utilisateur N) : {état}`) is split on `" : "`.
 > Head: type icon (`intrusion fa-user-secret`, `incendie fa-fire`, `panique fa-bell`,
 > `armement fa-lock`, `désarmement fa-lock-open`, `annulation fa-undo`) + type + zone/user.
-> Status line: `En cours` `fa-spinner fa-pulse` orange · `Confirmé` `fa-check-circle` green ·
+> Status line: `En cours` `fa-spinner fa-pulse` orange · `Confirmé` `fa-check-circle` neutral (never green) ·
 > `Refusé` `fa-ban` red · `Sans réponse` `fa-times-circle` red · `Non transmise` `fa-key` red.
+> Card bar and type ring follow the event type: alarms (intrusion, incendie, panique) red,
+> désarmement and annulation orange, armement green.
 > An idle or unparseable label ("Inactif", "Aucun événement…") shows the raw text, dimmed.
 > The full label stays in `data-raw` on `.siaDC09-event`; `event_state` is not needed, so no
 > `event_state` callback was added.
