@@ -11,9 +11,9 @@
 - No test cross-checks the command line `deamon_start` builds against the argparse parser (`--supervision-format`, `--rp-enabled`, `--rp-interval`); a misspelled flag would exit 2 although `deamon_info` allowed launch. Fits 17-2/17-3.
 - RESOLVED 2026-10-18: misleading supervision NAK wording (found in the 17-5 field run; now "trame refusée par la centrale"): after the NAK re-sends the daemon logs "NAK supervision (strike 1/3) — horodatage rejeté par la centrale", but a bare NAK carries no reason. ioBroker.sia NAKed `"NULL"0000L0#001234[]` with `Incorrect format of data message` (its parser rejects an empty data block), not a timestamp problem. Reword to a neutral "frame refused by the CSR" (and keep the timestamp hint only when the NAK is known to be about it).
 
-- source_plan: none
-  summary: Widget visual redesign — propose clearer pictograms for the SM1 supervision states (user-requested, UI specialist, proposals to validate before coding).
+- source_plan: `_bmad-output/plan-10-1-widget-sm1-sm2-redesign.md`
+  summary: RESOLVED 2026-10-20 (SM1 variant B) — Widget visual redesign — propose clearer pictograms for the SM1 supervision states (user-requested, UI specialist, proposals to validate before coding).
   evidence: split from the widget-correction request of 2026-10-20 (items 1+2, Jeedom conformance, kept as the first goal).
-- source_plan: none
-  summary: Widget visual redesign — propose a clearer, nicer presentation for the SM2 (event) line of the widget (user-requested, UI specialist, proposals to validate before coding).
+- source_plan: `_bmad-output/plan-10-1-widget-sm1-sm2-redesign.md`
+  summary: RESOLVED 2026-10-20 (SM2 variant B) — Widget visual redesign — propose a clearer, nicer presentation for the SM2 (event) line of the widget (user-requested, UI specialist, proposals to validate before coding).
   evidence: split from the widget-correction request of 2026-10-20 (items 1+2, Jeedom conformance, kept as the first goal).

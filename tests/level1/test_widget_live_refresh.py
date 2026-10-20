@@ -20,7 +20,9 @@ Reference: _bmad-output/implementation-artifacts/10-3-widget-live-refresh-on-com
 """
 
 import json
+import re
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -192,6 +194,7 @@ class TestLiveEventRefresh:
 
         - the initial event text is the rendered placeholder
         - a pushed confirmed label replaces it in place (fixes 'reste à Inactif')
+        - the card shows the status part, the full label stays in data-raw
         """
         confirmed = "Intrusion (zone 3) : Confirmée par la centrale"
         r = _one({
@@ -199,7 +202,9 @@ class TestLiveEventRefresh:
             "actions": [{"type": "pushEvent", "value": confirmed}],
         })
         # AC2: the event line moves off 'Inactif' to the confirmed value on its own
-        assert r["eventText"] == confirmed
+        assert r["eventRaw"] == confirmed
+        # The status line carries the part after ' : ' (type moved to the head)
+        assert r["eventStatusText"] == "Confirmée par la centrale"
 
 
 # ── AC3: stale detection + cooperation with live push ────────────────────────
@@ -252,3 +257,161 @@ class TestStaleCooperation:
         # AC3: live path must not fight a fresh server render
         assert "text-success" in r["badgeClass"]
         assert "text-muted" not in r["badgeClass"]
+
+
+# ── Story 10-1 (suite): SM1 pictograms ───────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("label", "state", "icon", "color"),
+    [
+        ("Connexion OK", "2", "fa-circle-check", "text-success"),
+        ("Connexion en cours d'initialisation", "1", "fa-spinner fa-pulse", "text-warning"),
+        ("Connexion dégradée (2/3)", "1", "fa-triangle-exclamation", "text-warning"),
+        ("Connexion perdue", "0", "fa-link-slash", "text-danger"),
+        ("Tentative de reconnexion en cours", "0", "fa-arrows-rotate fa-spin", "text-danger"),
+        ("Hors Réseau", "0", "fa-plug-circle-xmark", "text-danger"),
+        ("Clé de chiffrement invalide", "0", "fa-key", "text-danger"),
+        ("ARRÊTÉ", "0", "fa-circle-stop", "text-danger"),
+        ("Équipement désactivé", "0", "fa-circle-pause", "text-muted"),
+    ],
+)
+def test_sm1_label_selects_icon_and_color(label: str, state: str, icon: str, color: str) -> None:
+    """Each supervision_label gets its own pictogram and color in the round badge.
+
+    - the icon classes come from the label text, not the 0/1/2 state alone
+    - the badge color follows the state (muted for a disabled equipment)
+    """
+    r = _one({
+        "actions": [
+            {"type": "pushState", "value": state},
+            {"type": "pushLabel", "value": label},
+        ],
+    })
+    # SM1 B: pictogram per label
+    assert r["iconClass"] == f"siaDC09-icon fas {icon}"
+    # Color class on the badge (currentColor drives the ring and the icon)
+    assert color in r["badgeClass"]
+
+
+def test_sm1_degraded_counter_moves_to_sub_label() -> None:
+    """A degraded label shows its N/3 counter as a sub-label.
+
+    - the main label drops the counter, the sub-label shows it
+    """
+    r = _one({"actions": [{"type": "pushLabel", "value": "Connexion dégradée (2/3)"}]})
+    # Main label without the counter
+    assert r["labelText"] == "Connexion dégradée"
+    # Counter in the visible sub-label
+    assert r["subText"] == "2/3" and r["subShown"] is True
+
+
+def test_sm1_stale_shows_clock_icon_then_live_push_restores() -> None:
+    """Stale shows the grey clock; a live state push brings the real icon back.
+
+    - stale: fa-clock + text-muted
+    - after pushState 2 + label OK: fa-circle-check + text-success
+    """
+    base = {
+        "placeholders": {"supervision_interval": "60", "badge_class": "text-success"},
+        "now": _NOW_MS,
+        "byId": {"staleSeconds": 600},
+    }
+    stale = _one(base)
+    # Stale one-shot check greys the pictogram
+    assert "fa-clock" in stale["iconClass"] and "text-muted" in stale["badgeClass"]
+    live = _one({**base, "actions": [
+        {"type": "pushState", "value": "2"},
+        {"type": "pushLabel", "value": "Connexion OK"},
+    ]})
+    # Fresh values replace the stale view
+    assert "fa-circle-check" in live["iconClass"] and "text-success" in live["badgeClass"]
+
+
+# ── Story 10-1 (suite): SM2 last-event card ──────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("label", "type_icon", "where", "status_icon", "color"),
+    [
+        ("Intrusion (zone 3) : En cours", "fa-user-secret", "zone 3", "fa-spinner fa-pulse", "text-warning"),
+        ("Incendie (zone 1) : Confirmée par la centrale", "fa-fire", "zone 1", "fa-circle-check", "text-success"),
+        ("Panique (zone 2) : Refusé par la centrale", "fa-bell", "zone 2", "fa-ban", "text-danger"),
+        ("Armement (utilisateur 4) : Sans réponse de la centrale", "fa-lock", "utilisateur 4", "fa-circle-xmark", "text-danger"),
+        ("Désarmement (utilisateur 4) : Non transmise — clé de chiffrement invalide", "fa-lock-open", "utilisateur 4", "fa-key", "text-danger"),
+        ("Annulation (zone 3) : Confirmée par la centrale", "fa-rotate-left", "zone 3", "fa-circle-check", "text-success"),
+    ],
+)
+def test_sm2_event_card_parses_label(label: str, type_icon: str, where: str, status_icon: str, color: str) -> None:
+    """The event_label is split into type pill, zone/user and a colored status line.
+
+    - type icon and zone/user come from the part before ' : '
+    - status icon and color come from the part after ' : '
+    """
+    r = _one({"actions": [{"type": "pushEvent", "value": label}]})
+    # Head is shown for a real event
+    assert r["eventHeadShown"] is True
+    # Type pictogram
+    assert type_icon in r["eventTypeIcon"]
+    # Zone or user
+    assert r["eventWhere"] == where
+    # Status pictogram and color on both icon and text
+    assert status_icon in r["eventStatusIcon"] and color in r["eventStatusIcon"]
+    assert color in r["eventStatusTextClass"]
+
+
+@pytest.mark.parametrize("label", ["Inactif", "Aucun événement depuis le démarrage"])
+def test_sm2_idle_is_discreet(label: str) -> None:
+    """An idle / unparseable event_label shows only a discreet raw line.
+
+    - no type head, no status icon, no time
+    """
+    r = _one({"placeholders": {"event_label": label}})
+    # Nothing to pill
+    assert r["eventHeadShown"] is False and r["eventStatusIconShown"] is False
+    # The raw text stays readable, without a time
+    assert r["eventStatusText"] == label and r["eventTime"] == ""
+
+
+@pytest.mark.parametrize(
+    ("seconds_ago", "expected"),
+    [
+        (10, "à l'instant"),
+        (5 * 60, "il y a 5 min"),
+    ],
+)
+def test_sm2_recent_time_is_relative(seconds_ago: int, expected: str) -> None:
+    """A recent event shows a relative time taken from the render-time collectDate.
+
+    - under a minute: à l'instant; under an hour: il y a N min
+    """
+    r = _one({
+        "placeholders": {"event_label": "Intrusion (zone 3) : Confirmée par la centrale"},
+        "now": _NOW_MS,
+        "byId": {"staleSeconds": 0, "eventSeconds": seconds_ago},
+    })
+    # Relative text
+    assert r["eventTime"] == f"· {expected}"
+
+
+def test_sm2_older_times_are_absolute() -> None:
+    """Events before today show hier HH:MM / JJ/MM HH:MM; the live push time wins.
+
+    - yesterday: 'hier HH:MM'; three days ago: 'JJ/MM HH:MM'
+    - a live push collectDate drives the time of the new event
+    """
+    label = "Intrusion (zone 3) : Confirmée par la centrale"
+    common = {"placeholders": {"event_label": label}, "now": _NOW_MS}
+    # One hour before local midnight: yesterday whatever the runner's timezone
+    now = datetime.fromtimestamp(_NOW_MS / 1000)
+    since_midnight = now.hour * 3600 + now.minute * 60 + now.second
+    yday = _one({**common, "byId": {"staleSeconds": 0, "eventSeconds": since_midnight + 3600}})
+    # Previous calendar day, with the clock time
+    assert yday["eventTime"].startswith("· hier ")
+    old = _one({**common, "byId": {"staleSeconds": 0, "eventSeconds": 3 * 86400}})
+    # Date and hour, no relative wording
+    assert re.fullmatch(r"· \d{2}/\d{2} \d{2}:\d{2}", old["eventTime"])
+    live = _one({**common, "byId": {"staleSeconds": 0, "eventSeconds": 3 * 86400},
+                 "actions": [{"type": "pushEvent", "value": label, "secondsAgo": 120}]})
+    # The push collectDate replaces the render-time one
+    assert live["eventTime"] == "· il y a 2 min"

@@ -13,10 +13,12 @@
  *   {
  *     "template": "dashboard" | "mobile",     // which template file to load
  *     "placeholders": { "<key>": "<value>" }, // #key# substitutions
- *     "byId": { "staleSeconds": N } | null,    // supervision_state collectDate = now - N sec
+ *     "byId": { "staleSeconds": N, "eventSeconds": M } | null,  // collectDate = now - N / M sec
+ *                                              // (eventSeconds optional: event_label cmd)
  *     "now": <epoch_ms>,                       // fixed Date.now() for deterministic stale calc
  *     "actions": [ { "type": "pushState"|"pushLabel"|"pushEvent",
- *                    "value": "...", "display_value": "..." } ]
+ *                    "value": "...", "display_value": "...",
+ *                    "secondsAgo": N (optional collectDate = now - N sec) } ]
  *   }
  *
  * Result per scenario:
@@ -128,12 +130,18 @@ async function runScenario(scenario) {
       eqLogic: {
         byId: function (opts) {
           if (!scenario.byId) return
-          const cmd = {
+          const cmds = [{
             logicalId: 'supervision_state',
-            collectDate: collectDateString(scenario.byId.staleSeconds),
+            collectDate: collectDateString(scenario.byId.staleSeconds || 0),
+          }]
+          if (typeof scenario.byId.eventSeconds === 'number') {
+            cmds.push({
+              logicalId: 'event_label',
+              collectDate: collectDateString(scenario.byId.eventSeconds),
+            })
           }
           if (opts && typeof opts.success === 'function') {
-            opts.success({ cmd: [cmd] })
+            opts.success({ cmd: cmds })
           }
         },
       },
@@ -167,7 +175,8 @@ async function runScenario(scenario) {
         value: action.value,
         display_value: displayValue,
         valueDate: '2026-09-18 12:00:00',
-        collectDate: '2026-09-18 12:00:00',
+        collectDate: (typeof action.secondsAgo === 'number')
+          ? collectDateString(action.secondsAgo) : (action.collectDate || '2026-09-18 12:00:00'),
         unit: '',
         alertLevel: 'none',
       }])
@@ -183,6 +192,23 @@ async function runScenario(scenario) {
     result.labelText = label ? label.textContent.trim() : null
     result.eventText = event ? event.textContent.trim() : null
     result.title = badge ? badge.getAttribute('title') : null
+    const text = (sel) => { const e = root.querySelector(sel); return e ? e.textContent.trim() : null }
+    const cls = (sel) => { const e = root.querySelector(sel); return e ? e.getAttribute('class') : null }
+    const shown = (sel) => { const e = root.querySelector(sel); return !!e && e.style.display !== 'none' }
+    result.eventRaw = event ? event.getAttribute('data-raw') : null
+    result.iconClass = cls('.siaDC09-icon')
+    result.subText = text('.siaDC09-sublabel')
+    result.subShown = shown('.siaDC09-sublabel')
+    result.eventHeadShown = shown('.siaDC09-event-head')
+    result.eventTypeText = text('.siaDC09-event-type-text')
+    result.eventWhere = text('.siaDC09-event-where')
+    result.eventTypeIcon = cls('.siaDC09-event-type')
+    result.eventStatusText = text('.siaDC09-event-status-text')
+    result.eventStatusTextClass = cls('.siaDC09-event-status-text')
+    result.eventStatusIcon = cls('.siaDC09-event-status-icon')
+    result.eventStatusIconShown = shown('.siaDC09-event-status-icon')
+    result.eventTime = text('.siaDC09-event-time')
+    window.close()
     result.ok = true
   } catch (e) {
     result.error = e.message

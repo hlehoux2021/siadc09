@@ -91,6 +91,45 @@ The **mobile** root follows the stock mobile markup instead: no `allowResize`, n
 width/height (`style="#style#"`), banner in `<center><span class="widget-name">`. The body
 and inline script are shared (a level-1 test keeps them identical).
 
+> **Amendment (2026-10-20, story 10-1 visual redesign — SM1 B + SM2 B):** the body is now
+> a round badge with a pictogram + label (+ sub-label) and a "Dernier événement" card. No
+> hard-coded greys: colors come from `text-success/warning/danger/muted` (the badge ring and
+> icon use `currentColor`) and `opacity`, so light and dark themes both work. Rendering is done
+> by the inline script from the label texts (no daemon change). Icons are Font Awesome 6 free.
+>
+> **SM1** — `supervision_state` is 0/1/2 only, so the icon is picked from the `supervision_label`
+> text (`daemon.py _supervision_label()`), the state only gives the color:
+>
+> | Label | Icon | Color |
+> |---|---|---|
+> | Connexion OK | `fa-circle-check` | green |
+> | …initialisation | `fa-spinner fa-pulse` | orange |
+> | Connexion dégradée (N/3) | `fa-triangle-exclamation` (counter in sub-label) | orange |
+> | Connexion perdue | `fa-link-slash` | red |
+> | Tentative de reconnexion… | `fa-arrows-rotate fa-spin` | red |
+> | Hors Réseau | `fa-plug-circle-xmark` | red |
+> | Clé de chiffrement invalide | `fa-key` | red |
+> | ARRÊTÉ | `fa-circle-stop` | red |
+> | stale (JS) | `fa-clock` | grey |
+> | désactivé | `fa-circle-pause` | grey |
+>
+> An unknown label falls back to an icon by state color. A live label or state push clears the
+> stale view.
+>
+> **SM2** — `event_label` (`{Type} (zone N|utilisateur N) : {état}`) is split on `" : "`.
+> Head: type icon (`intrusion fa-user-secret`, `incendie fa-fire`, `panique fa-bell`,
+> `armement fa-lock`, `désarmement fa-lock-open`, `annulation fa-rotate-left`) + type + zone/user.
+> Status line: `En cours` `fa-spinner fa-pulse` orange · `Confirmée` `fa-circle-check` green ·
+> `Refusé` `fa-ban` red · `Sans réponse` `fa-circle-xmark` red · `Non transmise` `fa-key` red.
+> An idle or unparseable label ("Inactif", "Aucun événement…") shows the raw text, dimmed.
+> The full label stays in `data-raw` on `.siaDC09-event`; `event_state` is not needed, so no
+> `event_state` callback was added.
+>
+> **Event time** (browser side): from the `event_label` collectDate — the live push's
+> `collectDate`, else the `event_label` entry of the `byId(getCmdState)` call. `< 1 min` "à
+> l'instant" · `< 60 min` "il y a N min" · same day "il y a N h" · yesterday "hier HH:MM" ·
+> older "JJ/MM HH:MM". The text is refreshed every 30 s while the tile is in the page.
+
 ### Badge CSS classes (Bootstrap 3)
 
 | `supervision_state` | CSS class | Color |

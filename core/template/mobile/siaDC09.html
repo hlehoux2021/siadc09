@@ -19,16 +19,30 @@
 
   <div style="padding:4px 10px 8px 10px;">
 
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
-      <i class="fas fa-circle #badge_class# siaDC09-badge" style="font-size:0.75em;"></i>
-      <span style="font-size:0.9em;" class="siaDC09-label">#supervision_label#</span>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+      <span class="siaDC09-badge #badge_class#" style="flex:none;display:inline-flex;align-items:center;justify-content:center;width:2.2em;height:2.2em;border:2px solid currentColor;border-radius:50%;">
+        <i class="siaDC09-icon fas fa-circle-question"></i>
+      </span>
+      <span style="min-width:0;line-height:1.25;">
+        <span class="siaDC09-label" style="display:block;font-size:0.95em;font-weight:bold;">#supervision_label#</span>
+        <span class="siaDC09-sublabel" style="display:none;font-size:0.8em;opacity:0.7;"></span>
+      </span>
     </div>
 
     <hr style="margin:4px 0;" />
 
-    <div style="font-size:0.75em;font-weight:bold;color:#777;text-transform:uppercase;letter-spacing:0.03em;margin-bottom:1px;">Alarme</div>
-    <div style="font-size:0.8em;color:#555;word-break:break-word;">
-      <span class="siaDC09-event">#event_label#</span>
+    <div style="font-size:0.7em;font-weight:bold;opacity:0.6;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">Dernier événement</div>
+    <div class="siaDC09-event" data-raw="#event_label#" style="word-break:break-word;">
+      <div class="siaDC09-event-head" style="font-size:0.9em;font-weight:bold;display:none;">
+        <i class="siaDC09-event-type fas"></i>
+        <span class="siaDC09-event-type-text"></span>
+        <span class="siaDC09-event-where" style="font-weight:normal;opacity:0.7;"></span>
+      </div>
+      <div class="siaDC09-event-status" style="font-size:0.8em;">
+        <i class="siaDC09-event-status-icon fas" style="display:none;"></i>
+        <span class="siaDC09-event-status-text">#event_label#</span>
+        <span class="siaDC09-event-time" style="opacity:0.7;"></span>
+      </div>
     </div>
 
   </div>
@@ -40,10 +54,54 @@
     var eqId = '#id#';
     var interval = parseInt('#supervision_interval#', 10) || 60;
     var staleThreshold = interval * 3;
+    var staleLabel = '#stale_label#';
 
     var badge   = rootEl.querySelector('.siaDC09-badge');
+    var iconEl  = rootEl.querySelector('.siaDC09-icon');
     var labelEl = rootEl.querySelector('.siaDC09-label');
+    var subEl   = rootEl.querySelector('.siaDC09-sublabel');
     var eventEl = rootEl.querySelector('.siaDC09-event');
+    var evHead       = rootEl.querySelector('.siaDC09-event-head');
+    var evTypeIcon   = rootEl.querySelector('.siaDC09-event-type');
+    var evTypeText   = rootEl.querySelector('.siaDC09-event-type-text');
+    var evWhere      = rootEl.querySelector('.siaDC09-event-where');
+    var evStatusIcon = rootEl.querySelector('.siaDC09-event-status-icon');
+    var evStatusText = rootEl.querySelector('.siaDC09-event-status-text');
+    var evTime       = rootEl.querySelector('.siaDC09-event-time');
+
+    var COLOR_CLASSES = ['text-success', 'text-warning', 'text-danger', 'text-muted'];
+
+    // ── SM1: supervision badge ───────────────────────────────────────────────
+    // supervision_state is 0/1/2 only, so the icon is chosen from the label text
+    // (daemon.py _supervision_label()); the state only gives the color.
+    var SM1_ICONS = [
+      { re: /dégradée/i,       icon: 'fa-triangle-exclamation' },
+      { re: /initialisation/i, icon: 'fa-spinner fa-pulse' },
+      { re: /^connexion ok/i,  icon: 'fa-circle-check' },
+      { re: /perdue/i,         icon: 'fa-link-slash' },
+      { re: /reconnexion/i,    icon: 'fa-arrows-rotate fa-spin' },
+      { re: /hors réseau/i,    icon: 'fa-plug-circle-xmark' },
+      { re: /clé/i,            icon: 'fa-key' },
+      { re: /arrêté/i,         icon: 'fa-circle-stop' },
+      { re: /désactivé/i,      icon: 'fa-circle-pause', cls: 'text-muted' }
+    ];
+    var SM1_FALLBACK = {
+      'text-success': 'fa-circle-check',
+      'text-warning': 'fa-triangle-exclamation',
+      'text-danger': 'fa-circle-xmark',
+      'text-muted': 'fa-circle-question'
+    };
+
+    function currentColorClass() {
+      for (var i = 0; badge && i < COLOR_CLASSES.length; i++) {
+        if (badge.classList.contains(COLOR_CLASSES[i])) return COLOR_CLASSES[i];
+      }
+      return 'text-muted';
+    }
+
+    var stateCls = currentColorClass();
+    var labelRaw = labelEl ? labelEl.textContent.trim() : '';
+    var stale = false;
 
     // Map a supervision_state numeric value to its badge color class.
     // Mirrors toHtml(): 2 -> success, 1 -> warning, null/'' -> muted, else danger.
@@ -57,11 +115,123 @@
       return 'text-danger';
     }
 
-    function setBadgeClass(cls) {
+    function renderHealth() {
       if (!badge) return;
-      badge.classList.remove('text-success', 'text-warning', 'text-danger', 'text-muted');
+      var cls = stateCls, icon, text = labelRaw, sub = '';
+      if (stale) {
+        cls = 'text-muted';
+        icon = 'fa-clock';
+        text = staleLabel;
+      } else {
+        var entry = null;
+        for (var i = 0; i < SM1_ICONS.length; i++) {
+          if (SM1_ICONS[i].re.test(labelRaw)) { entry = SM1_ICONS[i]; break; }
+        }
+        icon = entry ? entry.icon : SM1_FALLBACK[stateCls];
+        if (entry && entry.cls) cls = entry.cls;
+        var m = /^(.*?)\s*\((\d+\/\d+)\)\s*$/.exec(labelRaw);
+        if (m) { text = m[1]; sub = m[2]; }
+      }
+      badge.classList.remove.apply(badge.classList, COLOR_CLASSES);
       badge.classList.add(cls);
+      if (iconEl) iconEl.className = 'siaDC09-icon fas ' + icon;
+      if (labelEl) labelEl.textContent = text;
+      if (subEl) {
+        subEl.textContent = sub;
+        subEl.style.display = sub ? 'block' : 'none';
+      }
     }
+
+    // ── SM2: last event card ─────────────────────────────────────────────────
+    // event_label is "{Type} (zone N|utilisateur N) : {état}" (daemon.py
+    // _event_label_from_sm2()); the time comes from the command's collectDate.
+    var SM2_TYPES = {
+      'intrusion': 'fa-user-secret', 'incendie': 'fa-fire', 'panique': 'fa-bell',
+      'armement': 'fa-lock', 'désarmement': 'fa-lock-open', 'annulation': 'fa-rotate-left'
+    };
+    var SM2_STATUS = [
+      { re: /en cours/i,       icon: 'fa-spinner fa-pulse', cls: 'text-warning' },
+      { re: /confirmée/i,      icon: 'fa-circle-check',     cls: 'text-success' },
+      { re: /refusé/i,         icon: 'fa-ban',              cls: 'text-danger' },
+      { re: /sans réponse/i,   icon: 'fa-circle-xmark',     cls: 'text-danger' },
+      { re: /non transmise/i,  icon: 'fa-key',              cls: 'text-danger' }
+    ];
+    var STATUS_CLASSES = ['text-success', 'text-warning', 'text-danger'];
+    var eventTimeMs = NaN;
+    var eventTimeFromLive = false;
+    var showTime = false;
+
+    function pad2(n) { return String(n).padStart(2, '0'); }
+    function sameDay(a, b) {
+      return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+    }
+    function parseDate(s) {
+      if (!s) return NaN;
+      return new Date(String(s).replace(/-/g, '/')).getTime();
+    }
+
+    // Relative while recent, clock time once it is older than today.
+    function formatEventTime(ms, nowMs) {
+      var d = new Date(ms), now = new Date(nowMs), diff = nowMs - ms;
+      if (diff < 60000) return "à l'instant";
+      if (diff < 3600000) return 'il y a ' + Math.floor(diff / 60000) + ' min';
+      var hhmm = pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+      if (sameDay(d, now)) return 'il y a ' + Math.floor(diff / 3600000) + ' h';
+      if (sameDay(d, new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1))) return 'hier ' + hhmm;
+      return pad2(d.getDate()) + '/' + pad2(d.getMonth() + 1) + ' ' + hhmm;
+    }
+
+    function renderEventTime() {
+      if (!evTime) return;
+      evTime.textContent = (showTime && !isNaN(eventTimeMs))
+        ? ' · ' + formatEventTime(eventTimeMs, Date.now()) : '';
+    }
+
+    function renderEvent() {
+      if (!eventEl) return;
+      var raw = eventEl.getAttribute('data-raw') || '';
+      var idx = raw.indexOf(' : ');
+      var st = null;
+      if (idx >= 0) {
+        var statusTxt = raw.slice(idx + 3);
+        for (var i = 0; i < SM2_STATUS.length; i++) {
+          if (SM2_STATUS[i].re.test(statusTxt)) { st = SM2_STATUS[i]; break; }
+        }
+      }
+      evStatusText.classList.remove.apply(evStatusText.classList, STATUS_CLASSES);
+      evStatusIcon.classList.remove.apply(evStatusIcon.classList, STATUS_CLASSES);
+      if (!st) {
+        // Idle ("Inactif", "Aucun événement…") or an unknown text: discreet raw line.
+        showTime = false;
+        evHead.style.display = 'none';
+        evStatusIcon.style.display = 'none';
+        evStatusText.textContent = raw;
+        evStatusText.style.opacity = '0.6';
+        renderEventTime();
+        return;
+      }
+      var head = raw.slice(0, idx);
+      var m = /^(.*?)\s*\((zone|utilisateur)\s+(\d+)\)\s*$/i.exec(head);
+      var typeName = m ? m[1] : head;
+      evTypeText.textContent = typeName;
+      evWhere.textContent = m ? m[2] + ' ' + m[3] : '';
+      evTypeIcon.className = 'siaDC09-event-type fas ' + (SM2_TYPES[typeName.toLowerCase()] || 'fa-bell');
+      evHead.style.display = 'block';
+      evStatusIcon.className = 'siaDC09-event-status-icon fas ' + st.icon + ' ' + st.cls;
+      evStatusIcon.style.display = '';
+      evStatusText.textContent = raw.slice(idx + 3);
+      evStatusText.classList.add(st.cls);
+      evStatusText.style.opacity = '';
+      showTime = true;
+      renderEventTime();
+    }
+
+    renderHealth();
+    renderEvent();
+    var timer = setInterval(function() {
+      if (!document.body.contains(rootEl)) { clearInterval(timer); return; }
+      renderEventTime();
+    }, 30000);
 
     // Live refresh (story 10.3). Jeedom's poll loop (jeedom.changes) dispatches a
     // cmd::update CustomEvent on document.body; jeedom.cmd.refreshValue then calls
@@ -78,18 +248,24 @@
       var eventLabelId = '#event_label_id#';
       var supervisionStateId = '#supervision_state_id#';
 
-      // supervision_label: the health text next to the badge.
+      // supervision_label: the health text (and, through it, the badge icon).
+      // A fresh value also proves the tile is live, so it clears the stale view.
       if (supervisionLabelId) {
         jeedom.cmd.addUpdateFunction(supervisionLabelId, function(_options) {
-          if (labelEl) labelEl.textContent = _options.display_value;
+          labelRaw = _options.display_value;
+          stale = false;
+          renderHealth();
         });
       }
 
-      // event_label: the last alarm result line. Directly fixes the "reste à OK"
-      // observation — moves to "Confirmé" on its own when the daemon pushes it.
+      // event_label: the last alarm result. Parsed into type pill + status line,
+      // with the time taken from the push's collectDate.
       if (eventLabelId) {
         jeedom.cmd.addUpdateFunction(eventLabelId, function(_options) {
-          if (eventEl) eventEl.textContent = _options.display_value;
+          if (eventEl) eventEl.setAttribute('data-raw', _options.display_value);
+          var ms = parseDate(_options.collectDate);
+          if (!isNaN(ms)) { eventTimeMs = ms; eventTimeFromLive = true; }
+          renderEvent();
         });
       }
 
@@ -97,36 +273,43 @@
       // tile is fresh, so it clears the stale-grey + tooltip the 10-2 check applied.
       if (supervisionStateId) {
         jeedom.cmd.addUpdateFunction(supervisionStateId, function(_options) {
-          setBadgeClass(badgeClassForState(_options.value));
+          stateCls = badgeClassForState(_options.value);
+          stale = false;
           if (badge) badge.removeAttribute('title');
+          renderHealth();
         });
       }
     }
 
-    // One-shot staleness check (story 10-2): grey the badge + relabel when the last
-    // supervision_state update is older than 3 x the supervision interval. Runs once
-    // on render; the live callbacks above take over the moment a fresh value arrives.
+    // One-shot check on render: the staleness of supervision_state (story 10-2: grey
+    // the badge when older than 3 x the supervision interval) and the collectDate of
+    // event_label for the event time. The live callbacks above take over from there.
     jeedom.eqLogic.byId({
       id: eqId,
       getCmdState: 1,
       success: function(data) {
         var cmds = data.cmd || [];
-        var stateCmd = null;
+        var stateCmd = null, eventCmd = null;
         for (var i = 0; i < cmds.length; i++) {
-          if (cmds[i].logicalId === 'supervision_state') {
-            stateCmd = cmds[i];
-            break;
-          }
+          if (cmds[i].logicalId === 'supervision_state') stateCmd = cmds[i];
+          if (cmds[i].logicalId === 'event_label') eventCmd = cmds[i];
         }
+
+        if (eventCmd && !eventTimeFromLive) {
+          var eventMs = parseDate(eventCmd.collectDate);
+          if (!isNaN(eventMs)) { eventTimeMs = eventMs; renderEventTime(); }
+        }
+
         if (!stateCmd || !stateCmd.collectDate) return;
 
-        var collectTime = new Date(stateCmd.collectDate.replace(/-/g, '/')).getTime();
+        var collectTime = parseDate(stateCmd.collectDate);
         if (isNaN(collectTime)) return;
         var staleSince = (Date.now() - collectTime) / 1000;
 
         if (staleSince > staleThreshold) {
+          stale = true;
+          renderHealth();
           if (badge) {
-            setBadgeClass('text-muted');
             var minutes = Math.floor(staleSince / 60);
             var hours = Math.floor(minutes / 60);
             var tooltip = '#stale_tooltip_prefix# ';
@@ -136,9 +319,6 @@
               tooltip += minutes + ' min';
             }
             badge.setAttribute('title', tooltip);
-          }
-          if (labelEl) {
-            labelEl.textContent = '#stale_label#';
           }
         }
       }
