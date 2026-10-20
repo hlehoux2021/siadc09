@@ -131,7 +131,6 @@
     var stale = false;
     var healthTimeEl = rootEl.querySelector('.siaDC09-health-time');
     var healthTimeMs = NaN;
-    var healthTimeFromLive = false;
 
     // Time of the last supervision_state update: every supervision frame and RP
     // cyclic test ACK pushes it, so it shows the link was last seen alive.
@@ -194,7 +193,6 @@
     ];
     var STATUS_CLASSES = ['text-success', 'text-warning', 'text-danger'];
     var eventTimeMs = NaN;
-    var eventTimeFromLive = false;
     var showTime = false;
 
     function renderEventTime() {
@@ -281,7 +279,7 @@
         jeedom.cmd.addUpdateFunction(eventLabelId, function(_options) {
           if (eventEl) eventEl.setAttribute('data-raw', _options.display_value);
           var ms = parseDate(_options.collectDate);
-          if (!isNaN(ms)) { eventTimeMs = ms; eventTimeFromLive = true; }
+          if (!isNaN(ms)) eventTimeMs = ms;
           renderEvent();
         });
       }
@@ -292,7 +290,7 @@
         jeedom.cmd.addUpdateFunction(supervisionStateId, function(_options) {
           stateCls = badgeClassForState(_options.value);
           var stateMs = parseDate(_options.collectDate);
-          if (!isNaN(stateMs)) { healthTimeMs = stateMs; healthTimeFromLive = true; renderHealthTime(); }
+          if (!isNaN(stateMs)) { healthTimeMs = stateMs; renderHealthTime(); }
           stale = false;
           if (badge) badge.removeAttribute('title');
           renderHealth();
@@ -300,49 +298,59 @@
       }
     }
 
-    // One-shot check on render: the staleness of supervision_state (story 10-2: grey
-    // the badge when older than 3 x the supervision interval) and the collectDate of
-    // event_label for the event time. The live callbacks above take over from there.
-    jeedom.eqLogic.byId({
-      id: eqId,
-      getCmdState: 1,
-      success: function(data) {
-        var cmds = data.cmd || [];
-        var stateCmd = null, eventCmd = null;
-        for (var i = 0; i < cmds.length; i++) {
-          if (cmds[i].logicalId === 'supervision_state') stateCmd = cmds[i];
-          if (cmds[i].logicalId === 'event_label') eventCmd = cmds[i];
-        }
-
-        if (eventCmd && !eventTimeFromLive) {
-          var eventMs = parseDate(eventCmd.collectDate);
-          if (!isNaN(eventMs)) { eventTimeMs = eventMs; renderEventTime(); }
-        }
-
-        if (!stateCmd || !stateCmd.collectDate) return;
-
-        var collectTime = parseDate(stateCmd.collectDate);
-        if (isNaN(collectTime)) return;
-        if (!healthTimeFromLive) { healthTimeMs = collectTime; renderHealthTime(); }
-        var staleSince = (Date.now() - collectTime) / 1000;
-
-        if (staleSince > staleThreshold) {
-          stale = true;
-          renderHealth();
-          if (badge) {
-            var minutes = Math.floor(staleSince / 60);
-            var hours = Math.floor(minutes / 60);
-            var tooltip = '#stale_tooltip_prefix# ';
-            if (hours > 0) {
-              tooltip += hours + 'h' + (minutes % 60 > 0 ? String(minutes % 60).padStart(2, '0') : '');
-            } else {
-              tooltip += minutes + ' min';
-            }
-            badge.setAttribute('title', tooltip);
+    // Last-update times. jeedom.eqLogic.byId does not return the commands' dates, and
+    // Jeedom's checkAndUpdateCmd() only refreshes the collectDate in its cache (no
+    // cmd::update push) when a value is unchanged, so an RP/supervision ACK that leaves
+    // the state at OK never reaches the live callbacks. The plugin endpoint therefore
+    // returns the dates, on render and every 30 s. They also feed the stale check
+    // (story 10-2): older than 3 x the supervision interval greys the badge.
+    function applyDates(res) {
+      var stateMs = parseDate(res.state_date);
+      var eventMs = parseDate(res.event_date);
+      if (!isNaN(eventMs)) { eventTimeMs = eventMs; renderEventTime(); }
+      if (isNaN(stateMs)) return;
+      healthTimeMs = stateMs;
+      renderHealthTime();
+      var staleSince = (Date.now() - stateMs) / 1000;
+      if (staleSince > staleThreshold) {
+        stale = true;
+        renderHealth();
+        if (badge) {
+          var minutes = Math.floor(staleSince / 60);
+          var hours = Math.floor(minutes / 60);
+          var tooltip = '#stale_tooltip_prefix# ';
+          if (hours > 0) {
+            tooltip += hours + 'h' + (minutes % 60 > 0 ? String(minutes % 60).padStart(2, '0') : '');
+          } else {
+            tooltip += minutes + ' min';
           }
+          badge.setAttribute('title', tooltip);
         }
+      } else if (stale) {
+        stale = false;
+        if (badge) badge.removeAttribute('title');
+        renderHealth();
       }
-    });
+    }
+
+    function pollDates() {
+      if (typeof $ === 'undefined' || typeof $.ajax !== 'function') return;
+      $.ajax({
+        type: 'POST',
+        url: 'plugins/siaDC09/core/ajax/siaDC09.ajax.php',
+        data: { action: 'getWidgetDates', id: eqId },
+        dataType: 'json',
+        global: false,
+        success: function(data) {
+          if (data && data.state === 'ok' && data.result) applyDates(data.result);
+        }
+      });
+    }
+    pollDates();
+    var pollTimer = setInterval(function() {
+      if (!document.body.contains(rootEl)) { clearInterval(pollTimer); return; }
+      pollDates();
+    }, 30000);
   })();
   </script>
 

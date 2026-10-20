@@ -19,6 +19,32 @@ try {
     require_once dirname(__FILE__) . '/../../../../core/php/core.inc.php';
     include_file('core', 'authentification', 'php');
 
+    // Widget poll: readable by any connected user (the dashboard tile is not admin-only).
+    // Returns the collectDate of supervision_state / event_label. execCmd() fills it from
+    // the cmd cache, which checkAndUpdateCmd() refreshes even when the value is unchanged
+    // (an RP / supervision ACK that leaves the state at OK pushes no cmd::update event).
+    if (init('action') == 'getWidgetDates') {
+        if (!isConnect()) {
+            throw new Exception(__('401 - Accès non autorisé', __FILE__));
+        }
+        ajax::init();
+        $eqLogic = eqLogic::byId((int) init('id'));
+        if (!is_object($eqLogic) || $eqLogic->getEqType_name() !== 'siaDC09') {
+            throw new Exception(__('Équipement introuvable', __FILE__));
+        }
+        $dates = [];
+        foreach (['state_date' => 'supervision_state', 'event_date' => 'event_label'] as $key => $logicalId) {
+            $cmd = $eqLogic->getCmd('info', $logicalId);
+            $dates[$key] = '';
+            if (is_object($cmd)) {
+                $cmd->execCmd();
+                $dates[$key] = (string) $cmd->getCollectDate();
+            }
+        }
+        ajax::success($dates);
+        return;
+    }
+
     if (!isConnect('admin')) {
         throw new Exception(__('401 - Accès non autorisé', __FILE__));
     }

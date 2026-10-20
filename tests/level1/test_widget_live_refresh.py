@@ -435,3 +435,17 @@ def test_sm1_shows_last_supervision_update_time() -> None:
     old = _one({"now": _NOW_MS, "byId": {"staleSeconds": 3 * 86400}})
     # Stale and old: absolute date with seconds
     assert re.fullmatch(r"\d{2}/\d{2} \d{2}:\d{2}:\d{2}", old["healthTime"])
+
+
+def test_widget_poll_action_exists_and_is_not_admin_only() -> None:
+    """The widget's date poll targets an endpoint that exists and serves any connected user.
+
+    - the template posts action getWidgetDates to the plugin ajax file
+    - the ajax file handles it before the admin-only gate
+    """
+    tpl = _DASHBOARD_TPL.read_text(encoding="utf-8")
+    ajax = (_PROJECT_ROOT / "core" / "ajax" / "siaDC09.ajax.php").read_text(encoding="utf-8")
+    # Same action name on both sides
+    assert "action: 'getWidgetDates'" in tpl and "init('action') == 'getWidgetDates'" in ajax
+    # Handled before the admin gate, with its own connected-user check
+    assert ajax.index("'getWidgetDates'") < ajax.index("isConnect('admin')")

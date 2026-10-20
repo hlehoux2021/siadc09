@@ -127,23 +127,20 @@ async function runScenario(scenario) {
           }
         },
       },
-      eqLogic: {
-        byId: function (opts) {
-          if (!scenario.byId) return
-          const cmds = [{
-            logicalId: 'supervision_state',
-            collectDate: collectDateString(scenario.byId.staleSeconds || 0),
-          }]
-          if (typeof scenario.byId.eventSeconds === 'number') {
-            cmds.push({
-              logicalId: 'event_label',
-              collectDate: collectDateString(scenario.byId.eventSeconds),
-            })
-          }
-          if (opts && typeof opts.success === 'function') {
-            opts.success({ cmd: cmds })
-          }
-        },
+    }
+    // The widget polls the plugin endpoint (getWidgetDates) for the cmds' collectDate;
+    // scenario.byId feeds that answer (jeedom.eqLogic.byId does not return the dates).
+    window.$ = {
+      ajax: function (opts) {
+        if (!scenario.byId) return
+        const result = {
+          state_date: collectDateString(scenario.byId.staleSeconds || 0),
+          event_date: (typeof scenario.byId.eventSeconds === 'number')
+            ? collectDateString(scenario.byId.eventSeconds) : '',
+        }
+        if (opts && typeof opts.success === 'function') {
+          opts.success({ state: 'ok', result: result })
+        }
       },
     }
     window.jeedomUtils = { loadPage: function () {} }

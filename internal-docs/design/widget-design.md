@@ -133,6 +133,8 @@ and inline script are shared (a level-1 test keeps them identical).
 > **Precise time:** relative texts carry the clock time appended ("il y a 5 min · 14:32:07"); "hier" and the older format include seconds ("hier 14:32:07", "18/09 14:32:07").
 >
 > **SM1 time:** under the label, same format, from the `supervision_state` collectDate (render: `byId`; live: push `collectDate`). Every supervision frame and RP cyclic test ACK pushes the state (daemon `_send_rp` / `_send_supervision`), so it shows when the link was last seen alive; RP never touches SM2.
+>
+> **Where the dates come from (fix 2026-10-20):** `jeedom.eqLogic.byId` does not return per-command dates (only the `get` action does with `getCmdState`), so the original 10-2 stale check had no date to read. Also `eqLogic::checkAndUpdateCmd()` skips `cmd::event()` when the value is unchanged (it only refreshes the cached collectDate), so an RP/supervision ACK that leaves the state OK pushes nothing to the browser. The widget therefore polls `core/ajax/siaDC09.ajax.php?action=getWidgetDates` (any connected user) on render and every 30 s; the answer feeds SM1 time, SM2 time and the stale check (which now also recovers by itself).
 
 ### Badge CSS classes (Bootstrap 3)
 
