@@ -73,44 +73,23 @@ No custom JS wiring is needed. Standard Jeedom handles the update cycle.
 
 ## Task 6.2 — HTML template `core/template/dashboard/siaDC09.html`
 
-Uses **Jeedom Bootstrap 3 panel** conventions.
+> **Amendment (2026-10-20, story 10-1 correction):** the tile follows the **stock Jeedom
+> eqLogic widget markup** (jeedom/core `core/template/{dashboard,mobile}/eqLogic.html`), not a
+> Bootstrap `panel`. The v0.2 panel markup left the tile full-width and not resizable in
+> dashboard edit mode, with a banner unlike the standard widgets.
 
-```html
-<div class="eqLogic-widget allowReorder #eqType#"
-     data-eqLogic_id="#id#"
-     data-version="#version#"
-     data-supervision-interval="#supervision_interval#">
+Dashboard root: `class="eqLogic eqLogic-widget allowResize allowReorder #custom_layout# #eqType# siaDC09 #category#"`,
+`style="width:#width#;height:#height#;#style#"`, plus the standard `data-eqType`,
+`data-eqLogic_id`, `data-eqLogic_uid`, `data-version`, `data-translate-category`,
+`data-category`, `data-tags` attributes (all placeholders come from `preToHtml()`), and
+`data-supervision-interval`. Name banner: `<div class="widget-name">` with the alert icon,
+`<a href="#eqLink#">#name_display#</a>` and `.object_name`. Body: plain padded `<div>` with the
+badge + label, a rule, then the event line (`.siaDC09-badge`, `.siaDC09-label`,
+`.siaDC09-event` — selectors the inline live-refresh script relies on).
 
-  <div class="panel panel-default" style="margin-bottom:0;">
-
-    <!-- Header: equipment name + link to config -->
-    <div class="panel-heading cursor"
-         onclick="jeedomUtils.loadPage('#eqLink#')"
-         style="padding:5px 8px;">
-      <i class="fas fa-tower-broadcast" style="margin-right:4px;"></i>
-      <span style="font-weight:bold;font-size:0.95em;">#name#</span>
-    </div>
-
-    <div class="panel-body" style="padding:8px 10px;">
-
-      <!-- Section 1: Supervision badge + label -->
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
-        <i class="fas fa-circle #badge_class#" style="font-size:0.75em;"></i>
-        <span style="font-size:0.9em;">#supervision_label#</span>
-      </div>
-
-      <hr style="margin:4px 0;" />
-
-      <!-- Section 2: Last alarm event -->
-      <div style="font-size:0.8em;color:#555;word-break:break-word;">
-        #event_label#
-      </div>
-
-    </div>
-  </div>
-
-</div>
-```
+The **mobile** root follows the stock mobile markup instead: no `allowResize`, no fixed
+width/height (`style="#style#"`), banner in `<center><span class="widget-name">`. The body
+and inline script are shared (a level-1 test keeps them identical).
 
 ### Badge CSS classes (Bootstrap 3)
 
@@ -324,11 +303,10 @@ tile display is suppressed.
 
 ## Task 6.6 — Mobile template
 
-**Decision: same layout as dashboard.**
+**Decision: same body as dashboard, stock mobile root and banner.**
 
-`core/template/mobile/siaDC09.html` is identical to the dashboard template. Bootstrap 3
-panels are fluid width and render correctly on mobile without changes. No separate layout
-is needed for v1.0.
+`core/template/mobile/siaDC09.html` shares the dashboard body and inline script; only the root
+element and name banner follow the stock mobile markup (see Task 6.2 amendment).
 
 ---
 
@@ -376,7 +354,7 @@ All 7 commands must have `isVisible = 0` (already noted in Task 2.4; confirmed h
 |---|---|---|
 | Widget type | PHP `toHtml()` + HTML template | Standard Jeedom mechanism for custom equipment tiles; server-rendered, cache-aware, no custom JS needed |
 | Template location | `core/template/dashboard/siaDC09.html` | Standard Jeedom path for plugin equipment templates |
-| HTML structure | Bootstrap 3 `panel` + `panel-body` | Jeedom convention; consistent with other plugin tiles |
+| HTML structure | Stock Jeedom eqLogic widget root + `widget-name` banner (amended 2026-10-20) | Resizable in edit mode, standard banner; the earlier Bootstrap `panel` was non-conformant |
 | Badge color | Bootstrap 3 `text-success/warning/danger/muted` | Framework-native, no extra CSS file needed |
 | State source | `supervision_state` + `supervision_label` INFO commands | All SM1 states (including STOPPED) are encoded in these commands — no separate daemon PID check needed |
 | Value read method | `$cmd->execCmd()` | Reads the cache `checkAndUpdateCmd()` writes on every push; `getValue()` is frozen forever for non-historized INFO commands (see correction in Task 6.3) |
@@ -385,7 +363,7 @@ All 7 commands must have `isVisible = 0` (already noted in Task 2.4; confirmed h
 | Live update | Standard Jeedom `cmd::update` → `toHtml()` re-call | No polling; instant update on SM1/SM2 transition |
 | JS daemon state events | **Removed** | APIs (`jeedom.config.byKeys`, `pluginDaemonStateChange`) are non-standard and unverified; `toHtml()` derives state from INFO commands |
 | JS stale check | One-shot after render, no polling | Reaches the zombie case that PHP `toHtml()` cannot; cron5 provides the real-time safety net |
-| Mobile template | Same as dashboard | Fluid Bootstrap panel renders correctly on mobile without changes |
+| Mobile template | Shared body, stock mobile root/banner | Mobile root has no fixed size or resize class |
 | Action command visibility | `isVisible = 0` | Available in scenarios; not shown on tile |
 | INFO command visibility | `isVisible = 0` | `toHtml()` renders them; individual command rows would duplicate content |
 

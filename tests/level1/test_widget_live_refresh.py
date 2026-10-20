@@ -65,15 +65,46 @@ def _one(scenario: dict[str, Any]) -> dict[str, Any]:
 # ── AC5: templates identical ────────────────────────────────────────────────
 
 
-def test_dashboard_and_mobile_templates_identical() -> None:
-    """The mobile template must be a byte-for-byte copy of the dashboard one.
+_BODY_MARKER = '<div style="padding:4px 10px 8px 10px;">'
 
-    - reading both files yields identical bytes
+
+def test_dashboard_and_mobile_templates_share_body_and_script() -> None:
+    """Only the root and name banner may differ between dashboard and mobile.
+
+    - everything from the content body onward (badge, texts, inline script) is identical
+    - the mobile root has no fixed width/height nor resize class (stock mobile markup)
     """
-    dashboard = _DASHBOARD_TPL.read_bytes()
-    mobile = _MOBILE_TPL.read_bytes()
-    # AC5: diff of the two templates is empty
-    assert dashboard == mobile, "dashboard and mobile templates diverge"
+    dashboard = _DASHBOARD_TPL.read_text(encoding="utf-8")
+    mobile = _MOBILE_TPL.read_text(encoding="utf-8")
+    # AC5 (amended): the shared body and live-refresh script must not diverge
+    assert dashboard[dashboard.index(_BODY_MARKER):] == mobile[mobile.index(_BODY_MARKER):]
+    mobile_root = mobile[: mobile.index(">") + 1]
+    # Fixed dashboard sizing is meaningless on the fluid mobile layout
+    assert "#width#" not in mobile_root and "allowResize" not in mobile_root
+
+
+def test_template_follows_stock_jeedom_widget_markup() -> None:
+    """The tile root and header must follow the stock Jeedom eqLogic widget markup.
+
+    - the root carries eqLogic/allowResize classes and the width/height/#style# inline style
+    - the header is the standard widget-name banner, not a Bootstrap panel-heading
+    - the root keeps the siaDC09 class and data-eqLogic_id the inline script selects on
+    """
+    html = _DASHBOARD_TPL.read_text(encoding="utf-8")
+    root = html[: html.index(">") + 1]
+    classes = root.split('class="', 1)[1].split('"', 1)[0].split()
+    # Without eqLogic + allowResize, edit mode offers no resize handle
+    assert "eqLogic" in classes and "allowResize" in classes
+    # Placeholders Jeedom's preToHtml() fills for the stock behaviour (category, layout, uid)
+    assert all(p in html for p in ("#custom_layout#", "#category#", "#uid#", "#tags#"))
+    # Without the inline width/height, the tile stretches over the whole row
+    assert "width:#width#;height:#height#;#style#" in root
+    # Standard name banner, as on every stock widget
+    assert 'class="widget-name"' in html and "#name_display#" in html
+    # The Bootstrap panel header is what made the banner look non-standard
+    assert "panel-heading" not in html
+    # The live-refresh script finds its root through these two selectors
+    assert "siaDC09" in classes and 'data-eqLogic_id="#id#"' in root
 
 
 # ── AC1/AC6: the widget registers live-update callbacks ─────────────────────

@@ -1,32 +1,36 @@
-<div class="eqLogic-widget allowReorder siaDC09"
+<div class="eqLogic eqLogic-widget siaDC09 #category#"
+     style="#style#"
+     data-eqType="#eqType#"
      data-eqLogic_id="#id#"
+     data-eqLogic_uid="#uid#"
      data-version="#version#"
+     data-translate-category="#translate_category#"
+     data-category="#category#"
+     data-tags="#tags#"
      data-supervision-interval="#supervision_interval#">
 
-  <div class="panel panel-default" style="margin-bottom:0;">
+  <center>
+    <span class="widget-name">
+      <span class="warning" title="#alert_name#"><i class="#alert_icon#"></i></span>
+      <a href="#eqLink#">#name_display#</a>
+      <span class="object_name">#object_name#</span>
+    </span>
+  </center>
 
-    <div class="panel-heading cursor"
-         onclick="jeedomUtils.loadPage('#eqLink#')"
-         style="padding:5px 8px;">
-      <i class="fas fa-tower-broadcast" style="margin-right:4px;"></i>
-      <span style="font-weight:bold;font-size:0.95em;">#name#</span>
+  <div style="padding:4px 10px 8px 10px;">
+
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
+      <i class="fas fa-circle #badge_class# siaDC09-badge" style="font-size:0.75em;"></i>
+      <span style="font-size:0.9em;" class="siaDC09-label">#supervision_label#</span>
     </div>
 
-    <div class="panel-body" style="padding:8px 10px;">
+    <hr style="margin:4px 0;" />
 
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
-        <i class="fas fa-circle #badge_class# siaDC09-badge" style="font-size:0.75em;"></i>
-        <span style="font-size:0.9em;" class="siaDC09-label">#supervision_label#</span>
-      </div>
-
-      <hr style="margin:4px 0;" />
-
-      <div style="font-size:0.75em;font-weight:bold;color:#777;text-transform:uppercase;letter-spacing:0.03em;margin-bottom:1px;">Alarme</div>
-      <div style="font-size:0.8em;color:#555;word-break:break-word;">
-        <span class="siaDC09-event">#event_label#</span>
-      </div>
-
+    <div style="font-size:0.75em;font-weight:bold;color:#777;text-transform:uppercase;letter-spacing:0.03em;margin-bottom:1px;">Alarme</div>
+    <div style="font-size:0.8em;color:#555;word-break:break-word;">
+      <span class="siaDC09-event">#event_label#</span>
     </div>
+
   </div>
 
   <script type="text/javascript">
