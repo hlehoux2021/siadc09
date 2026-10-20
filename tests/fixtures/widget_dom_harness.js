@@ -208,6 +208,7 @@ async function runScenario(scenario) {
     result.eventStatusIcon = cls('.siaDC09-event-status-icon')
     result.eventStatusIconShown = shown('.siaDC09-event-status-icon')
     result.eventTime = text('.siaDC09-event-time')
+    result.healthTime = text('.siaDC09-health-time')
     window.close()
     result.ok = true
   } catch (e) {

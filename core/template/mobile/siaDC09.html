@@ -26,6 +26,7 @@
       <span style="min-width:0;line-height:1.25;">
         <span class="siaDC09-label" style="display:block;font-size:0.95em;font-weight:bold;">#supervision_label#</span>
         <span class="siaDC09-sublabel" style="display:none;font-size:0.8em;opacity:0.7;"></span>
+        <span class="siaDC09-health-time" style="display:block;font-size:0.8em;opacity:0.7;"></span>
       </span>
     </div>
 
@@ -75,6 +76,28 @@
 
     var COLOR_CLASSES = ['text-success', 'text-warning', 'text-danger', 'text-muted'];
 
+    function pad2(n) { return String(n).padStart(2, '0'); }
+    function sameDay(a, b) {
+      return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+    }
+    function parseDate(s) {
+      if (!s) return NaN;
+      return new Date(String(s).replace(/-/g, '/')).getTime();
+    }
+
+    // Relative while recent (with the precise clock time appended), absolute with
+    // seconds once older than today.
+    function formatTime(ms, nowMs) {
+      var d = new Date(ms), now = new Date(nowMs), diff = nowMs - ms;
+      var hhmmss = pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+      if (diff < 60000) return "à l'instant · " + hhmmss;
+      if (diff < 3600000) return 'il y a ' + Math.floor(diff / 60000) + ' min · ' + hhmmss;
+      if (sameDay(d, now)) return 'il y a ' + Math.floor(diff / 3600000) + ' h · ' + hhmmss;
+      if (sameDay(d, new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1))) return 'hier ' + hhmmss;
+      return pad2(d.getDate()) + '/' + pad2(d.getMonth() + 1) + ' ' + hhmmss;
+    }
+
+
     // ── SM1: supervision badge ───────────────────────────────────────────────
     // supervision_state is 0/1/2 only, so the icon is chosen from the label text
     // (daemon.py _supervision_label()); the state only gives the color.
@@ -106,6 +129,15 @@
     var stateCls = currentColorClass();
     var labelRaw = labelEl ? labelEl.textContent.trim() : '';
     var stale = false;
+    var healthTimeEl = rootEl.querySelector('.siaDC09-health-time');
+    var healthTimeMs = NaN;
+    var healthTimeFromLive = false;
+
+    // Time of the last supervision_state update: every supervision frame and RP
+    // cyclic test ACK pushes it, so it shows the link was last seen alive.
+    function renderHealthTime() {
+      if (healthTimeEl) healthTimeEl.textContent = isNaN(healthTimeMs) ? '' : formatTime(healthTimeMs, Date.now());
+    }
 
     // Map a supervision_state numeric value to its badge color class.
     // Mirrors toHtml(): 2 -> success, 1 -> warning, null/'' -> muted, else danger.
@@ -165,30 +197,10 @@
     var eventTimeFromLive = false;
     var showTime = false;
 
-    function pad2(n) { return String(n).padStart(2, '0'); }
-    function sameDay(a, b) {
-      return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-    }
-    function parseDate(s) {
-      if (!s) return NaN;
-      return new Date(String(s).replace(/-/g, '/')).getTime();
-    }
-
-    // Relative while recent, clock time once it is older than today.
-    function formatEventTime(ms, nowMs) {
-      var d = new Date(ms), now = new Date(nowMs), diff = nowMs - ms;
-      if (diff < 60000) return "à l'instant";
-      if (diff < 3600000) return 'il y a ' + Math.floor(diff / 60000) + ' min';
-      var hhmm = pad2(d.getHours()) + ':' + pad2(d.getMinutes());
-      if (sameDay(d, now)) return 'il y a ' + Math.floor(diff / 3600000) + ' h';
-      if (sameDay(d, new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1))) return 'hier ' + hhmm;
-      return pad2(d.getDate()) + '/' + pad2(d.getMonth() + 1) + ' ' + hhmm;
-    }
-
     function renderEventTime() {
       if (!evTime) return;
       evTime.textContent = (showTime && !isNaN(eventTimeMs))
-        ? ' · ' + formatEventTime(eventTimeMs, Date.now()) : '';
+        ? ' · ' + formatTime(eventTimeMs, Date.now()) : '';
     }
 
     function renderEvent() {
@@ -235,6 +247,7 @@
     var timer = setInterval(function() {
       if (!document.body.contains(rootEl)) { clearInterval(timer); return; }
       renderEventTime();
+      renderHealthTime();
     }, 30000);
 
     // Live refresh (story 10.3). Jeedom's poll loop (jeedom.changes) dispatches a
@@ -278,6 +291,8 @@
       if (supervisionStateId) {
         jeedom.cmd.addUpdateFunction(supervisionStateId, function(_options) {
           stateCls = badgeClassForState(_options.value);
+          var stateMs = parseDate(_options.collectDate);
+          if (!isNaN(stateMs)) { healthTimeMs = stateMs; healthTimeFromLive = true; renderHealthTime(); }
           stale = false;
           if (badge) badge.removeAttribute('title');
           renderHealth();
@@ -308,6 +323,7 @@
 
         var collectTime = parseDate(stateCmd.collectDate);
         if (isNaN(collectTime)) return;
+        if (!healthTimeFromLive) { healthTimeMs = collectTime; renderHealthTime(); }
         var staleSince = (Date.now() - collectTime) / 1000;
 
         if (staleSince > staleThreshold) {

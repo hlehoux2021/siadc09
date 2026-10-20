@@ -384,6 +384,7 @@ def test_sm2_recent_time_is_relative(seconds_ago: int, expected: str) -> None:
     """A recent event shows a relative time taken from the render-time collectDate.
 
     - under a minute: à l'instant; under an hour: il y a N min
+    - the precise HH:MM:SS is appended
     """
     r = _one({
         "placeholders": {"event_label": "Intrusion (zone 3) : Confirmée par la centrale"},
@@ -391,7 +392,7 @@ def test_sm2_recent_time_is_relative(seconds_ago: int, expected: str) -> None:
         "byId": {"staleSeconds": 0, "eventSeconds": seconds_ago},
     })
     # Relative text
-    assert r["eventTime"] == f"· {expected}"
+    assert re.fullmatch(rf"· {expected} · \d{{2}}:\d{{2}}:\d{{2}}", r["eventTime"])
 
 
 def test_sm2_older_times_are_absolute() -> None:
@@ -410,8 +411,27 @@ def test_sm2_older_times_are_absolute() -> None:
     assert yday["eventTime"].startswith("· hier ")
     old = _one({**common, "byId": {"staleSeconds": 0, "eventSeconds": 3 * 86400}})
     # Date and hour, no relative wording
-    assert re.fullmatch(r"· \d{2}/\d{2} \d{2}:\d{2}", old["eventTime"])
+    assert re.fullmatch(r"· \d{2}/\d{2} \d{2}:\d{2}:\d{2}", old["eventTime"])
     live = _one({**common, "byId": {"staleSeconds": 0, "eventSeconds": 3 * 86400},
                  "actions": [{"type": "pushEvent", "value": label, "secondsAgo": 120}]})
     # The push collectDate replaces the render-time one
-    assert live["eventTime"] == "· il y a 2 min"
+    assert re.fullmatch(r"· il y a 2 min · \d{2}:\d{2}:\d{2}", live["eventTime"])
+
+
+def test_sm1_shows_last_supervision_update_time() -> None:
+    """SM1 shows when supervision_state was last updated (frame or RP ACK).
+
+    - render time: relative + precise time from the byId collectDate
+    - a live state push replaces it with the push collectDate
+    - yesterday-or-older shows the absolute date with seconds
+    """
+    base = {"now": _NOW_MS, "byId": {"staleSeconds": 120}}
+    r = _one(base)
+    # Within the 180 s stale threshold: relative text plus HH:MM:SS
+    assert re.fullmatch(r"il y a 2 min · \d{2}:\d{2}:\d{2}", r["healthTime"])
+    live = _one({**base, "actions": [{"type": "pushState", "value": "2", "secondsAgo": 5}]})
+    # The RP/supervision ACK push collectDate wins
+    assert re.fullmatch(r"à l'instant · \d{2}:\d{2}:\d{2}", live["healthTime"])
+    old = _one({"now": _NOW_MS, "byId": {"staleSeconds": 3 * 86400}})
+    # Stale and old: absolute date with seconds
+    assert re.fullmatch(r"\d{2}/\d{2} \d{2}:\d{2}:\d{2}", old["healthTime"])

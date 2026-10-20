@@ -128,7 +128,11 @@ and inline script are shared (a level-1 test keeps them identical).
 > **Event time** (browser side): from the `event_label` collectDate — the live push's
 > `collectDate`, else the `event_label` entry of the `byId(getCmdState)` call. `< 1 min` "à
 > l'instant" · `< 60 min` "il y a N min" · same day "il y a N h" · yesterday "hier HH:MM" ·
-> older "JJ/MM HH:MM". The text is refreshed every 30 s while the tile is in the page.
+> older "JJ/MM HH:MM:SS". The text is refreshed every 30 s while the tile is in the page.
+>
+> **Precise time:** relative texts carry the clock time appended ("il y a 5 min · 14:32:07"); "hier" and the older format include seconds ("hier 14:32:07", "18/09 14:32:07").
+>
+> **SM1 time:** under the label, same format, from the `supervision_state` collectDate (render: `byId`; live: push `collectDate`). Every supervision frame and RP cyclic test ACK pushes the state (daemon `_send_rp` / `_send_supervision`), so it shows when the link was last seen alive; RP never touches SM2.
 
 ### Badge CSS classes (Bootstrap 3)
 
