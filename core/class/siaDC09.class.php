@@ -984,11 +984,14 @@ class siaDC09 extends eqLogic {
         // Every supervision / RP ACK re-pushes the same state. With the core default
         // ('never') checkAndUpdateCmd() only refreshes the cached collectDate and the
         // browser hears nothing; 'always' makes each ACK a cmd::update event, so the
-        // widget's "last supervision" time moves live (no polling needed).
-        $stateCmd = $this->getCmd('info', 'supervision_state');
-        if (is_object($stateCmd) && $stateCmd->getConfiguration('repeatEventManagement') !== 'always') {
-            $stateCmd->setConfiguration('repeatEventManagement', 'always');
-            $stateCmd->save();
+        // widget's "last supervision" time moves live (no polling needed). Same for
+        // event_label, whose text is identical on consecutive RP results.
+        foreach (['supervision_state', 'event_label'] as $repeatLogicalId) {
+            $repeatCmd = $this->getCmd('info', $repeatLogicalId);
+            if (is_object($repeatCmd) && $repeatCmd->getConfiguration('repeatEventManagement') !== 'always') {
+                $repeatCmd->setConfiguration('repeatEventManagement', 'always');
+                $repeatCmd->save();
+            }
         }
     }
 

@@ -14,10 +14,11 @@ Ce plugin fait de Jeedom un transmetteur d'alarme : quand le plugin **Alarme** d
 4. [Câbler le plugin Alarme](#câbler-le-plugin-alarme)
 5. [Photos et vidéos Frigate (optionnel)](#photos-et-vidéos-frigate-optionnel)
 6. [Comprendre les indicateurs d'état](#comprendre-les-indicateurs-détat)
-7. [L'onglet Diagnostic](#longlet-diagnostic)
-8. [Les alertes du plugin](#les-alertes-du-plugin)
-9. [Dépannage](#dépannage)
-10. [Limitations connues](#limitations-connues)
+7. [Scénarios : déclenchement sur les commandes info](#scénarios--déclenchement-sur-les-commandes-info)
+8. [L'onglet Diagnostic](#longlet-diagnostic)
+9. [Les alertes du plugin](#les-alertes-du-plugin)
+10. [Dépannage](#dépannage)
+11. [Limitations connues](#limitations-connues)
 
 ---
 
@@ -188,6 +189,44 @@ Pour les armements, désarmements et annulations, le libellé indique `(utilisat
 | Supervision | le texte ci-dessus |
 | État alarme | 0 = inactif, 1 = confirmée, 2 = échec, 3 = en cours |
 | Alarme | le texte ci-dessus |
+
+## Scénarios : déclenchement sur les commandes info
+
+Les commandes **État supervision** et **Alarme** sont configurées pour que **chaque mise à jour reçue du démon soit traitée comme un événement**, même si la valeur ne change pas (réglage Jeedom « répétition des valeurs identiques : toujours »). C'est ce qui fait avancer l'heure affichée par le widget à chaque trame de supervision ou test cyclique (RP). Ce réglage est appliqué à l'enregistrement de l'équipement : **ouvrez l'équipement et cliquez sur Sauvegarder** après une mise à jour du plugin.
+
+> ⚠️ **Conséquence pour vos scénarios** : un scénario déclenché par `#[Site][Télésurveillance][État supervision]#` (ou par **Alarme**) se lance **à chaque mise à jour**, pas seulement quand la valeur change.
+
+### Quand un scénario se déclenche-t-il ?
+
+| Déclencheur | Comportement |
+|-------------|--------------|
+| Simple commande, par exemple `#[Site][Télésurveillance][État supervision]#` | Part à **chaque** mise à jour (à chaque trame de supervision, donc toutes les 60 s par défaut), valeur identique ou non |
+| Expression, par exemple `#[Site][Télésurveillance][État supervision]# == 0` | L'expression est évaluée à **chaque** mise à jour : tant que l'état reste à 0, le scénario repart à chaque trame |
+| Scénario déjà en cours | Il n'est pas relancé, sauf si l'option « Autoriser plusieurs instances » est cochée |
+
+Pour réagir **une seule fois** à un changement, ajoutez un test au début du scénario, avec `valueDate()`.
+
+### Utiliser `valueDate()` pour éviter la répétition
+
+Jeedom conserve pour chaque commande info deux dates, sans qu'il soit nécessaire d'activer l'historique :
+
+- **`valueDate()`** : la date du **dernier changement de valeur**. Une répétition de la même valeur ne la modifie pas.
+- **`collectDate()`** : la date de la **dernière mise à jour reçue**, avec ou sans changement.
+
+Les deux fonctions renvoient une date au format `Y-m-d H:i:s` ; on peut passer un format PHP en second argument (par exemple `'U'` pour un nombre de secondes).
+
+**Exemple : alerter une seule fois par perte de supervision.** Le scénario est déclenché par `#[Site][Télésurveillance][État supervision]#`. Un test de condition au début :
+
+```
+#[Site][Télésurveillance][État supervision]# == 0
+ET (#timestamp# - valueDate(#[Site][Télésurveillance][État supervision]#, 'U')) < 90
+```
+
+La condition n'est vraie que dans les 90 secondes qui suivent le **passage** à 0 : les trames suivantes, qui répètent le même 0, sont ignorées. Choisissez une durée supérieure à l'intervalle de supervision et inférieure à ce que vous jugez acceptable pour la réaction.
+
+**Exemple : depuis quand la connexion est-elle OK ?** `valueDate(#[Site][Télésurveillance][État supervision]#)` donne le moment où l'état est devenu OK, et `collectDate(...)` le moment de la dernière trame. Si `collectDate` est ancienne, le démon ne met plus à jour : même constat que le widget gris « Données non disponibles ».
+
+> Les noms des fonctions et le format de date sont ceux du moteur de scénarios Jeedom 4.5 ; si une expression est refusée, vérifiez la syntaxe dans l'éditeur de scénario (bouton « Ajouter un bloc » → « Code » → aide aux fonctions).
 
 ## L'onglet Diagnostic
 
