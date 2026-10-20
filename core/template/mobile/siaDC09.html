@@ -187,13 +187,13 @@
     // _event_label_from_sm2()); the time comes from the command's collectDate.
     var SM2_TYPES = {
       'intrusion': 'fa-user-secret', 'incendie': 'fa-fire', 'panique': 'fa-bell',
-      'armement': 'fa-lock', 'désarmement': 'fa-lock-open', 'annulation': 'fa-undo'
+      'armement': 'fa-lock', 'désarmement': 'fa-lock-open', 'annulation': 'fa-undo', 'test cyclique': 'fa-heartbeat'
     };
     // Card color follows the kind of event: alarms red, disarm and cancel orange,
     // arm green. The status line keeps its own outcome color (confirmed = neutral).
     var SM2_TYPE_COLORS = {
       'intrusion': 'text-danger', 'incendie': 'text-danger', 'panique': 'text-danger',
-      'désarmement': 'text-warning', 'armement': 'text-success', 'annulation': 'text-warning'
+      'désarmement': 'text-warning', 'armement': 'text-success', 'annulation': 'text-warning', 'test cyclique': 'text-muted'
     };
     var SM2_STATUS = [
       { re: /en cours/i,       icon: 'fa-spinner fa-pulse', cls: 'text-warning' },
@@ -234,7 +234,7 @@
       var head = '', m = null, typeName = '';
       if (st) {
         head = raw.slice(0, idx);
-        m = /^(.*?)\s*\((zone|utilisateur)\s+(\d+)\)\s*$/i.exec(head);
+        m = /^(.*?)\s*\((zone|utilisateur)\s+(.+?)\)\s*$/i.exec(head);
         typeName = m ? m[1] : head;
         typeCls = SM2_TYPE_COLORS[typeName.toLowerCase()] || st.cls || 'text-muted';
       }

@@ -340,6 +340,8 @@ def test_sm1_stale_shows_clock_icon_then_live_push_restores() -> None:
         ("Armement (utilisateur 4) : Sans réponse de la centrale", "fa-lock", "utilisateur 4", "fa-times-circle", "text-danger", "text-success"),
         ("Désarmement (utilisateur 4) : Non transmise — clé de chiffrement invalide", "fa-lock-open", "utilisateur 4", "fa-key", "text-danger", "text-warning"),
         ("Annulation (zone 3) : Confirmé par la centrale", "fa-undo", "zone 3", "fa-check-circle", "", "text-warning"),
+        ("Intrusion (zone Salon) : Confirmé par la centrale", "fa-user-secret", "zone Salon", "fa-check-circle", "", "text-danger"),
+        ("Test cyclique : Confirmé par la centrale", "fa-heartbeat", "", "fa-check-circle", "", "text-muted"),
     ],
 )
 def test_sm2_event_card_parses_label(label: str, type_icon: str, where: str, status_icon: str, color: str, card: str) -> None:

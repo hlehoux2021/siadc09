@@ -107,6 +107,58 @@ async def test_rp_ack_refreshes_sm1_without_touching_event_state() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("result", "expected"),
+    [
+        ({"status": "ack", "raw_nak": None}, "Test cyclique : Confirmé par la centrale"),
+        ({"status": "timeout", "raw_nak": None}, "Test cyclique : Sans réponse de la centrale"),
+    ],
+)
+async def test_rp_result_is_pushed_as_event_label(result: dict, expected: str) -> None:
+    """
+    The RP outcome appears in event_label while event_state stays untouched.
+
+    Expected result:
+    - the push carries event_label "Test cyclique : {état}"
+    - no event_state key; SM2 state unchanged
+    - a later full refresh keeps the RP label
+    """
+    daemon = _make_daemon()
+    daemon._sia_transport.send_frame = AsyncMock(return_value=result)
+    await daemon._send_rp()
+    pushes = [c.args[0] for c in daemon.send_to_jeedom.await_args_list]
+    # Assert: event_label pushed with the RP wording, no event_state
+    assert any(p.get("event_label") == expected and "event_state" not in p for p in pushes)
+    # Assert: SM2 untouched
+    assert daemon._sm2_state == SM2State.IDLE
+    daemon.send_to_jeedom.reset_mock()
+    await daemon._update_info_commands()
+    # Assert: full refresh keeps the RP label (event_state still excluded while SM2 is IDLE)
+    full = daemon.send_to_jeedom.await_args_list[-1].args[0]
+    assert full["event_label"] == expected and "event_state" not in full
+
+
+@pytest.mark.asyncio
+async def test_rp_does_not_overwrite_alarm_in_progress() -> None:
+    """
+    An RP result never replaces the label of an alarm still PENDING.
+
+    Expected result:
+    - RP while SM2 is PENDING leaves _rp_event_label unset
+    - once the alarm is done, the next RP records its label
+    """
+    daemon = _make_daemon()
+    daemon._sm2_state = SM2State.PENDING
+    await daemon._send_rp()
+    # Assert: no RP label while an alarm is in progress
+    assert daemon._rp_event_label is None
+    daemon._sm2_state = SM2State.CONFIRMED
+    await daemon._send_rp()
+    # Assert: RP label recorded once the alarm is done
+    assert daemon._rp_event_label == "Test cyclique : Confirmé par la centrale"
+
+
+@pytest.mark.asyncio
 async def test_rp_timeout_is_one_attempt_and_one_sm1_strike() -> None:
     """
     No ACK: a single attempt and a supervision strike, like a missed supervision frame.

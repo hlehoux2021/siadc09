@@ -289,6 +289,10 @@ class OnMessageParams(TypedDict, total=False):
     user_number: int | None
 
 
+# Type wording of the RP cyclic test in event_label ("Test cyclique : {état}")
+RP_EVENT_LABEL_TYPE = "Test cyclique"
+
+
 class InfoCommandsPayload(TypedDict, total=False):
     """Partial payload for PHP INFO command updates.
 
@@ -456,6 +460,9 @@ class SIADaemon(BaseDaemon):
         self._event_zone: str | None = None  # Latest zone from command #zone# tag
         self._event_user_number: int | None = None  # Latest user number (BC/OP/CL)
         self._event_attempt_count: int = 0  # Track send attempts for current event
+        # Last RP cyclic test outcome shown in event_label ("Test cyclique : ..."); event_state and
+        # the SM2 state are untouched. Cleared when a real alarm event starts (SM2 PENDING).
+        self._rp_event_label: str | None = None
         # Why FAILED was reached, for _event_label_from_sm2()'s wording split:
         # 'nak' = the CSR explicitly rejected the event; 'no_response' = no answer at
         # all (timeout/transport/protocol error/loop exhaustion) despite retries.
@@ -608,6 +615,8 @@ class SIADaemon(BaseDaemon):
             if self._sm2_state != SM2State.IDLE:
                 payload["event_state"] = self._event_state_from_sm2()
                 payload["event_label"] = self._event_label_from_sm2()
+            if self._rp_event_label is not None:
+                payload["event_label"] = self._rp_event_label
         else:
             payload = {k: v for k, v in data.items() if v is not None}
             payload["type"] = "info_update"
@@ -1638,6 +1647,7 @@ class SIADaemon(BaseDaemon):
         """
         # Initialize retry state
         self._sm2_state = SM2State.PENDING
+        self._rp_event_label = None  # a real alarm event supersedes the last RP test
         self._event_sia_code = event_item.sia_code
         self._event_zone = event_item.zone
         self._event_user_number = event_item.user_number
@@ -2060,6 +2070,15 @@ class SIADaemon(BaseDaemon):
             self._logger.error(f"Error building RP frame: {e!r}")
             raise SIAProtocolError(f"RP frame build failed: {e}") from e
 
+    def _note_rp_outcome(self, outcome: str) -> None:
+        """Record the RP test result as the event_label text, unless an alarm is in progress.
+
+        Args:
+            outcome: French status wording, e.g. "Confirmé par la centrale".
+        """
+        if self._sm2_state != SM2State.PENDING:
+            self._rp_event_label = f"{RP_EVENT_LABEL_TYPE} : {outcome}"
+
     async def _send_rp(self) -> None:
         """Send one RP cyclic test and route the result through SM1 (story 17-3, D-1b).
 
@@ -2067,8 +2086,9 @@ class SIADaemon(BaseDaemon):
         cycle is the retry), an immediate NAK re-send with updated timestamp
         (§ 5.6.1.2, same wire seq § 5.5.1.5), and the SM1 handlers for the outcome. A
         missed RP is a strike, so with supervision format ``none`` it is the RP that
-        drives DEGRADED, T3 and the TCP reconnect. The user-facing event state (SM2,
-        event_state, event_label, _event_sia_code/_zone/_user_number) is never touched.
+        drives DEGRADED, T3 and the TCP reconnect. The SM2 state, event_state and
+        _event_sia_code/_zone/_user_number are never touched; only event_label shows the
+        result ("Test cyclique : {état}") until the next real alarm event.
 
         - ACK: SM1 refreshed (HEALTHY, strike 0) and ``supervision_state`` pushed.
         - NAK on every re-send: ``_handle_supervision_nak`` (one strike).
@@ -2111,6 +2131,7 @@ class SIADaemon(BaseDaemon):
                 raise  # never swallow cancellation (daemon-design.md § CancelledError safety rule)
             except (asyncio.TimeoutError, SIATransportError) as e:
                 self._logger.error(f"Transport error sending RP: {e!r}")
+                self._note_rp_outcome("Sans réponse de la centrale")
                 await self._handle_supervision_timeout((time.monotonic() - send_start) * 1000)
                 await self._update_info_commands()
                 return
@@ -2124,14 +2145,20 @@ class SIADaemon(BaseDaemon):
         if status == "ack":
             await self._refresh_sm1_on_ack()
             self._logger.debug(f"RP ACKed (seq={wire_seq})")
-            await self._update_info_commands({
+            self._note_rp_outcome("Confirmé par la centrale")
+            payload: InfoCommandsPayload = {
                 'supervision_state': self._supervision_value(),
                 'supervision_label': self._supervision_label(),
-            })
+            }
+            if self._rp_event_label is not None:
+                payload['event_label'] = self._rp_event_label
+            await self._update_info_commands(payload)
             return
         if status == "nak":
+            self._note_rp_outcome("Refusé par la centrale")
             await self._handle_supervision_nak(result, elapsed_ms)
         elif status == "timeout":
+            self._note_rp_outcome("Sans réponse de la centrale")
             await self._handle_supervision_timeout(elapsed_ms)
         elif status == "tcp_drop":
             await self._handle_supervision_tcp_drop()
