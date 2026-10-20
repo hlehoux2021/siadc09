@@ -295,15 +295,18 @@ def test_sm1_label_selects_icon_and_color(label: str, state: str, icon: str, col
 
 
 def test_sm1_degraded_counter_moves_to_sub_label() -> None:
-    """A degraded label shows its N/3 counter as a sub-label.
+    """A degraded label shows its N/3 counter as an explicit sub-label.
 
-    - the main label drops the counter, the sub-label shows it
+    - the main label drops the counter, the sub-label reads "N échec(s) sur 3"
     """
     r = _one({"actions": [{"type": "pushLabel", "value": "Connexion dégradée (2/3)"}]})
     # Main label without the counter
     assert r["labelText"] == "Connexion dégradée"
-    # Counter in the visible sub-label
-    assert r["subText"] == "2/3" and r["subShown"] is True
+    # Counter spelled out in the visible sub-label
+    assert r["subText"] == "2 échecs sur 3" and r["subShown"] is True
+    r = _one({"actions": [{"type": "pushLabel", "value": "Connexion dégradée (1/3)"}]})
+    # Singular at one failure
+    assert r["subText"] == "1 échec sur 3"
 
 
 def test_sm1_stale_shows_clock_icon_then_live_push_restores() -> None:

@@ -170,8 +170,8 @@
         }
         icon = entry ? entry.icon : SM1_FALLBACK[stateCls];
         if (entry && entry.cls) cls = entry.cls;
-        var m = /^(.*?)\s*\((\d+\/\d+)\)\s*$/.exec(labelRaw);
-        if (m) { text = m[1]; sub = m[2]; }
+        var m = /^(.*?)\s*\((\d+)\/(\d+)\)\s*$/.exec(labelRaw);
+        if (m) { text = m[1]; sub = m[2] + (m[2] === '1' ? ' échec sur ' : ' échecs sur ') + m[3]; }
       }
       badge.classList.remove.apply(badge.classList, COLOR_CLASSES);
       badge.classList.add(cls);
