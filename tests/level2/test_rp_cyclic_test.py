@@ -139,6 +139,29 @@ async def test_rp_result_is_pushed_as_event_label(result: dict, expected: str) -
 
 
 @pytest.mark.asyncio
+async def test_supervision_ack_does_not_repush_event_commands() -> None:
+    """
+    A supervision frame refreshes SM1 only; the SM2 event commands are not re-pushed.
+
+    checkAndUpdateCmd() refreshes the collectDate even for an unchanged value, so
+    re-pushing event_label would make the SM2 time follow every supervision frame.
+
+    Expected result:
+    - the push carries supervision_state and supervision_label
+    - no event_state / event_label key, although SM2 is CONFIRMED and an RP label is set
+    """
+    daemon = _make_daemon()
+    daemon._sm2_state = SM2State.CONFIRMED
+    daemon._rp_event_label = "Test cyclique : Confirmé par la centrale"
+    await daemon._send_supervision()
+    pushes = [c.args[0] for c in daemon.send_to_jeedom.await_args_list]
+    # Assert: SM1 pushed
+    assert any("supervision_state" in p for p in pushes)
+    # Assert: no event key re-pushed
+    assert not any("event_state" in p or "event_label" in p for p in pushes)
+
+
+@pytest.mark.asyncio
 async def test_rp_does_not_overwrite_alarm_in_progress() -> None:
     """
     An RP result never replaces the label of an alarm still PENDING.

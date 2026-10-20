@@ -1140,7 +1140,7 @@ class SIADaemon(BaseDaemon):
             except SIATransportError as e:
                 self._logger.error(f"Transport error sending supervision: {e!r}")
                 await self._handle_supervision_timeout((time.monotonic() - send_start) * 1000)
-                await self._update_info_commands()
+                await self._update_supervision_commands()
                 return
 
             elapsed_ms = (time.monotonic() - send_start) * 1000
@@ -1168,8 +1168,26 @@ class SIADaemon(BaseDaemon):
             # TCP drop path (rare, OS-level connection reset)
             await self._handle_supervision_tcp_drop()
 
-        # Update INFO commands
-        await self._update_info_commands()
+        # Update INFO commands (SM1 only: re-pushing event_label would refresh its collectDate)
+        await self._update_supervision_commands()
+
+    async def _update_supervision_commands(self, with_rp_label: bool = False) -> None:
+        """Push supervision_state/supervision_label only, never the SM2 event commands.
+
+        checkAndUpdateCmd() refreshes a command's collectDate even for an unchanged value,
+        so a full payload on every supervision frame made the SM2 time of the last event
+        look as fresh as the last frame.
+
+        Args:
+            with_rp_label: Also push event_label when it holds an RP test result (RP paths).
+        """
+        payload: InfoCommandsPayload = {
+            'supervision_state': self._supervision_value(),
+            'supervision_label': self._supervision_label(),
+        }
+        if with_rp_label and self._rp_event_label is not None:
+            payload['event_label'] = self._rp_event_label
+        await self._update_info_commands(payload)
 
     async def _refresh_sm1_on_ack(self) -> int:
         """Refresh SM1 after a CSR ACK to a periodic frame (supervision or RP, story 17-3).
@@ -2133,7 +2151,7 @@ class SIADaemon(BaseDaemon):
                 self._logger.error(f"Transport error sending RP: {e!r}")
                 self._note_rp_outcome("Sans réponse de la centrale")
                 await self._handle_supervision_timeout((time.monotonic() - send_start) * 1000)
-                await self._update_info_commands()
+                await self._update_supervision_commands(with_rp_label=True)
                 return
 
             elapsed_ms = (time.monotonic() - send_start) * 1000
@@ -2146,14 +2164,9 @@ class SIADaemon(BaseDaemon):
             await self._refresh_sm1_on_ack()
             self._logger.debug(f"RP ACKed (seq={wire_seq})")
             self._note_rp_outcome("Confirmé par la centrale")
-            payload: InfoCommandsPayload = {
-                'supervision_state': self._supervision_value(),
-                'supervision_label': self._supervision_label(),
-            }
-            if self._rp_event_label is not None:
-                payload['event_label'] = self._rp_event_label
-            await self._update_info_commands(payload)
+            await self._update_supervision_commands(with_rp_label=True)
             return
+        with_rp_label = status in ("nak", "timeout")  # tcp_drop: no RP result to report
         if status == "nak":
             self._note_rp_outcome("Refusé par la centrale")
             await self._handle_supervision_nak(result, elapsed_ms)
@@ -2162,7 +2175,7 @@ class SIADaemon(BaseDaemon):
             await self._handle_supervision_timeout(elapsed_ms)
         elif status == "tcp_drop":
             await self._handle_supervision_tcp_drop()
-        await self._update_info_commands()
+        await self._update_supervision_commands(with_rp_label=with_rp_label)
 
     async def _log_sm2_event(
         self,
