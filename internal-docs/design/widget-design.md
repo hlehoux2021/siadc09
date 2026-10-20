@@ -119,7 +119,7 @@ and inline script are shared (a level-1 test keeps them identical).
 > **SM2** — `event_label` (`{Type} (zone N|utilisateur N) : {état}`) is split on `" : "`.
 > Head: type icon (`intrusion fa-user-secret`, `incendie fa-fire`, `panique fa-bell`,
 > `armement fa-lock`, `désarmement fa-lock-open`, `annulation fa-undo`) + type + zone/user.
-> Status line: `En cours` `fa-spinner fa-pulse` orange · `Confirmée` `fa-check-circle` green ·
+> Status line: `En cours` `fa-spinner fa-pulse` orange · `Confirmé` `fa-check-circle` green ·
 > `Refusé` `fa-ban` red · `Sans réponse` `fa-times-circle` red · `Non transmise` `fa-key` red.
 > An idle or unparseable label ("Inactif", "Aucun événement…") shows the raw text, dimmed.
 > The full label stays in `data-raw` on `.siaDC09-event`; `event_state` is not needed, so no
@@ -483,11 +483,11 @@ the same change: `BA → Intrusion`, `FA → Incendie`, `PA → Panique`, **`BC 
 | Event / SM2 state | `event_label` |
 |---|---|
 | `BC` PENDING | `Annulation (utilisateur 1) : En cours` |
-| `BC` CONFIRMED | `Annulation (utilisateur 1) : Confirmée par la centrale` |
+| `BC` CONFIRMED | `Annulation (utilisateur 1) : Confirmé par la centrale` |
 | `BC` FAILED (NAK) | `Annulation (utilisateur 1) : Refusé par la centrale` |
 | `BC` FAILED (timeout) | `Annulation (utilisateur 1) : Sans réponse de la centrale` |
-| `OP` CONFIRMED | `Désarmement (utilisateur 1) : Confirmée par la centrale` |
-| `CL` CONFIRMED | `Armement (utilisateur 1) : Confirmée par la centrale` |
+| `OP` CONFIRMED | `Désarmement (utilisateur 1) : Confirmé par la centrale` |
+| `CL` CONFIRMED | `Armement (utilisateur 1) : Confirmé par la centrale` |
 
 The label always shows the configured user number — never a zone segment, and never omitted:
 unlike `zone_number`, `user_number` has no "unresolved" case. A disarm during an open alarm

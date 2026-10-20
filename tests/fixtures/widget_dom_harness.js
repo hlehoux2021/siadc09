@@ -204,6 +204,8 @@ async function runScenario(scenario) {
     result.eventStatusTextClass = cls('.siaDC09-event-status-text')
     result.eventStatusIcon = cls('.siaDC09-event-status-icon')
     result.eventStatusIconShown = shown('.siaDC09-event-status-icon')
+    result.eventBar = cls('.siaDC09-event-bar')
+    result.eventTypeWrap = cls('.siaDC09-event-type-wrap')
     result.eventTime = text('.siaDC09-event-time')
     result.healthTime = text('.siaDC09-health-time')
     window.close()

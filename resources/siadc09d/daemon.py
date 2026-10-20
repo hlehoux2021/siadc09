@@ -822,7 +822,7 @@ class SIADaemon(BaseDaemon):
         Logic:
             - IDLE → "Inactif" (no alarm received)
             - PENDING → "{Type} (zone {zone}) : En cours"
-            - CONFIRMED → "{Type} (zone {zone}) : Confirmée par la centrale"
+            - CONFIRMED → "{Type} (zone {zone}) : Confirmé par la centrale"
             - FAILED, reason='nak' → "{Type} (zone {zone}) : Refusé par la centrale"
             - FAILED, reason='config' → "{Type} (zone {zone}) : Non transmise — clé de
               chiffrement invalide" (story 1-5 AC3: nothing was sent)
@@ -843,7 +843,7 @@ class SIADaemon(BaseDaemon):
         elif self._sm2_state == SM2State.PENDING:
             return f"{self._event_context_prefix()} : En cours"
         elif self._sm2_state == SM2State.CONFIRMED:
-            return f"{self._event_context_prefix()} : Confirmée par la centrale"
+            return f"{self._event_context_prefix()} : Confirmé par la centrale"
         elif self._sm2_state == SM2State.FAILED:
             if self._event_failure_reason == "nak":
                 return f"{self._event_context_prefix()} : Refusé par la centrale"

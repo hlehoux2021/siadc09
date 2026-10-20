@@ -434,7 +434,7 @@ def test_info_update_partial_payload_valid() -> None:
     event_only = {
         "type": "info_update",
         "event_state": 1,
-        "event_label": "Intrusion (zone 3) : Confirmée par la centrale",
+        "event_label": "Intrusion (zone 3) : Confirmé par la centrale",
     }
     # Assert: supervision-only partial update has type and supervision fields
     assert supervision_only["type"] == "info_update"

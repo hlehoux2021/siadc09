@@ -1211,7 +1211,7 @@ async def test_update_info_commands_full_payload_degraded_strike_2():
     # Assert: SM2 CONFIRMED → event_state=1
     assert payload["event_state"] == 1
     # Assert: event label names the alarm + central confirmation
-    assert payload["event_label"] == "Intrusion (zone 3) : Confirmée par la centrale"
+    assert payload["event_label"] == "Intrusion (zone 3) : Confirmé par la centrale"
 
 
 # =============================================================================

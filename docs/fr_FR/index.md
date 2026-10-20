@@ -174,7 +174,7 @@ Le widget « Télésurveillance » affiche deux lignes.
 
 - `Inactif` ou `Aucun événement depuis le démarrage` : rien à signaler.
 - `Intrusion (zone 2) : En cours` : trame envoyée, réponse attendue.
-- `… : Confirmée par la centrale` : la centrale a accusé réception (ACK).
+- `… : Confirmé par la centrale` : la centrale a accusé réception (ACK).
 - `… : Refusé par la centrale` : la centrale a répondu NAK — **l'alarme n'est pas prise en compte**.
 - `… : Sans réponse de la centrale` : aucune réponse après 4 tentatives — **appelez votre centrale**.
 

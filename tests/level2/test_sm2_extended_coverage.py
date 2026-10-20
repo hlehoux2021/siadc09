@@ -382,7 +382,7 @@ class TestInfoCommandPayloads:
         Expected result:
         - _update_info_commands called at least once
         - Final call payload has event_state=1 (CONFIRMED) and
-          event_label="Intrusion (zone Salon) : Confirmée par la centrale"
+          event_label="Intrusion (zone Salon) : Confirmé par la centrale"
         """
         event = EventItem(sia_code="BA", zone="Salon", timestamp="12:30:45,04-13-2026")
         daemon._send_raw = AsyncMock(return_value=SIATransportResult(status="ack", raw_nak=None))
@@ -398,7 +398,7 @@ class TestInfoCommandPayloads:
         assert payload.get('event_state') == 1, (
             f"Expected event_state=1 (CONFIRMED), got {payload.get('event_state')}"
         )
-        assert payload.get('event_label') == "Intrusion (zone Salon) : Confirmée par la centrale", (
+        assert payload.get('event_label') == "Intrusion (zone Salon) : Confirmé par la centrale", (
             f"Expected confirmed label, got {payload.get('event_label')}"
         )
 

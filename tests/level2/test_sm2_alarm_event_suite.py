@@ -206,13 +206,13 @@ class TestSM2StateHelpers:
         """Test that CONFIRMED names the alarm and reports central confirmation.
 
         - Type/zone prefix identifies the alarm in progress
-        - State clause is "Confirmée par la centrale"
+        - State clause is "Confirmé par la centrale"
         """
         mock_daemon._sm2_state = SM2State.CONFIRMED
         mock_daemon._event_sia_code = "BA"
         mock_daemon._event_zone = "3"
         # Confirmed alarm names the event and the central's acceptance
-        assert mock_daemon._event_label_from_sm2() == "Intrusion (zone 3) : Confirmée par la centrale"
+        assert mock_daemon._event_label_from_sm2() == "Intrusion (zone 3) : Confirmé par la centrale"
 
     def test_event_label_from_sm2_failed_nak(self, mock_daemon):
         """Test that FAILED with reason='nak' names the alarm and reports central refusal.
@@ -248,7 +248,7 @@ class TestSM2StateHelpers:
         addresses BC by user number.
 
         - BC → event_type_fr() → "annulation" → "Annulation"
-        - Label: "Annulation (utilisateur 1) : Confirmée par la centrale"
+        - Label: "Annulation (utilisateur 1) : Confirmé par la centrale"
         """
         mock_daemon._sm2_state = SM2State.CONFIRMED
         mock_daemon._event_sia_code = "BC"
@@ -256,7 +256,7 @@ class TestSM2StateHelpers:
         # BC gets a French type label like BA/FA/PA, addressed by user number
         assert (
             mock_daemon._event_label_from_sm2()
-            == "Annulation (utilisateur 1) : Confirmée par la centrale"
+            == "Annulation (utilisateur 1) : Confirmé par la centrale"
         )
 
     def test_event_label_from_sm2_confirmed_opening_report(self, mock_daemon):
@@ -264,14 +264,14 @@ class TestSM2StateHelpers:
         itself "Désarmement", addressed by the configured user number.
 
         - OP → event_type_fr() → "désarmement" → "Désarmement"
-        - Label: "Désarmement (utilisateur 1) : Confirmée par la centrale"
+        - Label: "Désarmement (utilisateur 1) : Confirmé par la centrale"
         """
         mock_daemon._sm2_state = SM2State.CONFIRMED
         mock_daemon._event_sia_code = "OP"
         mock_daemon._event_user_number = 1
         assert (
             mock_daemon._event_label_from_sm2()
-            == "Désarmement (utilisateur 1) : Confirmée par la centrale"
+            == "Désarmement (utilisateur 1) : Confirmé par la centrale"
         )
 
     def test_event_label_from_sm2_confirmed_closing_report(self, mock_daemon):
@@ -279,14 +279,14 @@ class TestSM2StateHelpers:
         by the configured user number.
 
         - CL → event_type_fr() → "armement" → "Armement"
-        - Label: "Armement (utilisateur 1) : Confirmée par la centrale"
+        - Label: "Armement (utilisateur 1) : Confirmé par la centrale"
         """
         mock_daemon._sm2_state = SM2State.CONFIRMED
         mock_daemon._event_sia_code = "CL"
         mock_daemon._event_user_number = 1
         assert (
             mock_daemon._event_label_from_sm2()
-            == "Armement (utilisateur 1) : Confirmée par la centrale"
+            == "Armement (utilisateur 1) : Confirmé par la centrale"
         )
 
     def test_event_label_from_sm2_bc_ignores_zone_uses_user_number(self, mock_daemon):
@@ -663,7 +663,7 @@ class TestSM2Persistence:
 
         Expected result:
         - SM2=CONFIRMED → event_state=1 (persisted value)
-        - event_label="Intrusion (zone Salon) : Confirmée par la centrale"
+        - event_label="Intrusion (zone Salon) : Confirmé par la centrale"
         - These values are stable (same on every call, no side effects)
         """
         # Arrange: simulate daemon reaching CONFIRMED state after successful alarm
@@ -671,7 +671,7 @@ class TestSM2Persistence:
         mock_daemon._event_sia_code = "BA"
         mock_daemon._event_zone = "Salon"
 
-        confirmed_label = "Intrusion (zone Salon) : Confirmée par la centrale"
+        confirmed_label = "Intrusion (zone Salon) : Confirmé par la centrale"
 
         # Assert: event_state=1 for CONFIRMED (value that would be persisted)
         assert mock_daemon._event_state_from_sm2() == 1

@@ -33,20 +33,23 @@
     <hr style="margin:4px 0;" />
 
     <div style="font-size:0.7em;font-weight:bold;opacity:0.6;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">Dernier événement</div>
-    <div class="siaDC09-event" data-raw="#event_label#" style="word-break:break-word;">
-      <div class="siaDC09-event-head" style="display:none;align-items:center;gap:10px;margin-bottom:4px;">
-        <span style="flex:none;display:inline-flex;align-items:center;justify-content:center;width:2.2em;height:2.2em;border:2px solid currentColor;border-radius:50%;opacity:0.85;">
-          <i class="siaDC09-event-type fas"></i>
-        </span>
-        <span style="min-width:0;line-height:1.25;">
-          <span class="siaDC09-event-type-text" style="display:block;font-size:0.95em;font-weight:bold;"></span>
-          <span class="siaDC09-event-where" style="display:block;font-size:0.8em;opacity:0.7;"></span>
-        </span>
-      </div>
-      <div class="siaDC09-event-status" style="font-size:0.9em;">
-        <i class="siaDC09-event-status-icon fas" style="display:none;font-size:1.25em;vertical-align:middle;margin-right:2px;"></i>
-        <span class="siaDC09-event-status-text">#event_label#</span>
-        <span class="siaDC09-event-time" style="opacity:0.7;"></span>
+    <div class="siaDC09-event" data-raw="#event_label#" style="display:flex;gap:8px;word-break:break-word;">
+      <span class="siaDC09-event-bar text-muted" style="flex:none;width:4px;border-radius:2px;background:currentColor;opacity:0.85;"></span>
+      <div style="min-width:0;flex:1;">
+        <div class="siaDC09-event-head" style="display:none;align-items:center;gap:10px;margin-bottom:4px;">
+          <span class="siaDC09-event-type-wrap" style="flex:none;display:inline-flex;align-items:center;justify-content:center;width:2.2em;height:2.2em;border:2px solid currentColor;border-radius:50%;">
+            <i class="siaDC09-event-type fas"></i>
+          </span>
+          <span style="min-width:0;line-height:1.25;">
+            <span class="siaDC09-event-type-text" style="display:block;font-size:0.95em;font-weight:bold;"></span>
+            <span class="siaDC09-event-where" style="display:block;font-size:0.8em;opacity:0.7;"></span>
+          </span>
+        </div>
+        <div class="siaDC09-event-status" style="font-size:0.9em;">
+          <i class="siaDC09-event-status-icon fas" style="display:none;font-size:1.25em;vertical-align:middle;margin-right:2px;"></i>
+          <span class="siaDC09-event-status-text" style="font-weight:bold;">#event_label#</span>
+          <span class="siaDC09-event-time" style="opacity:0.7;"></span>
+        </div>
       </div>
     </div>
 
@@ -67,6 +70,8 @@
     var subEl   = rootEl.querySelector('.siaDC09-sublabel');
     var eventEl = rootEl.querySelector('.siaDC09-event');
     var evHead       = rootEl.querySelector('.siaDC09-event-head');
+    var evBar        = rootEl.querySelector('.siaDC09-event-bar');
+    var evTypeWrap   = rootEl.querySelector('.siaDC09-event-type-wrap');
     var evTypeIcon   = rootEl.querySelector('.siaDC09-event-type');
     var evTypeText   = rootEl.querySelector('.siaDC09-event-type-text');
     var evWhere      = rootEl.querySelector('.siaDC09-event-where');
@@ -186,12 +191,17 @@
     };
     var SM2_STATUS = [
       { re: /en cours/i,       icon: 'fa-spinner fa-pulse', cls: 'text-warning' },
-      { re: /confirmée/i,      icon: 'fa-check-circle',     cls: 'text-success' },
-      { re: /refusé/i,         icon: 'fa-ban',              cls: 'text-danger' },
+      { re: /confirm/i,         icon: 'fa-check-circle',     cls: 'text-success' },
+      { re: /refus/i,           icon: 'fa-ban',              cls: 'text-danger' },
       { re: /sans réponse/i,   icon: 'fa-times-circle',     cls: 'text-danger' },
       { re: /non transmise/i,  icon: 'fa-key',              cls: 'text-danger' }
     ];
-    var STATUS_CLASSES = ['text-success', 'text-warning', 'text-danger'];
+    // The whole card carries the outcome color: side bar, type ring/icon, status.
+    function colorize(el, cls) {
+      if (!el) return;
+      el.classList.remove.apply(el.classList, COLOR_CLASSES);
+      el.classList.add(cls);
+    }
     var eventTimeMs = NaN;
     var showTime = false;
 
@@ -212,8 +222,10 @@
           if (SM2_STATUS[i].re.test(statusTxt)) { st = SM2_STATUS[i]; break; }
         }
       }
-      evStatusText.classList.remove.apply(evStatusText.classList, STATUS_CLASSES);
-      evStatusIcon.classList.remove.apply(evStatusIcon.classList, STATUS_CLASSES);
+      colorize(evStatusText, st ? st.cls : 'text-muted');
+      colorize(evStatusIcon, st ? st.cls : 'text-muted');
+      colorize(evBar, st ? st.cls : 'text-muted');
+      colorize(evTypeWrap, st ? st.cls : 'text-muted');
       if (!st) {
         // Idle ("Inactif", "Aucun événement…") or an unknown text: discreet raw line.
         showTime = false;
@@ -231,10 +243,10 @@
       evWhere.textContent = m ? m[2] + ' ' + m[3] : '';
       evTypeIcon.className = 'siaDC09-event-type fas ' + (SM2_TYPES[typeName.toLowerCase()] || 'fa-bell');
       evHead.style.display = 'flex';
-      evStatusIcon.className = 'siaDC09-event-status-icon fas ' + st.icon + ' ' + st.cls;
+      evStatusIcon.className = 'siaDC09-event-status-icon fas ' + st.icon;
+      colorize(evStatusIcon, st.cls);
       evStatusIcon.style.display = '';
       evStatusText.textContent = raw.slice(idx + 3);
-      evStatusText.classList.add(st.cls);
       evStatusText.style.opacity = '';
       showTime = true;
       renderEventTime();

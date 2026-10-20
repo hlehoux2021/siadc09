@@ -196,7 +196,7 @@ class TestLiveEventRefresh:
         - a pushed confirmed label replaces it in place (fixes 'reste à Inactif')
         - the card shows the status part, the full label stays in data-raw
         """
-        confirmed = "Intrusion (zone 3) : Confirmée par la centrale"
+        confirmed = "Intrusion (zone 3) : Confirmé par la centrale"
         r = _one({
             "placeholders": {"event_label": "Inactif"},
             "actions": [{"type": "pushEvent", "value": confirmed}],
@@ -204,7 +204,7 @@ class TestLiveEventRefresh:
         # AC2: the event line moves off 'Inactif' to the confirmed value on its own
         assert r["eventRaw"] == confirmed
         # The status line carries the part after ' : ' (type moved to the head)
-        assert r["eventStatusText"] == "Confirmée par la centrale"
+        assert r["eventStatusText"] == "Confirmé par la centrale"
 
 
 # ── AC3: stale detection + cooperation with live push ────────────────────────
@@ -335,11 +335,11 @@ def test_sm1_stale_shows_clock_icon_then_live_push_restores() -> None:
     ("label", "type_icon", "where", "status_icon", "color"),
     [
         ("Intrusion (zone 3) : En cours", "fa-user-secret", "zone 3", "fa-spinner fa-pulse", "text-warning"),
-        ("Incendie (zone 1) : Confirmée par la centrale", "fa-fire", "zone 1", "fa-check-circle", "text-success"),
+        ("Incendie (zone 1) : Confirmé par la centrale", "fa-fire", "zone 1", "fa-check-circle", "text-success"),
         ("Panique (zone 2) : Refusé par la centrale", "fa-bell", "zone 2", "fa-ban", "text-danger"),
         ("Armement (utilisateur 4) : Sans réponse de la centrale", "fa-lock", "utilisateur 4", "fa-times-circle", "text-danger"),
         ("Désarmement (utilisateur 4) : Non transmise — clé de chiffrement invalide", "fa-lock-open", "utilisateur 4", "fa-key", "text-danger"),
-        ("Annulation (zone 3) : Confirmée par la centrale", "fa-undo", "zone 3", "fa-check-circle", "text-success"),
+        ("Annulation (zone 3) : Confirmé par la centrale", "fa-undo", "zone 3", "fa-check-circle", "text-success"),
     ],
 )
 def test_sm2_event_card_parses_label(label: str, type_icon: str, where: str, status_icon: str, color: str) -> None:
@@ -358,6 +358,8 @@ def test_sm2_event_card_parses_label(label: str, type_icon: str, where: str, sta
     # Status pictogram and color on both icon and text
     assert status_icon in r["eventStatusIcon"] and color in r["eventStatusIcon"]
     assert color in r["eventStatusTextClass"]
+    # The side bar and the type ring carry the outcome color too (colored card)
+    assert color in r["eventBar"] and color in r["eventTypeWrap"]
 
 
 @pytest.mark.parametrize("label", ["Inactif", "Aucun événement depuis le démarrage"])
@@ -387,7 +389,7 @@ def test_sm2_recent_time_is_relative(seconds_ago: int, expected: str) -> None:
     - the precise HH:MM:SS is appended
     """
     r = _one({
-        "placeholders": {"event_label": "Intrusion (zone 3) : Confirmée par la centrale"},
+        "placeholders": {"event_label": "Intrusion (zone 3) : Confirmé par la centrale"},
         "now": _NOW_MS,
         "byId": {"staleSeconds": 0, "eventSeconds": seconds_ago},
     })
@@ -401,7 +403,7 @@ def test_sm2_older_times_are_absolute() -> None:
     - yesterday: 'hier HH:MM'; three days ago: 'JJ/MM HH:MM'
     - a live push collectDate drives the time of the new event
     """
-    label = "Intrusion (zone 3) : Confirmée par la centrale"
+    label = "Intrusion (zone 3) : Confirmé par la centrale"
     common = {"placeholders": {"event_label": label}, "now": _NOW_MS}
     # One hour before local midnight: yesterday whatever the runner's timezone
     now = datetime.fromtimestamp(_NOW_MS / 1000)
