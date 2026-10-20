@@ -265,15 +265,15 @@ class TestStaleCooperation:
 @pytest.mark.parametrize(
     ("label", "state", "icon", "color"),
     [
-        ("Connexion OK", "2", "fa-circle-check", "text-success"),
+        ("Connexion OK", "2", "fa-check-circle", "text-success"),
         ("Connexion en cours d'initialisation", "1", "fa-spinner fa-pulse", "text-warning"),
-        ("Connexion dégradée (2/3)", "1", "fa-triangle-exclamation", "text-warning"),
-        ("Connexion perdue", "0", "fa-link-slash", "text-danger"),
-        ("Tentative de reconnexion en cours", "0", "fa-arrows-rotate fa-spin", "text-danger"),
-        ("Hors Réseau", "0", "fa-plug-circle-xmark", "text-danger"),
+        ("Connexion dégradée (2/3)", "1", "fa-exclamation-triangle", "text-warning"),
+        ("Connexion perdue", "0", "fa-unlink", "text-danger"),
+        ("Tentative de reconnexion en cours", "0", "fa-sync-alt fa-spin", "text-danger"),
+        ("Hors Réseau", "0", "fa-plug", "text-danger"),
         ("Clé de chiffrement invalide", "0", "fa-key", "text-danger"),
-        ("ARRÊTÉ", "0", "fa-circle-stop", "text-danger"),
-        ("Équipement désactivé", "0", "fa-circle-pause", "text-muted"),
+        ("ARRÊTÉ", "0", "fa-stop-circle", "text-danger"),
+        ("Équipement désactivé", "0", "fa-pause-circle", "text-muted"),
     ],
 )
 def test_sm1_label_selects_icon_and_color(label: str, state: str, icon: str, color: str) -> None:
@@ -310,7 +310,7 @@ def test_sm1_stale_shows_clock_icon_then_live_push_restores() -> None:
     """Stale shows the grey clock; a live state push brings the real icon back.
 
     - stale: fa-clock + text-muted
-    - after pushState 2 + label OK: fa-circle-check + text-success
+    - after pushState 2 + label OK: fa-check-circle + text-success
     """
     base = {
         "placeholders": {"supervision_interval": "60", "badge_class": "text-success"},
@@ -325,7 +325,7 @@ def test_sm1_stale_shows_clock_icon_then_live_push_restores() -> None:
         {"type": "pushLabel", "value": "Connexion OK"},
     ]})
     # Fresh values replace the stale view
-    assert "fa-circle-check" in live["iconClass"] and "text-success" in live["badgeClass"]
+    assert "fa-check-circle" in live["iconClass"] and "text-success" in live["badgeClass"]
 
 
 # ── Story 10-1 (suite): SM2 last-event card ──────────────────────────────────
@@ -335,11 +335,11 @@ def test_sm1_stale_shows_clock_icon_then_live_push_restores() -> None:
     ("label", "type_icon", "where", "status_icon", "color"),
     [
         ("Intrusion (zone 3) : En cours", "fa-user-secret", "zone 3", "fa-spinner fa-pulse", "text-warning"),
-        ("Incendie (zone 1) : Confirmée par la centrale", "fa-fire", "zone 1", "fa-circle-check", "text-success"),
+        ("Incendie (zone 1) : Confirmée par la centrale", "fa-fire", "zone 1", "fa-check-circle", "text-success"),
         ("Panique (zone 2) : Refusé par la centrale", "fa-bell", "zone 2", "fa-ban", "text-danger"),
-        ("Armement (utilisateur 4) : Sans réponse de la centrale", "fa-lock", "utilisateur 4", "fa-circle-xmark", "text-danger"),
+        ("Armement (utilisateur 4) : Sans réponse de la centrale", "fa-lock", "utilisateur 4", "fa-times-circle", "text-danger"),
         ("Désarmement (utilisateur 4) : Non transmise — clé de chiffrement invalide", "fa-lock-open", "utilisateur 4", "fa-key", "text-danger"),
-        ("Annulation (zone 3) : Confirmée par la centrale", "fa-rotate-left", "zone 3", "fa-circle-check", "text-success"),
+        ("Annulation (zone 3) : Confirmée par la centrale", "fa-undo", "zone 3", "fa-check-circle", "text-success"),
     ],
 )
 def test_sm2_event_card_parses_label(label: str, type_icon: str, where: str, status_icon: str, color: str) -> None:

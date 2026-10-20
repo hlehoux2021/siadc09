@@ -21,7 +21,7 @@
 
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
       <span class="siaDC09-badge #badge_class#" style="flex:none;display:inline-flex;align-items:center;justify-content:center;width:2.2em;height:2.2em;border:2px solid currentColor;border-radius:50%;">
-        <i class="siaDC09-icon fas fa-circle-question"></i>
+        <i class="siaDC09-icon fas fa-question-circle"></i>
       </span>
       <span style="min-width:0;line-height:1.25;">
         <span class="siaDC09-label" style="display:block;font-size:0.95em;font-weight:bold;">#supervision_label#</span>
@@ -33,13 +33,17 @@
 
     <div style="font-size:0.7em;font-weight:bold;opacity:0.6;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">Dernier événement</div>
     <div class="siaDC09-event" data-raw="#event_label#" style="word-break:break-word;">
-      <div class="siaDC09-event-head" style="font-size:0.9em;font-weight:bold;display:none;">
-        <i class="siaDC09-event-type fas"></i>
-        <span class="siaDC09-event-type-text"></span>
-        <span class="siaDC09-event-where" style="font-weight:normal;opacity:0.7;"></span>
+      <div class="siaDC09-event-head" style="display:none;align-items:center;gap:10px;margin-bottom:4px;">
+        <span style="flex:none;display:inline-flex;align-items:center;justify-content:center;width:2.2em;height:2.2em;border:2px solid currentColor;border-radius:50%;opacity:0.85;">
+          <i class="siaDC09-event-type fas"></i>
+        </span>
+        <span style="min-width:0;line-height:1.25;">
+          <span class="siaDC09-event-type-text" style="display:block;font-size:0.95em;font-weight:bold;"></span>
+          <span class="siaDC09-event-where" style="display:block;font-size:0.8em;opacity:0.7;"></span>
+        </span>
       </div>
-      <div class="siaDC09-event-status" style="font-size:0.8em;">
-        <i class="siaDC09-event-status-icon fas" style="display:none;"></i>
+      <div class="siaDC09-event-status" style="font-size:0.9em;">
+        <i class="siaDC09-event-status-icon fas" style="display:none;font-size:1.25em;vertical-align:middle;margin-right:2px;"></i>
         <span class="siaDC09-event-status-text">#event_label#</span>
         <span class="siaDC09-event-time" style="opacity:0.7;"></span>
       </div>
@@ -75,21 +79,21 @@
     // supervision_state is 0/1/2 only, so the icon is chosen from the label text
     // (daemon.py _supervision_label()); the state only gives the color.
     var SM1_ICONS = [
-      { re: /dégradée/i,       icon: 'fa-triangle-exclamation' },
+      { re: /dégradée/i,       icon: 'fa-exclamation-triangle' },
       { re: /initialisation/i, icon: 'fa-spinner fa-pulse' },
-      { re: /^connexion ok/i,  icon: 'fa-circle-check' },
-      { re: /perdue/i,         icon: 'fa-link-slash' },
-      { re: /reconnexion/i,    icon: 'fa-arrows-rotate fa-spin' },
-      { re: /hors réseau/i,    icon: 'fa-plug-circle-xmark' },
+      { re: /^connexion ok/i,  icon: 'fa-check-circle' },
+      { re: /perdue/i,         icon: 'fa-unlink' },
+      { re: /reconnexion/i,    icon: 'fa-sync-alt fa-spin' },
+      { re: /hors réseau/i,    icon: 'fa-plug' },
       { re: /clé/i,            icon: 'fa-key' },
-      { re: /arrêté/i,         icon: 'fa-circle-stop' },
-      { re: /désactivé/i,      icon: 'fa-circle-pause', cls: 'text-muted' }
+      { re: /arrêté/i,         icon: 'fa-stop-circle' },
+      { re: /désactivé/i,      icon: 'fa-pause-circle', cls: 'text-muted' }
     ];
     var SM1_FALLBACK = {
-      'text-success': 'fa-circle-check',
-      'text-warning': 'fa-triangle-exclamation',
-      'text-danger': 'fa-circle-xmark',
-      'text-muted': 'fa-circle-question'
+      'text-success': 'fa-check-circle',
+      'text-warning': 'fa-exclamation-triangle',
+      'text-danger': 'fa-times-circle',
+      'text-muted': 'fa-question-circle'
     };
 
     function currentColorClass() {
@@ -147,13 +151,13 @@
     // _event_label_from_sm2()); the time comes from the command's collectDate.
     var SM2_TYPES = {
       'intrusion': 'fa-user-secret', 'incendie': 'fa-fire', 'panique': 'fa-bell',
-      'armement': 'fa-lock', 'désarmement': 'fa-lock-open', 'annulation': 'fa-rotate-left'
+      'armement': 'fa-lock', 'désarmement': 'fa-lock-open', 'annulation': 'fa-undo'
     };
     var SM2_STATUS = [
       { re: /en cours/i,       icon: 'fa-spinner fa-pulse', cls: 'text-warning' },
-      { re: /confirmée/i,      icon: 'fa-circle-check',     cls: 'text-success' },
+      { re: /confirmée/i,      icon: 'fa-check-circle',     cls: 'text-success' },
       { re: /refusé/i,         icon: 'fa-ban',              cls: 'text-danger' },
-      { re: /sans réponse/i,   icon: 'fa-circle-xmark',     cls: 'text-danger' },
+      { re: /sans réponse/i,   icon: 'fa-times-circle',     cls: 'text-danger' },
       { re: /non transmise/i,  icon: 'fa-key',              cls: 'text-danger' }
     ];
     var STATUS_CLASSES = ['text-success', 'text-warning', 'text-danger'];
@@ -216,7 +220,7 @@
       evTypeText.textContent = typeName;
       evWhere.textContent = m ? m[2] + ' ' + m[3] : '';
       evTypeIcon.className = 'siaDC09-event-type fas ' + (SM2_TYPES[typeName.toLowerCase()] || 'fa-bell');
-      evHead.style.display = 'block';
+      evHead.style.display = 'flex';
       evStatusIcon.className = 'siaDC09-event-status-icon fas ' + st.icon + ' ' + st.cls;
       evStatusIcon.style.display = '';
       evStatusText.textContent = raw.slice(idx + 3);

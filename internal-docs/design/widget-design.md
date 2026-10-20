@@ -95,32 +95,32 @@ and inline script are shared (a level-1 test keeps them identical).
 > a round badge with a pictogram + label (+ sub-label) and a "Dernier événement" card. No
 > hard-coded greys: colors come from `text-success/warning/danger/muted` (the badge ring and
 > icon use `currentColor`) and `opacity`, so light and dark themes both work. Rendering is done
-> by the inline script from the label texts (no daemon change). Icons are Font Awesome 6 free.
+> by the inline script from the label texts (no daemon change). Icons use Font Awesome 5 names (what Jeedom 4.5 ships; FA6 names such as fa-circle-check render nothing).
 >
 > **SM1** — `supervision_state` is 0/1/2 only, so the icon is picked from the `supervision_label`
 > text (`daemon.py _supervision_label()`), the state only gives the color:
 >
 > | Label | Icon | Color |
 > |---|---|---|
-> | Connexion OK | `fa-circle-check` | green |
+> | Connexion OK | `fa-check-circle` | green |
 > | …initialisation | `fa-spinner fa-pulse` | orange |
-> | Connexion dégradée (N/3) | `fa-triangle-exclamation` (counter in sub-label) | orange |
-> | Connexion perdue | `fa-link-slash` | red |
-> | Tentative de reconnexion… | `fa-arrows-rotate fa-spin` | red |
-> | Hors Réseau | `fa-plug-circle-xmark` | red |
+> | Connexion dégradée (N/3) | `fa-exclamation-triangle` (counter in sub-label) | orange |
+> | Connexion perdue | `fa-unlink` | red |
+> | Tentative de reconnexion… | `fa-sync-alt fa-spin` | red |
+> | Hors Réseau | `fa-plug` | red |
 > | Clé de chiffrement invalide | `fa-key` | red |
-> | ARRÊTÉ | `fa-circle-stop` | red |
+> | ARRÊTÉ | `fa-stop-circle` | red |
 > | stale (JS) | `fa-clock` | grey |
-> | désactivé | `fa-circle-pause` | grey |
+> | désactivé | `fa-pause-circle` | grey |
 >
 > An unknown label falls back to an icon by state color. A live label or state push clears the
 > stale view.
 >
 > **SM2** — `event_label` (`{Type} (zone N|utilisateur N) : {état}`) is split on `" : "`.
 > Head: type icon (`intrusion fa-user-secret`, `incendie fa-fire`, `panique fa-bell`,
-> `armement fa-lock`, `désarmement fa-lock-open`, `annulation fa-rotate-left`) + type + zone/user.
-> Status line: `En cours` `fa-spinner fa-pulse` orange · `Confirmée` `fa-circle-check` green ·
-> `Refusé` `fa-ban` red · `Sans réponse` `fa-circle-xmark` red · `Non transmise` `fa-key` red.
+> `armement fa-lock`, `désarmement fa-lock-open`, `annulation fa-undo`) + type + zone/user.
+> Status line: `En cours` `fa-spinner fa-pulse` orange · `Confirmée` `fa-check-circle` green ·
+> `Refusé` `fa-ban` red · `Sans réponse` `fa-times-circle` red · `Non transmise` `fa-key` red.
 > An idle or unparseable label ("Inactif", "Aucun événement…") shows the raw text, dimmed.
 > The full label stays in `data-raw` on `.siaDC09-event`; `event_state` is not needed, so no
 > `event_state` callback was added.
