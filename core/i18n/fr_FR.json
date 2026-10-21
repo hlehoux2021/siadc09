@@ -100,6 +100,7 @@
         "Configuration active": "Configuration active",
         "Configuration avancée": "Configuration avancée",
         "Connexion": "Connexion",
+        "Dernier événement": "Dernier événement",
         "Dernières erreurs": "Dernières erreurs",
         "Diagnostic": "Diagnostic",
         "Dupliquer": "Dupliquer",
@@ -198,7 +199,9 @@
         "Port : nombre entre 1 et 65535 requis": "Port : nombre entre 1 et 65535 requis",
         "Supprimer": "Supprimer",
         "Tester": "Tester",
-        "non-routine": "non-routine",
-        "routine": "routine"
+        "incident": "incident",
+        "retry": "retry",
+        "routine": "routine",
+        "événement": "événement"
     }
 }

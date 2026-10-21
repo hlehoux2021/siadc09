@@ -32,6 +32,7 @@ Reference: internal-docs/design/error-handler-design.md T1/T2/T3 error tiers
 import asyncio
 import itertools
 import logging
+import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -368,6 +369,10 @@ _USER_ADDRESSED_SIA_CODES: Final[frozenset[str]] = USER_ADDRESSED_SIA_CODES
 # Fixed: the plugin has a single siaDC09 equipment, so a single area. Ajax hubs send ri1 for
 # alarm events and Scutum shows CL/OP as "CODE INCONNU" without it (internal-docs/ajax.md).
 SIA_AREA_NUMBER: Final[int] = 1
+
+# Clear event code of an unencrypted data field: "|NBA001]" or "|Nri1/CL001]" (the
+# lookahead keeps the "NULL" supervision body from matching "NU").
+_FRAME_EVENT_CODE_RE: Final[re.Pattern[bytes]] = re.compile(rb"\|N(?:ri[^/\]]*/)?([A-Z]{2})(?=[0-9\]])")
 
 
 # ===== TASK 2: STRIKE COUNTER AND SM1 STATE MANAGEMENT =====
@@ -1074,6 +1079,25 @@ class SIADaemon(BaseDaemon):
                 pass  # keep the defaults
         return {"id_token": id_token, "sequence": str(seq)}
 
+    def _trace_event_code(self, default: str | None = None) -> dict[str, str]:
+        """Return the SIA event code of the frame actually sent, for the inspector.
+
+        Read from the clear data field; an encrypted frame has none, so the
+        caller's default is used. Empty when neither exists (supervision frames).
+
+        Args:
+            default: Code to report when the frame carries no readable one.
+
+        Returns:
+            ``{"event_code": "BA"}`` or ``{}``.
+        """
+        code = default
+        if self._last_sent_frame:
+            match = _FRAME_EVENT_CODE_RE.search(self._last_sent_frame)
+            if match:
+                code = match.group(1).decode("ascii")
+        return {"event_code": code} if code else {}
+
     async def _send_supervision(self) -> None:
         """Send supervision NULL frame and handle ACK/NAK/timeout/tcp_drop response.
 
@@ -1526,6 +1550,7 @@ class SIADaemon(BaseDaemon):
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                         "elapsed_ms": int(ack_ctx["elapsed_ms"]),
                         **self._trace_header(NULL_TOKEN, ack_ctx["seq"]),
+                        **self._trace_event_code(),
                         "account": self._account,
                         "request_hex": self._last_sent_frame.hex() if self._last_sent_frame else "",
                         "response_hex": ack_ctx["raw_hex"] if ack_ctx["raw_hex"] else "",
@@ -1562,6 +1587,7 @@ class SIADaemon(BaseDaemon):
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                         "elapsed_ms": int(t_ctx["elapsed_ms"]),
                         **self._trace_header(NULL_TOKEN, t_ctx["seq"]),
+                        **self._trace_event_code(),
                         "account": self._account,
                         "request_hex": self._last_sent_frame.hex() if self._last_sent_frame else "",
                     },
@@ -1592,6 +1618,7 @@ class SIADaemon(BaseDaemon):
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                         "elapsed_ms": int(n_ctx["elapsed_ms"]),
                         **self._trace_header(NULL_TOKEN, n_ctx["seq"]),
+                        **self._trace_event_code(),
                         "account": self._account,
                         "request_hex": self._last_sent_frame.hex() if self._last_sent_frame else "",
                         "response_hex": n_ctx["raw_hex"],
@@ -1623,6 +1650,7 @@ class SIADaemon(BaseDaemon):
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                         "elapsed_ms": int(n_ctx["elapsed_ms"]),
                         **self._trace_header(NULL_TOKEN, n_ctx["seq"]),
+                        **self._trace_event_code(),
                         "account": self._account,
                         "request_hex": self._last_sent_frame.hex() if self._last_sent_frame else "",
                         "response_hex": n_ctx["raw_hex"],
@@ -2283,6 +2311,10 @@ class SIADaemon(BaseDaemon):
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "elapsed_ms": int(ctx["elapsed"] * 1000),
                 **self._trace_header(SIA_DCS_TOKEN, self._sia_seq),
+                # Not read from _last_sent_frame: some transitions (event_received,
+                # failed_config...) are traced before/without a send, so it may be stale.
+                "event_code": ctx["sia_code"],
+                "transition": transition,
                 "account": self._account,
                 "request_hex": self._last_sent_frame.hex() if self._last_sent_frame else "",
             }

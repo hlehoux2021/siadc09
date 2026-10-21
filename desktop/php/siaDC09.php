@@ -454,14 +454,40 @@ $scenarios = scenario::all();
 			<div role="tabpanel" class="tab-pane" id="diagnosticTab">
 				<!-- Status badge -->
 				<div class="panel panel-default" id="siaDC09_statusPanel">
-					<div class="panel-body">
-						<div>
-							<span class="badge badge-lg" id="siaDC09_badgeDot" style="font-size:1.5em;color:#f0ad4e;">●</span>
-							<span id="siaDC09_badgeLabel"></span>
+					<div class="panel-body" style="display:flex;flex-wrap:wrap;gap:30px;">
+						<!-- SM1 card (same layout as the dashboard widget) -->
+						<div style="display:flex;align-items:center;gap:10px;min-width:220px;">
+							<span id="siaDC09_badge" class="text-warning" style="flex:none;display:inline-flex;align-items:center;justify-content:center;width:2.2em;height:2.2em;border:2px solid currentColor;border-radius:50%;">
+								<i id="siaDC09_badgeIcon" class="fas fa-question-circle"></i>
+							</span>
+							<span style="min-width:0;line-height:1.25;">
+								<span id="siaDC09_badgeLabel" style="display:block;font-weight:bold;"></span>
+								<span id="siaDC09_badgeSub" style="display:none;font-size:0.85em;opacity:0.7;"></span>
+								<span id="siaDC09_badgeTime" style="display:block;font-size:0.85em;opacity:0.7;"></span>
+							</span>
 						</div>
-						<div>
-							<span class="badge badge-lg" id="siaDC09_eventBadgeDot" style="font-size:1.5em;color:#777777;">●</span>
-							<span id="siaDC09_eventBadgeLabel"></span>
+						<!-- SM2 card: last event -->
+						<div style="min-width:260px;">
+							<div style="font-size:0.75em;font-weight:bold;opacity:0.6;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">{{Dernier événement}}</div>
+							<div style="display:flex;gap:8px;word-break:break-word;">
+								<span id="siaDC09_eventBar" class="text-muted" style="flex:none;width:4px;border-radius:2px;background:currentColor;opacity:0.85;"></span>
+								<div style="min-width:0;flex:1;">
+									<div id="siaDC09_eventHead" style="display:none;align-items:center;gap:10px;margin-bottom:4px;">
+										<span id="siaDC09_eventTypeWrap" style="flex:none;display:inline-flex;align-items:center;justify-content:center;width:2.2em;height:2.2em;border:2px solid currentColor;border-radius:50%;">
+											<i id="siaDC09_eventTypeIcon" class="fas"></i>
+										</span>
+										<span style="min-width:0;line-height:1.25;">
+											<span id="siaDC09_eventTypeText" style="display:block;font-weight:bold;"></span>
+											<span id="siaDC09_eventWhere" style="display:block;font-size:0.85em;opacity:0.7;"></span>
+										</span>
+									</div>
+									<div>
+										<i id="siaDC09_eventStatusIcon" class="fas" style="display:none;font-size:1.25em;vertical-align:middle;margin-right:2px;"></i>
+										<span id="siaDC09_eventBadgeLabel" class="text-muted" style="font-weight:bold;"></span>
+										<span id="siaDC09_eventTime" style="opacity:0.7;"></span>
+									</div>
+								</div>
+							</div>
 						</div>
 					</div>
 				</div>

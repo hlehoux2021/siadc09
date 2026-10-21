@@ -19,8 +19,10 @@ Reference: _bmad-output/implementation-artifacts/9-2-protocol-inspector-hex-view
 """
 
 import json
+import re
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -110,22 +112,83 @@ SAMPLE_DECODED = {
 
 
 class TestFormatTimestamp:
-    """siaDC09_formatTimestamp converts ISO 8601 → HH:MM:SS local time."""
+    """siaDC09_formatTimestamp converts ISO 8601 -> widget-style local time."""
 
-    def test_valid_iso_with_offset_returns_time_string(self) -> None:
+    @staticmethod
+    def _local_ms(iso_local: str) -> int:
+        """Epoch ms of a naive local ISO string, parsed like the JS (local time)."""
+        return int(datetime.fromisoformat(iso_local).timestamp() * 1000)
+
+    def test_recent_event_is_relative_with_clock_time(self) -> None:
         """
-        Valid ISO string must return HH:MM:SS local time (8-char, colon-separated).
-        The exact value depends on the machine's timezone, so we validate format only.
+        An event less than a minute old reads "à l'instant" followed by the clock time.
 
         Expected result:
-        - Returns an 8-character string matching HH:MM:SS
+        - "à l'instant · 14:32:11" (local time, no timezone shift)
         """
-        import re
-        r = _one({"fn": "siaDC09_formatTimestamp", "args": ["2026-05-18T14:32:11+00:00"]})
-        # Assert: HH:MM:SS format regardless of local timezone
-        assert re.match(r"^\d{2}:\d{2}:\d{2}$", r["value"]), (
-            f"Expected HH:MM:SS format, got: {r['value']!r}"
-        )
+        base = self._local_ms("2026-05-18T14:32:11")
+        r = _one({"fn": "siaDC09_formatTimestamp", "args": ["2026-05-18T14:32:11", base + 30_000]})
+        # Assert: relative prefix plus local clock time
+        assert r["value"] == "à l'instant · 14:32:11"
+
+    def test_minutes_old_event(self) -> None:
+        """
+        An event minutes old reads "il y a N min · hh:mm:ss".
+
+        Expected result:
+        - "il y a 5 min · 14:32:11"
+        """
+        base = self._local_ms("2026-05-18T14:32:11")
+        r = _one({"fn": "siaDC09_formatTimestamp", "args": ["2026-05-18T14:32:11", base + 5 * 60_000]})
+        # Assert: minutes branch
+        assert r["value"] == "il y a 5 min · 14:32:11"
+
+    def test_yesterday_event(self) -> None:
+        """
+        An event from the previous day reads "hier hh:mm:ss".
+
+        Expected result:
+        - "hier 14:32:11"
+        """
+        base = self._local_ms("2026-05-18T14:32:11")
+        r = _one({"fn": "siaDC09_formatTimestamp", "args": ["2026-05-18T14:32:11", base + 24 * 3600_000]})
+        # Assert: yesterday branch
+        assert r["value"] == "hier 14:32:11"
+
+    def test_older_than_yesterday_is_absolute(self) -> None:
+        """
+        Errors older than yesterday show dd/mm hh:mm:ss (widget format).
+
+        Expected result:
+        - "18/05 14:32:11"
+        """
+        base = self._local_ms("2026-05-18T14:32:11")
+        r = _one({"fn": "siaDC09_formatTimestamp", "args": ["2026-05-18T14:32:11", base + 5 * 24 * 3600_000]})
+        # Assert: absolute branch
+        assert r["value"] == "18/05 14:32:11"
+
+    def test_offset_iso_is_accepted(self) -> None:
+        """
+        ISO strings with an offset (what the daemon writes) are parsed, shown in local time.
+
+        Expected result:
+        - A recent offset-ISO timestamp ends with a local hh:mm:ss
+        """
+        r = _one({"fn": "siaDC09_formatTimestamp", "args": ["2026-05-18T14:32:11+00:00", 0]})
+        # Assert: format valid whatever the machine timezone
+        assert re.search(r"\d{2}:\d{2}:\d{2}$|^\d{2}/\d{2} \d{2}:\d{2}:\d{2}$", r["value"])
+
+    def test_jeedom_date_format_is_accepted(self) -> None:
+        """
+        Jeedom collectDate strings ("Y-m-d H:i:s") are parsed as local time.
+
+        Expected result:
+        - "il y a 5 min · 14:32:11"
+        """
+        base = self._local_ms("2026-05-18T14:32:11")
+        r = _one({"fn": "siaDC09_formatTimestamp", "args": ["2026-05-18 14:32:11", base + 5 * 60_000]})
+        # Assert: dash-separated Jeedom date handled
+        assert r["value"] == "il y a 5 min · 14:32:11"
 
     def test_empty_string_returns_empty(self) -> None:
         """
@@ -135,7 +198,7 @@ class TestFormatTimestamp:
         - Returns ''
         """
         r = _one({"fn": "siaDC09_formatTimestamp", "args": [""]})
-        # Assert: empty input → empty output
+        # Assert: empty input -> empty output
         assert r["value"] == ""
 
     def test_none_argument_returns_empty(self) -> None:
@@ -157,239 +220,276 @@ class TestFormatTimestamp:
         - Returns ''
         """
         r = _one({"fn": "siaDC09_formatTimestamp", "args": ["not-a-date"]})
-        # Assert: invalid date → empty (isNaN guard)
+        # Assert: invalid date -> empty (isNaN guard)
         assert r["value"] == ""
 
-    def test_zulu_time_returns_hhmmss_format(self) -> None:
-        """
-        ISO string ending in 'Z' must return HH:MM:SS local time (not throw).
-        Exact value depends on machine timezone; we validate format only.
 
-        Expected result:
-        - Returns an 8-character string matching HH:MM:SS
-        """
-        import re
-        r = _one({"fn": "siaDC09_formatTimestamp", "args": ["2026-05-18T09:15:00Z"]})
-        # Assert: Z suffix accepted, format correct
-        assert re.match(r"^\d{2}:\d{2}:\d{2}$", r["value"]), (
-            f"Expected HH:MM:SS format, got: {r['value']!r}"
-        )
-
-
-# ── renderBadge ────────────────────────────────────────────────────────────────
+# ── renderBadge (SM1) ──────────────────────────────────────────────────────────
 
 
 class TestRenderBadge:
-    """siaDC09_renderBadge sets dot color and label text in DOM."""
+    """siaDC09_renderBadge colors the SM1 ring (widget classes) and writes label/sub/time."""
 
-    def test_state_2_sets_green_color(self) -> None:
+    @staticmethod
+    def _ring(args: list[Any]) -> dict[str, Any]:
+        return _one({"fn": "siaDC09_renderBadge", "args": args, "query": "#siaDC09_badge",
+                     "attr": "class"})
+
+    def test_state_2_sets_success_class(self) -> None:
         """
-        supervision_state=2 (HEALTHY) must set #siaDC09_badgeDot color to green.
+        supervision_state=2 (healthy) must put text-success on the ring.
 
         Expected result:
-        - dot color == rgb(92, 184, 92) [#5cb85c]
+        - ring class contains text-success
         """
-        r = _one({"fn": "siaDC09_renderBadge", "args": [2, "OK"], "query": "#siaDC09_badgeDot"})
         # Assert: green for healthy
-        assert r["style"]["color"] == "rgb(92, 184, 92)"
+        assert "text-success" in self._ring([2, "Connexion OK"])["attr"]
 
-    def test_state_1_sets_orange_color(self) -> None:
+    def test_state_1_sets_warning_class(self) -> None:
         """
-        supervision_state=1 (DEGRADED 1-2) must set dot color to orange.
-
-        Expected result:
-        - dot color == rgb(240, 173, 78) [#f0ad4e]
-        """
-        r = _one({"fn": "siaDC09_renderBadge", "args": [1, "Dégradé"], "query": "#siaDC09_badgeDot"})
-        # Assert: orange for impaired
-        assert r["style"]["color"] == "rgb(240, 173, 78)"
-
-    def test_state_0_sets_red_color(self) -> None:
-        """
-        supervision_state=0 (DISCONNECTED) must set dot color to red.
+        supervision_state=1 (degraded) must put text-warning on the ring.
 
         Expected result:
-        - dot color == rgb(217, 83, 79) [#d9534f]
+        - ring class contains text-warning
         """
-        r = _one({"fn": "siaDC09_renderBadge", "args": [0, "Déconnecté"], "query": "#siaDC09_badgeDot"})
+        # Assert: orange for degraded
+        assert "text-warning" in self._ring([1, "Dégradée"])["attr"]
+
+    def test_state_0_sets_danger_class(self) -> None:
+        """
+        supervision_state=0 (disconnected) must put text-danger on the ring.
+
+        Expected result:
+        - ring class contains text-danger
+        """
         # Assert: red for disconnected
-        assert r["style"]["color"] == "rgb(217, 83, 79)"
+        assert "text-danger" in self._ring([0, "Liaison perdue"])["attr"]
 
-    def test_unknown_state_falls_back_to_orange(self) -> None:
+    def test_unknown_and_nan_state_fall_back_to_warning(self) -> None:
         """
-        Unknown supervision_state must fall back to orange (not blank, not crash).
-
-        Expected result:
-        - dot color == rgb(240, 173, 78) [_siaDC09_badgeColors[1] fallback]
-        """
-        r = _one({"fn": "siaDC09_renderBadge", "args": [99, "Inconnu"], "query": "#siaDC09_badgeDot"})
-        # Assert: fallback color matches badgeColors[1]
-        assert r["style"]["color"] == "rgb(240, 173, 78)"
-
-    def test_nan_state_falls_back_to_orange(self) -> None:
-        """
-        Non-numeric supervision_state (e.g. None/null from bad AJAX) must not crash.
+        Unknown or non-numeric state falls back to warning (no blank, no crash).
 
         Expected result:
-        - dot color == orange (parseInt(null) → NaN → state=1)
+        - text-warning for 99 and for null
         """
-        r = _one({"fn": "siaDC09_renderBadge", "args": [None, "?"], "query": "#siaDC09_badgeDot"})
-        # Assert: NaN guard applied
-        assert r["style"]["color"] == "rgb(240, 173, 78)"
+        # Assert: unknown state falls back to the degraded class
+        assert "text-warning" in self._ring([99, "?"])["attr"]
+        # Assert: NaN state falls back to the degraded class
+        assert "text-warning" in self._ring([None, "?"])["attr"]
 
     def test_label_text_set_correctly(self) -> None:
         """
-        renderBadge must set #siaDC09_badgeLabel text to supervisionLabel.
+        renderBadge must set #siaDC09_badgeLabel text to the label.
 
         Expected result:
-        - badgeLabel textContent == 'Healthy'
+        - badgeLabel textContent == 'Connexion OK'
         """
-        r = _one({"fn": "siaDC09_renderBadge", "args": [2, "Healthy"], "query": "#siaDC09_badgeLabel"})
+        r = _one({"fn": "siaDC09_renderBadge", "args": [2, "Connexion OK"],
+                  "query": "#siaDC09_badgeLabel"})
         # Assert: label text matches second argument
-        assert r["text"] == "Healthy"
+        assert r["text"] == "Connexion OK"
 
     def test_empty_label_sets_empty_text(self) -> None:
         """
-        Empty/null supervisionLabel must set label text to empty string (not 'null').
+        Empty/null label must give empty text (not 'null').
 
         Expected result:
         - badgeLabel textContent == ''
         """
         r = _one({"fn": "siaDC09_renderBadge", "args": [2, None], "query": "#siaDC09_badgeLabel"})
-        # Assert: null label → empty string
+        # Assert: null label -> empty string
         assert r["text"] == ""
+
+    def test_failure_counter_split_into_sub_label(self) -> None:
+        """
+        "Liaison dégradée (2/3)" is split: label without counter, sub-label "2 échecs sur 3".
+
+        Expected result:
+        - label 'Liaison dégradée', sub-label '2 échecs sur 3', sub-label visible
+        """
+        label = _one({"fn": "siaDC09_renderBadge", "args": [1, "Liaison dégradée (2/3)"],
+                      "query": "#siaDC09_badgeLabel"})
+        sub = _one({"fn": "siaDC09_renderBadge", "args": [1, "Liaison dégradée (2/3)"],
+                    "query": "#siaDC09_badgeSub"})
+        # Assert: counter stripped from the label
+        assert label["text"] == "Liaison dégradée"
+        # Assert: counter rewritten in words
+        assert sub["text"] == "2 échecs sur 3"
+        # Assert: sub-label displayed
+        assert sub["style"]["display"] == "block"
+
+    def test_single_failure_is_singular(self) -> None:
+        """
+        One failure reads "1 échec sur 3" (singular).
+
+        Expected result:
+        - sub-label '1 échec sur 3'
+        """
+        sub = _one({"fn": "siaDC09_renderBadge", "args": [1, "Liaison dégradée (1/3)"],
+                    "query": "#siaDC09_badgeSub"})
+        # Assert: singular form
+        assert sub["text"] == "1 échec sur 3"
+
+    def test_time_shown_from_state_date(self) -> None:
+        """
+        The last-update time comes from the state date argument.
+
+        Expected result:
+        - badgeTime non-empty with a clock time for a valid date, empty without one
+        """
+        with_date = _one({"fn": "siaDC09_renderBadge", "args": [2, "OK", "2026-05-18 14:32:11"],
+                          "query": "#siaDC09_badgeTime"})
+        without = _one({"fn": "siaDC09_renderBadge", "args": [2, "OK"], "query": "#siaDC09_badgeTime"})
+        # Assert: formatted time present
+        assert re.search(r"14:32:11$", with_date["text"])
+        # Assert: no date -> no time
+        assert without["text"] == ""
 
 
 # ── renderEventBadge (SM2) ──────────────────────────────────────────────────────
 
 
 class TestRenderEventBadge:
-    """siaDC09_renderEventBadge sets dot color + text for the SM2 event badge."""
+    """siaDC09_renderEventBadge renders the 'Dernier événement' card like the widget."""
 
-    def test_state_0_idle_sets_grey_color(self) -> None:
+    def test_confirmed_intrusion_colors_bar_and_head(self) -> None:
         """
-        event_state=0 (IDLE) must set #siaDC09_eventBadgeDot color to grey.
-
-        Expected result:
-        - dot color == rgb(119, 119, 119) [#777777]
-        """
-        r = _one({"fn": "siaDC09_renderEventBadge", "args": [0, "Inactif"],
-                  "query": "#siaDC09_eventBadgeDot"})
-        # Assert: grey for idle
-        assert r["style"]["color"] == "rgb(119, 119, 119)"
-
-    def test_state_1_confirmed_sets_green_color(self) -> None:
-        """
-        event_state=1 (CONFIRMED) must set dot color to green.
+        "Intrusion (zone 3) : confirmée" -> danger-colored bar, type and zone shown.
 
         Expected result:
-        - dot color == rgb(92, 184, 92) [#5cb85c]
+        - eventBar has text-danger, type 'Intrusion', where 'zone 3', status 'confirmée'
         """
-        r = _one({"fn": "siaDC09_renderEventBadge", "args": [1, "Confirmé"],
-                  "query": "#siaDC09_eventBadgeDot"})
-        # Assert: green for confirmed
-        assert r["style"]["color"] == "rgb(92, 184, 92)"
+        label = "Intrusion (zone 3) : confirmée"
+        bar = _one({"fn": "siaDC09_renderEventBadge", "args": [1, label],
+                    "query": "#siaDC09_eventBar", "attr": "class"})
+        typ = _one({"fn": "siaDC09_renderEventBadge", "args": [1, label],
+                    "query": "#siaDC09_eventTypeText"})
+        where = _one({"fn": "siaDC09_renderEventBadge", "args": [1, label],
+                      "query": "#siaDC09_eventWhere"})
+        status = _one({"fn": "siaDC09_renderEventBadge", "args": [1, label],
+                       "query": "#siaDC09_eventBadgeLabel"})
+        # Assert: intrusion is red
+        assert "text-danger" in bar["attr"]
+        # Assert: type parsed
+        assert typ["text"] == "Intrusion"
+        # Assert: zone parsed
+        assert where["text"] == "zone 3"
+        # Assert: status text parsed
+        assert status["text"] == "confirmée"
 
-    def test_state_2_failed_sets_red_color(self) -> None:
+    def test_pending_status_is_warning(self) -> None:
         """
-        event_state=2 (FAILED) must set dot color to red.
-
-        Expected result:
-        - dot color == rgb(217, 83, 79) [#d9534f]
-        """
-        r = _one({"fn": "siaDC09_renderEventBadge", "args": [2, "Échoué"],
-                  "query": "#siaDC09_eventBadgeDot"})
-        # Assert: red for failed
-        assert r["style"]["color"] == "rgb(217, 83, 79)"
-
-    def test_state_3_pending_sets_orange_color(self) -> None:
-        """
-        event_state=3 (PENDING) must set dot color to orange.
-
-        Expected result:
-        - dot color == rgb(240, 173, 78) [#f0ad4e]
-        """
-        r = _one({"fn": "siaDC09_renderEventBadge", "args": [3, "En cours"],
-                  "query": "#siaDC09_eventBadgeDot"})
-        # Assert: orange for pending
-        assert r["style"]["color"] == "rgb(240, 173, 78)"
-
-    def test_unknown_state_falls_back_to_grey(self) -> None:
-        """
-        Unknown event_state must fall back to grey (idle), not blank, not crash.
+        An "en cours" status is colored warning on the status text.
 
         Expected result:
-        - dot color == rgb(119, 119, 119) [_siaDC09_eventBadgeColors[0] fallback]
+        - eventBadgeLabel has text-warning
         """
-        r = _one({"fn": "siaDC09_renderEventBadge", "args": [99, "Inconnu"],
-                  "query": "#siaDC09_eventBadgeDot"})
-        # Assert: fallback color matches eventBadgeColors[0]
-        assert r["style"]["color"] == "rgb(119, 119, 119)"
+        r = _one({"fn": "siaDC09_renderEventBadge", "args": [3, "Armement (utilisateur 1) : en cours"],
+                  "query": "#siaDC09_eventBadgeLabel", "attr": "class"})
+        # Assert: pending is orange
+        assert "text-warning" in r["attr"]
 
-    def test_nan_state_falls_back_to_grey(self) -> None:
+    def test_failed_status_is_danger(self) -> None:
         """
-        Non-numeric event_state (e.g. None/null from bad AJAX) must not crash.
-
-        Expected result:
-        - dot color == grey (parseInt(null) → NaN → state=0)
-        """
-        r = _one({"fn": "siaDC09_renderEventBadge", "args": [None, "?"],
-                  "query": "#siaDC09_eventBadgeDot"})
-        # Assert: NaN guard applied
-        assert r["style"]["color"] == "rgb(119, 119, 119)"
-
-    def test_label_text_set_correctly(self) -> None:
-        """
-        renderEventBadge must set #siaDC09_eventBadgeLabel text to eventLabel.
+        A "sans réponse" status is colored danger on the status text.
 
         Expected result:
-        - eventBadgeLabel textContent == 'Confirmé'
+        - eventBadgeLabel has text-danger
         """
-        r = _one({"fn": "siaDC09_renderEventBadge", "args": [1, "Confirmé"],
-                  "query": "#siaDC09_eventBadgeLabel"})
-        # Assert: label text matches second argument
-        assert r["text"] == "Confirmé"
+        r = _one({"fn": "siaDC09_renderEventBadge", "args": [2, "Intrusion (zone 1) : sans réponse"],
+                  "query": "#siaDC09_eventBadgeLabel", "attr": "class"})
+        # Assert: failure is red
+        assert "text-danger" in r["attr"]
 
-    def test_empty_label_sets_empty_text(self) -> None:
+    def test_idle_label_shown_raw_and_muted(self) -> None:
         """
-        Empty/null eventLabel must set label text to empty string (not 'null').
+        An idle label has no type/status: raw text, muted bar, head hidden.
+
+        Expected result:
+        - eventBadgeLabel == 'Inactif', eventBar text-muted, eventHead hidden
+        """
+        label = _one({"fn": "siaDC09_renderEventBadge", "args": [0, "Inactif"],
+                      "query": "#siaDC09_eventBadgeLabel"})
+        bar = _one({"fn": "siaDC09_renderEventBadge", "args": [0, "Inactif"],
+                    "query": "#siaDC09_eventBar", "attr": "class"})
+        head = _one({"fn": "siaDC09_renderEventBadge", "args": [0, "Inactif"],
+                     "query": "#siaDC09_eventHead"})
+        # Assert: raw text kept
+        assert label["text"] == "Inactif"
+        # Assert: muted bar
+        assert "text-muted" in bar["attr"]
+        # Assert: head hidden
+        assert head["style"]["display"] == "none"
+
+    def test_nan_state_does_not_crash(self) -> None:
+        """
+        Null state and null label must not crash and leave the label empty.
 
         Expected result:
         - eventBadgeLabel textContent == ''
         """
-        r = _one({"fn": "siaDC09_renderEventBadge", "args": [1, None],
+        r = _one({"fn": "siaDC09_renderEventBadge", "args": [None, None],
                   "query": "#siaDC09_eventBadgeLabel"})
-        # Assert: null label → empty string
+        # Assert: null label -> empty string
         assert r["text"] == ""
+
+    def test_time_shown_only_for_real_events(self) -> None:
+        """
+        The event time is prefixed ' · ' for a real event and blank for idle.
+
+        Expected result:
+        - event: time starts with '·'; idle: empty
+        """
+        ev = _one({"fn": "siaDC09_renderEventBadge",
+                   "args": [1, "Intrusion (zone 3) : confirmée", "2026-05-18 14:32:11"],
+                   "query": "#siaDC09_eventTime"})
+        idle = _one({"fn": "siaDC09_renderEventBadge", "args": [0, "Inactif", "2026-05-18 14:32:11"],
+                     "query": "#siaDC09_eventTime"})
+        # Assert: prefixed time for a real event
+        assert ev["text"].startswith("·")
+        # Assert: no time for idle
+        assert idle["text"] == ""
 
     def test_load_diagnostic_data_wires_event_state_into_event_badge(self) -> None:
         """
-        siaDC09_loadDiagnosticData's AJAX success handler must extract
-        result.event_state/result.event_label and forward them to
-        siaDC09_renderEventBadge, not just siaDC09_renderBadge.
+        loadDiagnosticData forwards event_label and event_date to renderEventBadge.
 
         Expected result:
-        - dot color == rgb(92, 184, 92) [#5cb85c, CONFIRMED] from the mocked payload
+        - eventBadgeLabel == 'confirmée' from the mocked payload
         """
         r = _one({"fn": "siaDC09_loadDiagnosticData",
-                  "ajax_result": {"event_state": 1, "event_label": "Confirmé"},
-                  "query": "#siaDC09_eventBadgeDot"})
-        # Assert: end-to-end wiring reaches the event badge, not just the direct call path
-        assert r["style"]["color"] == "rgb(92, 184, 92)"
+                  "ajax_result": {"event_state": 1, "event_label": "Intrusion (zone 3) : confirmée",
+                                  "event_date": "2026-05-18 14:32:11"},
+                  "query": "#siaDC09_eventBadgeLabel"})
+        # Assert: end-to-end wiring reaches the event card
+        assert r["text"] == "confirmée"
 
-    def test_load_diagnostic_data_missing_event_state_falls_back_to_grey(self) -> None:
+    def test_load_diagnostic_data_wires_state_date_into_badge(self) -> None:
         """
-        event_state/event_label missing entirely from the AJAX payload (undefined,
-        not explicit null) must still fall back to grey without crashing.
+        loadDiagnosticData forwards state_date to renderBadge.
 
         Expected result:
-        - dot color == rgb(119, 119, 119) [#777777 fallback]
+        - badgeTime ends with the clock time of the mocked state_date
+        """
+        r = _one({"fn": "siaDC09_loadDiagnosticData",
+                  "ajax_result": {"supervision_state": 2, "supervision_label": "OK",
+                                  "state_date": "2026-05-18 14:32:11"},
+                  "query": "#siaDC09_badgeTime"})
+        # Assert: SM1 time comes from state_date
+        assert r["text"].endswith("14:32:11")
+
+    def test_load_diagnostic_data_missing_event_fields_do_not_crash(self) -> None:
+        """
+        event fields missing entirely from the payload must not crash.
+
+        Expected result:
+        - eventBadgeLabel is empty, eventBar muted
         """
         r = _one({"fn": "siaDC09_loadDiagnosticData",
                   "ajax_result": {"supervision_state": 2, "supervision_label": "OK"},
-                  "query": "#siaDC09_eventBadgeDot"})
-        # Assert: missing key (not just null) still falls back to grey
-        assert r["style"]["color"] == "rgb(119, 119, 119)"
+                  "query": "#siaDC09_eventBar", "attr": "class"})
+        # Assert: muted fallback
+        assert "text-muted" in r["attr"]
 
 
 # ── renderErrors ──────────────────────────────────────────────────────────────
@@ -489,42 +589,39 @@ class TestRenderErrors:
         # Assert: human-readable message displayed
         assert "Supervision perdue" in r["text"]
 
-    def test_t3_error_gets_danger_tier_badge(self) -> None:
+    def test_no_tier_badge(self) -> None:
         """
-        T3 error code (SUPERVISION_DISCONNECTED) must use label-danger CSS class.
+        The T1/T2/T3 tier badge is gone: no label element in the errors table.
 
         Expected result:
-        - <span class="label label-danger"> present in row HTML
+        - zero .label elements for T3 and T1 errors
         """
-        r = _one({"fn": "siaDC09_renderErrors", "args": [[SAMPLE_ERROR]], "query": "#siaDC09_errorsList"})
-        # Assert: T3 tier badge class applied
-        assert "label-danger" in r["html"]
+        r = _one({"fn": "siaDC09_renderErrors", "args": [[SAMPLE_ERROR, SAMPLE_ERROR_T1]],
+                  "count_query": "#siaDC09_errorsList .label"})
+        # Assert: no badge rendered
+        assert r["count"] == 0
 
-    def test_t1_error_gets_info_tier_badge(self) -> None:
+    def test_error_row_has_three_td_cells_top_aligned(self) -> None:
         """
-        T1 error code (SUPERVISION_TIMEOUT) must use label-info CSS class.
-
-        Expected result:
-        - <span class="label label-info"> present in row HTML
-        """
-        r = _one({"fn": "siaDC09_renderErrors", "args": [[SAMPLE_ERROR_T1]], "query": "#siaDC09_errorsList"})
-        # Assert: T1 tier badge class applied
-        assert "label-info" in r["html"]
-
-    def test_error_row_has_four_td_cells(self) -> None:
-        """
-        Each error row must have exactly 4 <td> cells: timestamp, tier, code, message.
+        Each error row has exactly 3 <td> cells (time, code, message), all top-aligned.
 
         Expected result:
-        - Exactly 4 <td> elements per row
+        - 3 <td> per row, each with vertical-align:top
         """
         r = _one({
             "fn": "siaDC09_renderErrors",
             "args": [[SAMPLE_ERROR]],
             "count_query": "#siaDC09_errorsList td",
         })
-        # Assert: 4 cells per row (1 row × 4 cells)
-        assert r["count"] == 4
+        top = _one({
+            "fn": "siaDC09_renderErrors",
+            "args": [[SAMPLE_ERROR]],
+            "count_query": "#siaDC09_errorsList td[style*='vertical-align:top']",
+        })
+        # Assert: 3 cells per row
+        assert r["count"] == 3
+        # Assert: every cell top-aligned
+        assert top["count"] == 3
 
     def test_uses_condensed_table_class(self) -> None:
         """
@@ -604,35 +701,127 @@ class TestRenderMessages:
         # Assert: count matches input array length
         assert r["count"] == 2
 
-    def test_routine_supervision_shows_success_badge(self) -> None:
+    @staticmethod
+    def _field(msg: dict[str, Any], selector: str) -> dict[str, Any]:
+        return _one({"fn": "siaDC09_renderMessages", "args": [[msg]],
+                     "query": f"#siaDC09_inspectorList {selector}"})
+
+    def test_routine_supervision_shows_routine_label(self) -> None:
         """
-        Routine supervision message must use label-success badge class.
+        Routine supervision message: grey 'routine' kind label.
 
         Expected result:
-        - .sia-status element has class label-success in its outerHTML
+        - .sia-kind text 'routine' with label-default
         """
-        r = _one({
-            "fn": "siaDC09_renderMessages",
-            "args": [[SAMPLE_MESSAGE]],
-            "query": "#siaDC09_inspectorList .sia-status",
-        })
-        # Assert: routine supervision → success (green) badge class on element
+        r = self._field(SAMPLE_MESSAGE, ".sia-kind")
+        # Assert: text
+        assert r["text"] == "routine"
+        # Assert: grey class
+        assert "label-default" in (r.get("outerHTML") or "")
+
+    def test_alarm_message_shows_event_label(self) -> None:
+        """
+        Alarm frame delivered normally: green 'événement' kind label.
+
+        Expected result:
+        - .sia-kind text 'événement' with label-success
+        """
+        r = self._field(SAMPLE_ALARM_MESSAGE, ".sia-kind")
+        # Assert: text
+        assert r["text"] == "événement"
+        # Assert: green class
         assert "label-success" in (r.get("outerHTML") or "")
 
-    def test_elapsed_ms_shown_in_badge_text(self) -> None:
+    def test_alarm_retry_shows_retry_label(self) -> None:
         """
-        Elapsed time must be shown as text in the status badge: '<N>ms'.
+        Alarm frame sent again (nak_retry / failed_timeout): orange 'retry'.
 
         Expected result:
-        - '245ms' appears in the rendered row
+        - .sia-kind text 'retry' with label-warning for both transitions
         """
-        r = _one({
-            "fn": "siaDC09_renderMessages",
-            "args": [[SAMPLE_MESSAGE]],
-            "query": "#siaDC09_inspectorList .sia-status",
-        })
+        for tr in ("nak_retry", "failed_timeout"):
+            r = self._field({**SAMPLE_ALARM_MESSAGE, "transition": tr}, ".sia-kind")
+            # Assert: text
+            assert r["text"] == "retry"
+            # Assert: orange class
+            assert "label-warning" in (r.get("outerHTML") or "")
+
+    def test_supervision_failure_shows_incident_label(self) -> None:
+        """
+        Non-routine supervision (timeout / NAK): red 'incident'.
+
+        Expected result:
+        - .sia-kind text 'incident' with label-danger
+        """
+        r = self._field({**SAMPLE_MESSAGE, "routine": 0}, ".sia-kind")
+        # Assert: text
+        assert r["text"] == "incident"
+        # Assert: red class
+        assert "label-danger" in (r.get("outerHTML") or "")
+
+    def test_failed_alarm_shows_incident_label(self) -> None:
+        """
+        Alarm that ended in a final failure (not a retry): red 'incident'.
+
+        Expected result:
+        - .sia-kind text 'incident' for transition failed_refused
+        """
+        r = self._field({**SAMPLE_ALARM_MESSAGE, "transition": "failed_refused"}, ".sia-kind")
+        # Assert: final failure is an incident
+        assert r["text"] == "incident"
+
+    def test_elapsed_ms_shown_uncolored(self) -> None:
+        """
+        Elapsed time is plain text '<N>ms', with no label/color class.
+
+        Expected result:
+        - '245ms' in .sia-delay, no 'label' class on it
+        """
+        r = self._field(SAMPLE_MESSAGE, ".sia-delay")
         # Assert: elapsed_ms value + 'ms' suffix present
-        assert "245ms" in r["text"]
+        assert r["text"] == "245ms"
+        # Assert: delay is not colored
+        assert "label" not in (r.get("outerHTML") or "").split(">")[0]
+
+    def test_token_shows_event_code(self) -> None:
+        """
+        The token cell shows the frame/event code from the daemon, not SIA-DCS.
+
+        Expected result:
+        - 'BA' shown, and its explanation 'Alarme intrusion'
+        """
+        msg = {**SAMPLE_ALARM_MESSAGE, "event_code": "BA"}
+        tok = self._field(msg, ".sia-token")
+        exp = self._field(msg, ".sia-explain")
+        # Assert: code displayed
+        assert tok["text"] == "BA"
+        # Assert: explanation displayed
+        assert exp["text"] == "Alarme intrusion"
+
+    def test_token_defaults_to_null_for_supervision(self) -> None:
+        """
+        A message without event_code (supervision) shows NULL and its explanation.
+
+        Expected result:
+        - token 'NULL', explanation mentions supervision
+        """
+        tok = self._field(SAMPLE_MESSAGE, ".sia-token")
+        exp = self._field(SAMPLE_MESSAGE, ".sia-explain")
+        # Assert: NULL fallback
+        assert tok["text"] == "NULL"
+        # Assert: explanation present
+        assert "supervision" in exp["text"]
+
+    def test_time_uses_widget_format(self) -> None:
+        """
+        The row time column uses the widget format, not bare UTC hh:mm:ss.
+
+        Expected result:
+        - text matches 'dd/mm hh:mm:ss' for an old message
+        """
+        r = self._field(SAMPLE_MESSAGE, ".sia-time")
+        # Assert: absolute widget format for an old timestamp
+        assert re.match(r"^\d{2}/\d{2} \d{2}:\d{2}:\d{2}$", r["text"])
 
     def test_row_stores_request_hex_attribute(self) -> None:
         """
@@ -665,21 +854,6 @@ class TestRenderMessages:
         })
         # Assert: response hex stored for composite cache key
         assert r["attr"] == "11223344"
-
-    def test_alarm_message_shows_warning_badge(self) -> None:
-        """
-        Non-routine alarm message must use label-warning badge class.
-
-        Expected result:
-        - .sia-status element has class label-warning in its outerHTML
-        """
-        r = _one({
-            "fn": "siaDC09_renderMessages",
-            "args": [[SAMPLE_ALARM_MESSAGE]],
-            "query": "#siaDC09_inspectorList .sia-status",
-        })
-        # Assert: non-routine → warning badge class on element
-        assert "label-warning" in (r.get("outerHTML") or "")
 
 
 # ── buildHexButtons ───────────────────────────────────────────────────────────

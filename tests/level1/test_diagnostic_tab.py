@@ -291,11 +291,19 @@ class TestDiagnosticTabHtml:
         Status badge panel must exist in diagnostic tab.
 
         Expected result:
-        - siaDC09_badgeDot and siaDC09_badgeLabel elements present
+        - widget-like SM1 card (ring, icon, label, sub-label, time) present
+        - SM2 "Dernier événement" card (status label, time) present
+        - the old bare dots are gone
         """
-        # Assert: badge elements present
-        assert 'id="siaDC09_badgeDot"' in php_source
-        assert 'id="siaDC09_badgeLabel"' in php_source
+        # Assert: SM1 card elements present
+        for elt in ("badge", "badgeIcon", "badgeLabel", "badgeSub", "badgeTime"):
+            assert f'id="siaDC09_{elt}"' in php_source
+        # Assert: SM2 card elements present
+        for elt in ("eventBadgeLabel", "eventTime", "eventHead", "eventBar"):
+            assert f'id="siaDC09_{elt}"' in php_source
+        # Assert: bare dots removed
+        assert "siaDC09_badgeDot" not in php_source
+        assert "siaDC09_eventBadgeDot" not in php_source
 
     def test_errors_panel_exists(self, php_source: str) -> None:
         """
@@ -353,30 +361,30 @@ class TestJsBadgeRendering:
         supervision_state=2 (HEALTHY) must render green badge.
 
         Expected result:
-        - #5cb85c color mapped to state 2
+        - text-success mapped to state 2 (widget color classes, not hex)
         """
-        # Assert: green color for healthy state
-        assert "#5cb85c" in js_source
+        # Assert: green class for healthy state
+        assert re.search(r"_siaDC09_stateClasses\s*=\s*\{[^}]*\b2\s*:\s*'text-success'", js_source, re.DOTALL)
 
     def test_badge_color_orange_for_state_1(self, js_source: str) -> None:
         """
         supervision_state=1 (DEGRADED/INITIALIZING) must render orange badge.
 
         Expected result:
-        - #f0ad4e color mapped to state 1
+        - text-warning mapped to state 1
         """
-        # Assert: orange color for degraded state
-        assert "#f0ad4e" in js_source
+        # Assert: orange class for degraded state
+        assert re.search(r"_siaDC09_stateClasses\s*=\s*\{[^}]*\b1\s*:\s*'text-warning'", js_source, re.DOTALL)
 
     def test_badge_color_red_for_state_0(self, js_source: str) -> None:
         """
         supervision_state=0 (NO_NETWORK/STOPPED) must render red badge.
 
         Expected result:
-        - #d9534f color mapped to state 0
+        - text-danger mapped to state 0
         """
-        # Assert: red color for critical state
-        assert "#d9534f" in js_source
+        # Assert: red class for critical state
+        assert re.search(r"_siaDC09_stateClasses\s*=\s*\{[^}]*\b0\s*:\s*'text-danger'", js_source, re.DOTALL)
 
     def test_render_badge_function_exists(self, js_source: str) -> None:
         """
@@ -388,33 +396,25 @@ class TestJsBadgeRendering:
         # Assert: render badge function defined
         assert "function siaDC09_renderBadge" in js_source
 
-    def test_render_badge_sets_dot_color(self, js_source: str) -> None:
+    def test_render_badge_sets_ring_color(self, js_source: str) -> None:
         """
-        renderBadge must set the color CSS on the badge dot element, via the
-        shared siaDC09_renderStateBadge helper (also used by renderEventBadge).
+        renderBadge must color the SM1 ring through the shared colorize helper.
 
         Expected result:
-        - siaDC09_renderBadge passes the badge dot id to siaDC09_renderStateBadge
-        - siaDC09_renderStateBadge itself performs the color style manipulation
+        - siaDC09_colorize($('#siaDC09_badge'), ...) called
         """
-        # Assert: renderBadge wires the dot id into the shared helper
-        assert re.search(r"siaDC09_renderStateBadge\('#siaDC09_badgeDot'", js_source)
-        # Assert: the shared helper sets dot color
-        assert re.search(r"\$\(dotId\)\.css\('color'", js_source)
+        # Assert: ring colored by class, like the widget
+        assert re.search(r"siaDC09_colorize\(\$\('#siaDC09_badge'\)", js_source)
 
     def test_render_badge_sets_label_text(self, js_source: str) -> None:
         """
-        renderBadge must set the text of the badge label element, via the
-        shared siaDC09_renderStateBadge helper (also used by renderEventBadge).
+        renderBadge must set the text of the badge label element.
 
         Expected result:
-        - siaDC09_renderBadge passes the badge label id to siaDC09_renderStateBadge
-        - siaDC09_renderStateBadge itself performs the label text manipulation
+        - #siaDC09_badgeLabel text set
         """
-        # Assert: renderBadge wires the label id into the shared helper
-        assert re.search(r"siaDC09_renderStateBadge\('#siaDC09_badgeDot',\s*'#siaDC09_badgeLabel'", js_source)
-        # Assert: the shared helper sets label text
-        assert re.search(r"\$\(labelId\)\.text\(", js_source)
+        # Assert: label text written
+        assert re.search(r"\$\('#siaDC09_badgeLabel'\)\.text\(", js_source)
 
 
 # ── JS Error Panel Rendering ─────────────────────────────────────────────────
@@ -433,32 +433,16 @@ class TestJsErrorPanelRendering:
         # Assert: render errors function defined
         assert "function siaDC09_renderErrors" in js_source
 
-    def test_tier_map_has_all_error_codes(self, js_source: str) -> None:
+    def test_no_tier_badge(self, js_source: str) -> None:
         """
-        Tier classification map must include all 6 error codes.
+        The T1/T2/T3 tier badge is gone from the errors table.
 
         Expected result:
-        - All error codes from error-handler-design.md present
+        - no tier map / tier classes in the JS
         """
-        # Assert: all error codes mapped
-        assert "SUPERVISION_TIMEOUT" in js_source
-        assert "SUPERVISION_NAK" in js_source
-        assert "BAD_CSR_RESPONSE" in js_source
-        assert "SUPERVISION_DISCONNECTED" in js_source
-        assert "EVENT_FAILED" in js_source
-        assert "TRANSPORT_PERMANENT" in js_source
-
-    def test_tier_badge_classes(self, js_source: str) -> None:
-        """
-        Tier badges must use correct Bootstrap label classes.
-
-        Expected result:
-        - T1=label-info, T2=label-warning, T3=label-danger
-        """
-        # Assert: correct label classes for each tier
-        assert "label-info" in js_source
-        assert "label-warning" in js_source
-        assert "label-danger" in js_source
+        # Assert: tier machinery removed
+        assert "_siaDC09_tierMap" not in js_source
+        assert "_siaDC09_tierClasses" not in js_source
 
     def test_empty_state_message(self, js_source: str) -> None:
         """
@@ -927,52 +911,37 @@ class TestDataFlowBadgeErrorsInspector:
         # Assert: table row created per error entry
         assert "<tr" in js_source
 
-    def test_badge_color_map_covers_all_three_states(self, js_source: str) -> None:
+    def test_state_class_map_covers_all_three_states(self, js_source: str) -> None:
         """
-        _siaDC09_badgeColors must map states 0, 1, and 2 exhaustively,
+        _siaDC09_stateClasses must map states 0, 1, and 2 exhaustively,
         with a fallback for unknown values.
 
         Expected result:
-        - Keys 0, 1, 2 all present in _siaDC09_badgeColors
-        - Fallback (|| operator) present in color lookup
+        - Keys 0, 1, 2 all present in _siaDC09_stateClasses
+        - Unknown/NaN state falls back to the degraded (1) class
         """
-        # Assert: all three states covered in badge color map (scoped to object block)
-        assert re.search(r"_siaDC09_badgeColors\s*=\s*\{[^}]*\b2\s*:", js_source, re.DOTALL)
-        assert re.search(r"_siaDC09_badgeColors\s*=\s*\{[^}]*\b1\s*:", js_source, re.DOTALL)
-        assert re.search(r"_siaDC09_badgeColors\s*=\s*\{[^}]*\b0\s*:", js_source, re.DOTALL)
-        # Assert: fallback to a default when state is unknown (now in the shared
-        # siaDC09_renderStateBadge helper, generic over colorMap/fallbackKey)
-        pattern = r"colorMap\[s\]\s*\|\|\s*colorMap\[fallbackKey\]"
-        assert re.search(pattern, js_source)
+        # Assert: all three states covered (scoped to object block)
+        assert re.search(r"_siaDC09_stateClasses\s*=\s*\{[^}]*\b2\s*:", js_source, re.DOTALL)
+        assert re.search(r"_siaDC09_stateClasses\s*=\s*\{[^}]*\b1\s*:", js_source, re.DOTALL)
+        assert re.search(r"_siaDC09_stateClasses\s*=\s*\{[^}]*\b0\s*:", js_source, re.DOTALL)
+        # Assert: fallback to the degraded class when state is unknown
+        assert re.search(r"_siaDC09_stateClasses\[[^\]]+\]\s*\|\|\s*_siaDC09_stateClasses\[1\]", js_source)
 
-    def test_tier_map_covers_all_six_error_codes(self, js_source: str) -> None:
+    def test_error_row_has_three_cells_top_aligned(self, js_source: str) -> None:
         """
-        _siaDC09_tierMap must map all 6 ErrorCode values to a tier (T1, T2, T3).
-
-        Expected result:
-        - All 6 ErrorCode keys present as tier map entries
-        """
-        # Assert: all 6 error codes mapped to tiers (confirmed from 9-1, re-validated)
-        for code in (
-            "SUPERVISION_TIMEOUT", "SUPERVISION_NAK", "BAD_CSR_RESPONSE",
-            "SUPERVISION_DISCONNECTED", "EVENT_FAILED", "TRANSPORT_PERMANENT"
-        ):
-            assert code in js_source
-
-    def test_error_row_has_four_cells(self, js_source: str) -> None:
-        """
-        Each error table row must have 4 cells: timestamp, tier badge, code, message.
+        Each error table row has 3 cells (time, code, message), all top-aligned.
 
         Expected result:
         - err.timestamp, err.code, err.message references present in renderErrors
-        - Tier badge cell present (uses _siaDC09_tierMap lookup)
+        - vertical-align:top on the cells
         """
         # Assert: error fields accessed inside renderErrors function body
         assert "function siaDC09_renderErrors" in js_source
         assert "err.timestamp" in js_source
         assert "err.code" in js_source
         assert "err.message" in js_source
-        assert "_siaDC09_tierMap" in js_source
+        # Assert: cells top-aligned
+        assert js_source.count("vertical-align:top") >= 3
 
 
 # ── Task 4: Tab visibility and Bootstrap 3 layout guard ──────────────────────

@@ -512,3 +512,92 @@ class TestTraceHeader:
 
         # Assert: defaults returned, sequence normalized to str
         assert daemon._trace_header("NULL", 7) == {"id_token": "NULL", "sequence": "7"}
+
+
+class TestTraceEventCode:
+    """The inspector gets the SIA event code of the frame actually sent."""
+
+    @pytest.mark.parametrize("code", ["BA", "RP", "OP"])
+    def test_code_read_from_clear_frame(self, code: str) -> None:
+        """
+        An unencrypted frame yields its own event code, whatever the default.
+
+        Expected result:
+        - {"event_code": <code>} read from the data field, not from the default
+        """
+        daemon = _daemon()
+        daemon._last_sent_frame = SIAMessageBuilder("SIA").encode_message(_ACCOUNT, code)
+
+        # Assert: code read from the frame
+        assert daemon._trace_event_code("ZZ") == {"event_code": code}
+
+    def test_code_read_with_area_prefix(self) -> None:
+        """
+        A DC-03 area prefix (Nri1/CL001) does not hide the code.
+
+        Expected result:
+        - {"event_code": "CL"}
+        """
+        daemon = _daemon()
+        daemon._last_sent_frame = SIAMessageBuilder("SIA").encode_message(
+            _ACCOUNT, "CL", extended_data={"area": "1", "zone": "001"})
+
+        # Assert: area prefix skipped
+        assert daemon._trace_event_code() == {"event_code": "CL"}
+
+    def test_encrypted_frame_falls_back_to_default(self) -> None:
+        """
+        An encrypted frame has no readable code: the caller's default is used.
+
+        Expected result:
+        - default given -> {"event_code": default}
+        - no default -> {}
+        """
+        daemon = _daemon(encrypted=True)
+        daemon._last_sent_frame = SIAMessageBuilder("SIA").encode_message(
+            _ACCOUNT, "BA", encryption=True, encryption_key=_KEY)
+
+        # Assert: default used for an alarm, nothing for supervision
+        assert daemon._trace_event_code("BA") == {"event_code": "BA"}
+        assert daemon._trace_event_code() == {}
+
+    def test_supervision_frame_has_no_code(self) -> None:
+        """
+        The NULL supervision body must not match as a "NU" code.
+
+        Expected result:
+        - {}
+        """
+        daemon = _daemon()
+        daemon._last_sent_frame = SIAMessageBuilder("NULL").encode_message(_ACCOUNT, "NULL")
+
+        # Assert: no event code
+        assert daemon._trace_event_code() == {}
+
+    @pytest.mark.asyncio
+    async def test_alarm_dialog_carries_code_and_transition(self) -> None:
+        """
+        A NAK-then-ACK event traces event_code and transition; supervision has no code.
+
+        Expected result:
+        - alarm dialogs all carry event_code BA and a transition
+        - one of them is nak_retry
+        - the supervision dialog has no event_code
+        """
+        daemon = _daemon()
+        _wire(daemon, _simulator(nak_first=1))
+        await daemon._send_with_retry(_event(), max_retries=2)
+        _wire(daemon, _simulator())
+        await daemon._send_supervision()
+
+        dialogs = [c.args[0]["dialog"] for c in daemon._send_callback.call_args_list
+                   if c.args[0].get("type") == "message_trace"]
+        alarms = [d for d in dialogs if d["dialog_type"] == "alarm"]
+        supervisions = [d for d in dialogs if d["dialog_type"] == "supervision"]
+
+        # Assert: code and transition on every alarm dialog
+        assert alarms and all(d["event_code"] == "BA" and d["transition"] for d in alarms)
+        # Assert: the NAK retry is flagged
+        assert "nak_retry" in [d["transition"] for d in alarms]
+        # Assert: supervision keeps no code
+        assert supervisions and all("event_code" not in d for d in supervisions)

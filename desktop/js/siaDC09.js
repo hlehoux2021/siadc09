@@ -825,33 +825,83 @@ function addCmdToTable(_cmd) {
 
 // ===== DIAGNOSTIC TAB =====
 
-var _siaDC09_tierMap = {
-  'SUPERVISION_TIMEOUT': 'T1',
-  'SUPERVISION_NAK': 'T1',
-  'BAD_CSR_RESPONSE': 'T2',
-  'SUPERVISION_DISCONNECTED': 'T3',
-  'EVENT_FAILED': 'T3',
-  'TRANSPORT_PERMANENT': 'T3'
+// Header cards mirror the dashboard widget (core/template/dashboard/siaDC09.html):
+// the logic below is a copy of its SM1/SM2 rendering, kept in step by hand.
+var _siaDC09_COLOR_CLASSES = 'text-success text-warning text-danger text-muted'
+
+// supervision_state: 2=OK 1=degraded 0=lost (unknown falls back to degraded)
+var _siaDC09_stateClasses = {
+  2: 'text-success',
+  1: 'text-warning',
+  0: 'text-danger'
 }
 
-var _siaDC09_tierClasses = {
-  'T1': 'label-info',
-  'T2': 'label-warning',
-  'T3': 'label-danger'
+// supervision_state is 0/1/2 only, so the icon is chosen from the label text
+// (daemon.py _supervision_label()); the state only gives the color.
+var _siaDC09_SM1_ICONS = [
+  { re: /dégradée/i,       icon: 'fa-exclamation-triangle' },
+  { re: /initialisation/i, icon: 'fa-spinner fa-pulse' },
+  { re: /^connexion ok/i,  icon: 'fa-check-circle' },
+  { re: /perdue/i,         icon: 'fa-unlink' },
+  { re: /reconnexion/i,    icon: 'fa-sync-alt fa-spin' },
+  { re: /hors réseau/i,    icon: 'fa-plug' },
+  { re: /clé/i,            icon: 'fa-key' },
+  { re: /arrêté/i,         icon: 'fa-stop-circle' },
+  { re: /désactivé/i,      icon: 'fa-pause-circle', cls: 'text-muted' }
+]
+var _siaDC09_SM1_FALLBACK = {
+  'text-success': 'fa-check-circle',
+  'text-warning': 'fa-exclamation-triangle',
+  'text-danger': 'fa-times-circle',
+  'text-muted': 'fa-question-circle'
 }
 
-var _siaDC09_badgeColors = {
-  2: '#5cb85c',
-  1: '#f0ad4e',
-  0: '#d9534f'
+// event_label is "{Type} (zone N|utilisateur N) : {état}" (daemon.py _event_label_from_sm2()).
+var _siaDC09_SM2_TYPES = {
+  'intrusion': 'fa-user-secret', 'incendie': 'fa-fire', 'panique': 'fa-bell',
+  'armement': 'fa-lock', 'désarmement': 'fa-lock-open', 'annulation': 'fa-undo', 'test cyclique': 'fa-heartbeat'
+}
+var _siaDC09_SM2_TYPE_COLORS = {
+  'intrusion': 'text-danger', 'incendie': 'text-danger', 'panique': 'text-danger',
+  'désarmement': 'text-warning', 'armement': 'text-success', 'annulation': 'text-warning', 'test cyclique': 'text-muted'
+}
+var _siaDC09_SM2_STATUS = [
+  { re: /en cours/i,       icon: 'fa-spinner fa-pulse', cls: 'text-warning' },
+  { re: /confirm/i,        icon: 'fa-check-circle',     cls: '' },
+  { re: /refus/i,          icon: 'fa-ban',              cls: 'text-danger' },
+  { re: /sans réponse/i,   icon: 'fa-times-circle',     cls: 'text-danger' },
+  { re: /non transmise/i,  icon: 'fa-key',              cls: 'text-danger' }
+]
+
+function siaDC09_pad2(n) { return String(n).padStart(2, '0') }
+
+function siaDC09_sameDay(a, b) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
 }
 
-// SM2 event lifecycle: 0=IDLE 1=CONFIRMED 2=FAILED 3=PENDING
-var _siaDC09_eventBadgeColors = {
-  0: '#777777',
-  1: '#5cb85c',
-  2: '#d9534f',
-  3: '#f0ad4e'
+// Accepts ISO 8601 ("2026-05-18T14:32:11+02:00", daemon) and Jeedom dates
+// ("2026-05-18 14:32:11", local time). Returns ms, or NaN when unusable.
+function siaDC09_parseDate(s) {
+  if (!s) return NaN
+  var str = String(s)
+  return new Date(str.indexOf('T') >= 0 ? str : str.replace(/-/g, '/')).getTime()
+}
+
+// Same as the widget's formatTime(): relative while recent (with the precise clock
+// time appended), absolute with seconds once older than today. Local time.
+function siaDC09_formatTime(ms, nowMs) {
+  var d = new Date(ms), now = new Date(nowMs), diff = nowMs - ms
+  var hhmmss = siaDC09_pad2(d.getHours()) + ':' + siaDC09_pad2(d.getMinutes()) + ':' + siaDC09_pad2(d.getSeconds())
+  if (diff < 60000) return "à l'instant · " + hhmmss
+  if (diff < 3600000) return 'il y a ' + Math.floor(diff / 60000) + ' min · ' + hhmmss
+  if (siaDC09_sameDay(d, now)) return 'il y a ' + Math.floor(diff / 3600000) + ' h · ' + hhmmss
+  if (siaDC09_sameDay(d, new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1))) return 'hier ' + hhmmss
+  return siaDC09_pad2(d.getDate()) + '/' + siaDC09_pad2(d.getMonth() + 1) + ' ' + hhmmss
+}
+
+function siaDC09_colorize($el, cls) {
+  $el.removeClass(_siaDC09_COLOR_CLASSES)
+  if (cls) $el.addClass(cls)
 }
 
 function siaDC09_initDiagnosticTab(wizardStep) {
@@ -871,8 +921,8 @@ function siaDC09_loadDiagnosticData() {
     global: false,
     success: function(data) {
       var result = data.result || {}
-      siaDC09_renderBadge(result.supervision_state, result.supervision_label)
-      siaDC09_renderEventBadge(result.event_state, result.event_label)
+      siaDC09_renderBadge(result.supervision_state, result.supervision_label, result.state_date)
+      siaDC09_renderEventBadge(result.event_state, result.event_label, result.event_date)
       siaDC09_renderErrors(result.errors || [])
       siaDC09_renderMessages(result.messages || [])
     },
@@ -882,20 +932,73 @@ function siaDC09_loadDiagnosticData() {
   })
 }
 
-function siaDC09_renderStateBadge(dotId, labelId, state, label, colorMap, fallbackKey) {
-  var s = parseInt(state, 10)
-  if (isNaN(s)) s = fallbackKey
-  var color = colorMap[s] || colorMap[fallbackKey]
-  $(dotId).css('color', color)
-  $(labelId).text(label || '')
+function siaDC09_setHeaderTime(selector, dateStr, show, prefix) {
+  var ms = siaDC09_parseDate(dateStr)
+  $(selector).text((show && !isNaN(ms)) ? (prefix || '') + siaDC09_formatTime(ms, Date.now()) : '')
 }
 
-function siaDC09_renderBadge(supervisionState, supervisionLabel) {
-  siaDC09_renderStateBadge('#siaDC09_badgeDot', '#siaDC09_badgeLabel', supervisionState, supervisionLabel, _siaDC09_badgeColors, 1)
+// SM1 card: icon in a ring colored by the state, label, "N échecs sur 3", last-update time.
+function siaDC09_renderBadge(supervisionState, supervisionLabel, stateDate) {
+  var s = parseInt(supervisionState, 10)
+  var cls = _siaDC09_stateClasses[isNaN(s) ? 1 : s] || _siaDC09_stateClasses[1]
+  var labelRaw = supervisionLabel || ''
+  var entry = null
+  for (var i = 0; i < _siaDC09_SM1_ICONS.length; i++) {
+    if (_siaDC09_SM1_ICONS[i].re.test(labelRaw)) { entry = _siaDC09_SM1_ICONS[i]; break }
+  }
+  var icon = entry ? entry.icon : _siaDC09_SM1_FALLBACK[cls]
+  if (entry && entry.cls) cls = entry.cls
+  var text = labelRaw, sub = ''
+  var m = /^(.*?)\s*\((\d+)\/(\d+)\)\s*$/.exec(labelRaw)
+  if (m) { text = m[1]; sub = m[2] + (m[2] === '1' ? ' échec sur ' : ' échecs sur ') + m[3] }
+  siaDC09_colorize($('#siaDC09_badge'), cls)
+  $('#siaDC09_badgeIcon').attr('class', 'fas ' + icon)
+  $('#siaDC09_badgeLabel').text(text)
+  $('#siaDC09_badgeSub').text(sub).css('display', sub ? 'block' : 'none')
+  siaDC09_setHeaderTime('#siaDC09_badgeTime', stateDate, true)
 }
 
-function siaDC09_renderEventBadge(eventState, eventLabel) {
-  siaDC09_renderStateBadge('#siaDC09_eventBadgeDot', '#siaDC09_eventBadgeLabel', eventState, eventLabel, _siaDC09_eventBadgeColors, 0)
+// SM2 card ("Dernier événement"): type/zone head and status line, colored like the widget.
+function siaDC09_renderEventBadge(eventState, eventLabel, eventDate) {
+  var raw = eventLabel || ''
+  var idx = raw.indexOf(' : ')
+  var st = null
+  if (idx >= 0) {
+    var statusTxt = raw.slice(idx + 3)
+    for (var i = 0; i < _siaDC09_SM2_STATUS.length; i++) {
+      if (_siaDC09_SM2_STATUS[i].re.test(statusTxt)) { st = _siaDC09_SM2_STATUS[i]; break }
+    }
+  }
+  var $statusText = $('#siaDC09_eventBadgeLabel')
+  var $statusIcon = $('#siaDC09_eventStatusIcon')
+  var $head = $('#siaDC09_eventHead')
+  var typeCls = 'text-muted'
+  var typeName = '', m = null
+  if (st) {
+    var head = raw.slice(0, idx)
+    m = /^(.*?)\s*\((zone|utilisateur)\s+(.+?)\)\s*$/i.exec(head)
+    typeName = m ? m[1] : head
+    typeCls = _siaDC09_SM2_TYPE_COLORS[typeName.toLowerCase()] || st.cls || 'text-muted'
+  }
+  siaDC09_colorize($('#siaDC09_eventBar'), typeCls)
+  siaDC09_colorize($('#siaDC09_eventTypeWrap'), typeCls)
+  siaDC09_colorize($statusText, st ? st.cls : 'text-muted')
+  if (!st) {
+    // Idle ("Inactif", "Aucun événement…") or an unknown text: discreet raw line.
+    $head.css('display', 'none')
+    $statusIcon.css('display', 'none')
+    $statusText.text(raw).css('opacity', '0.6')
+    siaDC09_setHeaderTime('#siaDC09_eventTime', eventDate, false)
+    return
+  }
+  $('#siaDC09_eventTypeText').text(typeName)
+  $('#siaDC09_eventWhere').text(m ? m[2] + ' ' + m[3] : '')
+  $('#siaDC09_eventTypeIcon').attr('class', 'fas ' + (_siaDC09_SM2_TYPES[typeName.toLowerCase()] || 'fa-bell'))
+  $head.css('display', 'flex')
+  $statusIcon.attr('class', 'fas ' + st.icon).css('display', '')
+  siaDC09_colorize($statusIcon, st.cls)
+  $statusText.text(raw.slice(idx + 3)).css('opacity', '')
+  siaDC09_setHeaderTime('#siaDC09_eventTime', eventDate, true, ' · ')
 }
 
 function siaDC09_renderErrors(errors) {
@@ -908,29 +1011,19 @@ function siaDC09_renderErrors(errors) {
   errors.forEach(function(err) {
     var $tr = $('<tr>')
     var ts = siaDC09_formatTimestamp(err.timestamp)
-    $tr.append($('<td style="width:70px;">').text(ts))
-    var tier = _siaDC09_tierMap[err.code] || 'T1'
-    var tierClass = _siaDC09_tierClasses[tier] || 'label-default'
-    $tr.append($('<td style="width:40px;">').html('<span class="label ' + tierClass + '">' + tier + '</span>'))
-    $tr.append($('<td>').text(err.code || ''))
-    $tr.append($('<td>').text(err.message || ''))
+    $tr.append($('<td style="vertical-align:top;white-space:nowrap;">').text(ts))
+    $tr.append($('<td style="vertical-align:top;">').text(err.code || ''))
+    $tr.append($('<td style="vertical-align:top;">').text(err.message || ''))
     $table.append($tr)
   })
   $list.append($table)
 }
 
-function siaDC09_formatTimestamp(isoString) {
-  if (!isoString) return ''
-  try {
-    var d = new Date(isoString)
-    if (isNaN(d.getTime())) return ''
-    var h = ('0' + d.getUTCHours()).slice(-2)
-    var m = ('0' + d.getUTCMinutes()).slice(-2)
-    var s = ('0' + d.getUTCSeconds()).slice(-2)
-    return h + ':' + m + ':' + s
-  } catch (e) {
-    return ''
-  }
+// ISO 8601 -> widget-style local time (see siaDC09_formatTime). nowMs is injectable for tests.
+function siaDC09_formatTimestamp(isoString, nowMs) {
+  var ms = siaDC09_parseDate(isoString)
+  if (isNaN(ms)) return ''
+  return siaDC09_formatTime(ms, nowMs === undefined ? Date.now() : nowMs)
 }
 
 // Diagnostic tab shown event — load data on first activation
@@ -1007,6 +1100,33 @@ $('#siaDC09_inspectorClear').on('click', function() {
 // Cache for decoded frame results: key = hex string, value = decoded object
 var _siaDC09_decodeCache = {}
 
+// What each frame/event code means, shown on the row. NULL = supervision frame.
+var _siaDC09_codeExplain = {
+  'NULL': 'Contrôle de liaison (supervision)',
+  'BA': 'Alarme intrusion',
+  'FA': 'Alarme incendie',
+  'PA': 'Alarme panique',
+  'BC': "Annulation d'alarme",
+  'OP': 'Désarmement (ouverture)',
+  'CL': 'Armement (fermeture)',
+  'RP': 'Test cyclique'
+}
+
+// Alarm transitions (daemon.py _log_sm2_event) that mean "sent again".
+var _siaDC09_retryTransitions = ['failed_timeout', 'nak_retry']
+
+// Kind label of an inspector row. routine = healthy supervision exchange, événement =
+// alarm frame, retry = alarm frame sent again, incident = supervision timeout/NAK or
+// an alarm that ended in failure.
+function siaDC09_messageKind(msg) {
+  if (msg.routine === 1) return { text: '{{routine}}', cls: 'label-default' }
+  if (msg.dialog_type !== 'alarm') return { text: '{{incident}}', cls: 'label-danger' }
+  var tr = msg.transition || ''
+  if (_siaDC09_retryTransitions.indexOf(tr) >= 0) return { text: '{{retry}}', cls: 'label-warning' }
+  if (tr.indexOf('failed') === 0) return { text: '{{incident}}', cls: 'label-danger' }
+  return { text: '{{événement}}', cls: 'label-success' }
+}
+
 // Task 4: Build collapsed message rows
 function siaDC09_renderMessages(messages) {
   var $list = $('#siaDC09_inspectorList').empty()
@@ -1015,21 +1135,10 @@ function siaDC09_renderMessages(messages) {
     return
   }
   messages.forEach(function(msg) {
-    var isAlarm = msg.dialog_type === 'alarm'
-    var isRoutine = msg.routine === 1
     var ts = siaDC09_formatTimestamp(msg.timestamp)
     var elapsedMs = msg.elapsed_ms || 0
 
-    // Status badge
-    var badgeClass = 'label-success'
-    var badgeText = elapsedMs + 'ms'
-    if (!isRoutine && isAlarm) {
-      badgeClass = 'label-warning'
-      if (msg.attempts && msg.attempts.length > 1) badgeClass = 'label-danger'
-    } else if (!isRoutine) {
-      // supervision NAK/timeout
-      badgeClass = 'label-warning'
-    }
+    var kind = siaDC09_messageKind(msg)
 
     // Direction icon (sent = →, received back in response = both directions shown as →)
     var direction = '<span style="font-family:monospace;">&#8594;</span>'
@@ -1042,16 +1151,20 @@ function siaDC09_renderMessages(messages) {
       .attr('data-response-hex', responseHex)
       .css({ cursor: 'pointer', padding: '6px 10px', borderBottom: '1px solid #eee' })
 
-    var idToken = msg.id_token ? msg.id_token : (isAlarm ? 'SIA-DCS' : 'NULL')
+    // The frame/event code (BA, RP, OP...) is what tells rows apart; the wire ID token
+    // is almost always SIA-DCS or NULL. Supervision frames and unreadable (encrypted)
+    // ones carry no code and show NULL.
+    var code = msg.event_code || 'NULL'
     var seqStr = msg.sequence !== undefined ? ('#' + ('0000' + msg.sequence).slice(-4)) : ''
     var accountStr = msg.account ? ('#' + msg.account) : ''
 
     $row.append(direction + ' ')
-    $row.append($('<span class="sia-token label label-default" style="margin-right:4px;">').text(idToken))
+    $row.append($('<span class="sia-token label label-default" style="margin-right:4px;">').text(code))
     $row.append($('<span class="sia-seq text-muted" style="margin-right:4px; font-family:monospace;">').text(seqStr))
     $row.append($('<span class="sia-account text-muted" style="margin-right:6px; font-family:monospace;">').text(accountStr))
-    $row.append($('<span class="sia-context text-muted" style="margin-right:6px;">').text(isRoutine ? '{{routine}}' : '{{non-routine}}'))
-    $row.append($('<span class="sia-status label ' + badgeClass + '" style="margin-right:6px;">').text(badgeText))
+    $row.append($('<span class="sia-explain text-muted" style="margin-right:6px;">').text(_siaDC09_codeExplain[code] || ''))
+    $row.append($('<span class="sia-kind label ' + kind.cls + '" style="margin-right:6px;">').text(kind.text))
+    $row.append($('<span class="sia-delay" style="margin-right:6px;">').text(elapsedMs + 'ms'))
     $row.append($('<span class="sia-time pull-right text-muted">').text(ts))
 
     var $detail = $('<div class="sia-msg-detail">').css({ display: 'none' })
@@ -1182,7 +1295,7 @@ function siaDC09_buildFieldTable(decoded) {
   var $tbody = $('<tbody>')
   $table.append($thead).append($tbody)
 
-  function addRow(label, value) {
+  function addRow(label, value, hint) {
     var $tr = $('<tr>')
     $tr.append($('<td>').text(label))
     var $td = $('<td>')
@@ -1191,10 +1304,12 @@ function siaDC09_buildFieldTable(decoded) {
     } else {
       $td.append($('<em class="text-muted">').text('—'))
     }
+    if (hint) $td.append($('<div class="sia-hint text-muted" style="font-size:11px;">').text(hint))
     $tbody.append($tr.append($td))
   }
 
-  addRow('ID Token', decoded.id_token)
+  addRow('ID Token', decoded.id_token,
+    'Type de trame : SIA-DCS = événement, NULL = supervision ; le préfixe * indique des données chiffrées.')
   addRow('Séquence', decoded.sequence)
   addRow('Préfixe récepteur', decoded.receiver_prefix || '—')
   addRow('Préfixe compte', decoded.account_prefix)

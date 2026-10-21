@@ -176,6 +176,8 @@ try {
                 'supervision_label' => '',
                 'event_state' => 0,
                 'event_label' => '',
+                'state_date' => '',
+                'event_date' => '',
                 'errors' => [],
                 'messages' => [],
             ]);
@@ -214,6 +216,9 @@ try {
             'supervision_label' => $supervisionLabel,
             'event_state' => $eventState,
             'event_label' => $eventLabel,
+            // collectDate is filled by the execCmd() calls above (same source as getWidgetDates).
+            'state_date' => $stateCmd ? (string) $stateCmd->getCollectDate() : '',
+            'event_date' => $eventLabelCmd ? (string) $eventLabelCmd->getCollectDate() : '',
             'errors' => $errors,
             'messages' => $messages,
         ]);

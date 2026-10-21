@@ -29,10 +29,21 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
     <li id="siaDC09_diagnosticTabLi" style="display:none;"><a href="#diagnosticTab">Diag</a></li>
   </ul>
   <div id="diagnosticTab"></div>
-  <div id="siaDC09_badgeDot"></div>
-  <div id="siaDC09_badgeLabel"></div>
-  <div id="siaDC09_eventBadgeDot"></div>
-  <div id="siaDC09_eventBadgeLabel"></div>
+  <div id="siaDC09_statusPanel">
+    <span id="siaDC09_badge"><i id="siaDC09_badgeIcon" class="fas"></i></span>
+    <span id="siaDC09_badgeLabel"></span>
+    <span id="siaDC09_badgeSub" style="display:none;"></span>
+    <span id="siaDC09_badgeTime"></span>
+    <span id="siaDC09_eventBar"></span>
+    <div id="siaDC09_eventHead" style="display:none;">
+      <span id="siaDC09_eventTypeWrap"><i id="siaDC09_eventTypeIcon" class="fas"></i></span>
+      <span id="siaDC09_eventTypeText"></span>
+      <span id="siaDC09_eventWhere"></span>
+    </div>
+    <i id="siaDC09_eventStatusIcon" class="fas" style="display:none;"></i>
+    <span id="siaDC09_eventBadgeLabel"></span>
+    <span id="siaDC09_eventTime"></span>
+  </div>
   <div id="siaDC09_errorsList"></div>
   <div id="siaDC09_inspectorList"></div>
   <div id="div_alert"></div>
@@ -65,19 +76,29 @@ const diagStart = allLines.findIndex(line => line.trim() === DIAG_SECTION_MARKER
 if (diagStart === -1) {
   throw new Error(`marker "${DIAG_SECTION_MARKER}" not found in desktop/js/siaDC09.js`)
 }
-const diagSection = allLines.slice(diagStart).join('\n')
+// Jeedom resolves {{text}} to the translation server-side; with no translation the text itself.
+const diagSection = allLines.slice(diagStart).join('\n').replace(/\{\{(.*?)\}\}/g, '$1')
 window.eval(diagSection)
 
 // ── Test runner ───────────────────────────────────────────────────────────────
 
 function resetDOM() {
   document.getElementById('siaDC09_diagnosticTabLi').style.display = 'none'
-  document.getElementById('siaDC09_badgeDot').style.color = ''
-  document.getElementById('siaDC09_badgeDot').style.cssText = ''
-  document.getElementById('siaDC09_badgeLabel').textContent = ''
-  document.getElementById('siaDC09_eventBadgeDot').style.color = ''
-  document.getElementById('siaDC09_eventBadgeDot').style.cssText = ''
-  document.getElementById('siaDC09_eventBadgeLabel').textContent = ''
+  for (const id of ['badge', 'eventBar', 'eventTypeWrap']) {
+    document.getElementById('siaDC09_' + id).className = ''
+  }
+  for (const id of ['badgeLabel', 'badgeSub', 'badgeTime', 'eventTypeText', 'eventWhere',
+                    'eventBadgeLabel', 'eventTime']) {
+    const el = document.getElementById('siaDC09_' + id)
+    el.textContent = ''
+    el.className = ''
+  }
+  document.getElementById('siaDC09_badgeIcon').className = 'fas'
+  document.getElementById('siaDC09_eventTypeIcon').className = 'fas'
+  document.getElementById('siaDC09_eventStatusIcon').className = 'fas'
+  document.getElementById('siaDC09_badgeSub').style.display = 'none'
+  document.getElementById('siaDC09_eventHead').style.display = 'none'
+  document.getElementById('siaDC09_eventStatusIcon').style.display = 'none'
   document.getElementById('siaDC09_errorsList').innerHTML = ''
   document.getElementById('siaDC09_inspectorList').innerHTML = ''
   window._siaDC09_decodeCache = {}
@@ -139,7 +160,7 @@ function runScenario(scenario) {
     if (scenario.count_query) {
       result.count = document.querySelectorAll(scenario.count_query).length
     }
-    if (scenario.fn === 'siaDC09_formatTimestamp') {
+    if (['siaDC09_formatTimestamp', 'siaDC09_formatTime', 'siaDC09_messageKind'].includes(scenario.fn)) {
       result.value = returnValue
     }
     if (scenario.cache_key_test) {
