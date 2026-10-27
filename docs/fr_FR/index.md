@@ -266,6 +266,7 @@ En plus, une tâche Jeedom vérifie toutes les 5 minutes que le démon répond e
 | « Connexion dégradée » récurrente, NAK de supervision | Horloge de Jeedom décalée (la centrale rejette l'horodatage) | Vérifiez l'heure / NTP de Jeedom |
 | Alarme partie **sans numéro de zone** | Titre de l'action vide, laissé à un autre texte, ou zone absente de l'étape 3 | Titre = `#zone#` ; refaites l'étape 3 si vous avez ajouté une zone |
 | Pas de photo dans l'alarme | Commande Prefetch non câblée en action **immédiate**, Titre ≠ `#zone#`, caméra non choisie, Frigate injoignable, délai de déclenchement de l'alarme très court | Vérifiez le câblage ; l'alarme part de toute façon |
+| Une caméra Frigate n'apparaît pas à l'étape 3 | Caméra récente sans aucun événement Frigate : il manque la commande `info_id` du plugin Frigate | Lancez **Créer un évènement** sur l'équipement caméra, puis rouvrez l'assistant |
 | Modification de configuration sans effet | Le démon ne relit pas la configuration à chaud | Redémarrez le démon |
 
 **Les logs** : `siaDC09` (partie Jeedom) et `siaDC09_daemon` (démon). Les lignes INFO/WARNING/ERROR sont en français ; en niveau **Debug**, le plugin écrit en plus le détail technique (en anglais), dont les trames hexadécimales. La clé AES n'apparaît jamais dans les logs.
