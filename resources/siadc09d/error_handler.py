@@ -283,6 +283,8 @@ class BadCSRResponseCtx:
     csr_host: str
     csr_port: int
     transport: Literal["udp", "tcp"]
+    # True for a DUH (SIA DC-09 5.5.3.3): the reply was understood, the CSR refused the frame.
+    refused: bool = False
 
 
 @dataclass(frozen=True)
@@ -471,10 +473,18 @@ def build_notification(code: ErrorCode, context: dict[str, Any]) -> Notification
             "Vérifiez votre connexion réseau et le service de la centrale de télésurveillance."
         )
 
+    # DUH (SIA DC-09 5.5.3.3) reuses BAD_CSR_RESPONSE but is not an unreadable reply.
+    _bad_csr_refused = bool(context.get("refused", False))
+    _bad_csr_title = (
+        "siaDC09 — Trame refusée par la centrale (DUH)"
+        if _bad_csr_refused
+        else "siaDC09 — Réponse incompréhensible de la centrale"
+    )
+
     title_map: dict[ErrorCode, str] = {
         ErrorCode.SUPERVISION_TIMEOUT: "siaDC09 — Timeout supervision (auto-résolu)",
         ErrorCode.SUPERVISION_NAK: "siaDC09 — NAK supervision (trame refusée — auto-résolu)",
-        ErrorCode.BAD_CSR_RESPONSE: "siaDC09 — Réponse incompréhensible de la centrale",
+        ErrorCode.BAD_CSR_RESPONSE: _bad_csr_title,
         ErrorCode.SUPERVISION_DISCONNECTED: "siaDC09 — Supervision perdue",
         ErrorCode.EVENT_FAILED: f"siaDC09 — {_event_title_subject} non transmis{_event_gender_e}",
         ErrorCode.TRANSPORT_PERMANENT: (
@@ -496,10 +506,18 @@ def build_notification(code: ErrorCode, context: dict[str, Any]) -> Notification
             f"la trame (cause non précisée par la centrale).\nCentrale: {csr_address} ({transport})."
         ),
         ErrorCode.BAD_CSR_RESPONSE: (
-            "La centrale a renvoyé une réponse que le plugin ne peut pas interpréter.\n"
-            "Cela peut indiquer un problème de version de protocole ou de configuration réseau.\n"
-            "Contactez le support siaDC09 si le problème persiste.\n"
-            f"Centrale: {csr_address} ({transport})."
+            (
+                f"La centrale a reçu la trame mais refuse de la traiter (DUH).\n"
+                "Essayez le format de supervision « null » et vérifiez le compte et le préfixe.\n"
+                f"Centrale: {csr_address} ({transport})."
+            )
+            if _bad_csr_refused
+            else (
+                "La centrale a renvoyé une réponse que le plugin ne peut pas interpréter.\n"
+                "Cela peut indiquer un problème de version de protocole ou de configuration réseau.\n"
+                "Contactez le support siaDC09 si le problème persiste.\n"
+                f"Centrale: {csr_address} ({transport})."
+            )
         ),
         ErrorCode.SUPERVISION_DISCONNECTED: (
             T3_PREFIX
@@ -749,6 +767,7 @@ def _context_to_dict(ctx: NotificationContext | None) -> dict | None:
             "csr_host": ctx.csr_host,
             "csr_port": ctx.csr_port,
             "transport": ctx.transport,
+            "refused": ctx.refused,
         }
 
     # TransportPermanentCtx: permanent network failure

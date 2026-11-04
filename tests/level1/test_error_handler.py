@@ -611,3 +611,34 @@ def test_event_failed_rp_wording_is_cyclic_test_not_alarm() -> None:
     # Assert: cyclic test named, T3 prefix kept
     assert "test cyclique" in payload["message"]
     assert payload["message"].startswith(T3_PREFIX)
+
+
+def test_bad_csr_response_refused_ctx_gives_duh_message_not_unreadable() -> None:
+    """
+    Field run 2026-11-04 (CSR 194.51.213.114:5390): a DUH (SIA DC-09 5.5.3.3) was reported
+    as "reponse que le plugin ne peut pas interpreter", which is false and hides the fix.
+
+    Expected result:
+    - a refused BadCSRResponseCtx gives a title and message saying the CSR refused the frame (DUH)
+    - the message points to the null format and to account/prefix
+    - it never says the reply cannot be interpreted
+    - a non-refused context keeps the original wording
+    """
+    from resources.siadc09d.error_handler import build_notification
+
+    base = {"csr_address": "194.51.213.114:5390", "transport": "tcp", "strike_count": 1}
+    payload = build_notification(ErrorCode.BAD_CSR_RESPONSE, {**base, "refused": True})
+    # Assert: the refusal is named
+    assert "DUH" in payload["message"], payload["message"]
+    # Assert: the user is steered to the null format and to account/prefix
+    assert "null" in payload["message"], payload["message"]
+    assert "compte" in payload["message"], payload["message"]
+    # Assert: the false "cannot interpret" claim is gone, from message and title
+    assert "interpréter" not in payload["message"], payload["message"]
+    assert "incompréhensible" not in payload["title"], payload["title"]
+    # Assert: still a T2 notification with the same logical id
+    assert payload["tier"] == 2
+    assert payload["logical_id"] == "bad_csr_response"
+    # Assert: without the flag the original wording is unchanged
+    plain = build_notification(ErrorCode.BAD_CSR_RESPONSE, base)
+    assert "interpréter" in plain["message"], plain["message"]

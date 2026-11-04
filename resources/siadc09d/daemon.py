@@ -1363,6 +1363,7 @@ class SIADaemon(BaseDaemon):
             csr_host=self._preset.host,
             csr_port=self._preset.port,
             transport="tcp" if self._preset.transport is TransportType.TCP else "udp",
+            refused=True,
         ))
 
         ctx: SM1NakLogCtx = {
@@ -1852,6 +1853,7 @@ class SIADaemon(BaseDaemon):
                             csr_host=self._preset.host,
                             csr_port=self._preset.port,
                             transport="tcp" if self._preset.transport is TransportType.TCP else "udp",
+                            refused=True,
                         )
                     )
                     self._sm2_state = SM2State.FAILED
