@@ -61,6 +61,7 @@ from .messages import (
     ENCRYPTION_KEY_INVALID_TITLE,
     SM1_DEGRADED_1_2_FR,
     SM1_DEGRADED_3_FR,
+    SM1_DUH,
     SM1_HEALTHY_FR,
     SM1_INITIALIZING_FR,
     SM1_TCP_RECONNECTING_FR,
@@ -551,7 +552,7 @@ class SIADaemon(BaseDaemon):
         """Send one SIA frame via the active transport. Only _queue_consumer() may call this.
 
         Returns:
-            SIATransportResult with status 'ack'|'nak'|'timeout'|'tcp_drop'
+            SIATransportResult with status 'ack'|'nak'|'duh'|'timeout'|'tcp_drop'
 
         Raises:
             SIATransportError: if transport not initialized or network failure
@@ -1177,7 +1178,7 @@ class SIADaemon(BaseDaemon):
             )
 
         # Route response to appropriate handler
-        status: Literal['ack', 'nak', 'timeout', 'tcp_drop'] = result['status']
+        status: Literal['ack', 'nak', 'duh', 'timeout', 'tcp_drop'] = result['status']
 
         if status == "ack":
             # ACK path
@@ -1185,6 +1186,9 @@ class SIADaemon(BaseDaemon):
         elif status == "nak":
             # NAK path
             await self._handle_supervision_nak(result, elapsed_ms)
+        elif status == "duh":
+            # DUH path: deterministic refusal, never re-sent (§ 5.6.1.3)
+            await self._handle_supervision_duh(result, elapsed_ms)
         elif status == "timeout":
             # Timeout path
             await self._handle_supervision_timeout(elapsed_ms)
@@ -1337,6 +1341,39 @@ class SIADaemon(BaseDaemon):
             "nak_timestamp" if is_parseable else "nak_bad"
         )
         await self._log_sm1_supervision(event_type, ctx)
+
+    async def _handle_supervision_duh(self, result: SIATransportResult, elapsed_ms: float) -> None:
+        """Handle DUH response (§ 5.5.3.3): one strike, T2 notification, no re-send.
+
+        DUH means "received and correct, but not processed": re-sending the same
+        frame would get the same answer, so the failure is declared at once
+        (§ 5.6.1.3). Unlike a NAK there is no timestamp to heal.
+
+        Args:
+            result: SIATransportResult from _send_raw() with status 'duh'
+            elapsed_ms: Time elapsed from send to DUH receipt
+        """
+        self._strike_counter = min(self._strike_counter + 1, STRIKE_CAP)
+        t3_just_fired = await self._update_sm1_from_strike()
+        raw = result['raw_response'] or b""
+
+        self._notify(ErrorCode.BAD_CSR_RESPONSE, BadCSRResponseCtx(
+            raw_frame=raw,
+            parse_error="DUH: frame received but not processed by the CSR",
+            csr_host=self._preset.host,
+            csr_port=self._preset.port,
+            transport="tcp" if self._preset.transport is TransportType.TCP else "udp",
+        ))
+
+        ctx: SM1NakLogCtx = {
+            "seq": self._sia_seq,
+            "elapsed_ms": elapsed_ms,
+            "strike": self._strike_counter,
+            "raw_hex": raw.hex(),
+            "csr_time": None,
+            "t3_just_fired": t3_just_fired,
+        }
+        await self._log_sm1_supervision("duh", ctx)
 
     async def _handle_supervision_timeout(self, elapsed_ms: float) -> None:
         """Handle timeout: increment strike, dispatch T1/T3, log.
@@ -1503,7 +1540,7 @@ class SIADaemon(BaseDaemon):
 
     async def _log_sm1_supervision(
         self,
-        event: Literal["ack", "timeout", "nak_timestamp", "nak_bad"],
+        event: Literal["ack", "timeout", "nak_timestamp", "nak_bad", "duh"],
         ctx: SM1AckLogCtx | SM1TimeoutLogCtx | SM1NakLogCtx,
     ) -> None:
         """Log supervision event with dual-line pattern (French INFO + English DEBUG).
@@ -1514,7 +1551,7 @@ class SIADaemon(BaseDaemon):
         - Strikes, transitions, T1/T3: immediate (not throttled)
 
         Args:
-            event: Event type ('ack', 'timeout', 'nak_timestamp', 'nak_bad')
+            event: Event type ('ack', 'timeout', 'nak_timestamp', 'nak_bad', 'duh')
             ctx: Logging context (SM1AckLogCtx, SM1TimeoutLogCtx, or SM1NakLogCtx)
 
         Logging behavior per event:
@@ -1625,14 +1662,17 @@ class SIADaemon(BaseDaemon):
                     },
                 })
 
-            elif event == "nak_bad":
+            elif event in ("nak_bad", "duh"):
                 n_ctx = cast(SM1NakLogCtx, ctx)
                 strike = n_ctx["strike"]
                 elapsed_s = n_ctx["elapsed_ms"] / 1000
-                info_msg = f"Réponse invalide de la centrale — NAK non décodable (strike {strike}/3)"
+                if event == "duh":
+                    info_msg = SM1_DUH.format(strike=strike)
+                else:
+                    info_msg = f"Réponse invalide de la centrale — NAK non décodable (strike {strike}/3)"
                 self._logger.warning(info_msg)
                 self._logger.debug(
-                    f"Supervision NAK (unparseable): account={self._account}, "
+                    f"Supervision {'DUH (refused)' if event == 'duh' else 'NAK (unparseable)'}: account={self._account}, "
                     f"seq={n_ctx['seq']}, strike={strike}, elapsed={elapsed_s:.2f}s, "
                     f"raw={n_ctx['raw_hex']}"
                 )
@@ -1726,7 +1766,7 @@ class SIADaemon(BaseDaemon):
                 )
 
                 # Handle response
-                status: Literal['ack', 'nak', 'timeout', 'tcp_drop'] = result['status']
+                status: Literal['ack', 'nak', 'duh', 'timeout', 'tcp_drop'] = result['status']
 
                 if status == "ack":
                     # Task 3.2.2e: ACK received - event confirmed
@@ -1792,6 +1832,40 @@ class SIADaemon(BaseDaemon):
                             state_change=True
                         ),
                         response_hex=_nak_hex,
+                    )
+                    await self._update_info_commands({
+                        'event_state': self._event_state_from_sm2(),
+                        'event_label': self._event_label_from_sm2()
+                    })
+                    return SM2State.FAILED
+
+                elif status == "duh":
+                    # § 5.6.1.3: DUH = received but not processed. Same frame, same
+                    # answer: declare the failure at once, no retry. Reported as a
+                    # CSR refusal ("nak") so the existing "Refusé" label applies.
+                    _duh_hex = result['raw_response'].hex() if result.get('raw_response') else None
+                    self._notify(
+                        ErrorCode.BAD_CSR_RESPONSE,
+                        BadCSRResponseCtx(
+                            raw_frame=result['raw_response'] or b"",
+                            parse_error=f"Event DUH for zone={event_item.zone} sia_code={event_item.sia_code}",
+                            csr_host=self._preset.host,
+                            csr_port=self._preset.port,
+                            transport="tcp" if self._preset.transport is TransportType.TCP else "udp",
+                        )
+                    )
+                    self._sm2_state = SM2State.FAILED
+                    self._event_failure_reason = "nak"
+                    await self._log_sm2_event(
+                        "failed_duh",
+                        SM2LogCtx(
+                            zone=event_item.zone,
+                            sia_code=event_item.sia_code,
+                            attempt=self._event_attempt_count,
+                            elapsed=0.0,
+                            state_change=True
+                        ),
+                        response_hex=_duh_hex,
                     )
                     await self._update_info_commands({
                         'event_state': self._event_state_from_sm2(),
@@ -2194,10 +2268,13 @@ class SIADaemon(BaseDaemon):
             self._note_rp_outcome("Confirmé par la centrale")
             await self._update_supervision_commands(with_rp_label=True)
             return
-        with_rp_label = status in ("nak", "timeout")  # tcp_drop: no RP result to report
+        with_rp_label = status in ("nak", "duh", "timeout")  # tcp_drop: no RP result to report
         if status == "nak":
             self._note_rp_outcome("Refusé par la centrale")
             await self._handle_supervision_nak(result, elapsed_ms)
+        elif status == "duh":
+            self._note_rp_outcome("Refusé par la centrale")
+            await self._handle_supervision_duh(result, elapsed_ms)
         elif status == "timeout":
             self._note_rp_outcome("Sans réponse de la centrale")
             await self._handle_supervision_timeout(elapsed_ms)
@@ -2254,6 +2331,11 @@ class SIADaemon(BaseDaemon):
                 )
             elif transition == "failed_nak":
                 info_msg = messages.SM2_FAILED_NAK.format(
+                    type=ctx['sia_code'],
+                    zone=ctx['zone'] or "(pas de zone)"
+                )
+            elif transition == "failed_duh":
+                info_msg = messages.SM2_FAILED_DUH.format(
                     type=ctx['sia_code'],
                     zone=ctx['zone'] or "(pas de zone)"
                 )

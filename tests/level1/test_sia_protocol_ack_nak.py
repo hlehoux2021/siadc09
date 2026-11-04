@@ -917,3 +917,41 @@ class TestNakAckSequenceIntegration:
         assert ack_result['type'] == 'ACK'
         assert ack_result['seq'] == 2
 
+
+
+# ===== DUH (§ 5.5.3.3) =====
+
+# Real CSR answer to "SIA-DCS"0001L0#4596[#4596|0000] (194.51.213.114:5390)
+_REAL_DUH_FRAME = b'\nA8080012"DUH"0001L0#4596[]\r'
+
+
+class TestDecodeDuh:
+    """DUH = frame received and correct, but not processed (§ 5.5.3.3)."""
+
+    def test_real_duh_frame_decoded(self):
+        """
+        Scenario: the exact DUH frame sent back by a real CSR.
+
+        Expected result:
+        - type DUH, seq 1, no raw_nak
+        """
+        result = decode_ack_nak(_REAL_DUH_FRAME)
+
+        # Assert: DUH recognised, not 'unknown'
+        assert result['type'] == 'DUH'
+        # Assert: sequence echoed
+        assert result['seq'] == 1
+        # Assert: raw_nak only populated for NAK
+        assert result['raw_nak'] is None
+
+    def test_duh_with_bad_crc_is_unknown(self):
+        """
+        Scenario: same DUH frame with an altered CRC.
+
+        Expected result:
+        - type unknown (CRC still validated)
+        """
+        result = decode_ack_nak(b'\nA8090012"DUH"0001L0#4596[]\r')
+
+        # Assert: invalid CRC is never trusted
+        assert result['type'] == 'unknown'

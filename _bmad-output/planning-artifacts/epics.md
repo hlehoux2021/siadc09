@@ -2655,7 +2655,7 @@ it.
 - UI validation on test-jeedom;
 - field validation at Scutum.
 
-**Order:** 17.1 → 17.2 and 17.3 → 17.4 → 17.5. 17.2 and 17.3 both touch `daemon.py`; run them sequentially unless
+**Order:** 17.1 → 17.2 and 17.3 → 17.4 → 17.5; 17.6 (DUH, added 2026-11-04) is independent. 17.2 and 17.3 both touch `daemon.py`; run them sequentially unless
 the merge is planned.
 
 ### Story 17.1: CSR Profile Model & PHP → Daemon Plumbing
@@ -2789,3 +2789,35 @@ CRC, account and transport only.
 
 **Explicitly out of scope:** persistent TCP connection mode (D-115); multi-area reporting; more profiles than Ajax and
 Scutum.
+
+### Story 17.6: DUH Response Handling (added 2026-11-04)
+
+Not planned at the start of the epic. Added after a real CSR (194.51.213.114:5390, account 4596) answered
+`\nA8080012"DUH"0001L0#4596[]\r` to a `"SIA-DCS"` supervision frame. Plan: `plan-duh-response-handling.md`.
+
+As a user whose CSR refuses the `sia-dcs` supervision frame,
+I want the plugin to recognise a DUH answer and tell me what it means,
+So that I am steered to the `null` format instead of being told the reply is unreadable.
+
+**Acceptance Criteria:**
+
+**Given** the exact DUH frame above
+**When** it is decoded
+**Then** the type is `DUH` with sequence 1. With an altered CRC it stays `unknown`. A DUH is never encrypted.
+
+**And** when the wizard tests a CSR that answers DUH, the verdict is `fail`. The detail says the CSR is reachable and
+refused the frame (DUH), and suggests the `null` format and checking account and prefix. It does not mention CRC.
+The `bad_reply` message no longer claims a CRC or encryption problem.
+
+**And** after a failed wizard test with encryption off, the clear sent frame is written to stderr. A passing test
+writes nothing, because PHP logs any stderr at error level. An encrypted frame and the key are never logged.
+
+**And** on supervision or RP a DUH is never re-sent (§ 5.6.1.3, deterministic refusal): one strike, T2
+`BAD_CSR_RESPONSE`, a dedicated `duh` log line (never "NAK non décodable"). RP shows "Refusé par la centrale".
+
+**And** on an alarm event a DUH is not retried: SM2 goes to FAILED with failure reason `nak` (existing "refusé" label)
+and T2.
+
+**And** the default `supervision_format`, the profiles, PHP and JS are unchanged.
+
+**And** field check on the CSR above: `sia-dcs` fails with the DUH verdict, `null` is ACKed. Not yet done.

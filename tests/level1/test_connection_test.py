@@ -593,3 +593,133 @@ def test_run_connection_test_sends_the_frame_the_daemon_will_send(
     assert needle in frame
     # Assert: an RP frame is never sent unless it is the configured one
     assert (b"RP0000" in frame) == (overrides.get("supervision_format") == "none")
+
+
+# ── DUH (§ 5.5.3.3) ───────────────────────────────────────────────────────────
+
+
+def test_transport_parse_response_duh():
+    """
+    The transport maps a valid DUH frame to status 'duh' (not 'timeout').
+
+    Expected result:
+    - status == "duh", raw_nak None, raw_response is the frame
+    """
+    from resources.siadc09d.sia_transport import SIATCPTransport
+
+    raw = b'\nA8080012"DUH"0001L0#4596[]\r'
+    t = SIATCPTransport(host="h", port=1, connect_timeout_s=1.0, receive_timeout_s=1.0,
+                        crc_format="hex")
+    result = t._parse_response(raw)
+
+    # Assert: DUH is its own status
+    assert result["status"] == "duh"
+    # Assert: no NAK payload
+    assert result["raw_nak"] is None
+    # Assert: raw frame kept for traces
+    assert result["raw_response"] == raw
+
+
+def test_send_raw_once_passes_duh_through():
+    """
+    _send_raw_once surfaces the transport's 'duh' status unchanged (not bad_reply).
+
+    Expected result:
+    - status == "duh"
+    """
+    mock_transport = _make_mock_transport("duh")
+    mock_transport.send_frame = AsyncMock(return_value={
+        "status": "duh", "raw_nak": None, "raw_response": b"x",
+    })
+
+    with patch("resources.siadc09d.siadc09d.SIATCPTransport", return_value=mock_transport):
+        result = _run(_send_raw_once("host", 5000, "tcp", b"frame", timeout=5))
+
+    # Assert: DUH is not downgraded to bad_reply
+    assert result["status"] == "duh"
+
+
+def test_run_connection_test_duh_prints_fail_pointing_to_null(capsys):
+    """
+    Wizard verdict for a DUH: fail, mentions DUH and the NULL format, no CRC blame,
+    and the plaintext frame is logged at DEBUG on stderr.
+
+    Expected result:
+    - status "fail"; detail mentions DUH and NULL, not CRC
+    - stderr carries the sent frame
+    """
+    async def fake_send(*args, **kwargs):
+        return {"status": "duh"}
+
+    with patch("resources.siadc09d.siadc09d._send_raw_once", new=fake_send):
+        _run(run_connection_test(_VALID_MANUAL_CONFIG, timeout=5))
+
+    captured = capsys.readouterr()
+    out = json.loads(captured.out.strip())
+    # Assert: red verdict
+    assert out["status"] == "fail"
+    # Assert: names DUH and the NULL workaround
+    assert "DUH" in out["detail"] and "NULL" in out["detail"]
+    # Assert: no CRC accusation
+    assert "CRC" not in out["detail"]
+    # Assert: sent frame logged in clear on failure
+    assert "trame envoyée" in captured.err and "SIA-DCS" in captured.err
+
+
+def test_run_connection_test_ack_does_not_log_frame(capsys):
+    """
+    A passing test stays silent on stderr (PHP logs any stderr at error level).
+
+    Expected result:
+    - stderr empty
+    """
+    async def fake_send(*args, **kwargs):
+        return {"status": "ack"}
+
+    with patch("resources.siadc09d.siadc09d._send_raw_once", new=fake_send):
+        _run(run_connection_test(_VALID_MANUAL_CONFIG, timeout=5))
+
+    # Assert: nothing on stderr
+    assert capsys.readouterr().err == ""
+
+
+def test_run_connection_test_bad_reply_does_not_blame_crc(capsys):
+    """
+    The bad_reply verdict no longer asserts a CRC or encryption problem.
+
+    Expected result:
+    - detail contains neither "CRC" nor "chiffrement"
+    """
+    async def fake_send(*args, **kwargs):
+        return {"status": "bad_reply"}
+
+    with patch("resources.siadc09d.siadc09d._send_raw_once", new=fake_send):
+        _run(run_connection_test(_VALID_MANUAL_CONFIG, timeout=5))
+
+    out = json.loads(capsys.readouterr().out.strip())
+    # Assert: neutral wording
+    assert "CRC" not in out["detail"] and "chiffrement" not in out["detail"]
+
+
+def test_run_connection_test_encrypted_frame_never_logged(capsys, monkeypatch):
+    """
+    With encryption on, neither the frame nor the key reaches stderr.
+
+    Expected result:
+    - no "DEBUG test connexion trame" line, key absent from output
+    """
+    key = "0123456789abcdef0123456789abcdef"
+    monkeypatch.setenv("SIA_ENCRYPTION_KEY", key)
+
+    async def fake_send(*args, **kwargs):
+        return {"status": "ack"}
+
+    config = dict(_VALID_MANUAL_CONFIG, encryption_enabled=True)
+    with patch("resources.siadc09d.siadc09d._send_raw_once", new=fake_send):
+        _run(run_connection_test(config, timeout=5))
+
+    captured = capsys.readouterr()
+    # Assert: no sent-frame log when encrypted
+    assert "trame envoyée" not in captured.err
+    # Assert: key never echoed
+    assert key not in captured.err and key not in captured.out

@@ -59,6 +59,7 @@ SM1_TIMEOUT_WARNING: Final[str] = "Timeout supervision (strike {strike}/3) — n
 SM1_STILL_ABSENT: Final[str] = "Supervision toujours absente — en attente de rétablissement"
 SM1_TCP_DROP: Final[str] = "Connexion TCP perdue — tentative de reconnexion (depuis état {prev_state})"
 SM1_NAK_TIMESTAMP: Final[str] = "NAK supervision (strike {strike}/3) — trame refusée par la centrale"
+SM1_DUH: Final[str] = "DUH de la centrale (strike {strike}/3) — trame reçue mais non traitée, pas de renvoi"
 SM1_NAK_BAD: Final[str] = "Réponse invalide de la centrale — NAK non décodable (strike {strike}/3)"
 SM1_LOST: Final[str] = T3_PREFIX + "Supervision perdue — 3 tentatives sans réponse (T3 notification envoyée)"
 SM1_TCP_RECONNECT_FAIL_1: Final[str] = "Reconnexion TCP échouée — centrale injoignable"
@@ -79,6 +80,7 @@ SM2_TIMESTAMP_HEAL: Final[str] = "Horodatage refusé — correction automatique 
 # TODO v1.1: SM2_TIMESTAMP_HEAL not used in v1.0 (timestamp auto-heal deferred)
 SM2_FAILED: Final[str] = T3_PREFIX + "Alarme {type} non transmise après {max} tentatives (zone: {zone})"
 SM2_FAILED_NAK: Final[str] = "Réponse inattendue de la centrale — alarme {type} non transmise (zone: {zone})"
+SM2_FAILED_DUH: Final[str] = "DUH de la centrale — alarme {type} refusée, pas de renvoi (zone: {zone})"
 SM2_FAILED_NO_NETWORK: Final[str] = T3_PREFIX + "Alarme {type} non transmise — réseau inaccessible (zone: {zone})"
 
 # ===== ERROR NOTIFICATION MESSAGES =====

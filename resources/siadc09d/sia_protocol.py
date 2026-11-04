@@ -63,6 +63,7 @@ CRC_FORMAT_ADM = "ADM"
 # ACK/NAK response type constants
 ACK_RESPONSE = "ACK"
 NAK_RESPONSE = "NAK"
+DUH_RESPONSE = "DUH"  # § 5.5.3.3: received and correct, but not processed
 UNKNOWN_RESPONSE: Literal["unknown"] = "unknown"
 
 # Timestamp field constants
@@ -117,7 +118,7 @@ _FRAME_HEADER_RE = re.compile(rb'^\n.{8}"(?P<token>[^"]+)"(?P<seq>\d{4})')
 
 class AckNakResponse(TypedDict):
     """Response from ACK/NAK decoder."""
-    type: Literal["ACK", "NAK", "unknown"]
+    type: Literal["ACK", "NAK", "DUH", "unknown"]
     seq: int | None
     raw_nak: bytes | None
 
@@ -831,7 +832,7 @@ def _parse_ack_nak_type_and_seq(message_str: str) -> tuple[str, int | None]:
 
     Returns:
         Tuple (type_str, seq_int) where:
-        - type_str: 'ACK', 'NAK', or 'unknown'
+        - type_str: 'ACK', 'NAK', 'DUH', or 'unknown'
         - seq_int: Sequence number as int, or None for 'unknown'
 
     Reference: SIA DC-09 § 5.5.3 (ACK/NAK format)
@@ -859,6 +860,8 @@ def _parse_ack_nak_type_and_seq(message_str: str) -> tuple[str, int | None]:
             ack_type = ACK_RESPONSE
         elif id_token.startswith(NAK_TOKEN):
             ack_type = NAK_RESPONSE
+        elif id_token.startswith(DUH_TOKEN):
+            ack_type = DUH_RESPONSE
         else:
             return (UNKNOWN_RESPONSE, None)
 

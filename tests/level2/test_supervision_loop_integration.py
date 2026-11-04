@@ -1552,3 +1552,34 @@ async def test_on_stop_reraises_cancelled_error():
     # Assert: CancelledError re-raised (explicit in on_stop() except block)
     with pytest.raises(asyncio.CancelledError):
         await daemon.on_stop()
+
+
+@pytest.mark.asyncio
+async def test_send_supervision_duh_single_send_one_strike_t2():
+    """A DUH answer (§ 5.5.3.3) is a deterministic refusal: no re-send, one strike, T2.
+
+    Expected result:
+    - _send_raw awaited once
+    - strike == 1, BAD_CSR_RESPONSE fired, no SUPERVISION_NAK (T1)
+    - log event 'duh' (never 'nak_bad')
+    """
+    daemon = _make_daemon()
+    daemon._sm1_state = SM1State.HEALTHY
+    daemon._strike_counter = 0
+    daemon._sia_builder = MagicMock()
+    daemon._sia_builder.make_supervision_message = MagicMock(return_value=_NULL_FRAME)
+    daemon._send_raw = AsyncMock(return_value={
+        "status": "duh", "raw_nak": None,
+        "raw_response": b'\nA8080012"DUH"0001L0#4596[]\r',
+    })
+
+    await daemon._send_supervision()
+
+    # Assert: no immediate re-send
+    assert daemon._send_raw.await_count == 1
+    # Assert: one strike
+    assert daemon._strike_counter == 1
+    # Assert: only T2 fired
+    assert [c.args[0] for c in daemon._notify.call_args_list] == [ErrorCode.BAD_CSR_RESPONSE]
+    # Assert: dedicated log type
+    assert daemon._log_sm1_supervision.call_args.args[0] == "duh"

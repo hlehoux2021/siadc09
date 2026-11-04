@@ -170,6 +170,7 @@ encryption key, or bad message format.
 | ACK | strike=0 → SM1 HEALTHY | — |
 | NAK with parseable CSR timestamp | strike++ + `_notify(SUPERVISION_NAK, {…})` if strike < 3 | T1 via `error_handler`; T3 at strike=3 via `_update_sm1_from_strike()` |
 | NAK without parseable timestamp, or undecodable response | strike++ + `_notify(BAD_CSR_RESPONSE, {…})` | T2 via `error_handler` |
+| DUH (§ 5.5.3.3, received but not processed) | strike++ immediately, **no re-send** (§ 5.6.1.3) + `_notify(BAD_CSR_RESPONSE, {…})`; log event `duh` | T2 via `error_handler`; T3 at strike=3 via `_update_sm1_from_strike()` |
 | Timeout (no response) | strike++ + `_notify(SUPERVISION_TIMEOUT, {…})` if strike < 3 | T1 via `error_handler`; T3 at strike=3 via `_update_sm1_from_strike()` |
 
 **In v1.0**, all NAK variants result in strike++ with no special recovery path.

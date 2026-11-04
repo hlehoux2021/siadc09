@@ -58,6 +58,8 @@ _FAIL_INTERNAL = "internal"
 # Encryption on but the key is missing or malformed — nothing is sent (story 1-5 AC6)
 _FAIL_ENCRYPTION_KEY = "encryption_key"
 _STATUS_TCP_DROP = "tcp_drop"
+# CSR answered DUH (§ 5.5.3.3): frame received and correct, but not processed
+_STATUS_DUH = "duh"
 
 # SIATransportError carries no error code — the connect-timeout path
 # (sia_transport.py § SIATCPTransport.send_frame) raises it without a __cause__,
@@ -104,8 +106,14 @@ _TEST_VERDICTS: dict[str, tuple[str, str]] = {
     ),
     _FAIL_BAD_REPLY: (
         _UI_FAIL,
-        "{endpoint} a répondu en {elapsed_ms}ms mais la réponse est illisible — "
-        "vérifier le format CRC (configuré : {crc_format}) et le chiffrement",
+        "{endpoint} a répondu en {elapsed_ms}ms mais la réponse n'est pas "
+        "reconnue comme un ACK, NAK ou DUH — voir le log siaDC09 pour la trame reçue",
+    ),
+    _STATUS_DUH: (
+        _UI_FAIL,
+        "{endpoint} est joignable et a répondu DUH en {elapsed_ms}ms — la trame "
+        "est reçue mais refusée par le récepteur. Essayer le format de "
+        "supervision NULL, et vérifier le numéro de compte et le préfixe.",
     ),
     _STATUS_TCP_DROP: (
         _UI_FAIL,
@@ -195,7 +203,7 @@ async def _send_raw_once(
         timeout: Overall operation timeout in seconds.
 
     Returns:
-        Dict with a 'status' key — 'ack', 'nak', 'tcp_drop' or one of the
+        Dict with a 'status' key — 'ack', 'nak', 'duh', 'tcp_drop' or one of the
         _FAIL_* diagnostic statuses — plus an 'error' key carrying the technical
         cause (exception repr) when the send failed. Callers must map 'status' to
         a UI verdict via _TEST_VERDICTS; 'error' is for the log, not the UI.
@@ -374,6 +382,14 @@ async def run_connection_test(config: dict, timeout: int) -> None:
     elapsed_ms = int((time.monotonic() - start_time) * 1000)
 
     status = result["status"]
+    # Never the encrypted frame (nor the key): only the plaintext one is logged.
+    # Failures only: PHP logs any stderr at error level, so a passing test stays silent.
+    if status != "ack" and not encryption_enabled:
+        print(
+            f"test connexion trame envoyée vers {host}:{port} ({transport}) : "
+            f"{frame!r} hex={frame.hex()}",
+            file=sys.stderr, flush=True,
+        )
 
     # The technical cause goes to stderr, never to stdout: PHP parses stdout as
     # JSON and logs stderr verbatim (core/ajax/siaDC09.ajax.php § testConnection).

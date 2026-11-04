@@ -370,6 +370,32 @@ class TestSM2SendWithRetry:
         mock_daemon._notify.assert_called()
 
     @pytest.mark.asyncio
+    async def test_duh_fails_immediately_without_retry(self, mock_daemon):
+        """Test: alarm -> DUH (§ 5.5.3.3) -> FAILED at once, reason 'nak', T2.
+
+        Expected result:
+        - _send_raw awaited exactly once (no retry, § 5.6.1.3)
+        - SM2 FAILED with _event_failure_reason == 'nak'
+        - BAD_CSR_RESPONSE notification only
+        """
+        event = EventItem(sia_code="FA", zone="Cuisine", timestamp="12:30:45,04-13-2026")
+        mock_daemon._send_raw = AsyncMock(return_value={
+            "status": "duh", "raw_nak": None,
+            "raw_response": b'\nA8080012"DUH"0001L0#4596[]\r',
+        })
+
+        result = await mock_daemon._send_with_retry(event, max_retries=3)
+
+        # Assert: failed
+        assert result == SM2State.FAILED
+        # Assert: single send
+        assert mock_daemon._send_raw.await_count == 1
+        # Assert: reuses the "refusé" label
+        assert mock_daemon._event_failure_reason == "nak"
+        # Assert: T2 only
+        assert [c.args[0] for c in mock_daemon._notify.call_args_list] == [ErrorCode.BAD_CSR_RESPONSE]
+
+    @pytest.mark.asyncio
     async def test_timeout_with_retries(self, mock_daemon):
         """Test: alarm → 3 timeouts → FAILED with T3 notification.
 

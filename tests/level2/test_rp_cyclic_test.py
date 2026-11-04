@@ -442,3 +442,32 @@ async def test_rp_ack_after_missed_cycles_resets_strikes() -> None:
     # Assert: recovered
     assert daemon._strike_counter == 0
     assert daemon._sm1_state == SM1State.HEALTHY
+
+
+_DUH = {"status": "duh", "raw_nak": None, "raw_response": b'\nA8080012"DUH"0001L0#4596[]\r'}
+
+
+@pytest.mark.asyncio
+async def test_rp_duh_is_single_send_one_strike_refused_label() -> None:
+    """
+    A DUH to the RP (§ 5.5.3.3 / § 5.6.1.3) is never re-sent and costs one strike.
+
+    Expected result:
+    - exactly one frame sent
+    - strike 1, T2 BAD_CSR_RESPONSE fired, log event 'duh'
+    - event_label "Test cyclique : Refusé par la centrale"
+    """
+    daemon = _make_daemon()
+    daemon._sia_transport.send_frame = AsyncMock(return_value=dict(_DUH))
+    await daemon._send_rp()
+    pushes = [c.args[0] for c in daemon.send_to_jeedom.await_args_list]
+    # Assert: no re-send
+    assert daemon._sia_transport.send_frame.await_count == 1
+    # Assert: one strike
+    assert daemon._strike_counter == 1
+    # Assert: T2 notification
+    assert [c.args[0] for c in daemon._notify.call_args_list] == [ErrorCode.BAD_CSR_RESPONSE]
+    # Assert: dedicated log type, not "NAK non décodable"
+    assert daemon._log_sm1_supervision.call_args.args[0] == "duh"
+    # Assert: RP label says refused
+    assert any(p.get("event_label") == "Test cyclique : Refusé par la centrale" for p in pushes)

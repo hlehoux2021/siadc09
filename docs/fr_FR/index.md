@@ -259,7 +259,8 @@ En plus, une tâche Jeedom vérifie toutes les 5 minutes que le démon répond e
 | Test de connexion : « Connexion refusée » | Mauvais port, ou le récepteur n'écoute pas dans ce transport | Vérifiez port et UDP/TCP auprès de la centrale |
 | Test de connexion : délai dépassé / injoignable | IP erronée, pare-feu, box Internet | Vérifiez l'IP ; autorisez la sortie vers le port de la centrale |
 | Test de connexion : NAK | Numéro de compte inconnu du récepteur | Vérifiez le numéro de compte avec la centrale |
-| Test de connexion : réponse illisible | Format CRC ou chiffrement différent de celui attendu | Vérifiez avec la centrale si le chiffrement est requis |
+| Test de connexion : DUH | La centrale est joignable et reçoit la trame, mais ne la traite pas (cas connu avec le format de supervision SIA-DCS) | Choisissez le format de supervision **NULL** ; vérifiez le numéro de compte et le préfixe |
+| Test de connexion : réponse non reconnue | La centrale répond, mais pas par un ACK, NAK ou DUH valide | Consultez le log `siaDC09` (niveau Debug) pour la trame reçue ; vérifiez le chiffrement avec la centrale |
 | Widget orange « initialisation » juste après le démarrage | Normal : la première supervision part après un intervalle | Attendez environ un intervalle de supervision |
 | Widget gris « Données non disponibles » | Démon arrêté ou bloqué | Vérifiez l'état du démon sur la page du plugin, redémarrez-le |
 | Libellé « Alarme » figé | Démon arrêté (la supervision peut encore afficher un ancien « OK ») | Vérifiez d'abord que le démon tourne |

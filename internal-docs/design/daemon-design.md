@@ -264,7 +264,7 @@ For encrypted ACK, the `*ACK` response is itself encrypted (timestamp + pad in t
 
 | Key | Type | Description |
 |---|---|---|
-| `type` | `str` | `'ACK'`, `'NAK'`, or `'unknown'` (anything unparseable) |
+| `type` | `str` | `'ACK'`, `'NAK'`, `'DUH'` (§ 5.5.3.3: frame received and correct, but not processed; seq echoed, CRC still validated), or `'unknown'` (anything unparseable). The transport maps DUH to status `duh`; the daemon never re-sends after a DUH (§ 5.6.1.3, immediate failure): supervision/RP = one strike + T2 + log event `duh`; alarm event = SM2 FAILED with `_event_failure_reason="nak"` + T2. The wizard test reports `fail` pointing to the NULL supervision format, and logs the clear (never encrypted) sent frame at DEBUG. |
 | `seq` | `int \| None` | Echoed sequence number; `None` for `'unknown'` |
 | `raw_nak` | `bytes \| None` | Full raw NAK frame bytes; populated only when `type='NAK'`. Passed to `parse_nak_timestamp()` to extract the CSR clock for the NAK re-send. |
 
