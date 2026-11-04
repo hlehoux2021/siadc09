@@ -42,6 +42,7 @@ DAEMON_VERSION_INFO: Final[str] = "Démon SIA DC-09 version {version}"
 SM1_INITIALIZING_FR: Final[str] = "Connexion en cours d'initialisation"
 SM1_HEALTHY_FR: Final[str] = "Connexion OK"
 SM1_DEGRADED_1_2_FR: Final[str] = "Connexion dégradée ({}/3)"  # {} = strike counter
+SM1_DEGRADED_DUH_FR: Final[str] = "Connexion dégradée · refus DUH ({}/3)"  # last strike was a DUH
 SM1_DEGRADED_3_FR: Final[str] = "Connexion perdue"
 SM1_TCP_RECONNECTING_FR: Final[str] = "Tentative de reconnexion en cours"
 SM1_NO_NETWORK_FR: Final[str] = "Hors Réseau"

@@ -1583,3 +1583,44 @@ async def test_send_supervision_duh_single_send_one_strike_t2():
     assert [c.args[0] for c in daemon._notify.call_args_list] == [ErrorCode.BAD_CSR_RESPONSE]
     # Assert: dedicated log type
     assert daemon._log_sm1_supervision.call_args.args[0] == "duh"
+
+
+@pytest.mark.asyncio
+async def test_duh_strike_label_names_the_refusal_until_another_failure_or_ack():
+    """Widget label after a DUH names the refusal; the widget regex still splits it (A, 2026-11-04).
+
+    Expected result:
+    - after a DUH the label reads "Connexion dégradée · refus DUH (1/3)"
+    - the widget regex ^(.*?)\s*\((\d+)\/(\d+)\)\s*$ still extracts the N/3 counter
+    - a following timeout strike drops the DUH mention: "Connexion dégradée (2/3)"
+    - back to HEALTHY after an ACK, the label is "Connexion OK"
+    """
+    import re
+
+    daemon = _make_daemon()
+    daemon._sm1_state = SM1State.HEALTHY
+    daemon._strike_counter = 0
+    daemon._sia_builder = MagicMock()
+    daemon._sia_builder.make_supervision_message = MagicMock(return_value=_NULL_FRAME)
+    daemon._send_raw = AsyncMock(return_value={
+        "status": "duh", "raw_nak": None,
+        "raw_response": b'\nA8080012"DUH"0001L0#4596[]\r',
+    })
+
+    await daemon._send_supervision()
+    label = daemon._supervision_label()
+
+    # Assert: the refusal is named
+    assert label == "Connexion dégradée · refus DUH (1/3)", label
+    # Assert: the widget regex still yields the counter
+    m = re.match(r"^(.*?)\s*\((\d+)/(\d+)\)\s*$", label)
+    assert m and m.group(2) == "1" and m.group(3) == "3", label
+
+    await daemon._handle_supervision_timeout(100.0)
+    # Assert: a later non-DUH failure drops the mention
+    assert daemon._supervision_label() == "Connexion dégradée (2/3)"
+
+    daemon._strike_counter = 0
+    daemon._sm1_state = SM1State.HEALTHY
+    # Assert: healthy label unaffected
+    assert daemon._supervision_label() == "Connexion OK"

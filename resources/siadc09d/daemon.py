@@ -61,6 +61,7 @@ from .messages import (
     ENCRYPTION_KEY_INVALID_TITLE,
     SM1_DEGRADED_1_2_FR,
     SM1_DEGRADED_3_FR,
+    SM1_DEGRADED_DUH_FR,
     SM1_DUH,
     SM1_HEALTHY_FR,
     SM1_INITIALIZING_FR,
@@ -457,6 +458,7 @@ class SIADaemon(BaseDaemon):
         # SM1 state machine
         self._sm1_state: SM1State = SM1State.INITIALIZING
         self._strike_counter: int = 0
+        self._last_strike_was_duh: bool = False  # widget label names the refusal (DUH)
         self._sm1_t3_fired: bool = False
         self._last_supervision_ack: datetime | None = None
 
@@ -926,7 +928,8 @@ class SIADaemon(BaseDaemon):
                 return SM1_DEGRADED_3_FR  # "Connexion perdue"
             else:
                 # "Connexion dégradée (N/3)" — replace N with current strike
-                return SM1_DEGRADED_1_2_FR.format(self._strike_counter)
+                template = SM1_DEGRADED_DUH_FR if self._last_strike_was_duh else SM1_DEGRADED_1_2_FR
+                return template.format(self._strike_counter)
         elif self._sm1_state == SM1State.TCP_RECONNECTING:
             return SM1_TCP_RECONNECTING_FR  # "Tentative de reconnexion en cours"
         elif self._sm1_state == SM1State.CONFIG_ERROR:
@@ -1229,6 +1232,7 @@ class SIADaemon(BaseDaemon):
         """
         prev_strike = self._strike_counter
         self._strike_counter = 0
+        self._last_strike_was_duh = False
         self._sm1_t3_fired = False
         self._set_sm1_state(SM1State.HEALTHY)
         self._last_supervision_ack = datetime.now(timezone.utc)
@@ -1295,6 +1299,7 @@ class SIADaemon(BaseDaemon):
         """
         # Increment strike
         self._strike_counter = min(self._strike_counter + 1, STRIKE_CAP)
+        self._last_strike_was_duh = False
         prev_strike = self._strike_counter - 1
 
         # Update SM1 state based on strike
@@ -1354,6 +1359,7 @@ class SIADaemon(BaseDaemon):
             elapsed_ms: Time elapsed from send to DUH receipt
         """
         self._strike_counter = min(self._strike_counter + 1, STRIKE_CAP)
+        self._last_strike_was_duh = True
         t3_just_fired = await self._update_sm1_from_strike()
         raw = result['raw_response'] or b""
 
@@ -1395,6 +1401,7 @@ class SIADaemon(BaseDaemon):
 
         # Increment strike
         self._strike_counter = min(self._strike_counter + 1, STRIKE_CAP)
+        self._last_strike_was_duh = False
 
         # Update SM1 state based on strike
         t3_just_fired = await self._update_sm1_from_strike()
@@ -1500,6 +1507,7 @@ class SIADaemon(BaseDaemon):
                     pass  # already closed or reset — cleanup best-effort
 
                 self._strike_counter = 0
+                self._last_strike_was_duh = False
                 self._sm1_t3_fired = False
                 self._set_sm1_state(SM1State.INITIALIZING)
                 self._logger.info("TCP reconnect successful, returning to INITIALIZING")
@@ -2877,6 +2885,7 @@ class SIADaemon(BaseDaemon):
         self._sm1_state = SM1State.INITIALIZING
         self._sm2_state = SM2State.IDLE
         self._strike_counter = 0
+        self._last_strike_was_duh = False
         self._sm1_t3_fired = False
 
         from . import messages
