@@ -71,3 +71,26 @@ after = []
 hitl = false
 risk = "low"
 v6_key = "17-6-duh-response-handling"
+
+[[entry]]
+id = 7
+type = "story"
+title = "Configurable Alarm Media in BA Frames (Snapshot / Clip, U or V, One Tag or Several)"
+description = "To choose, per equipment, whether intrusion (BA) frames carry a snapshot, a clip, both or nothing, in which tag format (U or V) each travels, and, when both formats are the same, whether both URLs share one tag; the media URL setting moves into the wizard advanced options, shown only when the snapshot or the clip is on. Today the frame carries the snapshot and the clip, when available, in a single V tag with one space between them. This story defines the equipment configuration keys for these choices, so that a profile can carry them (see 17.8)."
+verify = "A BA frame is built for each valid combination of snapshot on/off, clip on/off, format U/V per media and, when both are on, one tag or one tag each; each frame matches the expected bytes. One tag with different formats is refused by the wizard and by the daemon. With both off, the frame has no media tag. The URL field is hidden with both off and shown with at least one on; saving with one on and an empty URL shows an error in the wizard. An equipment saved before this story sends the same bytes as today."
+covers = []
+after = [1, 4]
+hitl = false
+risk = "medium"
+references = ["spec — internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md, section 5.5.1.8", "design — internal-docs/design/wizard-design.md, advanced options (to update with this story)"]
+
+[[entry]]
+id = 8
+type = "story"
+title = "Vesta (Climax) and FoxStream (FoxBox) CSR Profiles"
+description = "Two new profiles in the wizard profile list: Vesta (Climax) sends snapshot and clip, format U, one tag with a single space between the URLs; FoxStream (FoxBox) sends snapshot and clip, format V, one tag with a single space between the URLs. Both also set the supervision frame to sia-dcs every 30 s and the RP cyclic test on every 120 s. These two timings are test values."
+verify = "Choosing each profile in the wizard sets the media options and the two timings as described and nothing else changes in the equipment. The level 1 test on the preset file accepts both profiles."
+covers = ["FR11", "NFR7"]
+after = [1, 2, 3, 7]
+hitl = false
+risk = "low"
