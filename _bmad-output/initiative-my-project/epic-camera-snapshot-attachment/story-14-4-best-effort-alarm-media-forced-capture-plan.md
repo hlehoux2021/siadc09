@@ -496,8 +496,8 @@ needs no change.
 - [Source: _bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md#ADR-17, Amendment 4 (2026-09-26)]
 - [Source: _bmad-output/initiative-my-project/requirements-14-4-frigate-forced-capture-2026-09-26.md]
 - [Source: _bmad-output/initiative-my-project/archive-v6/epics.md#Story 14.4]
-- [Source: _bmad-output/initiative-my-project/epic-camera-snapshot-attachment/story-attach-frigate-clip-alongside-snapshot-plan.md]
-- [Source: _bmad-output/initiative-my-project/epic-camera-snapshot-attachment/story-frigate-event-prefetch-immediate-action-plan.md]
+- [Source: _bmad-output/initiative-my-project/epic-camera-snapshot-attachment/story-14-3-attach-frigate-clip-alongside-snapshot-plan.md]
+- [Source: _bmad-output/initiative-my-project/epic-camera-snapshot-attachment/story-14-2-frigate-event-prefetch-immediate-action-plan.md]
 - [Source: _bmad-output/initiative-my-project/deferred-work.md — D-51..D-54, D-57..D-61]
 - [Source: resources/siadc09d/frigate_prefetch.py; resources/siadc09d/daemon.py (~2124-2239, 503-535, 246-262)]
 - [Source: core/class/siaDC09.class.php (~498, 596-623); core/class/siaDC09Cmd.class.php (27, 38-114, 307-529)]
@@ -625,7 +625,7 @@ Claude Sonnet 5 (eu.anthropic.claude-sonnet-5)
   opened during code review; D-80 opened during Task 6 live validation — protocol-inspector decoder gap)
 - `_bmad-output/initiative-my-project/archive-v6/sprint-status.yaml` (14-4 registered/in-progress; epic-14 reopened;
   in-progress → review after Task 6 live validation)
-- `_bmad-output/initiative-my-project/epic-camera-snapshot-attachment/story-best-effort-alarm-media-forced-capture-plan.md` (this story file)
+- `_bmad-output/initiative-my-project/epic-camera-snapshot-attachment/story-14-4-best-effort-alarm-media-forced-capture-plan.md` (this story file)
 
 ## Change Log
 

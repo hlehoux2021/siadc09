@@ -158,7 +158,7 @@ one root cause:
 ## Dev Notes
 
 ### Prior art — read before implementing
-- `_bmad-output/initiative-my-project/epic-dashboard-widget/story-widget-staleness-detection-testing-plan.md` — the inline-script pattern, the
+- `_bmad-output/initiative-my-project/epic-dashboard-widget/story-10-2-widget-staleness-detection-testing-plan.md` — the inline-script pattern, the
   `jeedom.eqLogic.byId({id, getCmdState:1})` call (10-2 review F2/F3 replaced the
   non-existent `jeedom.cmd.getStatsByEqLogicId`), the Safari-safe date parse, and the
   "What NOT To Do" list. **Note 10-2 review F1 (`getValue()`→`execCmd()`) — Task 3 revisits it.**

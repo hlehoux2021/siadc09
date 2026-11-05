@@ -620,4 +620,4 @@ Claude Opus 5.5 (`eu.anthropic.claude-opus-5-5`), Claude Code, 2026-09-27 → 20
 
 **And** conformance is proven by tests independent of `SIACipher`, then validated against a real receiver
 
-Story file: `_bmad-output/initiative-my-project/epic-protocol-engine/story-dc09-conformant-send-path-encryption-plan.md`
+Story file: `_bmad-output/initiative-my-project/epic-protocol-engine/story-1-5-dc09-conformant-send-path-encryption-plan.md`

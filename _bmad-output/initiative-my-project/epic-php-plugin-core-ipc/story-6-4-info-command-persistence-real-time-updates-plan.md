@@ -345,8 +345,8 @@ New files (Story 6.4):
 - [Source: _bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md § ADR-14 — SM2 IDLE startup-only; `event_state` / `event_label` not reset]
 - [Source: _bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md § Anti-Pattern table — `empty($data['field'])` → `isset($data['field'])`]
 - [Source: _bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md § Callback Contract Table — `info_update` required keys]
-- [Source: _bmad-output/initiative-my-project/epic-php-plugin-core-ipc/story-json-callback-ipc-protocol-plan.md — Story 6.3 dev notes (canonical config key, flat payload, _getAutoEquipmentSafe)]
-- [Source: _bmad-output/initiative-my-project/epic-php-plugin-core-ipc/story-php-eqlogic-cmd-classes-plan.md — Story 6.1 patterns]
+- [Source: _bmad-output/initiative-my-project/epic-php-plugin-core-ipc/story-6-3-json-callback-ipc-protocol-plan.md — Story 6.3 dev notes (canonical config key, flat payload, _getAutoEquipmentSafe)]
+- [Source: _bmad-output/initiative-my-project/epic-php-plugin-core-ipc/story-6-1-php-eqlogic-cmd-classes-plan.md — Story 6.1 patterns]
 - [Source: tests/fixtures/ipc_schema.py — INFO_UPDATE_SCHEMA definition]
 - [Source: core/class/siaDC09.class.php — current postSave() and _handleInfoUpdate() implementations]
 

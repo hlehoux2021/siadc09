@@ -421,7 +421,7 @@ Claude Sonnet 4.6 (1M context)
 
 ### Completion Notes List
 
-- ⚠️ **Uncommitted Story 5-2 files present in working tree** (not part of Story 5-3): `tests/level2/test_sm2_alarm_event_suite.py` (modified), `tests/level2/test_sm2_extended_coverage.py` (new), `_bmad-output/initiative-my-project/tests/test-generation-summary-qa-sm2-extended.md` (new), `_bmad-output/initiative-my-project/epic-daemon-core-state-machines/story-sm2-alarm-event-state-machine-plan.md` (modified), `.claude/rules/code-style.md` (modified). These are QA additions from a Story 5-2 session. Commit them under Story 5-2 before closing that story.
+- ⚠️ **Uncommitted Story 5-2 files present in working tree** (not part of Story 5-3): `tests/level2/test_sm2_alarm_event_suite.py` (modified), `tests/level2/test_sm2_extended_coverage.py` (new), `_bmad-output/initiative-my-project/tests/test-generation-summary-qa-sm2-extended.md` (new), `_bmad-output/initiative-my-project/epic-daemon-core-state-machines/story-5-2-sm2-alarm-event-state-machine-plan.md` (modified), `.claude/rules/code-style.md` (modified). These are QA additions from a Story 5-2 session. Commit them under Story 5-2 before closing that story.
 - ✅ Story AC extracted from epics.md
 - ✅ **RESOLVED:** Priority value discrepancy resolved — daemon-design.md is authoritative. `QUEUE_PRIORITY_EVENT=0` (alarms first), `QUEUE_PRIORITY_SUPERVISION=1`.
 - ✅ SIA DC-09 expert pre-validation completed: one-at-a-time constraint satisfied

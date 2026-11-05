@@ -506,7 +506,7 @@ Before implementing, verify:
 
 **Modified:**
 - `_bmad-output/initiative-my-project/archive-v6/sprint-status.yaml` — Story status: ready-for-dev → review
-- `_bmad-output/initiative-my-project/epic-error-handler/story-errorcode-enum-error-classification-plan.md` — Story file with implementation notes and completion status
+- `_bmad-output/initiative-my-project/epic-error-handler/story-3-1-errorcode-enum-error-classification-plan.md` — Story file with implementation notes and completion status
 
 **Deferred to Story 3.2:**
 - `resources/siadc09d/__init__.py` — Export ErrorCode, ErrorTier from error_handler

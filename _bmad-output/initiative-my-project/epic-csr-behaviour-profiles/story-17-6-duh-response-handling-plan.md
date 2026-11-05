@@ -138,7 +138,7 @@ and T2.
 
 Status: review (implemented 2026-11-04, commit 19fb318 local, not pushed; field check on the real CSR pending)
 
-Evolution, not a fix: DUH handling was not planned when epic 17 started. Build record: `_bmad-output/initiative-my-project/epic-csr-behaviour-profiles/story-duh-response-handling-plan.md` (ticket `17-6-duh-response-handling`, status `built`, baseline `f053858`).
+Evolution, not a fix: DUH handling was not planned when epic 17 started. Build record: `_bmad-output/initiative-my-project/epic-csr-behaviour-profiles/story-17-6-duh-response-handling-plan.md` (ticket `17-6-duh-response-handling`, status `built`, baseline `f053858`).
 
 ##### Story
 

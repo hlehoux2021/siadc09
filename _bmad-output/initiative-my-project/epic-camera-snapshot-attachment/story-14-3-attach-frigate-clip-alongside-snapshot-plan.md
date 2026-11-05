@@ -407,9 +407,9 @@ by direct observation, not inferred as a pass.
 
 - ADR-17, Amendment 3 — `_bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md:393-502`
 - Epic 14 / Story 14.3 — `_bmad-output/initiative-my-project/archive-v6/epics.md:2362-2418`
-- Story 14.2 — `_bmad-output/initiative-my-project/epic-camera-snapshot-attachment/story-frigate-event-prefetch-immediate-action-plan.md`
+- Story 14.2 — `_bmad-output/initiative-my-project/epic-camera-snapshot-attachment/story-14-2-frigate-event-prefetch-immediate-action-plan.md`
   (prefetch cache mechanism this story extends; daemon-caches-vs-Jeedom-cache reconciliation reused as-is)
-- Story 14.1 — `_bmad-output/initiative-my-project/epic-camera-snapshot-attachment/story-attach-frigate-snapshot-alarm-frame-plan.md`
+- Story 14.1 — `_bmad-output/initiative-my-project/epic-camera-snapshot-attachment/story-14-1-attach-frigate-snapshot-alarm-frame-plan.md`
   (`frigate_media_url_template` wizard field and `_buildFrigateMediaUrl()`'s original construction, reused
   as-is, only parameterized)
 - `scripts/frigate_latency_probe.py` — clip-readiness probing methodology (`has_clip` field, guessable-URL
@@ -508,7 +508,7 @@ Claude Sonnet 5 (eu.anthropic.claude-sonnet-5), via the bmad-dev-story workflow,
   default/substitution tests; new `TestResolveFrigateClipUrlExists` class; new real-PHP-execution
   harness + `TestExecuteBurglarAlarmMediaUrlJoin` class covering all six AC5 cache-state
   combinations plus a stale-cache-shape and an expired-entry case.
-- `_bmad-output/initiative-my-project/epic-camera-snapshot-attachment/story-attach-frigate-clip-alongside-snapshot-plan.md` — this
+- `_bmad-output/initiative-my-project/epic-camera-snapshot-attachment/story-14-3-attach-frigate-clip-alongside-snapshot-plan.md` — this
   story file (Tasks/Subtasks, Dev Agent Record, Status).
 - `_bmad-output/initiative-my-project/archive-v6/sprint-status.yaml` — `14-3-attach-frigate-clip-alongside-snapshot`
   status `ready-for-dev` → `in-progress`; summary counters updated.

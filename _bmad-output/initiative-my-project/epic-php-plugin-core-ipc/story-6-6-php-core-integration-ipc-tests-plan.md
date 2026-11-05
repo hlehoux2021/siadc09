@@ -283,7 +283,7 @@ Unchanged (reference only):
 - [Source: _bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md § Level 2.5 — IPC Contract Tests — recording shim pattern]
 - [Source: tests/fixtures/ipc_schema.py — authoritative callback schemas]
 - [Source: resources/aiodemod/aiodemod.py — reference plugin send_to_jeedom() usage]
-- [Source: _bmad-output/initiative-my-project/epic-php-plugin-core-ipc/story-jeedom-dependency-manager-installation-plan.md — previous story learnings]
+- [Source: _bmad-output/initiative-my-project/epic-php-plugin-core-ipc/story-6-5-jeedom-dependency-manager-installation-plan.md — previous story learnings]
 
 ---
 

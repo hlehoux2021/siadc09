@@ -265,7 +265,7 @@ New files (Story 7.1):
 - [Source: internal-docs/design/logging-design.md — SM1 Supervision logging table, ring buffer throttle]
 - [Source: resources/siadc09d/daemon.py — full SM1 implementation (lines 714–1238)]
 - [Source: core/class/siaDC09.class.php:60 — current deamon_info() to replace]
-- [Source: _bmad-output/initiative-my-project/epic-php-plugin-core-ipc/story-php-core-integration-ipc-tests-plan.md — recording shim test pattern, 848 test baseline]
+- [Source: _bmad-output/initiative-my-project/epic-php-plugin-core-ipc/story-6-6-php-core-integration-ipc-tests-plan.md — recording shim test pattern, 848 test baseline]
 
 ## Dev Agent Record
 

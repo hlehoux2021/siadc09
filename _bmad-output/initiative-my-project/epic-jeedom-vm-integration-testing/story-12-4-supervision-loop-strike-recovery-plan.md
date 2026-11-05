@@ -438,7 +438,7 @@ foreach (\$msgs as \$m) {
 - [Source: `internal-docs/design/supervision-design.md`] — Groups A/B/C, SM1 state mapping table, `_supervision_value()` formula
 - [Source: `internal-docs/design/error-handler-design.md`] — T1/T2/T3 tiers, ErrorCode enum, `_notify()` and `_dispatch_notify()` design, `sia_last_errors` persistence
 - [Source: `internal-docs/design/logging-design.md`] — ring buffer throttle rules (routine ACK 10-min), dual-line logging pattern
-- [Source: `_bmad-output/initiative-my-project/epic-jeedom-vm-integration-testing/story-daemon-lifecycle-jeedom-controls-plan.md`] — Story 12-3 learnings (watchdog timing, log level format, postSave behavior)
+- [Source: `_bmad-output/initiative-my-project/epic-jeedom-vm-integration-testing/story-12-3-daemon-lifecycle-jeedom-controls-plan.md`] — Story 12-3 learnings (watchdog timing, log level format, postSave behavior)
 - [Source: `tests/level3/test_supervision_e2e.py`] — E2E supervision tests with real simulator for reference test patterns
 
 ### Previous Story Intelligence (12-3)

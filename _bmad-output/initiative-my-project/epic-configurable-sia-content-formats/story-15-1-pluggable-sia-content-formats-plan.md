@@ -182,8 +182,8 @@ so that the plugin can report to a CSR that only understands its own "IP" `#KEY=
 - [Source: resources/siadc09d/presets.py, resources/siadc09d/siadc09d.py:263-311, 397-429]
 - [Source: core/class/siaDC09.class.php:98-301]
 - [Source: desktop/php/siaDC09.php:132-203; desktop/js/siaDC09.js:110-200, 590-610]
-- [Source: _bmad-output/initiative-my-project/epic-protocol-engine/story-dc09-conformant-send-path-encryption-plan.md: D1/D2, spec oracles unreliable]
-- [Source: _bmad-output/initiative-my-project/epic-camera-snapshot-attachment/story-frigate-event-prefetch-immediate-action-plan.md:256: live `[#20881|BA 002]` frame]
+- [Source: _bmad-output/initiative-my-project/epic-protocol-engine/story-1-5-dc09-conformant-send-path-encryption-plan.md: D1/D2, spec oracles unreliable]
+- [Source: _bmad-output/initiative-my-project/epic-camera-snapshot-attachment/story-14-2-frigate-event-prefetch-immediate-action-plan.md:256: live `[#20881|BA 002]` frame]
 - [Source: _bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md: ADR-18 (user-addressed codes)]
 
 ## Dev Agent Record

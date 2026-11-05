@@ -142,7 +142,7 @@ Resultats de la checklist de `migration-1.toml` (2026-11-05, apres l'etape 12) :
 
 | # | Resultat | Detail |
 |---|---|---|
-| 1 | OK | 92 fichiers de la sauvegarde : chacun est a sa place, dans `archive-v6/` ou deplace (`plan-10-1-widget-sm1-sm2-redesign.md` devenu `epic-dashboard-widget/story-widget-rendering-bootstrap-panel-plan.md`). `brainstorming/` reste en place (hors initiative, voir plus haut). |
+| 1 | OK | 92 fichiers de la sauvegarde : chacun est a sa place, dans `archive-v6/` ou deplace (`plan-10-1-widget-sm1-sm2-redesign.md` devenu `epic-dashboard-widget/story-10-1-widget-rendering-bootstrap-panel-plan.md`). `brainstorming/` reste en place (hors initiative, voir plus haut). |
 | 2 | OK | `initiative-my-project/`, `backlog/`, `archive/` existent ; `.gitkeep` dans les deux derniers. |
 | 3 | OK | Aucune version datee archivee : les deux rapports de readiness et les quatre propositions de changement de cap gardent leur nom. |
 | 4 | OK | `tickets.py status` : 70 entrees = 54 done, 7 review, 2 dropped (11-1, 15-1), 7 planned (11-2, 12-7, 12-8, 13-2, 13-3, 16-1, 16-2). Identique a `sprint-status.yaml` (54 done, 7 review). `unpinned_after`, `undeclared_after`, `order_conflict` vides. Une ligne `problems` : voir ci-dessous. |

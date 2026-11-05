@@ -212,7 +212,7 @@ Code review 2026-09-26 (Blind Hunter + Edge Case Hunter + Acceptance Auditor, di
 - [Source: core/class/siaDC09.class.php#postSave() (lignes 688-707)]
 - [Source: resources/siadc09d/daemon.py — SiaEventCode (149), _EVENT_SIA_CODES (304), _VARIABLE_SIA_CODE_COMMANDS (317), _USER_ADDRESSED_SIA_CODES (320)]
 - [Source: resources/siadc09d/error_handler.py — EventFailedCtx.sia_code (328), event_type_fr()]
-- [Source: _bmad-output/initiative-my-project/epic-alarm-event-vocabulary/story-burglary-restore-cancel-events-plan.md — conception et Dev Agent Record de référence pour `_resolveSiaUserNumber`/`_hasOpenAlarm`/`_purgeOpenAlarms`, et pour le mécanisme de validation live via l'API Jeedom]
+- [Source: _bmad-output/initiative-my-project/epic-alarm-event-vocabulary/story-13-1-burglary-restore-cancel-events-plan.md — conception et Dev Agent Record de référence pour `_resolveSiaUserNumber`/`_hasOpenAlarm`/`_purgeOpenAlarms`, et pour le mécanisme de validation live via l'API Jeedom]
 - [Source: _bmad-output/initiative-my-project/archive-v6/13-2-burglary-restore-event.md#lignes 36-37 (table activationOk/activationImmediateOk/activationKo)]
 
 ## Dev Agent Record

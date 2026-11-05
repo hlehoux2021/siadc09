@@ -144,7 +144,7 @@ The epics.md AC doesn't specify a language for the Admin guide or Developer guid
 - [Source: plugin_info/info.json, plugin_info/packages.json] — verified current content (no version key, jeedomdaemon unpinned)
 - [Source: README.md] — verified current content is the unrelated aiodemo template
 - [Source: /Users/herve.lehoux/dev-hlx/MyHargassner/README.md] — style reference requested by Herve
-- [Source: _bmad-output/initiative-my-project/epic-e2e-testing-market-preparation/story-full-workflow-integration-testing-plan.md] — previous story in epic, citation-discipline pattern
+- [Source: _bmad-output/initiative-my-project/epic-e2e-testing-market-preparation/story-11-3-full-workflow-integration-testing-plan.md] — previous story in epic, citation-discipline pattern
 
 ## Dev Agent Record
 

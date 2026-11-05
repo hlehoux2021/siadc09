@@ -11,7 +11,7 @@ Current block: none (all accepted)
 
 ## 1. Intent
 
-Source: the `## Intent` section of [the plan](../story-configurable-supervision-frame-sia-dcs-null-plan.md), verbatim.
+Source: the `## Intent` section of [the plan](../story-17-2-configurable-supervision-frame-sia-dcs-null-plan.md), verbatim.
 
 **Problem:** Story 17.1 carries `supervision_format` into `CSRPreset`, but the daemon always sends the `sia-dcs` frame, and the first frame waits one full interval (D-42). A CSR that expects a true Null Message cannot be served.
 
@@ -51,4 +51,4 @@ Level 1 pins the frames: clear golden frame, no tracker use, encrypted `*NULL`, 
 
 ## 6. Periphery
 
-- [the plan, with triage log](../story-configurable-supervision-frame-sia-dcs-null-plan.md): 8 review findings, all rejected.
+- [the plan, with triage log](../story-17-2-configurable-supervision-frame-sia-dcs-null-plan.md): 8 review findings, all rejected.

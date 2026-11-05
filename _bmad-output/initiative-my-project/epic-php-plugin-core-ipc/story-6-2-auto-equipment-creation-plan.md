@@ -182,7 +182,7 @@ Story 6.1's `postSave()` already creates all 7 commands idempotently. When `_get
 - [Source: internal-docs/design/php-core-design.md § Confirmed Design Decisions — "Auto-recreate if deleted: Yes + log warning"]
 - [Source: internal-docs/design/php-core-design.md § message() — uses _getAutoEquipmentSafe(), NOT _getAutoEquipment()]
 - [Source: core/class/aiodemo.class.php lines 97-105 — handleFeedback() auto-create pattern]
-- [Source: _bmad-output/initiative-my-project/epic-php-plugin-core-ipc/story-php-eqlogic-cmd-classes-plan.md — Story 6.1 completion notes]
+- [Source: _bmad-output/initiative-my-project/epic-php-plugin-core-ipc/story-6-1-php-eqlogic-cmd-classes-plan.md — Story 6.1 completion notes]
 - [Source: _bmad-output/initiative-my-project/archive-v6/epics.md § Story 6.2 Acceptance Criteria]
 
 ---

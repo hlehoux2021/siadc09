@@ -388,9 +388,9 @@ csr_simulator.py (NEW — Story 1.4)
 ## References
 
 - **Protocol Spec:** internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md (§ 5.5)
-- **Story 1.1:** _bmad-output/initiative-my-project/epic-protocol-engine/story-sia-protocol-message-builder-plan.md
-- **Story 1.2:** _bmad-output/initiative-my-project/epic-protocol-engine/story-aes-128-cbc-encryption-module-plan.md
-- **Story 1.3:** _bmad-output/initiative-my-project/epic-protocol-engine/story-ack-nak-response-parser-plan.md
+- **Story 1.1:** _bmad-output/initiative-my-project/epic-protocol-engine/story-1-1-sia-protocol-message-builder-plan.md
+- **Story 1.2:** _bmad-output/initiative-my-project/epic-protocol-engine/story-1-2-aes-128-cbc-encryption-module-plan.md
+- **Story 1.3:** _bmad-output/initiative-my-project/epic-protocol-engine/story-1-3-ack-nak-response-parser-plan.md
 - **Architecture:** internal-docs/design/daemon-design.md § Component 0 (protocol layer)
 - **Code Style:** .claude/rules/code-style.md (type hints, error handling, asyncio patterns)
 - **Testing:** .claude/rules/testing.md (pytest standards, test documentation)

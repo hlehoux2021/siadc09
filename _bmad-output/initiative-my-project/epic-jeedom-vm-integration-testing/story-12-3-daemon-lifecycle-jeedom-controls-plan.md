@@ -259,8 +259,8 @@ if (self::isConnect()) {
 - [Source: internal-docs/design/supervision-design.md#Task A.2] — `on_stop()` code: pushes STOPPED, drains queue, cancels tasks
 - [Source: internal-docs/design/supervision-design.md#Task C.2] — `deamon_info()` guard chain (6 guards)
 - [Source: internal-docs/design/supervision-design.md#Task C.3] — `cron5()` — freshness check only (no restart logic)
-- [Source: _bmad-output/initiative-my-project/epic-jeedom-vm-integration-testing/story-wizard-flow-connection-test-plan.md] — prior story infrastructure, bugs fixed, daemon auto-start confirmation
-- [Source: _bmad-output/initiative-my-project/epic-jeedom-vm-integration-testing/story-manual-plugin-installation-dependency-setup-plan.md] — VM infrastructure, bind mount, venv location
+- [Source: _bmad-output/initiative-my-project/epic-jeedom-vm-integration-testing/story-12-2-wizard-flow-connection-test-plan.md] — prior story infrastructure, bugs fixed, daemon auto-start confirmation
+- [Source: _bmad-output/initiative-my-project/epic-jeedom-vm-integration-testing/story-12-1-manual-plugin-installation-dependency-setup-plan.md] — VM infrastructure, bind mount, venv location
 
 ### Previous Story Intelligence (12-2)
 
