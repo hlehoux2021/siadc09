@@ -476,7 +476,7 @@ def build_notification(code: ErrorCode, context: dict[str, Any]) -> Notification
     # DUH (SIA DC-09 5.5.3.3) reuses BAD_CSR_RESPONSE but is not an unreadable reply.
     _bad_csr_refused = bool(context.get("refused", False))
     _bad_csr_title = (
-        "siaDC09 — Trame refusée par la centrale (DUH)"
+        "siaDC09 — Trame refusée par la centrale"
         if _bad_csr_refused
         else "siaDC09 — Réponse incompréhensible de la centrale"
     )
@@ -507,8 +507,8 @@ def build_notification(code: ErrorCode, context: dict[str, Any]) -> Notification
         ),
         ErrorCode.BAD_CSR_RESPONSE: (
             (
-                f"La centrale a reçu la trame mais refuse de la traiter (DUH).\n"
-                "Essayez le format de supervision « null » et vérifiez le compte et le préfixe.\n"
+                "La centrale est joignable mais n'accepte pas la trame envoyée.\n"
+                "Essayez le format de supervision « null » et vérifiez le numéro de compte et le préfixe.\n"
                 f"Centrale: {csr_address} ({transport})."
             )
             if _bad_csr_refused

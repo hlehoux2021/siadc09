@@ -619,7 +619,8 @@ def test_bad_csr_response_refused_ctx_gives_duh_message_not_unreadable() -> None
     as "reponse que le plugin ne peut pas interpreter", which is false and hides the fix.
 
     Expected result:
-    - a refused BadCSRResponseCtx gives a title and message saying the CSR refused the frame (DUH)
+    - a refused BadCSRResponseCtx gives a title and message saying the CSR refused the frame
+    - the wording is non-technical: the jargon "DUH" never appears
     - the message points to the null format and to account/prefix
     - it never says the reply cannot be interpreted
     - a non-refused context keeps the original wording
@@ -628,8 +629,11 @@ def test_bad_csr_response_refused_ctx_gives_duh_message_not_unreadable() -> None
 
     base = {"csr_address": "194.51.213.114:5390", "transport": "tcp", "strike_count": 1}
     payload = build_notification(ErrorCode.BAD_CSR_RESPONSE, {**base, "refused": True})
-    # Assert: the refusal is named
-    assert "DUH" in payload["message"], payload["message"]
+    # Assert: the refusal is named in plain words, without the DUH jargon
+    assert "n'accepte pas" in payload["message"], payload["message"]
+    assert "DUH" not in payload["message"], payload["message"]
+    assert "DUH" not in payload["title"], payload["title"]
+    assert "refusée" in payload["title"], payload["title"]
     # Assert: the user is steered to the null format and to account/prefix
     assert "null" in payload["message"], payload["message"]
     assert "compte" in payload["message"], payload["message"]

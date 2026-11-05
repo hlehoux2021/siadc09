@@ -1590,7 +1590,7 @@ async def test_duh_strike_label_names_the_refusal_until_another_failure_or_ack()
     """Widget label after a DUH names the refusal; the widget regex still splits it (A, 2026-11-04).
 
     Expected result:
-    - after a DUH the label reads "Connexion dégradée · refus DUH (1/3)"
+    - after a DUH the label reads "Connexion dégradée · supervision refusée (1/3)"
     - the widget regex still extracts the N/3 counter
     - a following timeout strike drops the DUH mention: "Connexion dégradée (2/3)"
     - back to HEALTHY after an ACK, the label is "Connexion OK"
@@ -1611,7 +1611,7 @@ async def test_duh_strike_label_names_the_refusal_until_another_failure_or_ack()
     label = daemon._supervision_label()
 
     # Assert: the refusal is named
-    assert label == "Connexion dégradée · refus DUH (1/3)", label
+    assert label == "Connexion dégradée · supervision refusée (1/3)", label
     # Assert: the widget regex still yields the counter
     m = re.match(r"^(.*?)\s*\((\d+)/(\d+)\)\s*$", label)
     assert m and m.group(2) == "1" and m.group(3) == "3", label
