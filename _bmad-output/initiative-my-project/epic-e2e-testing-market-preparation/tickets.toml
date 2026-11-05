@@ -1,0 +1,49 @@
+# Migrated from epics.md and sprint-status.yaml (BMad v6). Status lives in the plans.
+
+[[entry]]
+id = 1
+type = "story"
+title = "Protocol Conformance — Capture & Compare Ajax Frames"
+description = "To verify our daemon generates frames identical to Ajax."
+verify = "extract SIA frames using PCAP extraction tool (Epic 2.4)"
+covers = []
+after = []
+hitl = false
+risk = "low"
+v6_key = "11-1-protocol-conformance-capture-compare-ajax-frames"
+
+[[entry]]
+id = 2
+type = "story"
+title = "CSR Response Validation — Real IMA vs Simulator"
+description = "To verify CSR Simulator responds identically to real IMA Protect.\n\nOriginal acceptance criteria (epics.md):\n\n**Test Strategy Reference:** daemon-design.md \"CSR Simulator\" validation protocol + architecture.md \"Starter Template Evaluation\" (CSR specifications)\n\n**Test Setup (ref: architecture doc, ADR-03 Preset Architecture):**\n\nCapture real CSR behavior with Wireshark:\n1. Ajax alarm system configured to send to **real IMA Protect** (live CSR, production or test)\n2. Sniff traffic with Wireshark (tcpdump or Wireshark UI)\n3. Extract frames using Story 2.4 (PCAP extractor tool)\n4. Save to: `test_data/ima_protect_capture.pcapng` and extracted `test_data/ima_protect_frames.hex`\n\nCapture IMA Protect responses:\n5. Parse CSR responses from pcap (ACKs, NAKs, timestamps)\n6. Extract response format: frame structure, timestamp format, CRC algorithm\n7. Save response samples to: `test_data/ima_protect_responses.yaml`\n\n**Response Format Specification (ref: daemon-design.md protocol spec section):**\n\nCSR responses expected:\n- **ACK**: Fixed format per SIA DC-09-2021 (see protocol spec)\n  - Structure: delimiter + sequence + code + CRC + checksum\n  - Timestamp: optional, format HHMMSSMMDDYY (when present)\n  - CRC format: hex or binary (per preset)\n- **NAK**: NAK code + optional timestamp\n  - Indicates rejection (timestamp invalid, bad account, etc.)\n\n**Comparison Matrix (ref: daemon-design.md testing section):**\n\n| Scenario | Input Frame | Expected IMA Response | CSR Simulator Response | Match | Status |\n|----------|-------------|-----------------------|------------------------|-------|--------|\n| Valid alarm (burglary) | SIA encoded burglary frame | ACK, no timestamp | ACK, no timestamp | ✓/✗ | — |\n| Valid alarm (fire) | SIA encoded fire frame | ACK | ACK | ✓/✗ | — |\n| Valid alarm (panic) | SIA encoded panic frame | ACK | ACK | ✓/✗ | — |\n| Supervision NULL | SIA NULL (zero payload) | ACK with timestamp | ACK with timestamp | ✓/✗ | — |\n| Invalid timestamp | Alarm with bad timestamp | NAK (timestamp error) | NAK (timestamp error) | ✓/✗ | — |\n| Malformed CRC | Frame with bad CRC | NAK or no response | NAK or no response | ✓/✗ | — |\n| Encryption mismatch | Wrong key used | No response / timeout | No response / timeout | ✓/✗ | — |\n\n**Test Execution:**\n\nFor each test case:\n1. Send frame from our daemon to **real IMA Protect** → capture response\n2. Send same frame to **CSR Simulator** → capture response\n3. Compare byte-by-byte:\n   - Frame structure identical\n   - Timestamp values within acceptable skew (e.g., ±5 seconds)\n   - CRC/checksum algorithms match\n   - NAK codes identical\n\n**Validation Thresholds:**\n\n| Aspect | Criterion | Pass |\n|--------|-----------|------|\n| Frame structure | ACK/NAK format matches | Byte-for-byte identical (excluding timestamps) |\n| Timestamp | Time skew | ±5 seconds or less |\n| Error responses | NAK codes | Same NAK code for same error condition |\n| Response timing | ACK delay | Within 1 second (both <500ms) |\n| Encryption | Encrypted frame handling | Both accept or both reject |\n\n**Test Report (ref: daemon-design.md validation output):**\n\nFile: `test_data/csr_simulator_validation_report.md`\n\nDocument findings:\n- **Validation Status**: ✅ PASS (simulator matches IMA within thresholds) or ⚠️ PARTIAL (known differences documented)\n- **Differences Found**: If any, describe and document impact on development\n- **Confidence Level**: Can development proceed with simulator? YES / NO / WITH_CAVEATS\n- **Test Data**: List of captured frames, response samples, test matrix results\n- **Next Steps**: If validation fails, action items to fix simulator or update test data\n\n**Test Automation (ref: daemon-design.md):**\n\nPython script: `test_data/validate_csr_simulator.py`\n```bash\npython validate_csr_simulator.py \\\n  --ima-responses test_data/ima_protect_responses.yaml \\\n  --simulator-responses test_data/sim_protect_responses.yaml \\\n  --report test_data/csr_simulator_validation_report.md\n```\n\nOutput: comparison table + PASS/FAIL verdict\n\n**Acceptance:**\n\n✅ All test cases pass (responses match within thresholds)\n✅ Validation report generated\n✅ CSR Simulator confidence level: VALIDATED\n✅ Simulator approved for development use"
+verify = "See the original acceptance criteria in the description."
+covers = []
+after = []
+hitl = false
+risk = "low"
+v6_key = "11-2-csr-response-validation-real-ima-vs-simulator"
+
+[[entry]]
+id = 3
+type = "story"
+title = "Full Workflow Integration Testing"
+description = "Complete end-to-end testing of real user scenarios."
+verify = "complete scenario: user installs → completes wizard → daemon starts → supervision loop healthy → alarm triggers → CSR ACK → event_state=CONFIRMED"
+covers = []
+after = []
+hitl = false
+risk = "low"
+v6_key = "11-3-full-workflow-integration-testing"
+
+[[entry]]
+id = 4
+type = "story"
+title = "Documentation, i18n & Market Submission"
+description = "Complete documentation and market readiness."
+verify = "documentation includes:"
+covers = []
+after = []
+hitl = false
+risk = "low"
+v6_key = "11-4-documentation-i18n-market-submission"

@@ -1,0 +1,37 @@
+# Migrated from epics.md and sprint-status.yaml (BMad v6). Status lives in the plans.
+
+[[entry]]
+id = 1
+type = "story"
+title = "messages.py Structure & French String Constants"
+description = "All French user strings in one place."
+verify = "all French strings are defined as module-level constants: SM1 states, SM2 states, error messages, wizard prompts, etc."
+covers = []
+after = []
+hitl = false
+risk = "low"
+v6_key = "4-1-messages-py-structure-french-string-constants"
+
+[[entry]]
+id = 2
+type = "story"
+title = "Logging Infrastructure Setup & Logger Configuration"
+description = "Consistent logging setup across all modules."
+verify = "logger is configured with correct handlers and formatters"
+covers = []
+after = []
+hitl = false
+risk = "low"
+v6_key = "4-2-logging-infrastructure-setup-logger-configuration"
+
+[[entry]]
+id = 3
+type = "story"
+title = "Ring Buffer Structure & Log Entry Factory"
+description = "A ring buffer for supervision and alarm event history."
+verify = "max 50 entries are stored (FIFO, oldest discarded)"
+covers = []
+after = []
+hitl = false
+risk = "low"
+v6_key = "4-3-ring-buffer-structure-log-entry-factory"

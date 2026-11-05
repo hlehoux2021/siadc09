@@ -1,0 +1,13 @@
+# Migrated from epics.md and sprint-status.yaml (BMad v6). Status lives in the plans.
+
+[[entry]]
+id = 1
+type = "story"
+title = "Pluggable SIA Content Formats — SIA-DCS (default) + \"IP\" `#KEY=VALUE`"
+description = "To choose the SIA frame's content format per equipment in the wizard."
+verify = "See the original acceptance criteria in the description."
+covers = []
+after = []
+hitl = false
+risk = "low"
+v6_key = "15-1-pluggable-sia-content-formats"

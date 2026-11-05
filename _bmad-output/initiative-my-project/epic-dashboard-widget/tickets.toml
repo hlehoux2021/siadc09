@@ -1,0 +1,37 @@
+# Migrated from epics.md and sprint-status.yaml (BMad v6). Status lives in the plans.
+
+[[entry]]
+id = 1
+type = "story"
+title = "Widget Rendering & Bootstrap Panel"
+description = "To see my monitoring connection status on the dashboard."
+verify = "widget displays Bootstrap 3 panel with supervision status"
+covers = []
+after = []
+hitl = false
+risk = "low"
+v6_key = "10-1-widget-rendering-bootstrap-panel"
+
+[[entry]]
+id = 2
+type = "story"
+title = "Widget Staleness Detection & Testing"
+description = "To know if my widget data is stale."
+verify = "badge color changes to grey"
+covers = []
+after = []
+hitl = false
+risk = "low"
+v6_key = "10-2-widget-staleness-detection-testing"
+
+[[entry]]
+id = 3
+type = "story"
+title = "Widget Live Refresh on Command Update"
+description = "The badge and event label to update by themselves when the daemon pushes new state."
+verify = "See the original acceptance criteria in the description."
+covers = []
+after = []
+hitl = false
+risk = "low"
+v6_key = "10-3-widget-live-refresh-on-command-update"
