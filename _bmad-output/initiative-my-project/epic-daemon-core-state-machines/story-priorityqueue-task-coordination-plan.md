@@ -400,9 +400,9 @@ Create `tests/level2/test_supervision_queue_integration.py`:
 **Protocol spec:** internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md
 
 **Design documents:**
-- [daemon-design.md](../../implementation-artifacts/internal-docs/design/daemon-design.md) § Priority Queue coordination
-- [error-handler-design.md](../../implementation-artifacts/internal-docs/design/error-handler-design.md) § ErrorCode and T1/T2/T3 tiers
-- [logging-design.md](../../implementation-artifacts/internal-docs/design/logging-design.md) § Ring buffer, French messages
+- [daemon-design.md](../../../internal-docs/design/daemon-design.md) § Priority Queue coordination
+- [error-handler-design.md](../../../internal-docs/design/error-handler-design.md) § ErrorCode and T1/T2/T3 tiers
+- [logging-design.md](../../../internal-docs/design/logging-design.md) § Ring buffer, French messages
 
 ---
 
@@ -437,12 +437,12 @@ Claude Sonnet 4.6 (1M context)
 ### File List
 
 **Python source files modified:**
-- [resources/siadc09d/daemon.py](../../implementation-artifacts/resources/siadc09d/daemon.py) — Added: `QUEUE_PRIORITY_EVENT/SUPERVISION`, `QUEUE_TYPE_EVENT/SUPERVISION`, `QueueItemType`, `EventQueuePayload`, `SupervisionQueuePayload`, `MAX_RETRY_DEFAULT`; added `_queue` + `_queue_counter` to `__init__`; replaced `_track_task_stub` with real `_track_task()`; added `_enqueue_event()`, `_enqueue_supervision()`, `_queue_consumer()`, `_supervision_loop()`, `on_message()`, `on_start()`
+- [resources/siadc09d/daemon.py](../../../resources/siadc09d/daemon.py) — Added: `QUEUE_PRIORITY_EVENT/SUPERVISION`, `QUEUE_TYPE_EVENT/SUPERVISION`, `QueueItemType`, `EventQueuePayload`, `SupervisionQueuePayload`, `MAX_RETRY_DEFAULT`; added `_queue` + `_queue_counter` to `__init__`; replaced `_track_task_stub` with real `_track_task()`; added `_enqueue_event()`, `_enqueue_supervision()`, `_queue_consumer()`, `_supervision_loop()`, `on_message()`, `on_start()`
 
 **Test files created:**
-- [tests/level2/test_priority_queue_basic.py](../../implementation-artifacts/tests/level2/test_priority_queue_basic.py) — 11 unit tests (TC1–TC11): init, priority ordering, FIFO, tie-breaking, enqueue methods
-- [tests/level2/test_queue_consumer_integration.py](../../implementation-artifacts/tests/level2/test_queue_consumer_integration.py) — 9 integration tests (TC12–TC20): happy path, TCP_RECONNECTING resilience, backpressure
-- [tests/level2/test_supervision_queue_integration.py](../../implementation-artifacts/tests/level2/test_supervision_queue_integration.py) — 6 integration tests (TC21–TC26): supervision enqueue, priority ordering, on_message mapping
+- [tests/level2/test_priority_queue_basic.py](../../../tests/level2/test_priority_queue_basic.py) — 11 unit tests (TC1–TC11): init, priority ordering, FIFO, tie-breaking, enqueue methods
+- [tests/level2/test_queue_consumer_integration.py](../../../tests/level2/test_queue_consumer_integration.py) — 9 integration tests (TC12–TC20): happy path, TCP_RECONNECTING resilience, backpressure
+- [tests/level2/test_supervision_queue_integration.py](../../../tests/level2/test_supervision_queue_integration.py) — 6 integration tests (TC21–TC26): supervision enqueue, priority ordering, on_message mapping
 
 ---
 

@@ -1,13 +1,13 @@
 ---
 type: migration
 title: Migration BMad v6 vers v7 (module method)
-status: approved
+status: done
 created: 2026-11-05
 ---
 
 # Migration v6 vers v7
 
-Etat: **approuve le 2026-11-05, execution en cours**. Avant l'approbation, seuls la sauvegarde et ce fichier avaient ete ecrits.
+Etat: **termine le 2026-11-05** (approuve le jour meme). Resultats de verification en bas de page.
 
 ## Sauvegarde
 
@@ -138,4 +138,25 @@ Le depot existe deja. Un commit de l'etat courant avant l'etape 6, puis un commi
 
 ## Verification
 
-Les 12 items de la checklist de `migration-1.toml` seront executes et leurs resultats consignes ici. Aucun resultat pour l'instant.
+Resultats de la checklist de `migration-1.toml` (2026-11-05, apres l'etape 12) :
+
+| # | Resultat | Detail |
+|---|---|---|
+| 1 | OK | 92 fichiers de la sauvegarde : chacun est a sa place, dans `archive-v6/` ou deplace (`plan-10-1-widget-sm1-sm2-redesign.md` devenu `epic-dashboard-widget/story-widget-rendering-bootstrap-panel-plan.md`). `brainstorming/` reste en place (hors initiative, voir plus haut). |
+| 2 | OK | `initiative-my-project/`, `backlog/`, `archive/` existent ; `.gitkeep` dans les deux derniers. |
+| 3 | OK | Aucune version datee archivee : les deux rapports de readiness et les quatre propositions de changement de cap gardent leur nom. |
+| 4 | OK | `tickets.py status` : 70 entrees = 54 done, 7 review, 2 dropped (11-1, 15-1), 7 planned (11-2, 12-7, 12-8, 13-2, 13-3, 16-1, 16-2). Identique a `sprint-status.yaml` (54 done, 7 review). `unpinned_after`, `undeclared_after`, `order_conflict` vides. Une ligne `problems` : voir ci-dessous. |
+| 5 | OK | 63 plans `story-*-plan.md` (54 done, 7 in-review, 2 dropped) ; aucun fichier de story d'epic ecrit. Les backlog et 12-7 sont repliees dans leur entree. |
+| 6 | OK avec reserve | Statuts mappes, aucun `built`. Baselines conservees pour 17-2, 17-3, 17-4, 17-6, 10-1 (refonte) et les plans qui en portaient une ; 58 plans sur 63 n'ont pas de `baseline_revision` (non devinee). Retrospectives des epics 1 et 7 directement dans leur epic, avec `epic:`. |
+| 7 | Non applicable | Aucun `covers` renseigne : le v6 n'avait pas d'identifiants d'exigence (CAP-N). Les entrees ont `covers = []`. |
+| 8 | OK avec reserve | Chemins `_bmad-output/...` : tous resolus. Liens relatifs : 20 liens casses par le deplacement ou deja morts (`internal-docs/...`, `resources/...`, `tests/...` ecrits relatifs au mauvais dossier ; `epics.md` deplace) ont ete corriges. Reste 1 lien mort deja mort en v6 : `.claude/rules/code-style.md` dans le plan errorcode-enum (fichier absent). |
+| 9 | OK | `_bmad/custom/config.user.toml` : `[core] active_initiative = "initiative-my-project"` ; `resolve_config.py` rend aussi `core.output_folder = {project-root}/_bmad-output`. Le fichier est ignore par git (`_bmad/` dans `.gitignore`). |
+| 10 | OK | Meme depot que le projet (reponse par defaut), un seul depot, pas de workspace. |
+| 11 | OK | La sauvegarde contient les 92 fichiers d'origine, aucun fichier suivi par git, aucun commit ne la touche. |
+| 12 | OK | Ce tableau, les questions, les reponses et les ecarts sont dans ce fichier. |
+
+Points restants :
+
+- `tickets.py status` signale `epic-debug-ui-diagnostics-panel/plan-diagnostic-tab-refresh.md: ticket '' names no entry` : c'est un enregistrement de build sans ticket (decision 2), conserve tel quel et ignore par l'outil.
+- Fiche 10-2 : statut `review` dans la fiche, `done` dans `sprint-status.yaml` ; la valeur du sprint est retenue.
+- Les sections "Done when" des epics sont redigees, a relire.
