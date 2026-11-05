@@ -28,6 +28,15 @@ function printEqLogic(_eqLogic) {
   if (!cfgSaved.supervision_format) $('.eqLogicAttr[data-l2key="supervision_format"]').val('sia-dcs')
   if (!cfgSaved.rp_interval) $('.eqLogicAttr[data-l2key="rp_interval"]').val(60)
   siaDC09_applyProfile(savedProfile, false)
+  // Story 17.7: absent media keys = pre-17.7 behaviour (snapshot + clip, V, V, one tag).
+  var mediaDefaults = { media_snapshot_enabled: 1, media_clip_enabled: 1, media_snapshot_format: 'V', media_clip_format: 'V', media_single_tag: 1 }
+  Object.keys(mediaDefaults).forEach(function(key) {
+    if (cfgSaved[key] !== undefined && cfgSaved[key] !== '') return
+    var $f = $('.eqLogicAttr[data-l2key="' + key + '"]')
+    if ($f.is(':checkbox')) $f.prop('checked', !!mediaDefaults[key])
+    else $f.val(mediaDefaults[key])
+  })
+  siaDC09_updateMediaFields()
   var wizardStep = parseInt(_eqLogic.configuration && _eqLogic.configuration.sia_wizard_step || 0)
   siaDC09_initDiagnosticTab(wizardStep)
   if (wizardStep >= 4) {
@@ -169,6 +178,41 @@ $('#siaDC09-csr-profile').on('change', function() {
 })
 
 $('.eqLogicAttr[data-l2key="supervision_format"]').on('change', siaDC09_updateNullWarning)
+
+// ===== ALARM MEDIA OPTIONS (story 17.7) =====
+
+function siaDC09_mediaState() {
+  return {
+    snapshotOn: $('.eqLogicAttr[data-l2key="media_snapshot_enabled"]').is(':checked'),
+    clipOn: $('.eqLogicAttr[data-l2key="media_clip_enabled"]').is(':checked'),
+    snapshotFormat: $('.eqLogicAttr[data-l2key="media_snapshot_format"]').val() || 'V',
+    clipFormat: $('.eqLogicAttr[data-l2key="media_clip_format"]').val() || 'V'
+  }
+}
+
+// URL template only when a media is on; one-tag option unavailable when both media are on
+// with different formats (a single tag holds one format only).
+function siaDC09_updateMediaFields() {
+  var m = siaDC09_mediaState()
+  $('#siaDC09-media-url-group').toggle(m.snapshotOn || m.clipOn)
+  var mixed = m.snapshotOn && m.clipOn && m.snapshotFormat !== m.clipFormat
+  var $single = $('.eqLogicAttr[data-l2key="media_single_tag"]')
+  if (mixed) $single.prop('checked', false)
+  $single.prop('disabled', mixed)
+  $('#siaDC09-media-single-tag-help').toggle(mixed)
+}
+
+// Returns the error message, or '' when the media settings are consistent.
+function siaDC09_mediaConfigError() {
+  var m = siaDC09_mediaState()
+  var url = ($('.eqLogicAttr[data-l2key="frigate_media_url_template"]').val() || '').trim()
+  if ((m.snapshotOn || m.clipOn) && !url) {
+    return "{{URL media Frigate requise quand un média est activé : renseignez-la dans l'étape 1, Options avancées, ou désactivez les médias}}"
+  }
+  return ''
+}
+
+$(document).on('change', '.siaDC09-media-field', siaDC09_updateMediaFields)
 
 $('#bt_siaDC09_toggleAdvanced').on('click', function() {
   $('#siaDC09-advanced').toggle()
@@ -580,6 +624,12 @@ function siaDC09_buildZoneRow(zoneNumber, zoneName, saved, cameras) {
 
 $('#bt_step3Next').on('click', function() {
   if ($(this).attr('disabled')) return
+  var mediaError = siaDC09_mediaConfigError()
+  if (mediaError) {
+    $('#siaDC09-step3-errors').text(mediaError).show()
+    return
+  }
+  $('#siaDC09-step3-errors').hide()
   siaDC09_setWizardStep(4)
   var eqLogic = $('.eqLogic').getValues('.eqLogicAttr')[0]
   eqLogic = saveEqLogic(eqLogic)

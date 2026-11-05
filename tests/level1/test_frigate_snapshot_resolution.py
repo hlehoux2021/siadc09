@@ -650,6 +650,13 @@ class cmd {
 }
 
 class siaDC09 {
+    const MEDIA_FORMATS = ['U', 'V'];
+    const MEDIA_SNAPSHOT_ENABLED_KEY = 'media_snapshot_enabled';
+    const MEDIA_CLIP_ENABLED_KEY = 'media_clip_enabled';
+    const MEDIA_SNAPSHOT_FORMAT_KEY = 'media_snapshot_format';
+    const MEDIA_CLIP_FORMAT_KEY = 'media_clip_format';
+    const MEDIA_SINGLE_TAG_KEY = 'media_single_tag';
+    const MEDIA_DEFAULTS = ['media_snapshot_enabled' => 1, 'media_clip_enabled' => 1, 'media_snapshot_format' => 'V', 'media_clip_format' => 'V', 'media_single_tag' => 1];
     public static array $sent = [];
     public static function sendToDaemon(array $params): void {
         self::$sent[] = $params;
@@ -659,13 +666,13 @@ class siaDC09 {
 
 _EXECUTE_DRIVER = r"""
 $scenario = json_decode(file_get_contents($argv[1]), true);
-$config = ['sia_zone_mappings' => $scenario['zone_mappings']];
+$config = array_merge($scenario['media_config'], ['sia_zone_mappings' => $scenario['zone_mappings']]);
 if (array_key_exists('template', $scenario) && $scenario['template'] !== null) {
     $config['frigate_media_url_template'] = $scenario['template'];
 }
 $eqLogic = new FakeEqLogic($scenario['cache'], $config);
 $cmd = new siaDC09Cmd();
-$cmd->logicalId = 'burglarAlarm';
+$cmd->logicalId = $scenario['cmd'] ?? 'burglarAlarm';
 $cmd->eqLogic = $eqLogic;
 $cmd->execute(['title' => $scenario['zone']]);
 echo json_encode(['sent' => siaDC09::$sent, 'logs' => log::$entries]);
@@ -677,6 +684,8 @@ def _run_execute_burglar_alarm(
     template: str | None = "https://cameras.lehoux.net/",
     zone: str = "Salon",
     camera_eqlogic_id: int = 99,
+    media_config: dict[str, Any] | None = None,
+    cmd: str = "burglarAlarm",
 ) -> dict[str, Any]:
     """Run one real execute(['title' => zone]) call for logicalId='burglarAlarm' and
     return the payload actually passed to siaDC09::sendToDaemon().
@@ -702,6 +711,8 @@ def _run_execute_burglar_alarm(
         ],
         "cache": {"sia_prefetch_cache": {str(camera_eqlogic_id): cache} if cache else {}},
         "template": template,
+        "media_config": media_config or {},
+        "cmd": cmd,
     }
     with tempfile.TemporaryDirectory() as tmp:
         harness = Path(tmp) / "harness.php"
@@ -719,6 +730,11 @@ def _run_execute_burglar_alarm(
         )
     assert result.returncode == 0, f"PHP execution failed: {result.stderr}\n{result.stdout}"
     return json.loads(result.stdout)
+
+
+def _media_joined(out: dict[str, Any]) -> str:
+    """Space-joined URLs of the payload's 'media' list (story 17-7 legacy-shaped view)."""
+    return " ".join(m["url"] for m in out["sent"][0]["media"])
 
 
 def _fresh_entry(found: bool, clip_found: bool, event_id: str = "evt-1", age_s: int = 0) -> dict[str, Any]:
@@ -743,7 +759,7 @@ class TestExecuteBurglarAlarmMediaUrlJoin:
         """
         out = _run_execute_burglar_alarm(_fresh_entry(found=True, clip_found=True))
         # Assert: exactly one sendToDaemon() call, with both URLs space-joined in order
-        assert out["sent"][0]["media_url"] == (
+        assert _media_joined(out) == (
             "https://cameras.lehoux.net/api/events/evt-1/snapshot.jpg "
             "https://cameras.lehoux.net/api/events/evt-1/clip.mp4"
         )
@@ -755,7 +771,7 @@ class TestExecuteBurglarAlarmMediaUrlJoin:
         """
         out = _run_execute_burglar_alarm(_fresh_entry(found=True, clip_found=False))
         # Assert: single URL, snapshot only
-        assert out["sent"][0]["media_url"] == "https://cameras.lehoux.net/api/events/evt-1/snapshot.jpg"
+        assert _media_joined(out) == "https://cameras.lehoux.net/api/events/evt-1/snapshot.jpg"
 
     def test_clip_only_when_snapshot_not_found(self) -> None:
         """
@@ -766,7 +782,7 @@ class TestExecuteBurglarAlarmMediaUrlJoin:
         """
         out = _run_execute_burglar_alarm(_fresh_entry(found=False, clip_found=True))
         # Assert: single URL, clip only
-        assert out["sent"][0]["media_url"] == "https://cameras.lehoux.net/api/events/evt-1/clip.mp4"
+        assert _media_joined(out) == "https://cameras.lehoux.net/api/events/evt-1/clip.mp4"
 
     def test_neither_resolves_media_url_key_entirely_absent(self) -> None:
         """
@@ -775,7 +791,7 @@ class TestExecuteBurglarAlarmMediaUrlJoin:
         """
         out = _run_execute_burglar_alarm(_fresh_entry(found=False, clip_found=False))
         # Assert: key omitted entirely, matching the unchanged 14-1/14-2 fallback contract
-        assert "media_url" not in out["sent"][0]
+        assert "media" not in out["sent"][0]
 
     def test_stale_pre_14_3_cache_entry_missing_clip_found_key(self) -> None:
         """
@@ -789,7 +805,7 @@ class TestExecuteBurglarAlarmMediaUrlJoin:
         legacy_entry = {"found": True, "event_id": "evt-1", "ts": int(time.time())}
         out = _run_execute_burglar_alarm(legacy_entry)
         # Assert: snapshot alone, clip silently absent
-        assert out["sent"][0]["media_url"] == "https://cameras.lehoux.net/api/events/evt-1/snapshot.jpg"
+        assert _media_joined(out) == "https://cameras.lehoux.net/api/events/evt-1/snapshot.jpg"
         # Assert: no crash surfaced as a warning-level log entry
         assert not [e for e in out["logs"] if e["level"] == "error"]
 
@@ -800,7 +816,7 @@ class TestExecuteBurglarAlarmMediaUrlJoin:
         """
         out = _run_execute_burglar_alarm(_fresh_entry(found=True, clip_found=True, age_s=999))
         # Assert: both expired, key omitted entirely
-        assert "media_url" not in out["sent"][0]
+        assert "media" not in out["sent"][0]
 
     def test_never_throws_regardless_of_cache_state(self) -> None:
         """
@@ -839,7 +855,104 @@ class TestExecuteBurglarAlarmMediaUrlJoin:
         entry["rank"] = 1
         out = _run_execute_burglar_alarm(entry)
         # Assert: unaffected by the two new fields
-        assert out["sent"][0]["media_url"] == (
+        assert _media_joined(out) == (
             "https://cameras.lehoux.net/api/events/evt-1/snapshot.jpg "
             "https://cameras.lehoux.net/api/events/evt-1/clip.mp4"
         )
+
+
+_SNAP = "https://cameras.lehoux.net/api/events/evt-1/snapshot.jpg"
+_CLIP = "https://cameras.lehoux.net/api/events/evt-1/clip.mp4"
+
+
+class TestExecuteAlarmMediaSettings:
+    """Story 17-7: per-equipment media keys decide what the payload's 'media' list holds."""
+
+    def test_legacy_equipment_keys_absent_sends_todays_media(self) -> None:
+        """
+        Expected result:
+        - no media keys configured: snapshot then clip, both V, one tag (today's bytes)
+        """
+        out = _run_execute_burglar_alarm(_fresh_entry(found=True, clip_found=True))
+        payload = out["sent"][0]
+        # Assert: ordered list, V/V
+        assert payload["media"] == [
+            {"format": "V", "url": _SNAP},
+            {"format": "V", "url": _CLIP},
+        ]
+        # Assert: one tag by default
+        assert payload["media_single_tag"] is True
+        # Assert: the legacy key is gone
+        assert "media_url" not in payload
+
+    def test_mixed_formats_several_tags(self) -> None:
+        """
+        Expected result:
+        - U snapshot, V clip, several tags: formats follow each media, flag false
+        """
+        out = _run_execute_burglar_alarm(
+            _fresh_entry(found=True, clip_found=True),
+            media_config={"media_snapshot_format": "U", "media_single_tag": 0},
+        )
+        payload = out["sent"][0]
+        # Assert: per-media formats
+        assert [m["format"] for m in payload["media"]] == ["U", "V"]
+        # Assert: several tags requested
+        assert payload["media_single_tag"] is False
+
+    def test_snapshot_off_sends_clip_only(self) -> None:
+        """
+        Expected result:
+        - snapshot disabled: only the clip is listed
+        """
+        out = _run_execute_burglar_alarm(
+            _fresh_entry(found=True, clip_found=True), media_config={"media_snapshot_enabled": 0}
+        )
+        # Assert: clip alone
+        assert [m["url"] for m in out["sent"][0]["media"]] == [_CLIP]
+
+    def test_both_off_sends_no_media_keys(self) -> None:
+        """
+        Expected result:
+        - both media disabled: neither 'media' nor 'media_single_tag' in the payload
+        """
+        out = _run_execute_burglar_alarm(
+            _fresh_entry(found=True, clip_found=True),
+            media_config={"media_snapshot_enabled": 0, "media_clip_enabled": 0},
+        )
+        # Assert: keys omitted entirely
+        assert "media" not in out["sent"][0]
+        assert "media_single_tag" not in out["sent"][0]
+
+
+class TestExecuteMediaAcrossAlarmTypesAndPartialResolution:
+    """Story 17-7: the setting applies to burglar, fire and panic alike; an unresolved
+    URL never breaks the rest of the list."""
+
+    def test_fire_and_panic_send_same_media_as_burglar(self) -> None:
+        """
+        Expected result:
+        - fireAlarm and panicAlarm payloads carry the same media list and flag as burglarAlarm
+        """
+        entry = _fresh_entry(found=True, clip_found=True)
+        cfg = {"media_snapshot_format": "U", "media_single_tag": 0}
+        ref = _run_execute_burglar_alarm(entry, media_config=cfg)["sent"][0]
+        for cmd in ("fireAlarm", "panicAlarm"):
+            sent = _run_execute_burglar_alarm(entry, media_config=cfg, cmd=cmd)["sent"][0]
+            # Assert: identical media payload for this alarm type
+            assert sent["media"] == ref["media"], cmd
+            assert sent["media_single_tag"] == ref["media_single_tag"], cmd
+            # Assert: the payload is for the right command
+            assert sent["cmd"] == cmd
+
+    def test_clip_unresolved_formats_differ_keeps_snapshot_only(self) -> None:
+        """
+        Expected result:
+        - snapshot U, clip V, single tag true, clip unresolved: media is the lone snapshot entry
+        """
+        out = _run_execute_burglar_alarm(
+            _fresh_entry(found=True, clip_found=False),
+            media_config={"media_snapshot_format": "U", "media_clip_format": "V", "media_single_tag": 1},
+        )
+        # Assert: only the snapshot, in U
+        assert out["sent"][0]["media"] == [{"format": "U", "url": _SNAP}]

@@ -50,7 +50,10 @@ All set by the wizard; stored in the Jeedom database with the equipment.
 | `receiver_prefix` | `''` | — (no UI) | Optional SIA receiver number (`R…`) | `--receiver-prefix` |
 | `account_prefix` | `''` | — (no UI) | Optional account prefix (`L…`) | `--account-prefix` |
 | `sia_zone_mappings` | `[]` | 3 | Alarm zone name → SIA zone number and optional Frigate camera. Numbers are stable: a zone keeps its number, new zones get the next free one | resolved by PHP, sent with each command |
-| `frigate_media_url_template` | `''` | 3 | Public Frigate URL **with literal placeholders** (`<user>`, `<pass>`, `<token>`) — never a real credential | resolved by PHP, sent with each command |
+| `frigate_media_url_template` | `''` | 1 (advanced) | Public Frigate URL **with literal placeholders** (`<user>`, `<pass>`, `<token>`) — never a real credential | resolved by PHP, sent with each command |
+| `media_snapshot_enabled` / `media_clip_enabled` | `1` / `1` | 1 (advanced) | Send the snapshot / clip URL in burglar, fire and panic alarm frames. Both off: no media tag. The URL field shows only when one is on | `media` list in the command payload |
+| `media_snapshot_format` / `media_clip_format` | `V` / `V` | 1 (advanced) | Tag letter per media, `U` or `V` (Vesta expects U, FoxStream V) | `media[].format` |
+| `media_single_tag` | `1` | 1 (advanced) | One tag with both URLs space-separated (only when both formats are equal) or one tag per URL | `media_single_tag` |
 | `sia_user_number` | — | 3 | 1-999, user number for OP/CL/BC | resolved by PHP, sent with each command |
 | `sia_notify_kind` | `''` | 4 | `cmd` (a Jeedom message action) or `internal` | — |
 | `sia_notify_cmd_id` | `0` | 4 | Target command ID when `kind = cmd` | `--notify-cmd-id` |

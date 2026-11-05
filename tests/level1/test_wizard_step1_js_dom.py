@@ -256,3 +256,67 @@ def test_null_format_warning_follows_format_select(value: str, visible: bool) ->
 
     # Assert: warning visibility
     assert out["nullWarningVisible"] is visible
+
+
+# ── Story 17.7: alarm media options ───────────────────────────────────────────
+
+
+def _media_trigger(key: str, **kwargs: Any) -> dict[str, Any]:
+    return {"op": "trigger", "selector": f'.eqLogicAttr[data-l2key="{key}"]', **kwargs}
+
+
+def test_media_url_field_follows_media_toggles() -> None:
+    """
+    The URL field shows only when a media is on.
+
+    Expected result:
+    - hidden with both media off, shown with the snapshot on, hidden again when off
+    """
+    off = {"media_snapshot_enabled": False, "media_clip_enabled": False}
+    out_off = _run({"fields": off, "actions": [_media_trigger("media_clip_enabled", checked=False)]})
+    out_on = _run({"fields": off, "actions": [_media_trigger("media_snapshot_enabled", checked=True)]})
+
+    # Assert: hidden with both off
+    assert out_off["mediaUrlVisible"] is False
+    # Assert: shown with one on
+    assert out_on["mediaUrlVisible"] is True
+
+
+def test_single_tag_disabled_and_unchecked_for_mixed_formats() -> None:
+    """
+    One tag holds one format only.
+
+    Expected result:
+    - both media on, U and V: checkbox unchecked and disabled
+    - same formats: enabled again
+    """
+    fields = {"media_snapshot_enabled": True, "media_clip_enabled": True, "media_single_tag": True,
+              "media_snapshot_format": "V", "media_clip_format": "V"}
+    mixed = _run({"fields": fields, "actions": [_media_trigger("media_snapshot_format", value="U")]})
+    same = _run({"fields": fields, "actions": [_media_trigger("media_snapshot_format", value="V")]})
+
+    # Assert: mixed formats force the option off
+    assert (mixed["singleTagDisabled"], mixed["singleTagChecked"]) == (True, False)
+    # Assert: equal formats leave it available
+    assert same["singleTagDisabled"] is False
+
+
+def test_media_config_error_on_empty_url() -> None:
+    """
+    Step 3 Next is refused when a media is on and the URL empty.
+
+    Expected result:
+    - error with media on and no URL; none with a URL or with both media off
+    """
+    on = {"media_snapshot_enabled": True}
+    out = _run({"fields": on, "actions": [{"op": "mediaError"}]})
+    out_url = _run({"fields": {**on, "frigate_media_url_template": "https://h/"},
+                    "actions": [{"op": "mediaError"}]})
+    out_off = _run({"fields": {}, "actions": [{"op": "mediaError"}]})
+
+    # Assert: error shown for an empty URL
+    assert out["mediaErrors"][0] != ""
+    # Assert: no error once the URL is set
+    assert out_url["mediaErrors"] == [""]
+    # Assert: no error with both media off
+    assert out_off["mediaErrors"] == [""]

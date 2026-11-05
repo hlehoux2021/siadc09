@@ -233,3 +233,7 @@ level2/level3 tests + golden fixture + harness. This closes the 4-group review o
     - send events over the open connection;
     - UDP is not affected.
   - **Code:** `sia_transport.py:291-426` (TCP transport), `daemon.py:1339-1420` (reconnect loop).
+
+- source_plan: `_bmad-output/initiative-my-project/epic-17-csr-behaviour-profiles/story-17-7-configurable-alarm-media-in-ba-frames-snapshot-clip-u-o-plan.md`
+  summary: Validate "media on and URL template empty" when the equipment is saved, not only in the wizard step.
+  evidence: An equipment saved with a media on and an empty template resolves no URL and sends the alarm without media and without any message; only the wizard step 3 button checks it.

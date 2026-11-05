@@ -1143,3 +1143,8 @@ A profile may omit a key (e.g. `supervision_interval`); the wizard then leaves t
 | Step 4 command picker | Click search button → jeedom.cmd.getSelectModal opens, selection fills fields |
 | Post-wizard config mode | After Terminer → verify wizard hidden, config summary shown |
 | Relancer l'assistant | Click button in config mode → verify wizard shows at step 1 with saved values |
+
+
+## Story 17.7 - Alarm media in the wizard
+
+The advanced options of step 1 carry the media block: `media_snapshot_enabled` / `media_clip_enabled` (checkboxes), `media_snapshot_format` / `media_clip_format` (U or V), `media_single_tag` (checkbox), and the `frigate_media_url_template` field (moved from step 3). The URL field is shown only when a media is on. The one-tag option is disabled (and unchecked) when both media are on with different formats. Step 3 "Suivant" is blocked with a message in `#siaDC09-step3-errors` when a media is on and the URL is empty. Absent keys load as snapshot on, clip on, V, V, one tag. These fields are not profile fields (17.8 does not touch them).

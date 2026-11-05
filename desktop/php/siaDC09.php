@@ -238,6 +238,42 @@ $scenarios = scenario::all();
 												<input type="number" class="eqLogicAttr form-control siaDC09-profile-field" data-l1key="configuration" data-l2key="rp_interval" placeholder="60" min="60" max="86400">
 											</div>
 										</div>
+
+										<!-- Médias d'alarme (story 17.7) : réglage par équipement, hors profil -->
+										<div class="form-group">
+											<label class="col-sm-4 control-label">{{Snapshot dans les alarmes}}</label>
+											<div class="col-sm-6">
+												<input type="checkbox" class="eqLogicAttr siaDC09-media-field" data-l1key="configuration" data-l2key="media_snapshot_enabled">
+												<select class="eqLogicAttr form-control siaDC09-media-field" data-l1key="configuration" data-l2key="media_snapshot_format" style="display:inline-block;width:auto;margin-left:10px;">
+													<option value="U">U</option>
+													<option value="V">V</option>
+												</select>
+											</div>
+										</div>
+										<div class="form-group">
+											<label class="col-sm-4 control-label">{{Clip dans les alarmes}}</label>
+											<div class="col-sm-6">
+												<input type="checkbox" class="eqLogicAttr siaDC09-media-field" data-l1key="configuration" data-l2key="media_clip_enabled">
+												<select class="eqLogicAttr form-control siaDC09-media-field" data-l1key="configuration" data-l2key="media_clip_format" style="display:inline-block;width:auto;margin-left:10px;">
+													<option value="U">U</option>
+													<option value="V">V</option>
+												</select>
+											</div>
+										</div>
+										<div class="form-group" id="siaDC09-media-single-tag-group">
+											<label class="col-sm-4 control-label">{{Un seul tag pour les médias}}</label>
+											<div class="col-sm-6">
+												<input type="checkbox" class="eqLogicAttr siaDC09-media-field" data-l1key="configuration" data-l2key="media_single_tag">
+												<p class="help-block" id="siaDC09-media-single-tag-help" style="display:none;">{{Indisponible : un tag unique ne porte qu'un format (U ou V).}}</p>
+											</div>
+										</div>
+										<div class="form-group" id="siaDC09-media-url-group" style="display:none;">
+											<label class="col-sm-4 control-label">{{URL media Frigate}}</label>
+											<div class="col-sm-6">
+												<input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="frigate_media_url_template" placeholder="https://<user>:<pass>@host/ ou https://host/?accesstoken=<token>">
+												<p class="help-block">{{Requise quand un média est activé — voir}} <a href="https://hlehoux2021.github.io/siadc09/fr_FR/#photos-et-vidéos-frigate-optionnel" target="_blank" rel="noopener">{{la documentation Frigate}}</a>.</p>
+											</div>
+										</div>
 									</div>
 
 									<!-- Validation errors -->
@@ -289,13 +325,7 @@ $scenarios = scenario::all();
 									<div id="siaDC09-step3-nocamera" class="alert alert-warning" style="display:none;">
 										<i class="fas fa-exclamation-triangle"></i> {{Aucune caméra Frigate détectée — installez et configurez le plugin Frigate NVR pour rattacher un aperçu aux alarmes.}}
 									</div>
-									<div class="form-group">
-										<label class="col-sm-4 control-label">{{URL media Frigate}}</label>
-										<div class="col-sm-6">
-											<input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="frigate_media_url_template" placeholder="https://<user>:<pass>@host/ ou https://host/?accesstoken=<token>">
-											<p class="help-block">{{Optionnel — voir}} <a href="https://hlehoux2021.github.io/siadc09/fr_FR/#photos-et-vidéos-frigate-optionnel" target="_blank" rel="noopener">{{la documentation Frigate}}</a>.</p>
-										</div>
-									</div>
+									<div id="siaDC09-step3-errors" class="alert alert-danger" style="display:none;"></div>
 									<div class="table-responsive">
 										<table id="siaDC09-zone-table" class="table table-bordered table-condensed">
 											<thead>

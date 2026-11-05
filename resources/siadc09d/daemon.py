@@ -196,7 +196,9 @@ class EventItem:
     timestamp: str  # SIA protocol timestamp HH:MM:SS,MM-DD-YYYY
     zone_number: int | None = None  # Reaches the SIA frame as the Annex B zone digits (BA/FA/PA)
     user_number: int | None = None  # Reaches the SIA frame as the address digits (BC/OP/CL)
-    media_url: str | None = None  # Reaches the SIA frame as the [V...] extended-data block
+    media_url: str | None = None  # Legacy single [V...] block; superseded by media (story 17-7)
+    media: list[dict[str, str]] | None = None  # Story 17-7: ordered {"format": U|V, "url"}
+    media_single_tag: bool = False  # Story 17-7: group all media URLs in one tag
     callback: Any | None = None  # Callback function(success: bool) when send completes
 
 
@@ -284,6 +286,8 @@ class OnMessageParams(TypedDict, total=False):
     zone: str
     zone_number: int | None
     media_url: str
+    media: list[dict[str, str]]
+    media_single_tag: bool
     camera_eqlogic_id: int
     camera_name: str
     frigate_host: str
@@ -317,8 +321,10 @@ class EventQueuePayload(TypedDict):
     zone: str | None      # Zone name from PHP #zone# tag, or None
     zone_number: int | None  # Zone order number for the SIA frame, or None
     user_number: int | None  # Configured SIA user, address field for BC/OP/CL (13-1/13-4)
-    media_url: str | None # Verification media URL for SIA [V...] field, or None
-    retries_left: int        # Retry budget; reset to MAX_RETRY_DEFAULT on TCP reconnect
+    media_url: str | None # Legacy single Verification URL for SIA [V...] field, or None
+    media: list[dict[str, str]] | None  # Story 17-7: ordered U/V media entries, or None
+    media_single_tag: bool  # Story 17-7: one tag for all media URLs
+    retries_left: int      # Retry budget; reset to MAX_RETRY_DEFAULT on TCP reconnect
 
 
 class SupervisionQueuePayload(TypedDict):
@@ -2132,7 +2138,19 @@ class SIADaemon(BaseDaemon):
                     extended_data['zone'] = f"{event_item.user_number:03d}"
             elif event_item.zone_number is not None:
                 extended_data['zone'] = f"{event_item.zone_number:03d}"
-            if event_item.media_url:
+            if event_item.media:
+                # Story 17-7: an inconsistent request (single tag + mixed U/V) must never
+                # cost the alarm — log and send the frame without media.
+                try:
+                    SIAMessageBuilder._format_media_tags(  # pylint: disable=protected-access
+                        event_item.media, event_item.media_single_tag
+                    )
+                except ValueError as media_err:
+                    self._logger.error(f"Media refused, alarm sent without media: {media_err}")
+                else:
+                    extended_data['media'] = event_item.media  # type: ignore[assignment]
+                    extended_data['media_single_tag'] = event_item.media_single_tag  # type: ignore[assignment]
+            elif event_item.media_url:
                 extended_data['media_url'] = event_item.media_url
 
             # Parse event timestamp for the SIA frame (M1).
@@ -2437,6 +2455,8 @@ class SIADaemon(BaseDaemon):
         *,
         zone_number: int | None = None,
         user_number: int | None = None,
+        media: list[dict[str, str]] | None = None,
+        media_single_tag: bool = False,
     ) -> None:
         """Enqueue an alarm event for SM2 processing at EVENT priority.
 
@@ -2465,6 +2485,8 @@ class SIADaemon(BaseDaemon):
             "zone_number": zone_number,
             "user_number": user_number,
             "media_url": media_url,
+            "media": media,
+            "media_single_tag": media_single_tag,
             "retries_left": retries_left,
         }
         await self._queue.put((QUEUE_PRIORITY_EVENT, counter, QUEUE_TYPE_EVENT, payload))
@@ -2596,6 +2618,8 @@ class SIADaemon(BaseDaemon):
                             zone_number=event_payload.get("zone_number"),
                             user_number=event_payload.get("user_number"),
                             media_url=event_payload.get("media_url"),
+                            media=event_payload.get("media"),
+                            media_single_tag=bool(event_payload.get("media_single_tag", False)),
                         )
                         await self._send_with_retry(
                             event_item,
@@ -2804,8 +2828,21 @@ class SIADaemon(BaseDaemon):
             f"zone_number={zone_number}, user_number={user_number}, "
             f"media_url={'<set>' if media_url else None}"
         )
+        # Story 17-7: PHP sends the resolved media list; anything malformed is dropped
+        # (the alarm still goes out).
+        raw_media = params.get("media")
+        media: list[dict[str, str]] | None = None
+        if isinstance(raw_media, list):
+            media = [
+                {"format": str(m["format"]), "url": str(m["url"])}
+                for m in raw_media
+                if isinstance(m, dict) and m.get("format") and m.get("url")
+            ] or None
+        elif raw_media is not None:
+            self._logger.warning(f"on_message: unusable media {raw_media!r} — ignored")
         await self._enqueue_event(
-            sia_code, zone, media_url, zone_number=zone_number, user_number=user_number
+            sia_code, zone, media_url, zone_number=zone_number, user_number=user_number,
+            media=media, media_single_tag=bool(params.get("media_single_tag", False)),
         )
 
     # ===== STORY 14-2/14-4 (ADR-17 Amendment 3/4): FRIGATE EVENT PREFETCH =====

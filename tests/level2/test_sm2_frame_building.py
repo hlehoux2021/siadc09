@@ -368,3 +368,96 @@ async def test_v_block_placed_between_data_field_and_timestamp():
     assert '][Vhttp://host/snap.jpg]_' in frame_str, (
         f"[V...] must sit between the data field and the timestamp, got: {frame_str}"
     )
+
+
+# ===== media list in frame (story 17-7) =====
+
+
+@pytest.mark.asyncio
+async def test_frame_media_list_u_and_v_several_tags():
+    """
+    EventItem.media with U + V and several tags reaches the frame as [Ua][Vb].
+
+    Expected result:
+    - frame contains '[Uhttp://h/a][Vhttp://h/b]'
+    """
+    daemon, captured = _make_daemon_with_frame_capture()
+    event = EventItem(
+        sia_code='BA', zone='Salon', timestamp='12:00:00,04-22-2026',
+        media=[{'format': 'U', 'url': 'http://h/a'}, {'format': 'V', 'url': 'http://h/b'}],
+        media_single_tag=False,
+    )
+    await daemon._send_with_retry(event, max_retries=0)
+    frame_str = captured[0].decode('windows-1252', errors='replace')
+    # Assert: both tags in order
+    assert '[Uhttp://h/a][Vhttp://h/b]' in frame_str
+
+
+@pytest.mark.asyncio
+async def test_frame_media_single_tag_mixed_formats_sent_without_media(caplog):
+    """
+    A single-tag request with mixed formats must not lose the alarm.
+
+    Expected result:
+    - frame still sent, no U/V tag, error logged
+    """
+    daemon, captured = _make_daemon_with_frame_capture()
+    event = EventItem(
+        sia_code='BA', zone='Salon', timestamp='12:00:00,04-22-2026',
+        media=[{'format': 'U', 'url': 'http://h/a'}, {'format': 'V', 'url': 'http://h/b'}],
+        media_single_tag=True,
+    )
+    await daemon._send_with_retry(event, max_retries=0)
+    frame_str = captured[0].decode('windows-1252', errors='replace')
+    # Assert: alarm sent without media
+    assert 'http://h/' not in frame_str
+    # Assert: error logged
+    assert 'Media refused' in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_frame_media_legacy_default_v_v_single_tag():
+    """
+    The pre-17.7 default (V snapshot, V clip, one tag) through the new media path.
+
+    Expected result:
+    - frame contains '[Vhttp://h/snap http://h/clip]' (today's bytes)
+    """
+    daemon, captured = _make_daemon_with_frame_capture()
+    event = EventItem(
+        sia_code='BA', zone='Salon', timestamp='12:00:00,04-22-2026',
+        media=[{'format': 'V', 'url': 'http://h/snap'}, {'format': 'V', 'url': 'http://h/clip'}],
+        media_single_tag=True,
+    )
+    await daemon._send_with_retry(event, max_retries=0)
+    frame_str = captured[0].decode('windows-1252', errors='replace')
+    # Assert: one V tag, space-separated URLs
+    assert '[Vhttp://h/snap http://h/clip]' in frame_str
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("raw_media, expected", [
+    ([{'format': 'U', 'url': 'http://h/a'}, 'junk', {'format': 'V'}, {'url': 'http://h/x'},
+      {'format': 'V', 'url': 'http://h/b'}],
+     [{'format': 'U', 'url': 'http://h/a'}, {'format': 'V', 'url': 'http://h/b'}]),
+    ([], None),
+    ('not-a-list', None),
+])
+async def test_on_message_media_parsing(raw_media, expected, caplog):
+    """
+    on_message() keeps only well-formed media entries.
+
+    Expected result:
+    - non-dict entries and entries missing format or url are dropped
+    - an empty list becomes None; a non-list becomes None with a warning
+    """
+    daemon, _ = _make_daemon_with_frame_capture()
+    await daemon.on_message('burglarAlarm', {'zone': 'Salon', 'media': raw_media, 'media_single_tag': True})
+    payload = daemon._queue.get_nowait()[3]
+    # Assert: filtered media list
+    assert payload['media'] == expected
+    # Assert: single-tag flag carried through
+    assert payload['media_single_tag'] is True
+    if isinstance(raw_media, str):
+        # Assert: non-list warned
+        assert 'unusable media' in caplog.text

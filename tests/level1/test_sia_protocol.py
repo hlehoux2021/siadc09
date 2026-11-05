@@ -2206,3 +2206,52 @@ def test_extended_data_authentication_hash_structure():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+# ===== story 17-7: configurable media tags =====
+
+_U_URL = "http://h/snapshot.jpg"
+_V_URL = "http://h/clip.mp4"
+
+
+@pytest.mark.parametrize("media, single, expected", [
+    ([("V", _U_URL), ("V", _V_URL)], True, f"[V{_U_URL} {_V_URL}]"),
+    ([("U", _U_URL), ("U", _V_URL)], True, f"[U{_U_URL} {_V_URL}]"),
+    ([("U", _U_URL), ("V", _V_URL)], False, f"[U{_U_URL}][V{_V_URL}]"),
+    ([("V", _U_URL), ("V", _V_URL)], False, f"[V{_U_URL}][V{_V_URL}]"),
+    ([("U", _U_URL)], True, f"[U{_U_URL}]"),
+    ([("V", _V_URL)], False, f"[V{_V_URL}]"),
+])
+def test_format_extended_data_field_media_matrix(builder, media, single, expected):
+    """
+    Each valid combination renders its tags (SIA DC-09 § 5.5.1.8).
+
+    Expected result:
+    - one tag with space-separated URLs, or one tag per media, in list order
+    """
+    ext = {"media": [{"format": f, "url": u} for f, u in media], "media_single_tag": single}
+    # Assert: exact tag string
+    assert builder._format_extended_data_field(ext) == expected
+
+
+def test_format_extended_data_field_single_tag_mixed_formats_raises(builder):
+    """
+    One tag cannot hold U and V.
+
+    Expected result:
+    - ValueError
+    """
+    ext = {"media": [{"format": "U", "url": _U_URL}, {"format": "V", "url": _V_URL}],
+           "media_single_tag": True}
+    # Assert: refusal
+    with pytest.raises(ValueError):
+        builder._format_extended_data_field(ext)
+
+
+def test_format_extended_data_field_empty_media_list(builder):
+    """
+    Expected result:
+    - no tag for an empty media list
+    """
+    # Assert: no block
+    assert builder._format_extended_data_field({"media": []}) == ""

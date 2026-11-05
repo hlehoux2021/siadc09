@@ -41,6 +41,13 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
   <input type="number" class="eqLogicAttr siaDC09-profile-field" data-l2key="supervision_interval">
   <input type="checkbox" class="eqLogicAttr siaDC09-profile-field" data-l2key="rp_enabled">
   <input type="number" class="eqLogicAttr siaDC09-profile-field" data-l2key="rp_interval">
+  <input type="checkbox" class="eqLogicAttr siaDC09-media-field" data-l2key="media_snapshot_enabled">
+  <select class="eqLogicAttr siaDC09-media-field" data-l2key="media_snapshot_format"><option value="U">U</option><option value="V">V</option></select>
+  <input type="checkbox" class="eqLogicAttr siaDC09-media-field" data-l2key="media_clip_enabled">
+  <select class="eqLogicAttr siaDC09-media-field" data-l2key="media_clip_format"><option value="U">U</option><option value="V">V</option></select>
+  <input type="checkbox" class="eqLogicAttr siaDC09-media-field" data-l2key="media_single_tag">
+  <div id="siaDC09-media-url-group" style="display:none"><input class="eqLogicAttr" data-l2key="frigate_media_url_template"></div>
+  <div id="siaDC09-media-single-tag-help" style="display:none"></div>
   <div id="siaDC09-null-warning" style="display:none"></div>
   <div id="siaDC09-advanced" style="display:none"></div>
   <div id="siaDC09-step1-errors" style="display:none"></div>
@@ -83,6 +90,7 @@ for (const [key, value] of Object.entries(scenario.fields || {})) {
 
 const validate = []
 const summaries = []
+const mediaErrors = []
 for (const action of scenario.actions || []) {
   if (action.op === 'apply') window.siaDC09_applyProfile(action.profile, action.fill)
   else if (action.op === 'summary') summaries.push(window.siaDC09_periodicSummaryLines(action.cfg))
@@ -101,9 +109,10 @@ for (const action of scenario.actions || []) {
     if (action.value !== undefined) $el.val(action.value)
     $el.trigger('change')
   } else if (action.op === 'validate') validate.push(window.siaDC09_validateStep1())
+  else if (action.op === 'mediaError') mediaErrors.push(window.siaDC09_mediaConfigError())
 }
 
-const out = { fields: {}, validate, summaries }
+const out = { fields: {}, validate, summaries, mediaErrors }
 for (const key of ['supervision_format', 'supervision_interval', 'rp_interval']) out.fields[key] = field(key).val()
 out.fields.rp_enabled = field('rp_enabled').is(':checked')
 out.locked = $('.siaDC09-locked').length
@@ -112,5 +121,8 @@ out.readonlyInputs = $('input[readonly]').length
 out.selectedProfile = $('#siaDC09-csr-profile').val()
 out.advancedVisible = $('#siaDC09-advanced').css('display') !== 'none'
 out.nullWarningVisible = $('#siaDC09-null-warning').css('display') !== 'none'
+out.mediaUrlVisible = $('#siaDC09-media-url-group').css('display') !== 'none'
+out.singleTagDisabled = field('media_single_tag').prop('disabled')
+out.singleTagChecked = field('media_single_tag').is(':checked')
 out.errors = $('#siaDC09-step1-errors').html()
 process.stdout.write(JSON.stringify(out) + '\n')

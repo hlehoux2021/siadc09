@@ -387,3 +387,64 @@ def test_js_profile_apply_and_validator_rules(js_source: str) -> None:
     assert "rpInterval < 60 || rpInterval > 86400" in js_source, "RP range rule missing"
     # Assert: relabel in summary
     assert "tentatives de reconnexion" in js_source, "summary label not corrected"
+
+
+# ── Story 17.7: alarm media keys: PHP class constants ↔ wizard page ↔ JS ─────
+
+_MEDIA_KEYS = [
+    "media_snapshot_enabled", "media_clip_enabled",
+    "media_snapshot_format", "media_clip_format", "media_single_tag",
+]
+
+
+@pytest.mark.parametrize("key", _MEDIA_KEYS)
+def test_media_key_in_class_page_and_js(php_class: str, php_page: str, js_source: str, key: str) -> None:
+    """
+    Each alarm media key is defined once in siaDC09 (constant + default) and bound by the
+    wizard page and the JS.
+
+    Expected result:
+    - key in the class constants, data-l2key in the page, referenced in the JS
+    """
+    # Assert: constant and default in the PHP class
+    assert php_class.count(f"'{key}'") >= 2, f"{key} constant/default missing in siaDC09"
+    # Assert: wizard field bound to the key
+    assert f'data-l2key="{key}"' in php_page
+    # Assert: JS knows the key
+    assert key in js_source
+
+
+def test_media_url_field_is_in_advanced_options_not_step3(php_page: str) -> None:
+    """
+    The URL template moved from step 3 to the advanced options, hidden until a media is on.
+
+    Expected result:
+    - the template input sits inside #siaDC09-advanced, before step 2
+    - the URL group starts hidden; step 3 has an error area
+    """
+    advanced = php_page.index('id="siaDC09-advanced"')
+    step2 = php_page.index('id="siaDC09-step2"')
+    field = php_page.index('data-l2key="frigate_media_url_template"')
+    # Assert: field inside the advanced block
+    assert advanced < field < step2
+    # Assert: hidden by default
+    assert 'id="siaDC09-media-url-group" style="display:none;"' in php_page
+    # Assert: step 3 error area exists
+    assert 'id="siaDC09-step3-errors"' in php_page
+
+
+def test_js_media_rules(js_source: str) -> None:
+    """
+    JS shows the URL only when a media is on, disables the one-tag option for mixed
+    formats and blocks step 3 Next on an empty URL.
+
+    Expected result:
+    - the three helpers exist and step 3 Next calls the validator
+    """
+    # Assert: helpers defined
+    assert "function siaDC09_updateMediaFields(" in js_source
+    assert "function siaDC09_mediaConfigError(" in js_source
+    # Assert: mixed formats disable the single-tag option
+    assert "snapshotFormat !== m.clipFormat" in js_source
+    # Assert: step 3 Next is gated
+    assert "siaDC09_mediaConfigError()" in js_source.split("#bt_step3Next")[1]

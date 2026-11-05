@@ -39,6 +39,24 @@ class siaDC09 extends eqLogic {
     const RP_INTERVAL_MAX_S = 86400;
     const RP_INTERVAL_DEFAULT_S = 60;
 
+    /**
+     * Alarm media settings (Story 17.7), per equipment. Defaults reproduce the pre-17.7 bytes
+     * (snapshot + clip, both "V", one tag) for equipment saved before the keys existed.
+     */
+    const MEDIA_FORMATS = ['U', 'V'];
+    const MEDIA_SNAPSHOT_ENABLED_KEY = 'media_snapshot_enabled';
+    const MEDIA_CLIP_ENABLED_KEY = 'media_clip_enabled';
+    const MEDIA_SNAPSHOT_FORMAT_KEY = 'media_snapshot_format';
+    const MEDIA_CLIP_FORMAT_KEY = 'media_clip_format';
+    const MEDIA_SINGLE_TAG_KEY = 'media_single_tag';
+    const MEDIA_DEFAULTS = [
+        'media_snapshot_enabled' => 1,
+        'media_clip_enabled'     => 1,
+        'media_snapshot_format'  => 'V',
+        'media_clip_format'      => 'V',
+        'media_single_tag'       => 1,
+    ];
+
     /** Sender-side CRC formats: 'bin' removed on 2026-10-17 (Story 17.1, ADR-06 note). */
     const SENDER_CRC_FORMATS = ['hex'];
 

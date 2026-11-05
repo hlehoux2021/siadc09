@@ -124,14 +124,25 @@ class siaDC09Cmd extends cmd {
                 // concurrent _handlePrefetchResult() callback and join a snapshot URL from one
                 // event with a clip URL from a different, later one.
                 $cacheEntry = $this->_readPrefetchCacheEntry($zoneEntry);
-                $snapshotUrl = $this->_resolveFrigateSnapshotUrl($zoneEntry, $cacheEntry);
-                $clipUrl = $this->_resolveFrigateClipUrl($zoneEntry, $cacheEntry);
-                // Story 14-3: join both media (space-separated, one [V...] block) when both
-                // resolve; fall back to whichever one resolves alone; omit entirely when
-                // neither does — same fallback contract as 14-1/14-2, just for two URLs.
-                $mediaParts = array_filter([$snapshotUrl, $clipUrl], fn($u) => $u !== null);
-                if (!empty($mediaParts)) {
-                    $payload['media_url'] = implode(' ', $mediaParts);
+                // Story 17.7: only the media enabled on the equipment are resolved; snapshot
+                // before clip. The daemon groups them into [U..]/[V..] tags. Both off or none
+                // resolved: no 'media' key at all (same omit-not-null contract as 14-1..14-3).
+                $media = [];
+                if ($this->_mediaSetting(siaDC09::MEDIA_SNAPSHOT_ENABLED_KEY)) {
+                    $snapshotUrl = $this->_resolveFrigateSnapshotUrl($zoneEntry, $cacheEntry);
+                    if ($snapshotUrl !== null) {
+                        $media[] = ['format' => $this->_mediaFormat(siaDC09::MEDIA_SNAPSHOT_FORMAT_KEY), 'url' => $snapshotUrl];
+                    }
+                }
+                if ($this->_mediaSetting(siaDC09::MEDIA_CLIP_ENABLED_KEY)) {
+                    $clipUrl = $this->_resolveFrigateClipUrl($zoneEntry, $cacheEntry);
+                    if ($clipUrl !== null) {
+                        $media[] = ['format' => $this->_mediaFormat(siaDC09::MEDIA_CLIP_FORMAT_KEY), 'url' => $clipUrl];
+                    }
+                }
+                if (!empty($media)) {
+                    $payload['media'] = $media;
+                    $payload['media_single_tag'] = (bool) $this->_mediaSetting(siaDC09::MEDIA_SINGLE_TAG_KEY);
                 }
                 siaDC09::sendToDaemon($payload);
                 $this->_recordOpenAlarm($logicalId, $zone !== '' ? $zone : null, $zoneNumber);
@@ -182,6 +193,23 @@ class siaDC09Cmd extends cmd {
                 }
                 break;
         }
+    }
+
+    /** Story 17.7: an alarm-media equipment key, falling back to the pre-17.7 default. */
+    private function _mediaSetting(string $key): mixed {
+        $default = siaDC09::MEDIA_DEFAULTS[$key];
+        $eqLogic = $this->getEqLogic();
+        if ($eqLogic === null) {
+            return $default;
+        }
+        $value = $eqLogic->getConfiguration($key, $default);
+        return ($value === '' || $value === null) ? $default : $value;
+    }
+
+    /** Story 17.7: the U/V identifier configured for a media, "V" if unusable. */
+    private function _mediaFormat(string $key): string {
+        $value = $this->_mediaSetting($key);
+        return in_array($value, siaDC09::MEDIA_FORMATS, true) ? $value : siaDC09::MEDIA_DEFAULTS[$key];
     }
 
     /**

@@ -126,7 +126,11 @@
         "Numéro utilisateur SIA": "Numéro utilisateur SIA",
         "N°": "N°",
         "Objet parent": "Objet parent",
-        "Optionnel — voir": "Optionnel — voir",
+        "Requise quand un média est activé — voir": "Requise quand un média est activé — voir",
+        "Clip dans les alarmes": "Clip dans les alarmes",
+        "Snapshot dans les alarmes": "Snapshot dans les alarmes",
+        "Un seul tag pour les médias": "Un seul tag pour les médias",
+        "Indisponible : un tag unique ne porte qu'un format (U ou V).": "Indisponible : un tag unique ne porte qu'un format (U ou V).",
         "Options": "Options",
         "Options avancées": "Options avancées",
         "Paramètres généraux": "Paramètres généraux",
@@ -170,6 +174,7 @@
         "Étape 4 — Alertes critiques": "Étape 4 — Alertes critiques"
     },
     "plugins/siaDC09/desktop/js/siaDC09.js": {
+        "URL media Frigate requise quand un média est activé : renseignez-la dans l'étape 1, Options avancées, ou désactivez les médias": "URL media Frigate requise quand un média est activé : renseignez-la dans l'étape 1, Options avancées, ou désactivez les médias",
         "Adresse IP de la centrale requise": "Adresse IP de la centrale requise",
         "Afficher": "Afficher",
         "Au moins une trame périodique est requise : activez la supervision ou le test cyclique (RP)": "Au moins une trame périodique est requise : activez la supervision ou le test cyclique (RP)",

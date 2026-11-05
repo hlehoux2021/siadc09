@@ -1414,3 +1414,8 @@ and `jeedom-alarm/SKILL.md` say so explicitly.
 (`alarm.class.php:700-703`) has no already-disarmed guard — unlike `armed`, which returns early
 with "Alarme déjà active" — so pressing Désactiver on an already-disarmed alarm runs `release`
 again and sends another `OP`. OP is idempotent for the CSR; no local dedup is added.
+
+
+## Story 17.7 - Alarm media keys
+
+Equipment keys (constants and defaults in `siaDC09`): `media_snapshot_enabled` (1), `media_clip_enabled` (1), `media_snapshot_format` (V), `media_clip_format` (V), `media_single_tag` (1). Defaults reproduce pre-17.7 frames. `siaDC09Cmd::execute()` (burglar, fire, panic) resolves only the enabled media, snapshot before clip, and sends `{"cmd":..,"zone":..,"media":[{"format":"U","url":".."}],"media_single_tag":true}`; `media` and `media_single_tag` are omitted when nothing is enabled or resolved.

@@ -17,7 +17,7 @@ import struct
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Literal, TypedDict
+from typing import Any, Literal, TypedDict
 try:
     from .sia_crypto import AESDecryptionError, AESKeyError, PadSource, SIACipher, parse_hex_key
 except ImportError:  # run as a script: `python3 sia_protocol.py --decode` (PHP inspector)
@@ -39,6 +39,9 @@ SIA_NULL_CODE = "0000"
 RP_AREA = "0"
 RP_ZONE = "0000"
 RP_SIA_CODE = "RP"
+
+# Story 17-7: Verification extended-data identifiers for media URLs (§ 5.5.1.8)
+MEDIA_FORMATS = ("U", "V")
 
 # Event type codes (per SIA spec)
 BURGLARY = "1"
@@ -247,7 +250,7 @@ class SIAMessageBuilder:
         event_code: str,
         account_prefix: str = "L0",
         receiver_number: str | None = None,
-        extended_data: dict[str, str] | None = None,
+        extended_data: dict[str, Any] | None = None,
         timestamp: datetime | None = None,
         encryption: bool = False,
         encryption_key: bytes | None = None,
@@ -555,7 +558,7 @@ class SIAMessageBuilder:
         self,
         account_number: str,
         event_code: str,
-        extended_data: dict[str, str] | None = None
+        extended_data: dict[str, Any] | None = None
     ) -> str:
         """
         Format unencrypted data field.
@@ -589,32 +592,72 @@ class SIAMessageBuilder:
         return f"[#{account_number}|{event_code}{zone}]"
 
     @staticmethod
-    def _format_extended_data_field(extended_data: dict[str, str] | None = None) -> str:
+    def _format_extended_data_field(extended_data: dict[str, Any] | None = None) -> str:
         """
         Format optional extended-data field per SIA DC-09 § 5.5.1.8.
 
         Its own bracket block, separate from [Data] (§ 5.5.1.7, where "zone" lives per the
         legacy Annex B convention handled by _format_data_field) — never merged into it.
-        Currently supports only the Verification "V" identifier for a media/snapshot URL
-        (story 14-1). extended_data is the same dict passed to _format_data_field(); this
-        method reads "media_url" and ignores every other key.
+        Renders media URLs as Verification "U"/"V" tags. extended_data is the same dict
+        passed to _format_data_field(); this method reads "media", "media_single_tag" and
+        the legacy "media_url", and ignores every other key.
 
         Args:
-            extended_data: Optional dict; supports key "media_url" (Verification "V" block)
+            extended_data: Optional dict. "media" (story 17-7): ordered list of
+                {"format": "U"|"V", "url": str}; "media_single_tag": bool, put all URLs in
+                one space-separated tag. "media" takes precedence over the legacy
+                "media_url" (story 14-1, a single "[V{media_url}]" tag).
 
         Returns:
-            "[V{media_url}]" when media_url is present and non-empty, else "" (no block —
-            byte-identical to pre-14-1 frames when media_url is absent).
+            The rendered tags, or "" when there is no media (no block — byte-identical to
+            frames built without media).
+
+        Raises:
+            ValueError: "media" with media_single_tag and mixed formats, or an unknown format.
 
         Reference: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.8, line 651
         """
         if not extended_data:
             return ""
 
+        # Story 17-7: "media" is a list of {"format": "U"|"V", "url": str} in send order;
+        # "media_single_tag" groups them in one space-separated tag (one format only).
+        media = extended_data.get("media")
+        if media:
+            return SIAMessageBuilder._format_media_tags(media, bool(extended_data.get("media_single_tag")))
+
         media_url = extended_data.get("media_url", "")
         if media_url:
             return f"[V{media_url}]"
         return ""
+
+    @staticmethod
+    def _format_media_tags(media: list[dict[str, str]], single_tag: bool) -> str:
+        """Render media entries as [U..]/[V..] tags (story 17-7).
+
+        Args:
+            media: Ordered entries {"format": "U"|"V", "url": str}; entries with an empty
+                url are skipped.
+            single_tag: True to put every URL in one space-separated tag.
+
+        Returns:
+            The concatenated tags, "" when no entry has a URL.
+
+        Raises:
+            ValueError: single_tag with mixed formats, or an unknown format.
+        """
+        entries = [m for m in media if m.get("url")]
+        for entry in entries:
+            if entry.get("format") not in MEDIA_FORMATS:
+                raise ValueError(f"unknown media format {entry.get('format')!r}")
+        if not entries:
+            return ""
+        if single_tag:
+            formats = {m["format"] for m in entries}
+            if len(formats) > 1:
+                raise ValueError("single media tag requested with mixed U/V formats")
+            return f"[{entries[0]['format']}{' '.join(m['url'] for m in entries)}]"
+        return "".join(f"[{m['format']}{m['url']}]" for m in entries)
 
     @staticmethod
     def _format_timestamp(ts: datetime | None = None) -> str | None:

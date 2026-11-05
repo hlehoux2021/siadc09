@@ -1448,3 +1448,8 @@ surgery).
   runs only after the armed delay otherwise (`:808-809` / `armedComplete` cron). `arm` is wired
   on `activationImmediateOk` for that reason — a bypassed arm still sends `CL` — see
   `php-core-design.md`'s wiring table and `jeedom-alarm/SKILL.md`.
+
+
+## Story 17.7 - Media tags
+
+The EVENT payload carries `media` (ordered list of `{format: "U"|"V", url}`) and `media_single_tag` instead of `media_url`. `SIAMessageBuilder._format_media_tags()` renders `[U<url> <url>]` (one tag, one format only) or one `[U..]`/`[V..]` tag per URL. A single tag with mixed formats raises `ValueError`; `_build_event_frame()` catches it, logs an error and sends the alarm without media. `media_url` is still accepted as a legacy single `[V..]` tag. The daemon never reads equipment config.
