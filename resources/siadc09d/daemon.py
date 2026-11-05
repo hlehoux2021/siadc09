@@ -1677,9 +1677,11 @@ class SIADaemon(BaseDaemon):
                 elapsed_s = n_ctx["elapsed_ms"] / 1000
                 if event == "duh":
                     info_msg = SM1_DUH.format(strike=strike)
+                    # The CSR refuses the frame: a configuration error, not a transient warning.
+                    self._logger.error(info_msg)
                 else:
                     info_msg = f"Réponse invalide de la centrale — NAK non décodable (strike {strike}/3)"
-                self._logger.warning(info_msg)
+                    self._logger.warning(info_msg)
                 self._logger.debug(
                     f"Supervision {'DUH (refused)' if event == 'duh' else 'NAK (unparseable)'}: account={self._account}, "
                     f"seq={n_ctx['seq']}, strike={strike}, elapsed={elapsed_s:.2f}s, "

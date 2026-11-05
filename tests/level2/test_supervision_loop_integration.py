@@ -1591,7 +1591,7 @@ async def test_duh_strike_label_names_the_refusal_until_another_failure_or_ack()
 
     Expected result:
     - after a DUH the label reads "Connexion dégradée · refus DUH (1/3)"
-    - the widget regex ^(.*?)\s*\((\d+)\/(\d+)\)\s*$ still extracts the N/3 counter
+    - the widget regex still extracts the N/3 counter
     - a following timeout strike drops the DUH mention: "Connexion dégradée (2/3)"
     - back to HEALTHY after an ACK, the label is "Connexion OK"
     """
@@ -1624,3 +1624,28 @@ async def test_duh_strike_label_names_the_refusal_until_another_failure_or_ack()
     daemon._sm1_state = SM1State.HEALTHY
     # Assert: healthy label unaffected
     assert daemon._supervision_label() == "Connexion OK"
+
+
+@pytest.mark.asyncio
+async def test_duh_log_line_is_error_level_not_warning(caplog):
+    """The DUH supervision log line is an error: the CSR refuses the frame (2026-11-05).
+
+    Expected result:
+    - the French "DUH de la centrale" line is logged at ERROR level
+    - no WARNING record carries it
+    """
+    import logging
+
+    daemon = _make_daemon()
+    daemon._log_sm1_supervision = SIADaemon._log_sm1_supervision.__get__(daemon)
+    daemon._send_callback = AsyncMock()
+    ctx = {"seq": 1, "elapsed_ms": 40.0, "strike": 1, "raw_hex": "00", "csr_time": None, "t3_just_fired": False}
+
+    with caplog.at_level(logging.DEBUG):
+        await daemon._log_sm1_supervision("duh", ctx)
+
+    duh = [r for r in caplog.records if "DUH de la centrale" in r.getMessage()]
+    # Assert: the line is present
+    assert duh, caplog.text
+    # Assert: it is logged at ERROR, never WARNING
+    assert all(r.levelno == logging.ERROR for r in duh), [r.levelname for r in duh]
