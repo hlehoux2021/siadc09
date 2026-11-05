@@ -56,6 +56,48 @@ def test_apply_profile_fills_and_locks_fields() -> None:
     assert out["dimmed"] == 4
 
 
+@pytest.mark.parametrize("fmt", ["U", "V"])
+def test_apply_media_profile_fills_media_options_without_locking_them(fmt: str) -> None:
+    """
+    A profile carrying media keys (17.8) sets the media options and leaves them editable.
+
+    Expected result:
+    - snapshot and clip on, both formats = fmt, one tag on, URL field shown
+    - only the four periodic-frame fields are locked
+    """
+    profile = {"supervision_format": "sia-dcs", "supervision_interval": 30,
+               "rp_enabled": 1, "rp_interval": 120,
+               "media_snapshot_enabled": 1, "media_clip_enabled": 1,
+               "media_snapshot_format": fmt, "media_clip_format": fmt, "media_single_tag": 1}
+    out = _run({"profiles": {"p": profile},
+                "actions": [{"op": "apply", "profile": "p", "fill": True}]})
+
+    # Assert: media options copied
+    assert out["media"] == {"media_snapshot_enabled": True, "media_clip_enabled": True,
+                            "media_snapshot_format": fmt, "media_clip_format": fmt,
+                            "media_single_tag": True}
+    # Assert: the URL template field appears because a media is on
+    assert out["mediaUrlVisible"] is True
+    # Assert: periodic-frame values copied too, and only those four fields locked
+    assert out["fields"]["supervision_interval"] == "30"
+    assert out["fields"]["rp_interval"] == "120"
+    assert out["locked"] == 4
+
+
+def test_apply_profile_without_media_keys_leaves_media_options_alone() -> None:
+    """
+    Ajax/Scutum carry no media key: choosing them keeps the media options as they are.
+
+    Expected result:
+    - snapshot checkbox set by the user stays checked after applying a media-less profile
+    """
+    out = _run({"profiles": _PROFILES, "fields": {"media_snapshot_enabled": True},
+                "actions": [{"op": "apply", "profile": "ajax", "fill": True}]})
+
+    # Assert: untouched
+    assert out["media"]["media_snapshot_enabled"] is True
+
+
 def test_apply_profile_without_fill_keeps_saved_values_but_locks() -> None:
     """
     Reloading a saved equipment (fill=false) locks the fields without overwriting them.

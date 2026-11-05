@@ -115,6 +115,11 @@ for (const action of scenario.actions || []) {
 const out = { fields: {}, validate, summaries, mediaErrors }
 for (const key of ['supervision_format', 'supervision_interval', 'rp_interval']) out.fields[key] = field(key).val()
 out.fields.rp_enabled = field('rp_enabled').is(':checked')
+out.media = {}
+for (const key of ['media_snapshot_format', 'media_clip_format']) out.media[key] = field(key).val()
+for (const key of ['media_snapshot_enabled', 'media_clip_enabled', 'media_single_tag']) {
+  out.media[key] = field(key).is(':checked')
+}
 out.locked = $('.siaDC09-locked').length
 out.dimmed = $('.siaDC09-profile-field').filter(function() { return this.style.opacity === '0.6' }).length
 out.readonlyInputs = $('input[readonly]').length

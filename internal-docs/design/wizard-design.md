@@ -77,7 +77,7 @@ Progress is shown as a horizontal stepper at the top (non-clickable, read-only).
 ### Profile selection
 
 A `csr_profile` select (`data-l2key="csr_profile"`) offers the profiles of
-`core/config/csr_presets.json` (Ajax, Scutum) plus **Personnalisé** (empty value). The options
+`core/config/csr_presets.json` (Ajax, Scutum, Vesta, FoxStream) plus **Personnalisé** (empty value). The options
 are built server-side from `siaDC09::getCsrProfiles()`, and the same array is handed to JS with
 `sendVarToJS('siaDC09_csrProfiles', ...)`. Profile names stay PHP/JS-side (ADR-22): the daemon
 only receives the resolved values through `deamon_start()`.
@@ -1106,6 +1106,19 @@ profile name: `deamon_start` passes the resolved `supervision_format`, `supervis
 ```
 
 A profile may omit a key (e.g. `supervision_interval`); the wizard then leaves that field untouched.
+
+### Alarm media keys (Story 17.8)
+
+A profile may also carry the story 17.7 media keys: `media_snapshot_enabled`, `media_clip_enabled`
+(0/1), `media_snapshot_format`, `media_clip_format` (`U` or `V`) and `media_single_tag` (0/1).
+The wizard fills them but does not lock them, and the media URL template is never a profile key.
+
+| Profile | Media | Supervision | RP |
+|---|---|---|---|
+| `vesta` (Vesta, Climax) | snapshot + clip, `U`, one tag | `sia-dcs` every 30 s | every 120 s |
+| `foxstream` (FoxStream, FoxBox) | snapshot + clip, `V`, one tag | `sia-dcs` every 30 s | every 120 s |
+
+The 30 s and 120 s values are test values.
 
 ### Adding a profile
 

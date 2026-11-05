@@ -144,6 +144,26 @@ function siaDC09_updateNullWarning() {
   $('#siaDC09-null-warning').toggle(isNull)
 }
 
+// Alarm media keys a profile may carry (story 17.8). Checkboxes take 0/1, selects take U/V.
+// They are filled but not locked: the profile is a starting point, the media URL template
+// is never part of a profile.
+var SIADC09_PROFILE_MEDIA_CHECKBOXES = ['media_snapshot_enabled', 'media_clip_enabled', 'media_single_tag']
+var SIADC09_PROFILE_MEDIA_SELECTS = ['media_snapshot_format', 'media_clip_format']
+
+function siaDC09_applyProfileMedia(preset) {
+  SIADC09_PROFILE_MEDIA_CHECKBOXES.forEach(function(key) {
+    if (preset[key] !== undefined) {
+      $('.eqLogicAttr[data-l2key="' + key + '"]').prop('checked', !!parseInt(preset[key], 10))
+    }
+  })
+  SIADC09_PROFILE_MEDIA_SELECTS.forEach(function(key) {
+    if (preset[key] !== undefined) {
+      $('.eqLogicAttr[data-l2key="' + key + '"]').val(preset[key])
+    }
+  })
+  siaDC09_updateMediaFields()
+}
+
 // fill=true copies the preset values into the fields (user picked a profile);
 // fill=false only sets lock state (reload of an already-saved equipment).
 function siaDC09_applyProfile(profileId, fill) {
@@ -167,6 +187,7 @@ function siaDC09_applyProfile(profileId, fill) {
     if (preset.rp_interval !== undefined) {
       $('.eqLogicAttr[data-l2key="rp_interval"]').val(preset.rp_interval)
     }
+    siaDC09_applyProfileMedia(preset)
   }
   siaDC09_lockProfileFields(true)
   siaDC09_updateNullWarning()
