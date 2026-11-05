@@ -212,8 +212,8 @@ tests/level1/test_simulate_frames.py::test_socket_resource_cleanup_on_error PASS
 | File | Changes | Status |
 |------|---------|--------|
 | `tests/level1/test_simulate_frames.py` | +12 test functions (~400 lines) | ✅ COMPLETE |
-| `_bmad-output/implementation-artifacts/tests/test-strategy-review-2-3.md` | Created (comprehensive review) | ✅ NEW |
-| `_bmad-output/implementation-artifacts/tests/test-generation-summary-qa.md` | This file | ✅ NEW |
+| `_bmad-output/initiative-my-project/tests/test-strategy-review-2-3.md` | Created (comprehensive review) | ✅ NEW |
+| `_bmad-output/initiative-my-project/tests/test-generation-summary-qa.md` | This file | ✅ NEW |
 
 ---
 

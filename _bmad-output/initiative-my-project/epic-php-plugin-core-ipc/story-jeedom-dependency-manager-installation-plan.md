@@ -256,7 +256,7 @@ No debug issues encountered.
 - `tests/level1/test_install_php.py` — **NEW** — 6 install.php structural tests
 - `tests/level1/test_php_eqlogic_stub.py` — Added 3 Story 6.5 structural tests
 - `internal-docs/design/php-core-design.md` — Task 2.8 Method 2 override banner + file structure fix
-- `_bmad-output/planning-artifacts/architecture.md` — Updated 3 stale sentinel/dependancy_info references
+- `_bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md` — Updated 3 stale sentinel/dependancy_info references
 
 ### Change Log
 

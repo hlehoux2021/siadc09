@@ -298,8 +298,8 @@ New files (Story 7.3):
 - [Source: tests/level2/test_supervision_loop_integration.py — Level 2 patterns (mocked transport)]
 - [Source: tests/level2/test_tcp_reconnect_integration.py — Level 2 TCP patterns]
 - [Source: tests/conftest.py — make_daemon_preset(), CSRSimulator fixtures (DO NOT USE for Level 3)]
-- [Source: _bmad-output/implementation-artifacts/7-1-supervision-loop-strike-management-info-updates.md — Story 7.1 learnings]
-- [Source: _bmad-output/implementation-artifacts/7-2-tcp-stall-detection-reconnect-ring-buffer-logging.md — Story 7.2 learnings]
+- [Source: _bmad-output/initiative-my-project/epic-supervision-health-monitoring/story-supervision-loop-strike-management-info-updates-plan.md — Story 7.1 learnings]
+- [Source: _bmad-output/initiative-my-project/epic-supervision-health-monitoring/story-tcp-stall-detection-reconnect-ring-buffer-logging-plan.md — Story 7.2 learnings]
 
 ### Review Findings
 

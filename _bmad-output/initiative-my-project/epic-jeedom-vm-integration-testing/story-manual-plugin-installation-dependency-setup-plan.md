@@ -171,7 +171,7 @@ For this story, we only validate steps 1–2. Wizard completion (step 3) is Stor
 - [Source: plugin_info/install.php] — Install/remove lifecycle hooks
 - [Source: core/class/siaDC09.class.php] — eqLogic class, deamon_info(), deamon_start()
 - [Source: internal-docs/design/php-core-design.md] — File structure, dependency management design
-- [Source: _bmad-output/planning-artifacts/architecture.md] — Testing strategy (Level 4 = real Jeedom)
+- [Source: _bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md] — Testing strategy (Level 4 = real Jeedom)
 
 ## Dev Agent Record
 

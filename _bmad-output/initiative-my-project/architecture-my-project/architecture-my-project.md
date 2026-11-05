@@ -3,7 +3,7 @@ stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8]
 workflowStatus: 'complete'
 completedAt: '2026-04-07'
 inputDocuments:
-  - '_bmad-output/planning-artifacts/prd.md'
+  - '_bmad-output/initiative-my-project/prd-my-project/prd-my-project.md'
   - '_bmad-output/brainstorming/brainstorming-session-2026-02-17.md'
   - 'internal-docs/design/daemon-design.md'
   - 'internal-docs/design/php-core-design.md'

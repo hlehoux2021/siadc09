@@ -266,7 +266,7 @@ Since no PHP unit test framework is available (real Jeedom required for integrat
 
 - [Source: internal-docs/design/widget-design.md Task 6.4] — staleness detection design (API name and file placement CORRECTED in this story)
 - [Source: architecture.md line 299] — ADR-16: JS-side staleness detection
-- [Source: _bmad-output/implementation-artifacts/10-1.md] — CSS hooks and data attributes placed for this story
+- [Source: _bmad-output/initiative-my-project/archive-v6/10-1.md] — CSS hooks and data attributes placed for this story
 - [Source: internal-docs/design/supervision-design.md] — cron5() watchdog as primary safety mechanism
 
 ## Dev Agent Record

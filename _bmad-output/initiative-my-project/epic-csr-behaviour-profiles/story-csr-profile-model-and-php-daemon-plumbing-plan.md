@@ -288,11 +288,11 @@ the AC8 removal could simplify the `"SIA" if … else "ADM"` mapping at line 481
 
 ### References
 
-- [Source: _bmad-output/planning-artifacts/epics.md#Epic 17 (table at 2618-2624) and #Story 17.1 (2636-2664)]
-- [Source: _bmad-output/planning-artifacts/architecture.md#ADR-22 (732-774), #ADR-06 note (184-185), #ADR-08 (204)]
-- [Source: _bmad-output/planning-artifacts/sprint-change-proposal-2026-10-17-csr-profiles.md]
+- [Source: _bmad-output/initiative-my-project/archive-v6/epics.md#Epic 17 (table at 2618-2624) and #Story 17.1 (2636-2664)]
+- [Source: _bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md#ADR-22 (732-774), #ADR-06 note (184-185), #ADR-08 (204)]
+- [Source: _bmad-output/initiative-my-project/sprint-change-proposal-2026-10-17-csr-profiles/sprint-change-proposal-2026-10-17-csr-profiles.md]
 - [Source: internal-docs/ajax.md — captures A/B, "Modèle Ajax déduit des captures A et B"]
-- [Source: _bmad-output/implementation-artifacts/deferred-work.md — D-42, D-86, D-115]
+- [Source: _bmad-output/initiative-my-project/deferred-work.md — D-42, D-86, D-115]
 
 ## Dev Agent Record
 
@@ -362,8 +362,8 @@ Claude Opus 5.5 (eu.anthropic.claude-opus-5-5), 2026-10-17.
 - `tests/level1/test_php_periodic_frame_guard.py` (new)
 - `tests/level2/test_supervision_default_preset.py` (new)
 - `tests/level2_5/test_wizard_config_ipc.py` (modified)
-- `_bmad-output/planning-artifacts/architecture.md` (ADR-06 note)
-- `_bmad-output/implementation-artifacts/sprint-status.yaml` (17-1 → review)
+- `_bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md` (ADR-06 note)
+- `_bmad-output/initiative-my-project/archive-v6/sprint-status.yaml` (17-1 → review)
 
 ## Review Triage Log
 

@@ -8,7 +8,7 @@ Session: unavailable · Timestamp: 2026-10-18
 
 - Action: wrote narrative with 6 blocks, all unvisited.
 - Result: no findings yet. The earlier quick review (8 findings, all rejected) is in the plan's triage log.
-- Evidence: _bmad-output/plan-17-2-configurable-supervision-frame.md
+- Evidence: _bmad-output/initiative-my-project/epic-csr-behaviour-profiles/story-configurable-supervision-frame-sia-dcs-null-plan.md
 
 ## 2 — block 1 Intent — accepted
 

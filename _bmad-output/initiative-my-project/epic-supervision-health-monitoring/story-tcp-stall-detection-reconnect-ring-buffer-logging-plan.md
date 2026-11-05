@@ -484,13 +484,13 @@ Amendment 2026-09-17 (AC15–AC17, Task 8):
 - [Source: resources/siadc09d/daemon.py:999–1096 — _handle_supervision_tcp_drop + _tcp_reconnect_loop implementation]
 - [Source: resources/siadc09d/daemon.py:714–764 — _update_sm1_from_strike with TCP_RECONNECTING transition]
 - [Source: resources/siadc09d/daemon.py:548–567 — _set_sm1_state with _sm1_state_changed event]
-- [Source: _bmad-output/implementation-artifacts/deferred-work.md — D-3 dual task race condition]
-- [Source: _bmad-output/implementation-artifacts/7-1-supervision-loop-strike-management-info-updates.md — Story 7.1 patterns and learnings]
+- [Source: _bmad-output/initiative-my-project/deferred-work.md — D-3 dual task race condition]
+- [Source: _bmad-output/initiative-my-project/epic-supervision-health-monitoring/story-supervision-loop-strike-management-info-updates-plan.md — Story 7.1 patterns and learnings]
 - [Source: tests/level2/test_supervision_loop_integration.py — test fixture pattern (_make_daemon)]
 - [Amendment 2026-09-17] [Source: internal-docs/design/daemon-design.md:589,616,677,684 — `NO_NETWORK --> [*] : _notify() + self.stop()`; the authoritative recovery model this story now aligns to]
 - [Amendment 2026-09-17] [Source: internal-docs/design/supervision-design.md:92 — `on_stop()` Push STOPPED before process exits; :641 — watchdog auto-restarts within ~1 min]
-- [Amendment 2026-09-17] [Source: _bmad-output/implementation-artifacts/3-3-error-handler-module-structure-callback-types.md — stub docstring: "TRANSPORT_PERMANENT: fire all callbacks, then call daemon.stop()" (contract, deferred to Epic 6, never wired)]
-- [Amendment 2026-09-17] [Source: _bmad-output/implementation-artifacts/12-7-error-handling-notification-delivery.md — AC11 / Task 10.5–10.6: VM validation that the daemon exits and the watchdog restarts it]
+- [Amendment 2026-09-17] [Source: _bmad-output/initiative-my-project/epic-error-handler/story-error-handler-module-structure-callback-types-plan.md — stub docstring: "TRANSPORT_PERMANENT: fire all callbacks, then call daemon.stop()" (contract, deferred to Epic 6, never wired)]
+- [Amendment 2026-09-17] [Source: _bmad-output/initiative-my-project/archive-v6/12-7-error-handling-notification-delivery.md — AC11 / Task 10.5–10.6: VM validation that the daemon exits and the watchdog restarts it]
 - [Amendment 2026-09-17] [Source: jeedomdaemon.BaseDaemon.stop() — cancels `asyncio.all_tasks()` minus current, then run()'s finally removes PID + sys.exit(0); this is why self.stop() must be scheduled, not awaited]
 
 ## Dev Agent Record
@@ -590,7 +590,7 @@ Claude Opus 4.6 (1M context)
 - `tests/level2/test_tcp_reconnect_integration.py` — modified: `test_reconnect_loop_extra_attempts_reuse_cap` now also asserts terminal `SM1State.NO_NETWORK` and a single `TRANSPORT_PERMANENT` notify.
 - `internal-docs/design/daemon-design.md` — modified: Task 1.2 pseudocode/parameters table updated to match the shipped 6-attempt/growing-backoff/~18.5min model (was describing the pre-amendment 5-attempt/10s-fixed/~90s model).
 - `desktop/js/siaDC09.js` — modified: config-summary fallback `cfg.retry_count || 3` → `|| 6`.
-- `_bmad-output/implementation-artifacts/7-2-tcp-stall-detection-reconnect-ring-buffer-logging.md` — modified: corrected AC19's "~15 min" claim to ~18.5 min (1110s).
+- `_bmad-output/initiative-my-project/epic-supervision-health-monitoring/story-tcp-stall-detection-reconnect-ring-buffer-logging-plan.md` — modified: corrected AC19's "~15 min" claim to ~18.5 min (1110s).
 
 ### Review Findings
 

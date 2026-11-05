@@ -246,8 +246,8 @@ from fixtures.ipc_schema import SAMPLE_ERROR_UPDATE, SAMPLE_MESSAGE_TRACE
 ### References
 
 - [Source: internal-docs/design/debug-ui-design.md — Task 5c.1, 5c.2, 5c.3, 5c.4, 5c.5]
-- [Source: _bmad-output/implementation-artifacts/9-1-status-badge-error-panel.md — all implementation details]
-- [Source: _bmad-output/implementation-artifacts/9-2-protocol-inspector-hex-viewer-decryption.md — message rendering]
+- [Source: _bmad-output/initiative-my-project/epic-debug-ui-diagnostics-panel/story-status-badge-error-panel-plan.md — all implementation details]
+- [Source: _bmad-output/initiative-my-project/epic-debug-ui-diagnostics-panel/story-protocol-inspector-hex-viewer-decryption-plan.md — message rendering]
 - [Source: tests/fixtures/ipc_schema.py — callback schema definitions]
 
 ### Review Findings

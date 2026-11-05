@@ -506,7 +506,7 @@ T3 (EVENT_FAILED) entries: `"CRITIQUE — "` prefix, logicalId = `'event_failed'
 - [Source: `resources/siadc09d/error_handler.py`] — `ErrorCode.BAD_CSR_RESPONSE` (T2), `ErrorCode.EVENT_FAILED` (T3)
 - [Source: `internal-docs/design/daemon-design.md`] — SM2 state machine, retry logic, `_EVENT_SIA_CODES`
 - [Source: `internal-docs/design/error-handler-design.md`] — T2/T3 dispatch, notify channels
-- [Source: `_bmad-output/implementation-artifacts/12-4-supervision-loop-strike-recovery.md`] — Story 12-4 bug fix: double T3_PREFIX resolved
+- [Source: `_bmad-output/initiative-my-project/epic-jeedom-vm-integration-testing/story-supervision-loop-strike-recovery-plan.md`] — Story 12-4 bug fix: double T3_PREFIX resolved
 
 ## Dev Agent Record
 

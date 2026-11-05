@@ -421,22 +421,22 @@ Before implementing, verify:
 ## References & Source Documents
 
 **Protocol Specification:**
-- [SIA DC-09-2021.17 Protocol](internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md)
+- [SIA DC-09-2021.17 Protocol](../../implementation-artifacts/internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md)
 - Section 5.5.3.2: NAK response format (no sub-codes in protocol)
 
 **Design Documents:**
-- [Error Handler Design](internal-docs/design/error-handler-design.md) — Component 5a, ErrorCode enum § API surface
-- [Supervision Design](internal-docs/design/supervision-design.md) — SM1 strike counter logic, T3 notification policy
-- [Logging Design](internal-docs/design/logging-design.md) — French user-facing messages, dual-line logging pattern
+- [Error Handler Design](../../implementation-artifacts/internal-docs/design/error-handler-design.md) — Component 5a, ErrorCode enum § API surface
+- [Supervision Design](../../implementation-artifacts/internal-docs/design/supervision-design.md) — SM1 strike counter logic, T3 notification policy
+- [Logging Design](../../implementation-artifacts/internal-docs/design/logging-design.md) — French user-facing messages, dual-line logging pattern
 
 **Epics & Stories:**
-- [Epics Breakdown](\_bmad-output/planning-artifacts/epics.md) § Epic 3: Error Handler
+- [Epics Breakdown](../../implementation-artifacts/\_bmad-output/initiative-my-project/archive-v6/epics.md) § Epic 3: Error Handler
 - Story 3.2: Notification context types & _notify() interface
 - Story 3.3: Error handler module structure & callback types
 
 **Code Style & Testing:**
-- [Python Code Style](\.claude/rules/code-style.md) — Type hints, naming conventions, docstring format
-- [Testing Rules](\.claude/rules/testing.md) — Pytest function-based tests, three-element documentation
+- [Python Code Style](../../implementation-artifacts/\.claude/rules/code-style.md) — Type hints, naming conventions, docstring format
+- [Testing Rules](../../implementation-artifacts/\.claude/rules/testing.md) — Pytest function-based tests, three-element documentation
 
 ---
 
@@ -505,8 +505,8 @@ Before implementing, verify:
 - `tests/level1/test_error_handler.py` (135 lines) — 7 unit tests (6 core + 1 KeyError prevention test)
 
 **Modified:**
-- `_bmad-output/implementation-artifacts/sprint-status.yaml` — Story status: ready-for-dev → review
-- `_bmad-output/implementation-artifacts/3-1-errorcode-enum-error-classification.md` — Story file with implementation notes and completion status
+- `_bmad-output/initiative-my-project/archive-v6/sprint-status.yaml` — Story status: ready-for-dev → review
+- `_bmad-output/initiative-my-project/epic-error-handler/story-errorcode-enum-error-classification-plan.md` — Story file with implementation notes and completion status
 
 **Deferred to Story 3.2:**
 - `resources/siadc09d/__init__.py` — Export ErrorCode, ErrorTier from error_handler

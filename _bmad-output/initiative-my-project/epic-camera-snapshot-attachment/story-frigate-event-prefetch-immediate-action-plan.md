@@ -28,7 +28,7 @@ waits on the network.
 
 ## Context
 
-This story implements ADR-17, Amendment 3 (Option D) — `_bmad-output/planning-artifacts/architecture.md:393-502`.
+This story implements ADR-17, Amendment 3 (Option D) — `_bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md:393-502`.
 Story 14-1 shipped Option A (read `info_detect_person`/`info_id` from the Jeedom "Frigate NVR" plugin's own
 commands). Live validation on `test-jeedom.lehoux.net` confirmed two independent, real problems with that data
 source, both root-caused against the Frigate plugin's actual source
@@ -284,7 +284,7 @@ Code review run 2026-09-24 (three parallel layers: Blind Hunter, Edge Case Hunte
 - [x] [Review][Patch] Misleading diagnostic when `#zone#` isn't substituted — `execute()`'s `prefetchEvent` case only special-cases an *empty* title; if the alarm plugin ever fails to substitute the tag, `$zone` becomes the literal string `"#zone#"`, which silently falls through to the generic "zone not mapped" warning, masking the real cause. [core/class/siaDC09Cmd.class.php]
 - [x] [Review][Patch] Stale docblock on `_buildFrigateMediaUrl()` still says `$eventId ... read from info_id` — the only caller now sources it from `sia_prefetch_cache`. [core/class/siaDC09Cmd.class.php]
 - [x] [Review][Patch] This story's own File List row cites `test_prefetch_event_command_uses_other_subtype`; the diff actually adds `test_prefetch_event_command_uses_message_subtype`. [14-2-frigate-event-prefetch-immediate-action.md]
-- [x] [Review][Patch] `sprint-status.yaml`'s `epic-14` comment still says "Option A, majority-case-only" after Option D superseded it. [_bmad-output/implementation-artifacts/sprint-status.yaml]
+- [x] [Review][Patch] `sprint-status.yaml`'s `epic-14` comment still says "Option A, majority-case-only" after Option D superseded it. [_bmad-output/initiative-my-project/archive-v6/sprint-status.yaml]
 - [x] [Review][Patch] Dev Notes citation `internal-docs/design/php-core-design.md:1264` doesn't literally support the "'other' has no Titre field" claim — that line documents `burglaryCancel`/`raz`, not `subType='other'`'s absence of a Titre field. Correct the citation to the general tag mechanism (lines ~424-441) plus "confirmed empirically via live testing, 2026-09-24". [core/class/siaDC09Cmd.class.php docblock + this story's Dev Notes]
 - [x] [Review][Defer] Lost-update race in Jeedom's `getCache()`/`setCache()` (single unguarded read-modify-write blob per eqLogic, verified in Jeedom core `cache.class.php`) — deferred, pre-existing: the exact same pattern already exists for `sia_open_alarms` in the same file; not introduced by this story, not fixable without a project-wide Jeedom cache-access redesign.
 - [x] [Review][Defer] No format validation on the cross-plugin `config::byKey('URL'|'port', 'frigate')` read (e.g. a theoretical "double-scheme URL" if Frigate ever stores a full URL instead of a bare host) — deferred, pre-existing/accepted tradeoff: live-confirmed the actual stored value is a bare host with no scheme; validating against an unspecified third-party plugin's config format was a deliberate scope decision (Dev Notes) to avoid a hard class dependency on that plugin.
@@ -398,8 +398,8 @@ acceptable for AC5/AC6/AC7's end-to-end guarantee.
 
 ### References
 
-- ADR-17, Amendment 3 — `_bmad-output/planning-artifacts/architecture.md:393-502`
-- Epic 14 / Story 14.2 — `_bmad-output/planning-artifacts/epics.md`
+- ADR-17, Amendment 3 — `_bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md:393-502`
+- Epic 14 / Story 14.2 — `_bmad-output/initiative-my-project/archive-v6/epics.md`
 - Story 14.1 — `14-1-attach-frigate-snapshot-alarm-frame.md` (superseded majority-case data source; Task 1's
   zone-to-camera wizard mapping and Task 6's `_buildFrigateMediaUrl()`/`frigate_media_url_template` are **not**
   superseded and are reused as-is)

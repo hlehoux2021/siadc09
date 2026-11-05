@@ -31,7 +31,7 @@ So that the monitoring center has a visual without me building or waiting on any
 
 ## Context
 
-This story implements ADR-17 (`_bmad-output/planning-artifacts/architecture.md`), reached after a collaborative
+This story implements ADR-17 (`_bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md`), reached after a collaborative
 design session (adversarial review + a Winston/Amelia/John party-mode debate on Option A — depend on the Jeedom
 "Frigate NVR" plugin's own commands — vs Option B — an independent MQTT/REST integration bypassing that plugin).
 The decision: **Option A, majority case only.** The fallback case (camera hasn't detected the person yet when the
@@ -473,8 +473,8 @@ reflection-based "should work" is not acceptable for this AC.
 
 ### References
 
-- ADR-17 — `_bmad-output/planning-artifacts/architecture.md`
-- Epic 14 / Story 14.1 — `_bmad-output/planning-artifacts/epics.md`
+- ADR-17 — `_bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md`
+- Epic 14 / Story 14.1 — `_bmad-output/initiative-my-project/archive-v6/epics.md`
 - Prior art: story 8.2 (`8-2-wizard-steps-3-4-zone-mapping.md`) for the zone-mapping wizard pattern and the
   "never crash on unmapped/misconfigured camera" principle
 - Memory: `jeedom-info-cmd-execcmd-vs-getvalue`, `jeedom-ui-validation-over-reflection`, `jeedom-test-host-deploy`,

@@ -538,7 +538,7 @@ Test vectors for `decode()`:
 - [Source: resources/siadc09d/sia_protocol.py — _extract_frame_components, _validate_crc, _compute_crc_modbus]
 - [Source: resources/siadc09d/sia_crypto.py — SIACipher.decrypt()]
 - [Source: resources/siadc09d/daemon.py — _log_sm1_supervision(), _log_sm2_event(), _send_raw()]
-- [Source: _bmad-output/implementation-artifacts/9-1-status-badge-error-panel.md — inspector panel shell, button wiring]
+- [Source: _bmad-output/initiative-my-project/epic-debug-ui-diagnostics-panel/story-status-badge-error-panel-plan.md — inspector panel shell, button wiring]
 - [Source: core/ajax/siaDC09.ajax.php — existing AJAX pattern, getDiagnosticData already returns messages]
 - [Source: desktop/js/siaDC09.js — siaDC09_loadDiagnosticData(), inspector button handlers]
 

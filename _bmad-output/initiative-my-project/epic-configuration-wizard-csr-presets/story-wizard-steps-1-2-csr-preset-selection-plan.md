@@ -429,7 +429,7 @@ The IMA Protect IP address is not publicly documented and is under NDA. The plac
 - [Source: desktop/php/aiodemo.php] — Jeedom PHP page structural reference
 - [Source: resources/siadc09d/daemon.py (bottom)] — existing entry point to insert `--test-only` before
 - [Source: resources/siadc09d/sia_transport.py] — `SIAUDPTransport`/`SIATCPTransport` for `_send_raw_once`
-- [Source: _bmad-output/planning-artifacts/epics.md §Story 8.1 (line 1257)] — acceptance criteria
+- [Source: _bmad-output/initiative-my-project/archive-v6/epics.md §Story 8.1 (line 1257)] — acceptance criteria
 
 ## Dev Agent Record
 

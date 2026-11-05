@@ -422,8 +422,8 @@ This story is PHP-only — no protocol encoding/decoding. The daemon (Python) ha
 - [Source: core/class/aiodemo.class.php — reference implementation for all Jeedom patterns]
 - [Source: plugin_info/info.json — current template to be updated]
 - [Source: plugin_info/packages.json — current pip3 deps]
-- [Source: _bmad-output/planning-artifacts/epics.md § Story 6.1 Acceptance Criteria]
-- [Source: _bmad-output/planning-artifacts/architecture.md — PHP 8 type requirements]
+- [Source: _bmad-output/initiative-my-project/archive-v6/epics.md § Story 6.1 Acceptance Criteria]
+- [Source: _bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md — PHP 8 type requirements]
 
 ---
 

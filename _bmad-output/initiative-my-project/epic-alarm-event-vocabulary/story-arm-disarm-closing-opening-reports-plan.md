@@ -20,7 +20,7 @@ Complète 13-1 : `disarm` (sur `release`) envoie déjà BC puis OP quand une BA 
 n'envoie **rien** sinon — c'est la branche `else` que cette story remplit avec OP. Elle ajoute
 aussi une nouvelle commande `arm` (sur `activationImmediateOk`) pour CL. Voir ADR-18
 (`architecture.md:504-530`) et le Sprint Change Proposal du 2026-09-25 (`_bmad-output/
-planning-artifacts/sprint-change-proposal-2026-09-25.md:231-247`), qui a déjà tranché la
+initiative-my-project/sprint-change-proposal-2026-09-25/sprint-change-proposal-2026-09-25.md:231-247`), qui a déjà tranché la
 conception de cette story lors du rescope de 13-1.
 
 ## Story
@@ -182,7 +182,7 @@ Code review 2026-09-26 (Blind Hunter + Edge Case Hunter + Acceptance Auditor, di
 - **`activationImmediateOk` vs `activationOk` — ne pas se tromper de hook.** C'est le point
   bloquant identifié dès le sprint-change-proposal : câbler `arm` sur `activationOk` manquerait
   tout armement précédé d'un `activationKo` (porte ouverte). Le Dev Agent Record de 13-1 et
-  `_bmad-output/implementation-artifacts/13-2-burglary-restore-event.md:36-37` documentent déjà
+  `_bmad-output/initiative-my-project/archive-v6/13-2-burglary-restore-event.md:36-37` documentent déjà
   ce couple de hooks — les relire avant de coder si le comportement du plugin alarme est ambigu.
 - **`_resolveSiaUserNumber()`, `_hasOpenAlarm()`, `_purgeOpenAlarms()` sont acquises de 13-1** —
   `arm` n'a besoin que de la première ; les deux autres ne concernent que le cycle BA/BC.
@@ -205,15 +205,15 @@ Code review 2026-09-26 (Blind Hunter + Edge Case Hunter + Acceptance Auditor, di
 
 ### References
 
-- [Source: _bmad-output/planning-artifacts/sprint-change-proposal-2026-09-25.md#4.2 (Story 13.4 block, lignes 231-247)]
-- [Source: _bmad-output/planning-artifacts/epics.md#Story 13.4 (lignes 2251-2270)]
-- [Source: _bmad-output/planning-artifacts/architecture.md#ADR-18 (lignes 504-530)]
+- [Source: _bmad-output/initiative-my-project/sprint-change-proposal-2026-09-25/sprint-change-proposal-2026-09-25.md#4.2 (Story 13.4 block, lignes 231-247)]
+- [Source: _bmad-output/initiative-my-project/archive-v6/epics.md#Story 13.4 (lignes 2251-2270)]
+- [Source: _bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md#ADR-18 (lignes 504-530)]
 - [Source: core/class/siaDC09Cmd.class.php#execute() (lignes 35-140), notamment le case 'disarm' (lignes 111-124)]
 - [Source: core/class/siaDC09.class.php#postSave() (lignes 688-707)]
 - [Source: resources/siadc09d/daemon.py — SiaEventCode (149), _EVENT_SIA_CODES (304), _VARIABLE_SIA_CODE_COMMANDS (317), _USER_ADDRESSED_SIA_CODES (320)]
 - [Source: resources/siadc09d/error_handler.py — EventFailedCtx.sia_code (328), event_type_fr()]
-- [Source: _bmad-output/implementation-artifacts/13-1-burglary-restore-cancel-events.md — conception et Dev Agent Record de référence pour `_resolveSiaUserNumber`/`_hasOpenAlarm`/`_purgeOpenAlarms`, et pour le mécanisme de validation live via l'API Jeedom]
-- [Source: _bmad-output/implementation-artifacts/13-2-burglary-restore-event.md#lignes 36-37 (table activationOk/activationImmediateOk/activationKo)]
+- [Source: _bmad-output/initiative-my-project/epic-alarm-event-vocabulary/story-burglary-restore-cancel-events-plan.md — conception et Dev Agent Record de référence pour `_resolveSiaUserNumber`/`_hasOpenAlarm`/`_purgeOpenAlarms`, et pour le mécanisme de validation live via l'API Jeedom]
+- [Source: _bmad-output/initiative-my-project/archive-v6/13-2-burglary-restore-event.md#lignes 36-37 (table activationOk/activationImmediateOk/activationKo)]
 
 ## Dev Agent Record
 

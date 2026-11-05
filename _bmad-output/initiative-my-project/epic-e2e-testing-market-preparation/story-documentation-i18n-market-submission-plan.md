@@ -135,16 +135,16 @@ The epics.md AC doesn't specify a language for the Admin guide or Developer guid
 
 ### References
 
-- [Source: _bmad-output/planning-artifacts/epics.md#L1705-1735] — Story 11.4 acceptance criteria (verbatim source)
-- [Source: _bmad-output/planning-artifacts/architecture.md#L287-292] — i18n decision (messages.py, gettext TODO)
-- [Source: _bmad-output/planning-artifacts/architecture.md#L810-812] — DAEMON_VERSION / info.json versioning discipline
-- [Source: _bmad-output/planning-artifacts/architecture.md#L1600-1660] — Complete Directory Structure (fr_FR.json, siadc09_icon.png expected paths)
-- [Source: _bmad-output/planning-artifacts/architecture.md#L1560, #L1705] — i18n roundtrip test expectation
+- [Source: _bmad-output/initiative-my-project/archive-v6/epics.md#L1705-1735] — Story 11.4 acceptance criteria (verbatim source)
+- [Source: _bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md#L287-292] — i18n decision (messages.py, gettext TODO)
+- [Source: _bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md#L810-812] — DAEMON_VERSION / info.json versioning discipline
+- [Source: _bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md#L1600-1660] — Complete Directory Structure (fr_FR.json, siadc09_icon.png expected paths)
+- [Source: _bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md#L1560, #L1705] — i18n roundtrip test expectation
 - [Source: core/i18n/] — verified directory listing (fr_FR.json absent)
 - [Source: plugin_info/info.json, plugin_info/packages.json] — verified current content (no version key, jeedomdaemon unpinned)
 - [Source: README.md] — verified current content is the unrelated aiodemo template
 - [Source: /Users/herve.lehoux/dev-hlx/MyHargassner/README.md] — style reference requested by Herve
-- [Source: _bmad-output/implementation-artifacts/11-3-full-workflow-integration-testing.md] — previous story in epic, citation-discipline pattern
+- [Source: _bmad-output/initiative-my-project/epic-e2e-testing-market-preparation/story-full-workflow-integration-testing-plan.md] — previous story in epic, citation-discipline pattern
 
 ## Dev Agent Record
 
@@ -212,8 +212,8 @@ eu.anthropic.claude-opus-5-5 (Claude Code, dev-story run autonomously at Herve's
 - tests/level1/test_info_json.py (modified)
 - tests/level1/test_packages_json.py (modified)
 - tests/level2/test_daemon_version_log.py (new)
-- _bmad-output/implementation-artifacts/deferred-work.md (modified — D-81, D-82, D-83, D-84)
-- _bmad-output/implementation-artifacts/sprint-status.yaml (modified)
+- _bmad-output/initiative-my-project/deferred-work.md (modified — D-81, D-82, D-83, D-84)
+- _bmad-output/initiative-my-project/archive-v6/sprint-status.yaml (modified)
 
 ### Review Findings
 

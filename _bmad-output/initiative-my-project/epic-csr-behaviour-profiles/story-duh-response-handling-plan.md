@@ -65,7 +65,7 @@ Daemon (décision § 5.6.1.3 « déclarer l'échec immédiatement ») : un DUH e
 - [ ] `resources/siadc09d/siadc09d.py` -- verdict `duh` (fail) ; message `bad_reply` sans accusation CRC/chiffrement ; log stderr DEBUG de la trame envoyée si non chiffrée -- orienter l'utilisateur
 - [ ] `resources/siadc09d/messages.py` + `resources/siadc09d/daemon.py` -- branche `duh` pour supervision, RP et événement (voir Always) ; `_handle_supervision_duh` ; type de log `duh` -- pas de renvoi
 - [ ] `tests/level1/*` et `tests/level2/*` -- tests avec la trame exacte (décodage, CRC altéré, transport, verdict, absence de log chiffré, supervision, RP, événement)
-- [ ] `internal-docs/design/*.md`, `docs/*` -- documenter DUH et la ligne de dépannage ; `_bmad-output/implementation-artifacts/sprint-status.yaml` -- ajouter la story et recalculer le summary depuis `development_status`
+- [ ] `internal-docs/design/*.md`, `docs/*` -- documenter DUH et la ligne de dépannage ; `_bmad-output/initiative-my-project/archive-v6/sprint-status.yaml` -- ajouter la story et recalculer le summary depuis `development_status`
 
 **Acceptance Criteria:**
 - Given la trame DUH exacte, when décodée, then type `DUH` seq 1.
@@ -138,7 +138,7 @@ and T2.
 
 Status: review (implemented 2026-11-04, commit 19fb318 local, not pushed; field check on the real CSR pending)
 
-Evolution, not a fix: DUH handling was not planned when epic 17 started. Build record: `_bmad-output/plan-duh-response-handling.md` (ticket `17-6-duh-response-handling`, status `built`, baseline `f053858`).
+Evolution, not a fix: DUH handling was not planned when epic 17 started. Build record: `_bmad-output/initiative-my-project/epic-csr-behaviour-profiles/story-duh-response-handling-plan.md` (ticket `17-6-duh-response-handling`, status `built`, baseline `f053858`).
 
 ##### Story
 

@@ -88,7 +88,7 @@ Rationale: traces work already on master.
 | `internal-docs/design/wizard-design.md:331` | `[#001234\|BA]` | `[#001234\|Nri1/BA]` |
 | `internal-docs/design/php-core-design.md:465` | `[#001234\|BA]` | `[#001234\|Nri1/BA]` |
 | `internal-docs/design/daemon-design.md:186` | `[#ABC123\|BA][V…]` | `[#ABC123\|Nri1/BA][V…]` |
-| `_bmad-output/planning-artifacts/architecture.md:1351` | `[#001234\|BA]` | `[#001234\|Nri1/BA]` |
+| `_bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md:1351` | `[#001234\|BA]` | `[#001234\|Nri1/BA]` |
 
 ### PRD (`prd.md`)
 

@@ -107,7 +107,7 @@ Expected: no syntax errors.
 
 ### Task 4 — Update sprint status
 
-Update `_bmad-output/implementation-artifacts/sprint-status.yaml`:
+Update `_bmad-output/initiative-my-project/archive-v6/sprint-status.yaml`:
 - Change `8-3-wizard-integration-testing: ready-for-dev` → `in-progress` when starting
 - After implementation complete: → `review`
 
@@ -203,7 +203,7 @@ This means the AC "daemon stops" is handled by Jeedom's built-in auto-stop on wi
 
 - [x] [Review][Patch] Remove unused `import os` [tests/level1/test_connection_test.py:14]
 - [x] [Review][Patch] Remove dead code `_make_presets_path_mock()` helper — defined but never called [tests/level1/test_connection_test.py:63-70]
-- [x] [Review][Patch] Update sprint status to `done` — Task 4 not executed [_bmad-output/implementation-artifacts/sprint-status.yaml]
+- [x] [Review][Patch] Update sprint status to `done` — Task 4 not executed [_bmad-output/initiative-my-project/archive-v6/sprint-status.yaml]
 - [x] [Review][Defer] `test_sia_wizard_step_set_via_data_l2key_attribute` uses `[^}]*` regex — fragile if function body gains nested braces [tests/level1/test_php_eqlogic_stub.py] — deferred, currently passing; use `_extract_js_handler` if function body grows
 - [x] [Review][Defer] `TransportType` ValueError propagates out of `run_connection_test` — bad transport string from preset causes PHP to receive traceback not JSON — deferred, pre-existing production code gap
 - [x] [Review][Defer] Account number `"0"` rejected by falsy guard; whitespace-only account passes — deferred, pre-existing

@@ -62,7 +62,7 @@ context:
 - [ ] `core/class/siaDC09.class.php` -- update `getCsrProfiles()` docblock (caller now exists) -- accuracy
 - [ ] `tests/level1/test_wizard_php_structure.py` and `test_wizard_config_key_consistency.py` -- pin new fields, selector, profiles var, relabel, validator rule text -- regression
 - [ ] `internal-docs/design/wizard-design.md` -- rewrite step 1 to the real fields (no IMA), bump version/date -- AC
-- [ ] `_bmad-output/implementation-artifacts/sprint-status.yaml` -- 17-4 to `review` only after UI validation -- tracking
+- [ ] `_bmad-output/initiative-my-project/archive-v6/sprint-status.yaml` -- 17-4 to `review` only after UI validation -- tracking
 
 **Acceptance Criteria:**
 - Given step 1 opens, when rendered, then the selector offers Ajax/Scutum/Personnalisé and "Options avancées" is collapsed.

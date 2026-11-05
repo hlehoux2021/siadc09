@@ -27,7 +27,7 @@ A secondary issue was found during PRD review: `prd.md:116` still listed "Frigat
 
 ## 4. Detailed Change Proposals
 
-### 4.1 PRD (`_bmad-output/planning-artifacts/prd.md`)
+### 4.1 PRD (`_bmad-output/initiative-my-project/prd-my-project/prd-my-project.md`)
 
 **Section: `### Growth Features — v1.1+`**
 
@@ -49,7 +49,7 @@ Rationale: removes the now-false Frigate entry (moved above); flags failover as 
 
 **Status: APPLIED.**
 
-### 4.2 Architecture (`_bmad-output/planning-artifacts/architecture.md`)
+### 4.2 Architecture (`_bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md`)
 
 New **ADR-20 — Multi-CSR Failover Design (Vision v1.5+, scoped not scheduled)**, inserted after ADR-19 (before ADR-18). Key decisions reached through discussion with Herve:
 
@@ -65,7 +65,7 @@ New **ADR-20 — Multi-CSR Failover Design (Vision v1.5+, scoped not scheduled)*
 
 **Status: APPLIED.**
 
-## 4.3 Epics & Stories (`_bmad-output/planning-artifacts/epics.md`) — Amendment 2026-10-02
+## 4.3 Epics & Stories (`_bmad-output/initiative-my-project/archive-v6/epics.md`) — Amendment 2026-10-02
 
 Herve confirmed, after the initial proposal was applied, that he wanted the backlog scaffolding to go one step further: register the epic and its stories now (not just the ADR), so the design has a concrete backlog home — while keeping everything at `backlog` status, not `ready-for-dev`.
 

@@ -288,7 +288,7 @@ builder.reset_sequence("001234")
 
 ## References
 
-- **SIA DC-09-2021 Protocol Spec:** [internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md](../../../internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md)
+- **SIA DC-09-2021 Protocol Spec:** [internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md](../../../../internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md)
   - § 5.5 Messages — Complete frame structure
   - § 5.5.1.2 — CRC calculation
   - § 5.5.1.3 — Length field format
@@ -300,7 +300,7 @@ builder.reset_sequence("001234")
   - Annex B — Example message frames (for test data)
   - Annex G — Checklist of major requirements
 
-- **Architecture Document:** [internal-docs/design/daemon-design.md](../../../internal-docs/design/daemon-design.md)
+- **Architecture Document:** [internal-docs/design/daemon-design.md](../../../../internal-docs/design/daemon-design.md)
   - Component 0: `sia_protocol.py` module design
   - CSR Preset Loading & CRC format resolution
   - Message Construction State Machine

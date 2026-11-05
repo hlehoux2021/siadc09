@@ -279,11 +279,11 @@ Unchanged (reference only):
 - [Source: internal-docs/design/daemon-design.md § Component 1 — _notify() synchronous wrapper, _send_callback() contract]
 - [Source: internal-docs/design/error-handler-design.md § T1/T2/T3 dispatch — tier classification]
 - [Source: internal-docs/design/logging-design.md § SM1 Supervision Table — message_trace emission points]
-- [Source: _bmad-output/planning-artifacts/architecture.md § Communication Patterns — IPC payload rules]
-- [Source: _bmad-output/planning-artifacts/architecture.md § Level 2.5 — IPC Contract Tests — recording shim pattern]
+- [Source: _bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md § Communication Patterns — IPC payload rules]
+- [Source: _bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md § Level 2.5 — IPC Contract Tests — recording shim pattern]
 - [Source: tests/fixtures/ipc_schema.py — authoritative callback schemas]
 - [Source: resources/aiodemod/aiodemod.py — reference plugin send_to_jeedom() usage]
-- [Source: _bmad-output/implementation-artifacts/6-5-jeedom-dependency-manager-installation.md — previous story learnings]
+- [Source: _bmad-output/initiative-my-project/epic-php-plugin-core-ipc/story-jeedom-dependency-manager-installation-plan.md — previous story learnings]
 
 ---
 

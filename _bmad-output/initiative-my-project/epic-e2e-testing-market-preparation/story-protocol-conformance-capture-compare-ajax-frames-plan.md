@@ -23,7 +23,7 @@ Status: cancelled — 2026-10-17, superseded by Epic 17; see "Cancellation" belo
 ## Cancellation — 2026-10-17
 
 Cancelled by Herve on 2026-10-17, during the correct-course that registered Epic 17
-(`_bmad-output/planning-artifacts/sprint-change-proposal-2026-10-17-csr-profiles.md`). No code was written for this
+(`_bmad-output/initiative-my-project/sprint-change-proposal-2026-10-17-csr-profiles/sprint-change-proposal-2026-10-17-csr-profiles.md`). No code was written for this
 story.
 
 **Why.** The goal, checking the plugin's frames against an Ajax hub's, was met by a different route:

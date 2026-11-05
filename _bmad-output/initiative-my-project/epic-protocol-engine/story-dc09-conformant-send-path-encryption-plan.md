@@ -241,7 +241,7 @@ What they establish:
   - 16, 24 and 32-byte keys are all covered.
   - **Oracle self-check:** it decrypts V1 and V5 correctly.
 - **ioBroker port** (level1): a small Python port of ioBroker.sia's decrypt and parse path parses our event frames.
-  - That path is: payload regex `\[(.+)`, `aes-{128|192|256}-cbc` with zero IV, pad removed at `indexOf('|')`, then `"(.+?)?\](\[(.*?)\])?(_(.+)){0,1}"`.
+  - That path is: payload regex `\[(.+)`, `aes-{128|192|256}-cbc` with zero IV, pad removed at `indexOf('|')`, then `"(.+?)?\](../../implementation-artifacts/\[(.*?)\])?(_(.+)){0,1}"`.
   - ioBroker cannot parse `*NULL` at all: its token switch only handles `SIA-DCS`/`ADM-CID`. The port's test therefore covers events only and records this limitation.
 - **Deterministic vector:** a fixed key and an injected pad give a fixed hex string.
   - It replaces `tests/fixtures/golden/frames_encrypted_alarm.hex`, which is PKCS#7-based (ciphertext `E5BD0B70…`).
@@ -468,8 +468,8 @@ Code review 2026-09-28, scoped to Group 4 (the last group: level2 async daemon t
 
 - Spec § 5.4.3-5.4.7, § 5.5.1.2/3/5/9, § 5.5.2, § 5.5.2.1, § 5.5.3.1, § 5.5.3.2, § 5.6.1.2, § 5.6.2.1, § 5.6.2.4, F.5.
 - `internal-docs/design/daemon-design.md:146-162, 229-236, 346-374`.
-- `_bmad-output/planning-artifacts/architecture.md` ADR-07.
-- `_bmad-output/planning-artifacts/epics.md` Story 1.2 (superseded) and Story 1.5.
+- `_bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md` ADR-07.
+- `_bmad-output/initiative-my-project/archive-v6/epics.md` Story 1.2 (superseded) and Story 1.5.
 - pysiaalarm: https://github.com/eavanvalkenburg/pysiaalarm (commits fc0fcfb, 894f8d6, be4301b).
 - ioBroker.sia: https://github.com/schmupu/ioBroker.sia, and the fork https://github.com/hlehoux2021/ioBroker.sia, `src/lib/sia.ts`.
 - Swissdotnet: https://github.com/Swissdotnet/sia-dc-09-library.
@@ -593,9 +593,9 @@ Claude Opus 5.5 (`eu.anthropic.claude-opus-5-5`), Claude Code, 2026-09-27 → 20
 - `docs/fr_FR/index.md`
 - `docs/fr_FR/changelog.md`
 - `internal-docs/design/daemon-design.md`
-- `_bmad-output/implementation-artifacts/deferred-work.md`
-- `_bmad-output/implementation-artifacts/sprint-status.yaml`
-- `_bmad-output/planning-artifacts/epics.md`: challenge phase, where Story 1.2 was marked superseded.
+- `_bmad-output/initiative-my-project/deferred-work.md`
+- `_bmad-output/initiative-my-project/archive-v6/sprint-status.yaml`
+- `_bmad-output/initiative-my-project/archive-v6/epics.md`: challenge phase, where Story 1.2 was marked superseded.
 
 ## Change Log
 
@@ -620,4 +620,4 @@ Claude Opus 5.5 (`eu.anthropic.claude-opus-5-5`), Claude Code, 2026-09-27 → 20
 
 **And** conformance is proven by tests independent of `SIACipher`, then validated against a real receiver
 
-Story file: `_bmad-output/implementation-artifacts/1-5-dc09-conformant-send-path-encryption.md`
+Story file: `_bmad-output/initiative-my-project/epic-protocol-engine/story-dc09-conformant-send-path-encryption-plan.md`

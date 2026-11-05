@@ -1,9 +1,9 @@
 ---
 stepsCompleted: ['step-01-document-discovery', 'step-02-prd-analysis', 'step-03-epic-coverage-validation', 'step-04-ux-alignment', 'step-05-epic-quality-review', 'step-06-final-assessment']
 inputDocuments:
-  - '_bmad-output/planning-artifacts/prd.md'
-  - '_bmad-output/planning-artifacts/architecture.md'
-  - '_bmad-output/planning-artifacts/epics.md'
+  - '_bmad-output/initiative-my-project/prd-my-project/prd-my-project.md'
+  - '_bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md'
+  - '_bmad-output/initiative-my-project/archive-v6/epics.md'
 uxDocument: null
 date: '2026-05-04'
 ---
@@ -163,7 +163,7 @@ Three PRD-level features — Debug UI (Epic 9), Structured Logging (Epic 4), and
 
 ### UX Document Status
 
-**No formal UX document** found in `_bmad-output/planning-artifacts/`. However, this project does have **three component-level UI design documents** in `internal-docs/design/`:
+**No formal UX document** found in `_bmad-output/initiative-my-project/`. However, this project does have **three component-level UI design documents** in `internal-docs/design/`:
 
 - `internal-docs/design/wizard-design.md` — 4-step configuration wizard (FR-PRD-06, FR12)
 - `internal-docs/design/widget-design.md` — Dashboard supervision health widget (FR-PRD-08, FR14)
@@ -186,7 +186,7 @@ The architecture document (`architecture.md`) specifies the Jeedom PHP/JS plugin
 
 ### Warnings
 
-- ⚠️ **No centralized UX document in `planning-artifacts/`** — UX specs are component-level design docs in `internal-docs/design/`. For a Jeedom plugin this is appropriate and sufficient. No action required.
+- ⚠️ **No centralized UX document in `initiative-my-project/`** — UX specs are component-level design docs in `internal-docs/design/`. For a Jeedom plugin this is appropriate and sufficient. No action required.
 - ℹ️ **UX for Epics 8 (wizard), 9 (debug UI), and 10 (widget) is fully designed** in `internal-docs/design/` — implementation of these backlog epics has the design specs it needs.
 
 ---
@@ -328,4 +328,4 @@ This assessment identified **7 findings** across **4 categories** (FR traceabili
 
 **Assessor:** Claude Sonnet 4.6 (automated)
 **Date:** 2026-05-04
-**Report file:** `_bmad-output/planning-artifacts/implementation-readiness-report-2026-05-04.md` It states the product vision, scope boundaries (v1.0 / v1.1+ / v1.5+), and success criteria clearly. However, formal numbered FR/NFR entries do not appear in the PRD body — they are in `epics.md` (which contains a "Requirements Inventory" section with FR1–FR15 and NFR1–NFR8). The PRD is aligned with but less detailed than the epics file. This is consistent for a project where the epics were written after the PRD and serve as the requirements traceability layer.
+**Report file:** `_bmad-output/initiative-my-project/implementation-readiness-report-2026-05-04/implementation-readiness-report-2026-05-04.md` It states the product vision, scope boundaries (v1.0 / v1.1+ / v1.5+), and success criteria clearly. However, formal numbered FR/NFR entries do not appear in the PRD body — they are in `epics.md` (which contains a "Requirements Inventory" section with FR1–FR15 and NFR1–NFR8). The PRD is aligned with but less detailed than the epics file. This is consistent for a project where the epics were written after the PRD and serve as the requirements traceability layer.

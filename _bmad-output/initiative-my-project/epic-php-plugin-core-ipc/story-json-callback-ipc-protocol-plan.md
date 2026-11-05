@@ -279,11 +279,11 @@ Reference files (DO NOT MODIFY):
 - [Source: internal-docs/design/php-core-design.md § Task 2.12 — jeesiaDC09.php spec]
 - [Source: internal-docs/design/error-handler-design.md § PHP callback — new payload types]
 - [Source: internal-docs/design/logging-design.md § message_trace PHP callback]
-- [Source: _bmad-output/planning-artifacts/architecture.md § IPC callback types (canonical list)]
-- [Source: _bmad-output/planning-artifacts/architecture.md § Communication Patterns (flat JSON mandate)]
+- [Source: _bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md § IPC callback types (canonical list)]
+- [Source: _bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md § Communication Patterns (flat JSON mandate)]
 - [Source: core/php/jeeaiodemo.php — reference router shim to copy/adapt]
 - [Source: core/class/siaDC09.class.php — existing message() stub to fill in]
-- [Source: _bmad-output/implementation-artifacts/6-2-auto-equipment-creation.md — Story 6.2 patterns]
+- [Source: _bmad-output/initiative-my-project/epic-php-plugin-core-ipc/story-auto-equipment-creation-plan.md — Story 6.2 patterns]
 
 ---
 

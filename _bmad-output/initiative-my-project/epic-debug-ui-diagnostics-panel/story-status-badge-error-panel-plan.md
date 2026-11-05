@@ -272,7 +272,7 @@ Follow the same testing patterns used in stories 8-1/8-2/8-3 — see `tests/leve
 
 - [Source: internal-docs/design/debug-ui-design.md — Task 5c.1, 5c.2, 5c.4, 5c.5]
 - [Source: internal-docs/design/php-core-design.md — Task 2.10 (AJAX skeleton)]
-- [Source: _bmad-output/planning-artifacts/epics.md — Epic 9, Story 9.1]
+- [Source: _bmad-output/initiative-my-project/archive-v6/epics.md — Epic 9, Story 9.1]
 - [Source: core/class/siaDC09.class.php — error_update/message_trace callbacks, lines 411–457]
 - [Source: desktop/php/siaDC09.php — existing tab structure, lines 86–90]
 - [Source: core/ajax/siaDC09.ajax.php — existing AJAX pattern]

@@ -21,8 +21,8 @@ happening, even when Frigate detected no person,
 so that the operator always sees something useful ("an animal", "nobody visible", "an intruder") without the frame
 ever being delayed.
 
-**Sources:** ADR-17 Amendment 4 (`_bmad-output/planning-artifacts/architecture.md`, "ADR-17, Amendment 4
-(2026-09-26)"), requirements `_bmad-output/planning-artifacts/requirements-14-4-frigate-forced-capture-2026-09-26.md`
+**Sources:** ADR-17 Amendment 4 (`_bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md`, "ADR-17, Amendment 4
+(2026-09-26)"), requirements `_bmad-output/initiative-my-project/requirements-14-4-frigate-forced-capture-2026-09-26.md`
 (FR1–FR6, NFR1–NFR4, §8 AC seeds), epics.md Story 14.4. Builds on 14-2 (prefetch/cache) and 14-3 (`[V snapshot clip]`).
 
 ## Acceptance Criteria
@@ -493,12 +493,12 @@ needs no change.
 
 ### References
 
-- [Source: _bmad-output/planning-artifacts/architecture.md#ADR-17, Amendment 4 (2026-09-26)]
-- [Source: _bmad-output/planning-artifacts/requirements-14-4-frigate-forced-capture-2026-09-26.md]
-- [Source: _bmad-output/planning-artifacts/epics.md#Story 14.4]
-- [Source: _bmad-output/implementation-artifacts/14-3-attach-frigate-clip-alongside-snapshot.md]
-- [Source: _bmad-output/implementation-artifacts/14-2-frigate-event-prefetch-immediate-action.md]
-- [Source: _bmad-output/implementation-artifacts/deferred-work.md — D-51..D-54, D-57..D-61]
+- [Source: _bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md#ADR-17, Amendment 4 (2026-09-26)]
+- [Source: _bmad-output/initiative-my-project/requirements-14-4-frigate-forced-capture-2026-09-26.md]
+- [Source: _bmad-output/initiative-my-project/archive-v6/epics.md#Story 14.4]
+- [Source: _bmad-output/initiative-my-project/epic-camera-snapshot-attachment/story-attach-frigate-clip-alongside-snapshot-plan.md]
+- [Source: _bmad-output/initiative-my-project/epic-camera-snapshot-attachment/story-frigate-event-prefetch-immediate-action-plan.md]
+- [Source: _bmad-output/initiative-my-project/deferred-work.md — D-51..D-54, D-57..D-61]
 - [Source: resources/siadc09d/frigate_prefetch.py; resources/siadc09d/daemon.py (~2124-2239, 503-535, 246-262)]
 - [Source: core/class/siaDC09.class.php (~498, 596-623); core/class/siaDC09Cmd.class.php (27, 38-114, 307-529)]
 - [Source: tests/fixtures/ipc_schema.py; tests/level2_5/test_callback_schema.py:489-560]
@@ -609,7 +609,7 @@ Claude Sonnet 5 (eu.anthropic.claude-sonnet-5)
 - `core/class/siaDC09Cmd.class.php` (`prefetchEvent` case generates `run_id` and writes the placeholder; new
   `_writePrefetchPlaceholder()`; new `PREFETCH_RANK_NONE` constant; code review: `run_id` generation hardened
   against PHP `precision`-ini truncation)
-- `_bmad-output/planning-artifacts/architecture.md` (code review: corrected the Amendment 4 Trade-offs table's
+- `_bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md` (code review: corrected the Amendment 4 Trade-offs table's
   overclaiming "always media" wording; corrected the `run_id` generation description)
 - `tests/level1/test_frigate_prefetch.py` (rewritten for `prefetch_alarm_media()` and its helpers; code review:
   4 new regression tests — timeout-cap, malformed-200-body, cross-file rank-constant consistency)
@@ -621,11 +621,11 @@ Claude Sonnet 5 (eu.anthropic.claude-sonnet-5)
 - `tests/level2/test_frigate_prefetch_dispatch.py` (rewritten for `prefetch_alarm_media()`/`run_id`/`rank`)
 - `tests/level2_5/test_callback_schema.py` (new `rank`/`run_id` field tests)
 - `tests/fixtures/ipc_schema.py` (`prefetch_result` schema extended with `rank`/`run_id`)
-- `_bmad-output/implementation-artifacts/deferred-work.md` (D-52 resolved, D-53/D-54 annotated, D-77/D-78/D-79
+- `_bmad-output/initiative-my-project/deferred-work.md` (D-52 resolved, D-53/D-54 annotated, D-77/D-78/D-79
   opened during code review; D-80 opened during Task 6 live validation — protocol-inspector decoder gap)
-- `_bmad-output/implementation-artifacts/sprint-status.yaml` (14-4 registered/in-progress; epic-14 reopened;
+- `_bmad-output/initiative-my-project/archive-v6/sprint-status.yaml` (14-4 registered/in-progress; epic-14 reopened;
   in-progress → review after Task 6 live validation)
-- `_bmad-output/implementation-artifacts/14-4-best-effort-alarm-media-forced-capture.md` (this story file)
+- `_bmad-output/initiative-my-project/epic-camera-snapshot-attachment/story-best-effort-alarm-media-forced-capture-plan.md` (this story file)
 
 ## Change Log
 

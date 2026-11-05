@@ -541,7 +541,7 @@ This keeps transport classes free of `CSRPreset` dependency (clean layer boundar
 - [Source: internal-docs/design/daemon-design.md § Task 1.11 — `on_stop()`] — 5-step shutdown sequence
 - [Source: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.5.1.10] — `0x0D` CR frame terminator
 - [Source: internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md § 5.3] — TCP socket close is optional
-- [Source: _bmad-output/implementation-artifacts/5-3-priorityqueue-task-coordination.md] — `_track_task()`, test fixture patterns, `daemon_factory`
+- [Source: _bmad-output/initiative-my-project/epic-daemon-core-state-machines/story-priorityqueue-task-coordination-plan.md] — `_track_task()`, test fixture patterns, `daemon_factory`
 
 ---
 
@@ -553,11 +553,11 @@ Claude Sonnet 4.6 (1M context)
 
 ### Debug Log References
 
-- Sprint status: `_bmad-output/implementation-artifacts/sprint-status.yaml`
+- Sprint status: `_bmad-output/initiative-my-project/archive-v6/sprint-status.yaml`
 - Daemon design: `internal-docs/design/daemon-design.md` Tasks 1.2, 1.3, 1.11
 - Supervision design: `internal-docs/design/supervision-design.md` Group A
-- Architecture: `_bmad-output/planning-artifacts/architecture.md` ADR-01, ADR-02
-- Previous story: `_bmad-output/implementation-artifacts/5-3-priorityqueue-task-coordination.md`
+- Architecture: `_bmad-output/initiative-my-project/architecture-my-project/architecture-my-project.md` ADR-01, ADR-02
+- Previous story: `_bmad-output/initiative-my-project/epic-daemon-core-state-machines/story-priorityqueue-task-coordination-plan.md`
 
 ### Completion Notes List
 

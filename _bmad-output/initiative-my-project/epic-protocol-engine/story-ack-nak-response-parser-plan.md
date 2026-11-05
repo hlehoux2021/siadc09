@@ -274,7 +274,7 @@ sia_protocol.py (existing from Story 1.1, now extended with Story 1.3)
 - **Architecture:** internal-docs/design/daemon-design.md § Component 0 (sia_protocol.py API surface)
 - **Code Style:** .claude/rules/code-style.md (type hints, error handling, function vs. class design)
 - **Testing:** .claude/rules/testing.md (pytest standards, three-element test documentation)
-- **Previous Story:** _bmad-output/implementation-artifacts/1-2-aes-128-cbc-encryption-module.md (testing patterns, code structure)
+- **Previous Story:** _bmad-output/initiative-my-project/epic-protocol-engine/story-aes-128-cbc-encryption-module-plan.md (testing patterns, code structure)
 - **Project Context:** docs/project-context.md (if exists)
 
 ---
@@ -345,7 +345,7 @@ Claude Haiku 4.5 (bmad-bmm-create-story automated context engine)
   - Test classes: Frame validation (8), CRC validation (4), Sequence extraction (4), Type classification (6), raw_nak handling (3), NAK timestamp (7), Error handling (2), Integration with Story 1.1 (2), Gap coverage (15)
   - All tests documented with three-element format: description + expected result + assert comments
 
-- `_bmad-output/implementation-artifacts/1-3-ack-nak-response-parser.md` — UPDATED
+- `_bmad-output/initiative-my-project/epic-protocol-engine/story-ack-nak-response-parser-plan.md` — UPDATED
   - Updated status from "ready-for-dev" to "review"
   - Marked all 8 tasks as complete [x]
   - Updated timestamps in Completion Notes with final development results

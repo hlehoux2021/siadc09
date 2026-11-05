@@ -400,9 +400,9 @@ Create `tests/level2/test_supervision_queue_integration.py`:
 **Protocol spec:** internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md
 
 **Design documents:**
-- [daemon-design.md](internal-docs/design/daemon-design.md) § Priority Queue coordination
-- [error-handler-design.md](internal-docs/design/error-handler-design.md) § ErrorCode and T1/T2/T3 tiers
-- [logging-design.md](internal-docs/design/logging-design.md) § Ring buffer, French messages
+- [daemon-design.md](../../implementation-artifacts/internal-docs/design/daemon-design.md) § Priority Queue coordination
+- [error-handler-design.md](../../implementation-artifacts/internal-docs/design/error-handler-design.md) § ErrorCode and T1/T2/T3 tiers
+- [logging-design.md](../../implementation-artifacts/internal-docs/design/logging-design.md) § Ring buffer, French messages
 
 ---
 
@@ -421,7 +421,7 @@ Claude Sonnet 4.6 (1M context)
 
 ### Completion Notes List
 
-- ⚠️ **Uncommitted Story 5-2 files present in working tree** (not part of Story 5-3): `tests/level2/test_sm2_alarm_event_suite.py` (modified), `tests/level2/test_sm2_extended_coverage.py` (new), `_bmad-output/implementation-artifacts/tests/test-generation-summary-qa-sm2-extended.md` (new), `_bmad-output/implementation-artifacts/5-2-sm2-alarm-event-state-machine.md` (modified), `.claude/rules/code-style.md` (modified). These are QA additions from a Story 5-2 session. Commit them under Story 5-2 before closing that story.
+- ⚠️ **Uncommitted Story 5-2 files present in working tree** (not part of Story 5-3): `tests/level2/test_sm2_alarm_event_suite.py` (modified), `tests/level2/test_sm2_extended_coverage.py` (new), `_bmad-output/initiative-my-project/tests/test-generation-summary-qa-sm2-extended.md` (new), `_bmad-output/initiative-my-project/epic-daemon-core-state-machines/story-sm2-alarm-event-state-machine-plan.md` (modified), `.claude/rules/code-style.md` (modified). These are QA additions from a Story 5-2 session. Commit them under Story 5-2 before closing that story.
 - ✅ Story AC extracted from epics.md
 - ✅ **RESOLVED:** Priority value discrepancy resolved — daemon-design.md is authoritative. `QUEUE_PRIORITY_EVENT=0` (alarms first), `QUEUE_PRIORITY_SUPERVISION=1`.
 - ✅ SIA DC-09 expert pre-validation completed: one-at-a-time constraint satisfied
@@ -437,12 +437,12 @@ Claude Sonnet 4.6 (1M context)
 ### File List
 
 **Python source files modified:**
-- [resources/siadc09d/daemon.py](resources/siadc09d/daemon.py) — Added: `QUEUE_PRIORITY_EVENT/SUPERVISION`, `QUEUE_TYPE_EVENT/SUPERVISION`, `QueueItemType`, `EventQueuePayload`, `SupervisionQueuePayload`, `MAX_RETRY_DEFAULT`; added `_queue` + `_queue_counter` to `__init__`; replaced `_track_task_stub` with real `_track_task()`; added `_enqueue_event()`, `_enqueue_supervision()`, `_queue_consumer()`, `_supervision_loop()`, `on_message()`, `on_start()`
+- [resources/siadc09d/daemon.py](../../implementation-artifacts/resources/siadc09d/daemon.py) — Added: `QUEUE_PRIORITY_EVENT/SUPERVISION`, `QUEUE_TYPE_EVENT/SUPERVISION`, `QueueItemType`, `EventQueuePayload`, `SupervisionQueuePayload`, `MAX_RETRY_DEFAULT`; added `_queue` + `_queue_counter` to `__init__`; replaced `_track_task_stub` with real `_track_task()`; added `_enqueue_event()`, `_enqueue_supervision()`, `_queue_consumer()`, `_supervision_loop()`, `on_message()`, `on_start()`
 
 **Test files created:**
-- [tests/level2/test_priority_queue_basic.py](tests/level2/test_priority_queue_basic.py) — 11 unit tests (TC1–TC11): init, priority ordering, FIFO, tie-breaking, enqueue methods
-- [tests/level2/test_queue_consumer_integration.py](tests/level2/test_queue_consumer_integration.py) — 9 integration tests (TC12–TC20): happy path, TCP_RECONNECTING resilience, backpressure
-- [tests/level2/test_supervision_queue_integration.py](tests/level2/test_supervision_queue_integration.py) — 6 integration tests (TC21–TC26): supervision enqueue, priority ordering, on_message mapping
+- [tests/level2/test_priority_queue_basic.py](../../implementation-artifacts/tests/level2/test_priority_queue_basic.py) — 11 unit tests (TC1–TC11): init, priority ordering, FIFO, tie-breaking, enqueue methods
+- [tests/level2/test_queue_consumer_integration.py](../../implementation-artifacts/tests/level2/test_queue_consumer_integration.py) — 9 integration tests (TC12–TC20): happy path, TCP_RECONNECTING resilience, backpressure
+- [tests/level2/test_supervision_queue_integration.py](../../implementation-artifacts/tests/level2/test_supervision_queue_integration.py) — 6 integration tests (TC21–TC26): supervision enqueue, priority ordering, on_message mapping
 
 ---
 
