@@ -50,23 +50,23 @@ Les noms de dossiers de documents gardent leurs dates. Les dossiers de documents
 
 | N | Slug | Statut v7 | Remarque |
 |---|---|---|---|
-| 1 | epic-protocol-engine | in-progress | 1-5 en review (reouverte D-81) |
-| 2 | epic-csr-simulator | done | |
-| 3 | epic-error-handler | done | |
-| 4 | epic-logging-observability | done | |
-| 5 | epic-daemon-core-state-machines | done | |
-| 6 | epic-php-plugin-core-ipc | done | |
-| 7 | epic-supervision-health-monitoring | done | retro `epic-7-retro-2026-05-07.md` |
-| 8 | epic-configuration-wizard-csr-presets | done | |
-| 9 | epic-debug-ui-diagnostics-panel | done | |
-| 10 | epic-dashboard-widget | done | |
-| 11 | epic-e2e-testing-market-preparation | in-progress | 11-1 annulee (remplacee par epic 17) |
-| 12 | epic-jeedom-vm-integration-testing | in-progress | 12-7 ready-for-dev |
-| 13 | epic-alarm-event-vocabulary | in-progress | |
-| 14 | epic-camera-snapshot-attachment | done | |
-| 15 | epic-configurable-sia-content-formats | annulee 2026-10-17 | pas d'entree dans sprint-status, voir "A confirmer" |
-| 16 | epic-multi-csr-failover | pas de ligne status (backlog) | non planifie |
-| 17 | epic-csr-behaviour-profiles | in-progress | 17-1 a 17-6 en review |
+| 1 | epic-1-protocol-engine | in-progress | 1-5 en review (reouverte D-81) |
+| 2 | epic-2-csr-simulator | done | |
+| 3 | epic-3-error-handler | done | |
+| 4 | epic-4-logging-observability | done | |
+| 5 | epic-5-daemon-core-state-machines | done | |
+| 6 | epic-6-php-plugin-core-ipc | done | |
+| 7 | epic-7-supervision-health-monitoring | done | retro `epic-7-retro-2026-05-07.md` |
+| 8 | epic-8-configuration-wizard-csr-presets | done | |
+| 9 | epic-9-debug-ui-diagnostics-panel | done | |
+| 10 | epic-10-dashboard-widget | done | |
+| 11 | epic-11-e2e-testing-market-preparation | in-progress | 11-1 annulee (remplacee par epic 17) |
+| 12 | epic-12-jeedom-vm-integration-testing | in-progress | 12-7 ready-for-dev |
+| 13 | epic-13-alarm-event-vocabulary | in-progress | |
+| 14 | epic-14-camera-snapshot-attachment | done | |
+| 15 | epic-15-configurable-sia-content-formats | annulee 2026-10-17 | pas d'entree dans sprint-status, voir "A confirmer" |
+| 16 | epic-16-multi-csr-failover | pas de ligne status (backlog) | non planifie |
+| 17 | epic-17-csr-behaviour-profiles | in-progress | 17-1 a 17-6 en review |
 
 ## Stories : statuts
 
@@ -83,13 +83,13 @@ Un plan v7 est ecrit pour chaque story done ou in-review ayant une fiche (`story
 
 | Fichier ou dossier | Destination | Raison |
 |---|---|---|
-| `plan-17-2-configurable-supervision-frame.md` | `epic-csr-behaviour-profiles/story-configurable-supervision-frame-plan.md` si fusionnable avec la fiche 17-2, sinon `Prior builds` du plan | enregistrement de build /bmad-build |
+| `plan-17-2-configurable-supervision-frame.md` | `epic-17-csr-behaviour-profiles/story-configurable-supervision-frame-plan.md` si fusionnable avec la fiche 17-2, sinon `Prior builds` du plan | enregistrement de build /bmad-build |
 | `plan-17-3-rp-cyclic-test.md`, `plan-17-4-wizard-profile-choice-and-advanced-options.md` | meme regle, epic 17 | |
 | `plan-duh-response-handling.md` | epic 17, rattache a 17-6 (`ticket: 17-6-duh-response-handling`) | |
 | `plan-10-1-widget-jeedom-conformance.md`, `plan-10-1-widget-sm1-sm2-redesign.md` | epic 10, rattaches a la story 10-1 | |
 | `plan-diagnostic-tab-refresh.md` | epic 9 (diagnostic) a confirmer | aucune story ne le cite |
 | `qa-reports/` | `initiative-my-project/qa-reports/` | evidence, deplace tel quel |
-| `walkthrough-17-2/` | `epic-csr-behaviour-profiles/walkthrough-17-2/` | evidence de 17-2 |
+| `walkthrough-17-2/` | `epic-17-csr-behaviour-profiles/walkthrough-17-2/` | evidence de 17-2 |
 | `brainstorming/` | reste en place | appartient a aucune initiative (guide) |
 | `implementation-artifacts/tests/` | `initiative-my-project/tests/` | resumes de generation de tests, deplaces tels quels |
 | `implementation-artifacts/10-1.md`, `10-2.md` | traites comme fiches 10-1 et 10-2 | noms hors schema, a verifier |
@@ -142,7 +142,7 @@ Resultats de la checklist de `migration-1.toml` (2026-11-05, apres l'etape 12) :
 
 | # | Resultat | Detail |
 |---|---|---|
-| 1 | OK | 92 fichiers de la sauvegarde : chacun est a sa place, dans `archive-v6/` ou deplace (`plan-10-1-widget-sm1-sm2-redesign.md` devenu `epic-dashboard-widget/story-10-1-widget-rendering-bootstrap-panel-plan.md`). `brainstorming/` reste en place (hors initiative, voir plus haut). |
+| 1 | OK | 92 fichiers de la sauvegarde : chacun est a sa place, dans `archive-v6/` ou deplace (`plan-10-1-widget-sm1-sm2-redesign.md` devenu `epic-10-dashboard-widget/story-10-1-widget-rendering-bootstrap-panel-plan.md`). `brainstorming/` reste en place (hors initiative, voir plus haut). |
 | 2 | OK | `initiative-my-project/`, `backlog/`, `archive/` existent ; `.gitkeep` dans les deux derniers. |
 | 3 | OK | Aucune version datee archivee : les deux rapports de readiness et les quatre propositions de changement de cap gardent leur nom. |
 | 4 | OK | `tickets.py status` : 70 entrees = 54 done, 7 review, 2 dropped (11-1, 15-1), 7 planned (11-2, 12-7, 12-8, 13-2, 13-3, 16-1, 16-2). Identique a `sprint-status.yaml` (54 done, 7 review). `unpinned_after`, `undeclared_after`, `order_conflict` vides. Une ligne `problems` : voir ci-dessous. |
@@ -157,6 +157,6 @@ Resultats de la checklist de `migration-1.toml` (2026-11-05, apres l'etape 12) :
 
 Points restants :
 
-- `tickets.py status` signale `epic-debug-ui-diagnostics-panel/plan-diagnostic-tab-refresh.md: ticket '' names no entry` : c'est un enregistrement de build sans ticket (decision 2), conserve tel quel et ignore par l'outil.
+- `tickets.py status` signale `epic-9-debug-ui-diagnostics-panel/plan-diagnostic-tab-refresh.md: ticket '' names no entry` : c'est un enregistrement de build sans ticket (decision 2), conserve tel quel et ignore par l'outil.
 - Fiche 10-2 : statut `review` dans la fiche, `done` dans `sprint-status.yaml` ; la valeur du sprint est retenue.
 - Les sections "Done when" des epics sont redigees, a relire.

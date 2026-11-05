@@ -1,7 +1,7 @@
-- source_plan: `_bmad-output/initiative-my-project/epic-csr-behaviour-profiles/story-17-4-wizard-profile-choice-and-advanced-options-plan.md`
+- source_plan: `_bmad-output/initiative-my-project/epic-17-csr-behaviour-profiles/story-17-4-wizard-profile-choice-and-advanced-options-plan.md`
   summary: RESOLVED 2026-10-18 (not applicable) — stale rp_enabled/supervision_interval on legacy equipment.
   evidence: the plugin has a single auto-equipment, so values cannot carry over between equipments; a reloaded page starts blank and printEqLogic defaults format and rp_interval. Not reproducible by design.
-- source_plan: `_bmad-output/initiative-my-project/epic-csr-behaviour-profiles/story-17-4-wizard-profile-choice-and-advanced-options-plan.md`
+- source_plan: `_bmad-output/initiative-my-project/epic-17-csr-behaviour-profiles/story-17-4-wizard-profile-choice-and-advanced-options-plan.md`
   summary: wizard-design.md testConnection code sample (~line 1040) still resolves the removed csr_provider / IMA preset.
   evidence: outside step 1; left stale by the 17-4 rewrite, pre-existing.
 
@@ -11,9 +11,9 @@
 - No test cross-checks the command line `deamon_start` builds against the argparse parser (`--supervision-format`, `--rp-enabled`, `--rp-interval`); a misspelled flag would exit 2 although `deamon_info` allowed launch. Fits 17-2/17-3.
 - RESOLVED 2026-10-18: misleading supervision NAK wording (found in the 17-5 field run; now "trame refusée par la centrale"): after the NAK re-sends the daemon logs "NAK supervision (strike 1/3) — horodatage rejeté par la centrale", but a bare NAK carries no reason. ioBroker.sia NAKed `"NULL"0000L0#001234[]` with `Incorrect format of data message` (its parser rejects an empty data block), not a timestamp problem. Reword to a neutral "frame refused by the CSR" (and keep the timestamp hint only when the NAK is known to be about it).
 
-- source_plan: `_bmad-output/initiative-my-project/epic-dashboard-widget/story-10-1-widget-rendering-bootstrap-panel-plan.md`
+- source_plan: `_bmad-output/initiative-my-project/epic-10-dashboard-widget/story-10-1-widget-rendering-bootstrap-panel-plan.md`
   summary: RESOLVED 2026-10-20 (SM1 variant B) — Widget visual redesign — propose clearer pictograms for the SM1 supervision states (user-requested, UI specialist, proposals to validate before coding).
   evidence: split from the widget-correction request of 2026-10-20 (items 1+2, Jeedom conformance, kept as the first goal).
-- source_plan: `_bmad-output/initiative-my-project/epic-dashboard-widget/story-10-1-widget-rendering-bootstrap-panel-plan.md`
+- source_plan: `_bmad-output/initiative-my-project/epic-10-dashboard-widget/story-10-1-widget-rendering-bootstrap-panel-plan.md`
   summary: RESOLVED 2026-10-20 (SM2 variant B) — Widget visual redesign — propose a clearer, nicer presentation for the SM2 (event) line of the widget (user-requested, UI specialist, proposals to validate before coding).
   evidence: split from the widget-correction request of 2026-10-20 (items 1+2, Jeedom conformance, kept as the first goal).
