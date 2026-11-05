@@ -3,7 +3,7 @@
 [[entry]]
 id = 1
 type = "story"
-title = "SIA Protocol Message Builder"
+title = "1.1 — SIA Protocol Message Builder"
 description = "To construct and serialize SIA DC-09 compliant message frames."
 verify = "the output is a properly framed SIA message with correct delimiter, sequence, CRC, and checksum"
 covers = []
@@ -15,7 +15,7 @@ v6_key = "1-1-sia-protocol-message-builder"
 [[entry]]
 id = 2
 type = "story"
-title = "AES-128 CBC Encryption Module"
+title = "1.2 — AES-128 CBC Encryption Module"
 description = "To encrypt and decrypt SIA messages using AES-128 CBC."
 verify = "output is AES-128 CBC ciphertext with random IV prepended"
 covers = []
@@ -27,7 +27,7 @@ v6_key = "1-2-aes-128-cbc-encryption-module"
 [[entry]]
 id = 3
 type = "story"
-title = "ACK/NAK Response Parser"
+title = "1.3 — ACK/NAK Response Parser"
 description = "To parse and validate CSR responses (ACK/NAK)."
 verify = "the message type (ACK/NAK) is correctly identified"
 covers = []
@@ -39,7 +39,7 @@ v6_key = "1-3-ack-nak-response-parser"
 [[entry]]
 id = 4
 type = "story"
-title = "CSR Simulator Framework"
+title = "1.4 — CSR Simulator Framework"
 description = "To run a local CSR simulator that accepts UDP/TCP connections and generates valid CSR responses."
 verify = "See the original acceptance criteria in the description."
 covers = []
@@ -51,7 +51,7 @@ v6_key = "1-4-csr-simulator-framework"
 [[entry]]
 id = 5
 type = "story"
-title = "DC-09-Conformant AES Encryption on the Send Path"
+title = "1.5 — DC-09-Conformant AES Encryption on the Send Path"
 description = "Alarm and supervision frames actually encrypted per DC-09 § 5.4."
 verify = "the region after the first `[` is AES-CBC encrypted with a zero IV, a random front pad terminated by `|`, and a mandatory timestamp, and is sent as hex ASCII"
 covers = []
@@ -63,7 +63,7 @@ v6_key = "1-5-dc09-conformant-send-path-encryption"
 [[entry]]
 id = 6
 type = "story"
-title = "SIA-DCS Data Block per DC-09 Annex B — `N` Prefix and DC-03 Area"
+title = "1.6 — SIA-DCS Data Block per DC-09 Annex B — `N` Prefix and DC-03 Area"
 description = "Every SIA-DCS event's data block to follow DC-09 Annex B and DC-03."
 verify = "the data block is `[#acct|Nri1/<code><addr>]` — `N` new-event prefix, DC-03 area `ri<n>/` taken from the daemon constant `SIA_AREA_NUMBER` (= 1), no separator between code and address, address zero-padded to 3 digits — e.g. `[#001234|Nri1/BA001]`, `[#001234|Nri1/CL501]`"
 covers = []

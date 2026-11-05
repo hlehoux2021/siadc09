@@ -1,6 +1,6 @@
 ---
 type: epic
-title: "Logging & Observability"
+title: "Epic 4 — Logging & Observability"
 parent: initiative-my-project
 covers: []
 after: []
@@ -9,7 +9,7 @@ status: done
 risk: low
 ---
 
-# Logging & Observability
+# Epic 4 — Logging & Observability
 
 ## Description
 

@@ -1,6 +1,6 @@
 ---
 type: epic
-title: "Error Handler"
+title: "Epic 3 — Error Handler"
 parent: initiative-my-project
 covers: [FR15, NFR1]
 after: []
@@ -9,7 +9,7 @@ status: done
 risk: low
 ---
 
-# Error Handler
+# Epic 3 — Error Handler
 
 ## Description
 

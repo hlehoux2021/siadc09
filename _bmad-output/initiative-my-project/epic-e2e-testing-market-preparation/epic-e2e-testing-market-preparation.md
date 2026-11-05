@@ -1,6 +1,6 @@
 ---
 type: epic
-title: "End-to-End Testing & Market Preparation"
+title: "Epic 11 — End-to-End Testing & Market Preparation"
 parent: initiative-my-project
 covers: []
 after: []
@@ -9,7 +9,7 @@ status: in-progress
 risk: medium
 ---
 
-# End-to-End Testing & Market Preparation
+# Epic 11 — End-to-End Testing & Market Preparation
 
 ## Description
 

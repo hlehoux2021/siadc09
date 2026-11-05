@@ -3,7 +3,7 @@
 [[entry]]
 id = 1
 type = "story"
-title = "SM1 Connection/Supervision State Machine"
+title = "5.1 — SM1 Connection/Supervision State Machine"
 description = "SM1 to track connection and supervision health."
 verify = "See the original acceptance criteria in the description."
 covers = []
@@ -15,7 +15,7 @@ v6_key = "5-1-sm1-connection-supervision-state-machine"
 [[entry]]
 id = 2
 type = "story"
-title = "SM2 Alarm Event State Machine"
+title = "5.2 — SM2 Alarm Event State Machine"
 description = "SM2 to track alarm event delivery status."
 verify = "See the original acceptance criteria in the description."
 covers = []
@@ -27,7 +27,7 @@ v6_key = "5-2-sm2-alarm-event-state-machine"
 [[entry]]
 id = 3
 type = "story"
-title = "PriorityQueue Task Coordination"
+title = "5.3 — PriorityQueue Task Coordination"
 description = "SM1 and SM2 tasks coordinated in a priority queue."
 verify = "priority=10 (highest)"
 covers = []
@@ -39,7 +39,7 @@ v6_key = "5-3-priorityqueue-task-coordination"
 [[entry]]
 id = 4
 type = "story"
-title = "UDP & TCP Transport Layer"
+title = "5.4 — UDP & TCP Transport Layer"
 description = "To send and receive SIA frames over UDP and TCP."
 verify = "frame is serialized and sent via configured transport"
 covers = []
@@ -51,7 +51,7 @@ v6_key = "5-4-udp-tcp-transport-layer"
 [[entry]]
 id = 5
 type = "story"
-title = "Async Task Lifecycle Management"
+title = "5.5 — Async Task Lifecycle Management"
 description = "All background tasks tracked and cleanly cancelled."
 verify = "all tasks created via `_track_task(coro, name)` method"
 covers = []
@@ -63,7 +63,7 @@ v6_key = "5-5-async-task-lifecycle-management"
 [[entry]]
 id = 6
 type = "story"
-title = "Daemon Core Integration & State Transition Tests"
+title = "5.6 — Daemon Core Integration & State Transition Tests"
 description = "The daemon to bootstrap, manage state transitions, and integrate with error handler/logging."
 verify = "configuration loaded from plugin config"
 covers = []

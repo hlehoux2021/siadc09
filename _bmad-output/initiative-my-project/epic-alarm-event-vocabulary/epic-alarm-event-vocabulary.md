@@ -1,6 +1,6 @@
 ---
 type: epic
-title: "Alarm Event Vocabulary Extension"
+title: "Epic 13 — Alarm Event Vocabulary Extension"
 parent: initiative-my-project
 covers: []
 after: []
@@ -9,7 +9,7 @@ status: in-progress
 risk: medium
 ---
 
-# Alarm Event Vocabulary Extension
+# Epic 13 — Alarm Event Vocabulary Extension
 
 ## Description
 

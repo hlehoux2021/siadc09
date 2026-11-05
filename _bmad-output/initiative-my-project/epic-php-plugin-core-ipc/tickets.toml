@@ -3,7 +3,7 @@
 [[entry]]
 id = 1
 type = "story"
-title = "PHP eqLogic & cmd Classes"
+title = "6.1 — PHP eqLogic & cmd Classes"
 description = "EqLogic and cmd classes that extend Jeedom framework."
 verify = "eqLogic class extends Jeedom eqLogic with:"
 covers = []
@@ -15,7 +15,7 @@ v6_key = "6-1-php-eqlogic-cmd-classes"
 [[entry]]
 id = 2
 type = "story"
-title = "Auto-Equipment Creation"
+title = "6.2 — Auto-Equipment Creation"
 description = "The plugin to automatically create equipment."
 verify = "equipment is automatically created once"
 covers = []
@@ -27,7 +27,7 @@ v6_key = "6-2-auto-equipment-creation"
 [[entry]]
 id = 3
 type = "story"
-title = "JSON Callback IPC Protocol"
+title = "6.3 — JSON Callback IPC Protocol"
 description = "Daemon to push state updates to PHP via JSON callbacks."
 verify = "HTTP POST to configured callback URL with JSON payload"
 covers = []
@@ -39,7 +39,7 @@ v6_key = "6-3-json-callback-ipc-protocol"
 [[entry]]
 id = 4
 type = "story"
-title = "INFO Command Persistence & Real-time Updates"
+title = "6.4 — INFO Command Persistence & Real-time Updates"
 description = "To see supervision and alarm state in real-time."
 verify = "supervision_state (numeric) is updated: 0=problem, 1=impaired, 2=healthy"
 covers = []
@@ -51,7 +51,7 @@ v6_key = "6-4-info-command-persistence-real-time-updates"
 [[entry]]
 id = 5
 type = "story"
-title = "Jeedom Dependency Manager & Installation"
+title = "6.5 — Jeedom Dependency Manager & Installation"
 description = "Clean installation and dependency management."
 verify = "all Python packages installed: jeedomdaemon, aiofiles, pycryptodome, etc."
 covers = []
@@ -63,7 +63,7 @@ v6_key = "6-5-jeedom-dependency-manager-installation"
 [[entry]]
 id = 6
 type = "story"
-title = "PHP Core Integration & IPC Tests"
+title = "6.6 — PHP Core Integration & IPC Tests"
 description = "Daemon and PHP to communicate reliably."
 verify = "daemon loads plugin config (CSR preset, encryption key, etc.)"
 covers = []

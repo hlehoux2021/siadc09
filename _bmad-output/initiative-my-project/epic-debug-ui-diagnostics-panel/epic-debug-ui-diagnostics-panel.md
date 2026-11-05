@@ -1,6 +1,6 @@
 ---
 type: epic
-title: "Debug UI & Diagnostics Panel"
+title: "Epic 9 — Debug UI & Diagnostics Panel"
 parent: initiative-my-project
 covers: []
 after: []
@@ -9,7 +9,7 @@ status: done
 risk: low
 ---
 
-# Debug UI & Diagnostics Panel
+# Epic 9 — Debug UI & Diagnostics Panel
 
 ## Description
 

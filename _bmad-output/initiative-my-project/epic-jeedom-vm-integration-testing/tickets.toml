@@ -3,7 +3,7 @@
 [[entry]]
 id = 1
 type = "story"
-title = "Manual Plugin Installation & Dependency Setup"
+title = "12.1 — Manual Plugin Installation & Dependency Setup"
 description = "To install the plugin manually via shared folder symlink and verify dependencies install cleanly."
 verify = "`ln -s /mnt/hgfs /var/www/html/plugins/siaDC09` makes plugin visible in Jeedom UI"
 covers = []
@@ -15,7 +15,7 @@ v6_key = "12-1-manual-plugin-installation-dependency-setup"
 [[entry]]
 id = 2
 type = "story"
-title = "Wizard Flow & Connection Test"
+title = "12.2 — Wizard Flow & Connection Test"
 description = "To complete the 4-step configuration wizard on a real Jeedom instance."
 verify = "Step 1 displays IMA Protect and Personnalisé preset cards"
 covers = []
@@ -27,7 +27,7 @@ v6_key = "12-2-wizard-flow-connection-test"
 [[entry]]
 id = 3
 type = "story"
-title = "Daemon Lifecycle & Jeedom Controls"
+title = "12.3 — Daemon Lifecycle & Jeedom Controls"
 description = "The daemon to start, stop, and restart reliably via Jeedom UI."
 verify = "daemon process terminates cleanly (no orphan processes)"
 covers = []
@@ -39,7 +39,7 @@ v6_key = "12-3-daemon-lifecycle-jeedom-controls"
 [[entry]]
 id = 4
 type = "story"
-title = "Supervision Loop & Strike Recovery"
+title = "12.4 — Supervision Loop & Strike Recovery"
 description = "Continuous supervision to detect and recover from CSR connection issues."
 verify = "supervision_state remains 2 (\"Sain\") throughout"
 covers = []
@@ -51,7 +51,7 @@ v6_key = "12-4-supervision-loop-strike-recovery"
 [[entry]]
 id = 5
 type = "story"
-title = "Alarm Delivery End-to-End"
+title = "12.5 — Alarm Delivery End-to-End"
 description = "Alarm events delivered to the CSR and confirmed."
 verify = "daemon receives action via sendToDaemon()"
 covers = []
@@ -63,7 +63,7 @@ v6_key = "12-5-alarm-delivery-end-to-end"
 [[entry]]
 id = 6
 type = "story"
-title = "Widget & Debug UI Rendering"
+title = "12.6 — Widget & Debug UI Rendering"
 description = "The dashboard widget and diagnostic panel to display accurate real-time information."
 verify = "widget renders Bootstrap 3 panel with correct color badge:"
 covers = []
@@ -75,7 +75,7 @@ v6_key = "12-6-widget-debug-ui-rendering"
 [[entry]]
 id = 7
 type = "story"
-title = "Error Handling & Notification Delivery"
+title = "12.7 — Error Handling & Notification Delivery"
 description = "Errors properly classified and notifications delivered through Jeedom's systems.\n\nOriginal acceptance criteria (epics.md):\n\n**Prerequisites:** Stories 12.4 and 12.5 complete (supervision + alarm paths validated)\n\n**T1 (Auto-heal) — Message center only:**\n\n**Given** supervision timeout occurs (strike=1)\n**When** T1 SUPERVISION_TIMEOUT fires\n**Then** Jeedom message center shows entry (Analyse → Messages)\n\n**And** no notification command is triggered\n\n**And** occurrence counter increments on repeat (Jeedom dedup)\n\n**T2 (User-actionable) — Message center + notification:**\n\n**Given** CSR simulator sends malformed response\n**When** T2 BAD_CSR_RESPONSE fires\n**Then** Jeedom message center shows entry with French description\n\n**And** configured notification command IS triggered\n\n**And** notification text explains user action needed\n\n**T3 (Critical) — Message center + notification + CRITIQUE prefix:**\n\n**Given** 3 consecutive supervision timeouts (strike=3)\n**When** T3 SUPERVISION_DISCONNECTED fires\n**Then** Jeedom message center shows entry with \"CRITIQUE —\" prefix\n\n**And** configured notification command triggered with \"CRITIQUE\" prefix\n\n**And** T3 fires only ONCE per escalation (not repeated)\n\n**Given** alarm delivery fails after retries\n**When** T3 EVENT_FAILED fires\n**Then** same behavior: message center + notification + \"CRITIQUE\" prefix\n\n**Deduplication:**\n- Trigger same T1 error 5 times → message center shows 1 entry with occurrence=5 (not 5 entries)\n- Verify notification command not spammed on repeated T2/T3\n\n**Validation checklist:**\n- [ ] T1 → message center only, no notification cmd\n- [ ] T2 → message center + notification cmd fired\n- [ ] T3 → message center + notification cmd + \"CRITIQUE\" prefix\n- [ ] T3 fires only once per escalation\n- [ ] Deduplication works (occurrence counter)\n- [ ] All error messages in French"
 verify = "Jeedom message center shows entry (Analyse → Messages)"
 covers = []
@@ -88,7 +88,7 @@ references = ["archive-v6/12-7-error-handling-notification-delivery.md"]
 [[entry]]
 id = 8
 type = "story"
-title = "Market Package Install & Uninstall"
+title = "12.8 — Market Package Install & Uninstall"
 description = "The plugin to install cleanly from a packaged .zip (Market-style) and uninstall without orphans.\n\nOriginal acceptance criteria (epics.md):\n\n**Prerequisites:** Stories 12.1–12.7 complete (all features validated via manual install)\n\n**Setup:** Remove the symlink installation first:\n```bash\nsudo rm /var/www/html/plugins/siaDC09\n# Verify plugin no longer visible in Jeedom\n```\n\n**Package creation:**\n\n**Given** project source on macOS\n**When** packaging plugin as .zip (excluding .git, _bmad-output, tests, docs)\n**Then** .zip contains only Market-required files: core/, desktop/, resources/, plugin_info/, docs/ (user docs only)\n\n**And** .zip structure matches Jeedom Market conventions\n\n**Fresh install from .zip:**\n\n**Given** clean Jeedom (no previous siaDC09 installation)\n**When** uploading .zip via Jeedom → Plugins → Plugin Management → \"Ajouter depuis une autre source\"\n**Then** plugin installs without errors\n\n**And** dependency install creates venv + installs all packages\n\n**And** plugin activates cleanly (no PHP errors)\n\n**And** wizard flow works (same validation as Story 12.2)\n\n**And** daemon starts and supervision works\n\n**Uninstall:**\n\n**Given** plugin installed and daemon running\n**When** removing plugin via Jeedom UI\n**Then** preRemove() stops daemon\n\n**And** venv directory removed (`resources/venv/`)\n\n**And** no orphan files left in plugins directory\n\n**And** no orphan cron entries in Jeedom\n\n**And** equipment removed from Jeedom\n\n**And** Jeedom logs show clean removal\n\n**Upgrade path:**\n\n**Given** plugin installed from .zip (version 1.0.0)\n**When** uploading newer .zip (version 1.0.1)\n**Then** files updated in place\n\n**And** equipment and config preserved (no data loss)\n\n**And** dependency install re-runs (handles new packages if any)\n\n**And** daemon restarts with new code\n\n**Validation checklist:**\n- [ ] .zip package created with correct structure\n- [ ] Fresh install from .zip succeeds\n- [ ] Dependencies install from packaged plugin\n- [ ] Full wizard + supervision works from packaged install\n- [ ] Uninstall leaves no orphans\n- [ ] Upgrade preserves config and equipment"
 verify = ".zip contains only Market-required files: core/, desktop/, resources/, plugin_info/, docs/ (user docs only)"
 covers = []

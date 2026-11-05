@@ -3,7 +3,7 @@
 [[entry]]
 id = 1
 type = "story"
-title = "Attach Frigate Snapshot to Alarm Frame (Majority Case Only)"
+title = "14.1 — Attach Frigate Snapshot to Alarm Frame (Majority Case Only)"
 description = "The SIA alarm frame to carry a snapshot URL when Frigate already caught the person before the alarm fired."
 verify = "See the original acceptance criteria in the description."
 covers = []
@@ -15,7 +15,7 @@ v6_key = "14-1-attach-frigate-snapshot-alarm-frame"
 [[entry]]
 id = 2
 type = "story"
-title = "Frigate Event Prefetch via the Alarm Plugin's Immediate-Action Window (Option D)"
+title = "14.2 — Frigate Event Prefetch via the Alarm Plugin's Immediate-Action Window (Option D)"
 description = "The SIA alarm frame's snapshot to always be of the actual detected person, never a stale or wrong-species one."
 verify = "See the original acceptance criteria in the description."
 covers = []
@@ -27,7 +27,7 @@ v6_key = "14-2-frigate-event-prefetch-immediate-action"
 [[entry]]
 id = 3
 type = "story"
-title = "Attach Frigate Video Clip Alongside Snapshot in Alarm Frame"
+title = "14.3 — Attach Frigate Video Clip Alongside Snapshot in Alarm Frame"
 description = "The SIA alarm frame to carry both a snapshot and a short video clip when Frigate has both ready."
 verify = "See the original acceptance criteria in the description."
 covers = []
@@ -39,7 +39,7 @@ v6_key = "14-3-attach-frigate-clip-alongside-snapshot"
 [[entry]]
 id = 4
 type = "story"
-title = "Best-Effort Alarm Media — Any-Label Ranking + Forced Frigate Capture"
+title = "14.4 — Best-Effort Alarm Media — Any-Label Ranking + Forced Frigate Capture"
 description = "Every intrusion (BA) frame to carry the best available image and clip of the zone taken while the alarm is."
 verify = "See the original acceptance criteria in the description."
 covers = []

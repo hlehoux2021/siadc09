@@ -1,6 +1,6 @@
 ---
 type: epic
-title: "Jeedom VM Integration Testing"
+title: "Epic 12 — Jeedom VM Integration Testing"
 parent: initiative-my-project
 covers: []
 after: []
@@ -9,7 +9,7 @@ status: in-progress
 risk: medium
 ---
 
-# Jeedom VM Integration Testing
+# Epic 12 — Jeedom VM Integration Testing
 
 ## Description
 

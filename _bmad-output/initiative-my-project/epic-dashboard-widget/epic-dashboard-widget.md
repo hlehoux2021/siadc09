@@ -1,6 +1,6 @@
 ---
 type: epic
-title: "Dashboard Widget"
+title: "Epic 10 — Dashboard Widget"
 parent: initiative-my-project
 covers: [FR14]
 after: []
@@ -9,7 +9,7 @@ status: done
 risk: low
 ---
 
-# Dashboard Widget
+# Epic 10 — Dashboard Widget
 
 ## Description
 

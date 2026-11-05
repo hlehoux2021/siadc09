@@ -3,7 +3,7 @@
 [[entry]]
 id = 1
 type = "story"
-title = "ErrorCode Enum & Error Classification"
+title = "3.1 — ErrorCode Enum & Error Classification"
 description = "A centralized ErrorCode enum and tier classification."
 verify = "See the original acceptance criteria in the description."
 covers = []
@@ -15,7 +15,7 @@ v6_key = "3-1-errorcode-enum-error-classification"
 [[entry]]
 id = 2
 type = "story"
-title = "Notification Context Types & _notify() Interface"
+title = "3.2 — Notification Context Types & _notify() Interface"
 description = "Typed context objects for notifications."
 verify = "the signature is: `_notify(code: ErrorCode, ctx: NotificationContext)`"
 covers = []
@@ -27,7 +27,7 @@ v6_key = "3-2-notification-context-types-notify-interface"
 [[entry]]
 id = 3
 type = "story"
-title = "Error Handler Module Structure & Callback Types"
+title = "3.3 — Error Handler Module Structure & Callback Types"
 description = "Clear callback contracts between daemon and PHP."
 verify = "four callback types are defined with full signatures: `message_center`, `notify`, `error_update`, `message_trace`"
 covers = []

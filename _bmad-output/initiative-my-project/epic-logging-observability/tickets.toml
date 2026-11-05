@@ -3,7 +3,7 @@
 [[entry]]
 id = 1
 type = "story"
-title = "messages.py Structure & French String Constants"
+title = "4.1 — messages.py Structure & French String Constants"
 description = "All French user strings in one place."
 verify = "all French strings are defined as module-level constants: SM1 states, SM2 states, error messages, wizard prompts, etc."
 covers = []
@@ -15,7 +15,7 @@ v6_key = "4-1-messages-py-structure-french-string-constants"
 [[entry]]
 id = 2
 type = "story"
-title = "Logging Infrastructure Setup & Logger Configuration"
+title = "4.2 — Logging Infrastructure Setup & Logger Configuration"
 description = "Consistent logging setup across all modules."
 verify = "logger is configured with correct handlers and formatters"
 covers = []
@@ -27,7 +27,7 @@ v6_key = "4-2-logging-infrastructure-setup-logger-configuration"
 [[entry]]
 id = 3
 type = "story"
-title = "Ring Buffer Structure & Log Entry Factory"
+title = "4.3 — Ring Buffer Structure & Log Entry Factory"
 description = "A ring buffer for supervision and alarm event history."
 verify = "max 50 entries are stored (FIFO, oldest discarded)"
 covers = []

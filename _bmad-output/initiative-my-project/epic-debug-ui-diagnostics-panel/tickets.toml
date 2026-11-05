@@ -3,7 +3,7 @@
 [[entry]]
 id = 1
 type = "story"
-title = "Status Badge & Error Panel"
+title = "9.1 — Status Badge & Error Panel"
 description = "To see the current connection status and recent errors."
 verify = "status badge displayed with color coding:"
 covers = []
@@ -15,7 +15,7 @@ v6_key = "9-1-status-badge-error-panel"
 [[entry]]
 id = 2
 type = "story"
-title = "Protocol Inspector with Hex Viewer & Decryption"
+title = "9.2 — Protocol Inspector with Hex Viewer & Decryption"
 description = "To inspect raw protocol frames and decrypt encrypted messages."
 verify = "collapsed list displays recent frames from ring buffer"
 covers = []
@@ -27,7 +27,7 @@ v6_key = "9-2-protocol-inspector-hex-viewer-decryption"
 [[entry]]
 id = 3
 type = "story"
-title = "Diagnostic Tab Integration & Testing"
+title = "9.3 — Diagnostic Tab Integration & Testing"
 description = "The diagnostic tab properly integrated and tested."
 verify = "diagnostic tab is visible and populated"
 covers = []

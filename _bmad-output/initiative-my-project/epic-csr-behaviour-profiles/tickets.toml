@@ -3,7 +3,7 @@
 [[entry]]
 id = 1
 type = "story"
-title = "CSR Profile Model & PHP → Daemon Plumbing"
+title = "17.1 — CSR Profile Model & PHP → Daemon Plumbing"
 description = "The periodic-frame settings carried from the equipment configuration to the daemon, with profiles defined in one PHP-side file."
 verify = ":"
 covers = []
@@ -15,7 +15,7 @@ v6_key = "17-1-csr-profile-model-and-php-daemon-plumbing"
 [[entry]]
 id = 2
 type = "story"
-title = "Configurable Supervision Frame (`sia-dcs` / `null`)"
+title = "17.2 — Configurable Supervision Frame (`sia-dcs` / `null`)"
 description = "To choose the supervision frame format and its period."
 verify = "the frame is the current `\"SIA-DCS\"<seq>…[#acct|0000]` (D-86), unchanged"
 covers = []
@@ -27,7 +27,7 @@ v6_key = "17-2-configurable-supervision-frame-sia-dcs-null"
 [[entry]]
 id = 3
 type = "story"
-title = "RP Cyclic Test"
+title = "17.3 — RP Cyclic Test"
 description = "The plugin to send a periodic RP."
 verify = "it sends `\"SIA-DCS\"<seq>L0#acct[#acct|Nri0/RP0000]_ts`:"
 covers = []
@@ -39,7 +39,7 @@ v6_key = "17-3-rp-periodic-test"
 [[entry]]
 id = 4
 type = "story"
-title = "Wizard Step 1 — Profile Choice & Advanced Options"
+title = "17.4 — Wizard Step 1 — Profile Choice & Advanced Options"
 description = "To pick my CSR's profile and leave the protocol details folded away."
 verify = ":"
 covers = []
@@ -51,7 +51,7 @@ v6_key = "17-4-wizard-profile-choice-and-advanced-options"
 [[entry]]
 id = 5
 type = "story"
-title = "Field Validation per Profile"
+title = "17.5 — Field Validation per Profile"
 description = "Each profile proven against a real receiver."
 verify = "the Scutum extranet shows `RP0000` \"Test Cyclique\" every ~60 s and no link alarm"
 covers = []
@@ -63,7 +63,7 @@ v6_key = "17-5-field-validation-per-profile"
 [[entry]]
 id = 6
 type = "story"
-title = "DUH Response Handling"
+title = "17.6 — DUH Response Handling"
 description = "The plugin to recognise a DUH answer and tell me what it means."
 verify = "the type is `DUH` with sequence 1. With an altered CRC it stays `unknown`. A DUH is never encrypted."
 covers = []
@@ -75,7 +75,7 @@ v6_key = "17-6-duh-response-handling"
 [[entry]]
 id = 7
 type = "story"
-title = "Configurable Alarm Media in BA Frames (Snapshot / Clip, U or V, One Tag or Several)"
+title = "17.7 — Configurable Alarm Media in BA Frames (Snapshot / Clip, U or V, One Tag or Several)"
 description = "To choose, per equipment, whether intrusion (BA) frames carry a snapshot, a clip, both or nothing, in which tag format (U or V) each travels, and, when both formats are the same, whether both URLs share one tag; the media URL setting moves into the wizard advanced options, shown only when the snapshot or the clip is on. Today the frame carries the snapshot and the clip, when available, in a single V tag with one space between them. This story defines the equipment configuration keys for these choices, so that a profile can carry them (see 17.8)."
 verify = "A BA frame is built for each valid combination of snapshot on/off, clip on/off, format U/V per media and, when both are on, one tag or one tag each; each frame matches the expected bytes. One tag with different formats is refused by the wizard and by the daemon. With both off, the frame has no media tag. The URL field is hidden with both off and shown with at least one on; saving with one on and an empty URL shows an error in the wizard. An equipment saved before this story sends the same bytes as today."
 covers = []
@@ -87,7 +87,7 @@ references = ["spec — internal-docs/SIA-DC-09-Internet-Protocol-Event-Reportin
 [[entry]]
 id = 8
 type = "story"
-title = "Vesta (Climax) and FoxStream (FoxBox) CSR Profiles"
+title = "17.8 — Vesta (Climax) and FoxStream (FoxBox) CSR Profiles"
 description = "Two new profiles in the wizard profile list: Vesta (Climax) sends snapshot and clip, format U, one tag with a single space between the URLs; FoxStream (FoxBox) sends snapshot and clip, format V, one tag with a single space between the URLs. Both also set the supervision frame to sia-dcs every 30 s and the RP cyclic test on every 120 s. These two timings are test values."
 verify = "Choosing each profile in the wizard sets the media options and the two timings as described and nothing else changes in the equipment. The level 1 test on the preset file accepts both profiles."
 covers = ["FR11", "NFR7"]

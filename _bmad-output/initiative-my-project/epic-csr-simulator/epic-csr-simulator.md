@@ -1,6 +1,6 @@
 ---
 type: epic
-title: "CSR Simulator"
+title: "Epic 2 — CSR Simulator"
 parent: initiative-my-project
 covers: []
 after: []
@@ -9,7 +9,7 @@ status: done
 risk: low
 ---
 
-# CSR Simulator
+# Epic 2 — CSR Simulator
 
 ## Description
 

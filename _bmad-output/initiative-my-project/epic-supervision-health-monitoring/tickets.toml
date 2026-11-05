@@ -3,7 +3,7 @@
 [[entry]]
 id = 1
 type = "story"
-title = "Supervision Loop with Strike Management & INFO Updates"
+title = "7.1 — Supervision Loop with Strike Management & INFO Updates"
 description = "Continuous supervision polling with strike escalation."
 verify = "See the original acceptance criteria in the description."
 covers = []
@@ -15,7 +15,7 @@ v6_key = "7-1-supervision-loop-strike-management-info-updates"
 [[entry]]
 id = 2
 type = "story"
-title = "TCP Stall Detection, Reconnect & Ring Buffer Logging"
+title = "7.2 — TCP Stall Detection, Reconnect & Ring Buffer Logging"
 description = "To detect TCP connection failures and automatically recover."
 verify = "if socket is half-open (no response, no error): force socket.close() after strike timeout"
 covers = []
@@ -27,7 +27,7 @@ v6_key = "7-2-tcp-stall-detection-reconnect-ring-buffer-logging"
 [[entry]]
 id = 3
 type = "story"
-title = "Supervision Integration & Testing"
+title = "7.3 — Supervision Integration & Testing"
 description = "Supervision fully integrated with SM1 and error handler."
 verify = "SM1 state transitions match supervision strikes: INITIALIZING → HEALTHY → DEGRADED → TCP_RECONNECTING → NO_NETWORK"
 covers = []

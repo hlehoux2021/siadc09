@@ -3,7 +3,7 @@
 [[entry]]
 id = 1
 type = "story"
-title = "Disarm During an Alarm — Burglary Cancel (BC) + Opening Report (OP)"
+title = "13.1 — Disarm During an Alarm — Burglary Cancel (BC) + Opening Report (OP)"
 description = "Disarming my alarm while a burglary alarm is open to tell the CSR that user N cancelled it and disarmed."
 verify = "See the original acceptance criteria in the description."
 covers = []
@@ -15,7 +15,7 @@ v6_key = "13-1-burglary-restore-cancel-events"
 [[entry]]
 id = 2
 type = "story"
-title = "Burglary Restore (BR) — parquée, faute de source"
+title = "13.2 — Burglary Restore (BR) — parquée, faute de source"
 description = "The plugin to report that a zone returned to normal (BR) while the incident is still open."
 verify = "See the original acceptance criteria in the description."
 covers = []
@@ -28,7 +28,7 @@ references = ["archive-v6/13-2-burglary-restore-event.md"]
 [[entry]]
 id = 3
 type = "story"
-title = "Fire & Panic Cancels (FC / PC)"
+title = "13.3 — Fire & Panic Cancels (FC / PC)"
 description = "Fire & Panic Cancels (FC / PC)."
 verify = "See the original acceptance criteria in the description."
 covers = []
@@ -40,7 +40,7 @@ v6_key = "13-3-fire-panic-cancel-events"
 [[entry]]
 id = 4
 type = "story"
-title = "Arm/Disarm Reporting — Closing (CL) & Opening (OP)"
+title = "13.4 — Arm/Disarm Reporting — Closing (CL) & Opening (OP)"
 description = "The CSR to know when my system is armed and disarmed, and by which user."
 verify = "See the original acceptance criteria in the description."
 covers = []

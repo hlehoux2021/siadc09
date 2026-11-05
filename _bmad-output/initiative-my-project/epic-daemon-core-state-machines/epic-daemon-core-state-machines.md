@@ -1,6 +1,6 @@
 ---
 type: epic
-title: "Daemon Core & Dual State Machines"
+title: "Epic 5 — Daemon Core & Dual State Machines"
 parent: initiative-my-project
 covers: [FR4, FR5, FR6, FR7, FR8, FR9, FR10]
 after: []
@@ -9,7 +9,7 @@ status: done
 risk: low
 ---
 
-# Daemon Core & Dual State Machines
+# Epic 5 — Daemon Core & Dual State Machines
 
 ## Description
 

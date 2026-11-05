@@ -1,6 +1,6 @@
 ---
 type: epic
-title: "CSR Behaviour Profiles & Periodic Frames"
+title: "Epic 17 — CSR Behaviour Profiles & Periodic Frames"
 parent: initiative-my-project
 covers: [FR11, NFR4, NFR7]
 after: []
@@ -9,7 +9,7 @@ status: in-progress
 risk: medium
 ---
 
-# CSR Behaviour Profiles & Periodic Frames
+# Epic 17 — CSR Behaviour Profiles & Periodic Frames
 
 ## Description
 

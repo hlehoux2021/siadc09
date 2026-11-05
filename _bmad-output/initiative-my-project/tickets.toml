@@ -3,101 +3,101 @@
 [[epic]]
 id = 1
 slug = "epic-protocol-engine"
-title = "SIA DC-09 Protocol Engine"
+title = "Epic 1 — SIA DC-09 Protocol Engine"
 covers = ["FR1", "FR2", "FR3"]
 
 [[epic]]
 id = 2
 slug = "epic-csr-simulator"
-title = "CSR Simulator"
+title = "Epic 2 — CSR Simulator"
 covers = []
 
 [[epic]]
 id = 3
 slug = "epic-error-handler"
-title = "Error Handler"
+title = "Epic 3 — Error Handler"
 covers = ["FR15", "NFR1"]
 
 [[epic]]
 id = 4
 slug = "epic-logging-observability"
-title = "Logging & Observability"
+title = "Epic 4 — Logging & Observability"
 covers = []
 
 [[epic]]
 id = 5
 slug = "epic-daemon-core-state-machines"
-title = "Daemon Core & Dual State Machines"
+title = "Epic 5 — Daemon Core & Dual State Machines"
 covers = ["FR4", "FR5", "FR6", "FR7", "FR8", "FR9", "FR10"]
 
 [[epic]]
 id = 6
 slug = "epic-php-plugin-core-ipc"
-title = "PHP Plugin Core & Jeedom IPC"
+title = "Epic 6 — PHP Plugin Core & Jeedom IPC"
 covers = []
 
 [[epic]]
 id = 7
 slug = "epic-supervision-health-monitoring"
-title = "Supervision Health Monitoring"
+title = "Epic 7 — Supervision Health Monitoring"
 covers = ["FR6"]
 
 [[epic]]
 id = 8
 slug = "epic-configuration-wizard-csr-presets"
-title = "Configuration Wizard & CSR Presets"
+title = "Epic 8 — Configuration Wizard & CSR Presets"
 covers = ["FR11", "FR12", "FR13"]
 
 [[epic]]
 id = 9
 slug = "epic-debug-ui-diagnostics-panel"
-title = "Debug UI & Diagnostics Panel"
+title = "Epic 9 — Debug UI & Diagnostics Panel"
 covers = []
 
 [[epic]]
 id = 10
 slug = "epic-dashboard-widget"
-title = "Dashboard Widget"
+title = "Epic 10 — Dashboard Widget"
 covers = ["FR14"]
 
 [[epic]]
 id = 11
 slug = "epic-e2e-testing-market-preparation"
-title = "End-to-End Testing & Market Preparation"
+title = "Epic 11 — End-to-End Testing & Market Preparation"
 covers = []
 
 [[epic]]
 id = 12
 slug = "epic-jeedom-vm-integration-testing"
-title = "Jeedom VM Integration Testing"
+title = "Epic 12 — Jeedom VM Integration Testing"
 covers = []
 
 [[epic]]
 id = 13
 slug = "epic-alarm-event-vocabulary"
-title = "Alarm Event Vocabulary Extension"
+title = "Epic 13 — Alarm Event Vocabulary Extension"
 covers = []
 
 [[epic]]
 id = 14
 slug = "epic-camera-snapshot-attachment"
-title = "Camera Snapshot Attachment"
+title = "Epic 14 — Camera Snapshot Attachment"
 covers = []
 
 [[epic]]
 id = 15
 slug = "epic-configurable-sia-content-formats"
-title = "Configurable SIA Message Content Formats"
+title = "Epic 15 — Configurable SIA Message Content Formats"
 covers = []
 
 [[epic]]
 id = 16
 slug = "epic-multi-csr-failover"
-title = "Multi-CSR Failover"
+title = "Epic 16 — Multi-CSR Failover"
 covers = []
 
 [[epic]]
 id = 17
 slug = "epic-csr-behaviour-profiles"
-title = "CSR Behaviour Profiles & Periodic Frames"
+title = "Epic 17 — CSR Behaviour Profiles & Periodic Frames"
 covers = ["FR11", "NFR4", "NFR7"]

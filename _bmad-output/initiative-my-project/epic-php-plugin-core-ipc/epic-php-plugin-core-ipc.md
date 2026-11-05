@@ -1,6 +1,6 @@
 ---
 type: epic
-title: "PHP Plugin Core & Jeedom IPC"
+title: "Epic 6 — PHP Plugin Core & Jeedom IPC"
 parent: initiative-my-project
 covers: []
 after: []
@@ -9,7 +9,7 @@ status: done
 risk: low
 ---
 
-# PHP Plugin Core & Jeedom IPC
+# Epic 6 — PHP Plugin Core & Jeedom IPC
 
 ## Description
 

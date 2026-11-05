@@ -1,6 +1,6 @@
 ---
 type: epic
-title: "Supervision Health Monitoring"
+title: "Epic 7 — Supervision Health Monitoring"
 parent: initiative-my-project
 covers: [FR6]
 after: []
@@ -9,7 +9,7 @@ status: done
 risk: low
 ---
 
-# Supervision Health Monitoring
+# Epic 7 — Supervision Health Monitoring
 
 ## Description
 

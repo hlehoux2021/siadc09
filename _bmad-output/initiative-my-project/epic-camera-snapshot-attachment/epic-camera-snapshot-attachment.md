@@ -1,6 +1,6 @@
 ---
 type: epic
-title: "Camera Snapshot Attachment"
+title: "Epic 14 — Camera Snapshot Attachment"
 parent: initiative-my-project
 covers: []
 after: []
@@ -9,7 +9,7 @@ status: done
 risk: low
 ---
 
-# Camera Snapshot Attachment
+# Epic 14 — Camera Snapshot Attachment
 
 ## Description
 

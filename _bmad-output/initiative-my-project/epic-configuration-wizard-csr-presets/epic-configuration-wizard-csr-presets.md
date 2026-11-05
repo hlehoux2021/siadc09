@@ -1,6 +1,6 @@
 ---
 type: epic
-title: "Configuration Wizard & CSR Presets"
+title: "Epic 8 — Configuration Wizard & CSR Presets"
 parent: initiative-my-project
 covers: [FR11, FR12, FR13]
 after: []
@@ -9,7 +9,7 @@ status: done
 risk: low
 ---
 
-# Configuration Wizard & CSR Presets
+# Epic 8 — Configuration Wizard & CSR Presets
 
 ## Description
 

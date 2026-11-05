@@ -1,6 +1,6 @@
 ---
 type: epic
-title: "Configurable SIA Message Content Formats"
+title: "Epic 15 — Configurable SIA Message Content Formats"
 parent: initiative-my-project
 covers: []
 after: []
@@ -9,7 +9,7 @@ status: dropped
 risk: low
 ---
 
-# Configurable SIA Message Content Formats
+# Epic 15 — Configurable SIA Message Content Formats
 
 ## Description
 

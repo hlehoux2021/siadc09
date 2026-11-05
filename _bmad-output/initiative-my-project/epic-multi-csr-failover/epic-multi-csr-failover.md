@@ -1,6 +1,6 @@
 ---
 type: epic
-title: "Multi-CSR Failover"
+title: "Epic 16 — Multi-CSR Failover"
 parent: initiative-my-project
 covers: []
 after: []
@@ -8,7 +8,7 @@ assignee: ""
 risk: medium
 ---
 
-# Multi-CSR Failover
+# Epic 16 — Multi-CSR Failover
 
 ## Description
 

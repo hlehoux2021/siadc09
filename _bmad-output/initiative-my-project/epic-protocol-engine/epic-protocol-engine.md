@@ -1,6 +1,6 @@
 ---
 type: epic
-title: "SIA DC-09 Protocol Engine"
+title: "Epic 1 — SIA DC-09 Protocol Engine"
 parent: initiative-my-project
 covers: [FR1, FR2, FR3]
 after: []
@@ -9,7 +9,7 @@ status: in-progress
 risk: medium
 ---
 
-# SIA DC-09 Protocol Engine
+# Epic 1 — SIA DC-09 Protocol Engine
 
 ## Description
 

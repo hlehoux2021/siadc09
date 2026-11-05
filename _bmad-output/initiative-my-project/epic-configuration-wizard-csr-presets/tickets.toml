@@ -3,7 +3,7 @@
 [[entry]]
 id = 1
 type = "story"
-title = "Wizard Steps 1-2 & CSR Preset Selection"
+title = "8.1 — Wizard Steps 1-2 & CSR Preset Selection"
 description = "A simple wizard to select my CSR and test the connection."
 verify = "two preset cards displayed: \"IMA Protect\" and \"Personnalisé\""
 covers = []
@@ -15,7 +15,7 @@ v6_key = "8-1-wizard-steps-1-2-csr-preset-selection"
 [[entry]]
 id = 2
 type = "story"
-title = "Wizard Steps 3-4 & Zone Mapping"
+title = "8.2 — Wizard Steps 3-4 & Zone Mapping"
 description = "To map my alarm zones to camera actions and select notifications."
 verify = "zone mapping table shows all zones from Jeedom alarm plugin"
 covers = []
@@ -27,7 +27,7 @@ v6_key = "8-2-wizard-steps-3-4-zone-mapping"
 [[entry]]
 id = 3
 type = "story"
-title = "Wizard Integration & Testing"
+title = "8.3 — Wizard Integration & Testing"
 description = "The wizard to be robust and testable."
 verify = "wizard saves wizard_step=0 before daemon_stop() to prevent race condition"
 covers = []

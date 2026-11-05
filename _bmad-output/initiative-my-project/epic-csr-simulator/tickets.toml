@@ -3,7 +3,7 @@
 [[entry]]
 id = 1
 type = "story"
-title = "Simulator Framework & UDP/TCP Listen"
+title = "2.1 — Simulator Framework & UDP/TCP Listen"
 description = "To run a local CSR simulator that accepts UDP/TCP connections."
 verify = "the simulator listens on both UDP and TCP simultaneously"
 covers = []
@@ -15,7 +15,7 @@ v6_key = "2-1-simulator-framework-udp-tcp-listen"
 [[entry]]
 id = 2
 type = "story"
-title = "Generate CSR Responses (ACK/NAK/NULL)"
+title = "2.2 — Generate CSR Responses (ACK/NAK/NULL)"
 description = "The simulator to respond appropriately to incoming frames."
 verify = "simulator responds with ACK encoded properly"
 covers = []
@@ -27,7 +27,7 @@ v6_key = "2-2-generate-csr-responses-ack-nak-null"
 [[entry]]
 id = 3
 type = "story"
-title = "CLI Tool for Hex Dump Frame Replay"
+title = "2.3 — CLI Tool for Hex Dump Frame Replay"
 description = "To replay SIA frames from a hex dump file against the simulator."
 verify = "each frame is sent to the simulator in sequence"
 covers = []
@@ -39,7 +39,7 @@ v6_key = "2-3-cli-tool-for-hex-dump-frame-replay"
 [[entry]]
 id = 4
 type = "story"
-title = "PCAP Frame Extractor Tool (Wireshark Dumps)"
+title = "2.4 — PCAP Frame Extractor Tool (Wireshark Dumps)"
 description = "To extract SIA DC-09 frames from Wireshark pcap captures of real CSR traffic."
 verify = "output is a hex dump file compatible with Story 2.3"
 covers = []
@@ -51,7 +51,7 @@ v6_key = "2-4-pcap-frame-extractor-tool"
 [[entry]]
 id = 5
 type = "story"
-title = "Test Harness & Standalone Documentation"
+title = "2.5 — Test Harness & Standalone Documentation"
 description = "Clear documentation and examples for using the simulator and tools standalone."
 verify = "setup, configuration, and CLI usage are clear with examples"
 covers = []
