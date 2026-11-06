@@ -19,6 +19,23 @@ SIA DC-09-2021.17 protocol implementation (Internet Protocol Event Reporting).
 - Sprint status: `_bmad-output/implementation-artifacts/sprint-status.yaml`
 - Epics: `_bmad-output/planning-artifacts/epics.md`
 
+## Reference Sources (`helpers/`, read-only, untracked)
+Upstream sources to grep before trusting any Jeedom API signature (core, JS helpers, ajax actions):
+
+| Folder | Content |
+|--------|---------|
+| `helpers/jeedom/core` | Jeedom core (e.g. `core/ajax/plugin.ajax.php`, `core/js/plugin.class.js`) |
+| `helpers/jeedom/plugin-calendar` | Calendar plugin |
+| `helpers/plugin-template` | Official plugin template (structure reference) |
+| `helpers/plugin-alarm` | Alarm plugin (zones, modes, `#zone#` tags) |
+| `helpers/plugin-frigate` | Frigate plugin (cameras, snapshots, events) |
+| `helpers/plugin-ajaxSystem` | Ajax Systems plugin |
+| `helpers/plugin-z2m`, `helpers/plugin-zwavejs` | Zigbee2MQTT / Z-Wave JS plugins (daemon patterns) |
+| `helpers/jeedom-aiodemo` | Model async plugin (aiodemo) |
+| `helpers/jeedom-daemon-py` | Model Python daemon framework (`jeedomdaemon`, daemon.py patterns) |
+
+Never edit or commit these; not present in git worktrees.
+
 ## Domain Skills (invoke for expert questions)
 - `/sia-dc09-expert` — protocol format, CRC, encryption, timestamps, ACK/NAK
 - `/jeedom-plugin` — plugin structure, eqLogic/cmd, daemon framework, Market
