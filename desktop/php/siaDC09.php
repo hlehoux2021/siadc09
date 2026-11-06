@@ -337,6 +337,7 @@ $scenarios = scenario::all();
 									<!-- Buttons -->
 									<div class="form-group">
 										<div class="col-sm-12" style="text-align:right;">
+											<a class="btn btn-default pull-left" id="bt_step2Back"><i class="fas fa-arrow-left"></i> {{Modifier la centrale}}</a>
 											<a class="btn btn-default" id="bt_step2Retest"><i class="fas fa-redo"></i> {{Relancer le test}}</a>
 											<a class="btn btn-warning" id="bt_step2Skip"><i class="fas fa-forward"></i> {{Ignorer}}</a>
 											<a class="btn btn-success disabled" id="bt_step2Next" disabled aria-disabled="true" tabindex="-1"><i class="fas fa-arrow-right"></i> {{Suivant}}</a>

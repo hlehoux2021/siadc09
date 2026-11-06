@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from siadc09d.presets import (RP_INTERVAL_DEFAULT_S, RP_INTERVAL_MAX_S, RP_INTERVAL_MIN_S,
                               SUPERVISION_FORMAT_DEFAULT, SUPERVISION_FORMATS)
 from siadc09d.sia_crypto import AESKeyError, parse_hex_key
-from siadc09d.sia_protocol import SIAMessageBuilder
+from siadc09d.sia_protocol import SIAMessageBuilder, SIAProtocolError, parse_frame_header
 from siadc09d.sia_transport import (
     SIABaseTransport,
     SIATransportError,
@@ -111,9 +111,7 @@ _TEST_VERDICTS: dict[str, tuple[str, str]] = {
     ),
     _STATUS_DUH: (
         _UI_FAIL,
-        "{endpoint} est joignable et a répondu DUH en {elapsed_ms}ms — la trame "
-        "est reçue mais refusée par le récepteur. Essayer le format de "
-        "supervision NULL, et vérifier le numéro de compte et le préfixe.",
+        "{endpoint} a reçu le message de test mais l'a refusé (DUH, réponse en {elapsed_ms}ms)",
     ),
     _STATUS_TCP_DROP: (
         _UI_FAIL,
@@ -270,6 +268,25 @@ def _test_verdict(status: str, context: dict[str, object]) -> dict[str, str]:
     return {"status": ui_status, "detail": template.format(**context)}
 
 
+_UNKNOWN_FRAME_TYPE = "?"
+
+
+def _frame_type(frame: bytes) -> str:
+    """Return the clear frame token (e.g. "*SIA-DCS", "*NULL"), readable even when encrypted.
+
+    Args:
+        frame: Complete frame built by SIAMessageBuilder.
+
+    Returns:
+        The token, or "?" when the header is unreadable.
+    """
+    try:
+        # The header token carries its "*" on encrypted frames ("*SIA-DCS"); the summary shows none.
+        return parse_frame_header(frame)[0].lstrip("*")
+    except SIAProtocolError:
+        return _UNKNOWN_FRAME_TYPE
+
+
 _REFUSAL_PREFIX = "Configuration refusée : "
 
 
@@ -400,7 +417,7 @@ async def run_connection_test(config: dict, timeout: int) -> None:
             file=sys.stderr, flush=True,
         )
 
-    print(json.dumps(_test_verdict(status, {
+    verdict: dict[str, object] = dict(_test_verdict(status, {
         "elapsed_ms": elapsed_ms,
         "endpoint": f"{host}:{port}",
         "host": host,
@@ -409,7 +426,17 @@ async def run_connection_test(config: dict, timeout: int) -> None:
         "crc_format": crc_format,
         "timeout": timeout,
         "connect_timeout": int(_TEST_CONNECT_TIMEOUT_S),
-    })), flush=True)
+    }))
+    # Story 17.12: what was sent, for the wizard's failure view. Type/account/transport
+    # only — never the frame bytes (they may be encrypted) nor the key.
+    verdict["sent"] = {
+        "type": _frame_type(frame),
+        "account": account_number,
+        "transport": transport.upper(),
+    }
+    # Distinguishes an expected refusal (PHP logs it at WARNING) without adding a UI status.
+    verdict["outcome"] = status
+    print(json.dumps(verdict), flush=True)
 
 
 # ===== --test-only ENTRY POINT =====

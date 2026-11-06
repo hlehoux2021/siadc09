@@ -639,13 +639,13 @@ def test_send_raw_once_passes_duh_through():
     assert result["status"] == "duh"
 
 
-def test_run_connection_test_duh_prints_fail_pointing_to_null(capsys):
+def test_run_connection_test_duh_prints_fail_without_format_advice(capsys):
     """
-    Wizard verdict for a DUH: fail, mentions DUH and the NULL format, no CRC blame,
-    and the plaintext frame is logged at DEBUG on stderr.
+    Wizard verdict for a DUH (story 17.12): fail, mentions DUH, no NULL/CRC advice
+    (the profile may lock the format), and the plaintext frame goes to stderr.
 
     Expected result:
-    - status "fail"; detail mentions DUH and NULL, not CRC
+    - status "fail", outcome "duh"; detail mentions DUH, not NULL nor CRC
     - stderr carries the sent frame
     """
     async def fake_send(*args, **kwargs):
@@ -658,12 +658,68 @@ def test_run_connection_test_duh_prints_fail_pointing_to_null(capsys):
     out = json.loads(captured.out.strip())
     # Assert: red verdict
     assert out["status"] == "fail"
-    # Assert: names DUH and the NULL workaround
-    assert "DUH" in out["detail"] and "NULL" in out["detail"]
+    # Assert: names DUH, gives no NULL workaround
+    assert "DUH" in out["detail"] and "NULL" not in out["detail"]
     # Assert: no CRC accusation
     assert "CRC" not in out["detail"]
+    # Assert: the marker PHP uses to log at WARNING
+    assert out["outcome"] == "duh"
     # Assert: sent frame logged in clear on failure
     assert "trame envoyée" in captured.err and "SIA-DCS" in captured.err
+
+
+def test_run_connection_test_returns_sent_summary(capsys):
+    """
+    The JSON carries the plaintext summary of the message sent (story 17.12).
+
+    Expected result:
+    - sent == {type, account, transport}, nothing else
+    - no frame content in the JSON
+    """
+    async def fake_send(*args, **kwargs):
+        return {"status": "duh"}
+
+    with patch("resources.siadc09d.siadc09d._send_raw_once", new=fake_send):
+        _run(run_connection_test(_VALID_MANUAL_CONFIG, timeout=5))
+
+    raw = capsys.readouterr().out.strip()
+    out = json.loads(raw)
+    # Assert: exact summary keys
+    assert set(out["sent"]) == {"type", "account", "transport"}
+    assert out["sent"]["account"] == _VALID_MANUAL_CONFIG["account_number"]
+    assert out["sent"]["type"] == "SIA-DCS"
+    # Assert: no raw frame bytes in the output
+    assert "hex" not in raw and "b'" not in raw
+
+
+def test_run_connection_test_encrypted_sent_summary_has_no_frame(capsys, monkeypatch):
+    """
+    With encryption on the summary stays type/account/transport and the key never leaks.
+
+    Expected result:
+    - sent has exactly 3 keys; stdout and stderr contain no key nor hex frame
+    """
+    key = "00112233445566778899aabbccddeeff"
+    monkeypatch.setenv("SIA_ENCRYPTION_KEY", key)
+    sent: dict[str, bytes] = {}
+
+    async def fake_send(*args, **kwargs):
+        sent["frame"] = kwargs["frame"]
+        return {"status": "duh"}
+
+    config = {**_VALID_MANUAL_CONFIG, "encryption_enabled": 1}
+    with patch("resources.siadc09d.siadc09d._send_raw_once", new=fake_send):
+        _run(run_connection_test(config, timeout=5))
+
+    captured = capsys.readouterr()
+    out = json.loads(captured.out.strip())
+    # Assert: only the summary keys
+    assert set(out["sent"]) == {"type", "account", "transport"}
+    # Assert: the type shows no leading asterisk, even for an encrypted frame
+    assert out["sent"]["type"] == "SIA-DCS"
+    # Assert: neither the key nor the encrypted frame is printed anywhere
+    assert key not in captured.out + captured.err
+    assert sent["frame"].hex() not in captured.out + captured.err
 
 
 def test_run_connection_test_ack_does_not_log_frame(capsys):
