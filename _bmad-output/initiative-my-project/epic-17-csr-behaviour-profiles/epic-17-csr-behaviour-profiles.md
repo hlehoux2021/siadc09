@@ -45,4 +45,10 @@ Scope as written in epics.md for this epic; the other epics and the Jeedom alarm
 - Assumption: the Done when section was drafted at migration from the epics.md Testing line; to be reviewed with the owner.
 - Decision: entries 7 and 8 (configurable alarm media, Vesta and FoxStream profiles) belong to this epic (user, 2026-11-05).
 - Decision: stories 17.7 (configurable alarm media) and 17.8 (Vesta and FoxStream profiles) belong to this epic and stay separate; their other decisions are in their own files (user, 2026-11-05).
+- Source conflict: stories 17.7 and 17.8 vs ADR-22 — 17.7 says the media options are "not profile fields" and 17.8 says they are "filled but not locked"; ADR-22 says a profile pre-fills and locks every key it declares.
+- Decision: media keys a profile declares are locked by it; only media_enabled and the Frigate address are user choices; 17.10 corrects the code, wizard-design.md, ADR-22 and the two story files (user, 2026-11-05, D2/D13).
+- Decision: stories 17.9 to 17.12 follow the wizard step 1 UX redesign in ux-17-wizard-step-1/ (spines still draft); order 17.9 → 17.10 → 17.11, with 17.12 after 17.9 only (user, 2026-11-06).
+- Decision: 17.10 stays one story and includes the server-side Frigate check at daemon start; with media off it also skips the Frigate prefetch and forced capture (user, 2026-11-06).
+- Decision: an expected DUH is logged at WARNING on the wizard test path only; the running daemon keeps SM1_DUH at error (user, 2026-11-06).
+- Decision: a closing Refactor sweep, 17.13, is added (user, 2026-11-06).
 - Source: v6 epic 17 of epics.md (archive-v6/epics.md).

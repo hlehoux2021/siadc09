@@ -94,3 +94,65 @@ covers = ["FR11", "NFR7"]
 after = [1, 2, 3, 7]
 hitl = false
 risk = "low"
+
+[[entry]]
+id = 9
+type = "story"
+title = "17.9 — Wizard Step 1 Blocking Fixes (Suivant, Banner, Daemon Stop)"
+description = "Suivant works on every click, including after Relancer l'assistant (B1); every refusal at step 1 lists all errors together in a banner and next to each field; the dialogs that promise to stop the daemon really stop it (B3); disabled wizard buttons look disabled."
+verify = "A jsdom scenario clicks Suivant, saves, relaunches the wizard and clicks Suivant again, which validates and saves. A form with several errors shows all of them in the banner (role=alert) and under each field (aria-describedby), with focus on the first. Confirming the dialog calls the daemon stop and cancelling or a save error re-enables the buttons. Disabled wizard buttons, step 2 included, carry the class disabled."
+covers = []
+after = [4]
+hitl = false
+risk = "medium"
+references = ["ux — ux-17-wizard-step-1/EXPERIENCE.md, Buttons, Banner and field errors, Accessibility Floor", "design — internal-docs/design/wizard-design.md, sections on Relancer l'assistant and daemon stop (code to follow the existing spec)"]
+unknown = "Is there a Jeedom core deamonStop action the JS can call, or does the plugin AJAX need a new stop action? Check at plan time."
+
+[[entry]]
+id = 10
+type = "story"
+title = "17.10 — Photo/Video Verification Card and Locked Media Keys"
+description = "A levée de doute photo / vidéo card on step 1 holds the checkbox (new key media_enabled, absent = on, set explicitly by the JS on load) and the required Frigate address; the media keys a profile declares are locked by that profile; presets carry an explicit media_enabled default (Vesta and FoxStream on, Scutum off with video only in format V, flagged to test); Ajax keeps the checkbox greyed; media_enabled=0 sends no media tag and skips the Frigate prefetch and forced capture; starting the daemon refuses an empty Frigate address when media is on; this corrects the 17.7 'not profile fields' and 17.8 'filled but not locked' decisions in wizard-design.md, ADR-22 and the two story files. Also fixes B2."
+verify = "Choosing Vesta or FoxStream locks the media keys and checks the box; Scutum locks video only in V and leaves the box off; Ajax greys it; Personnalisé unlocks. With the box off, the frame has no media tag, no prefetch is triggered and the Frigate value is kept in the form. An equipment saved before this story still sends the same bytes and its box reads on. Box on with an empty Frigate address is refused at step 1 and at daemon start, and the step 3 check stays. The level 1 preset test accepts media_enabled and the Scutum keys. Then looked at in the browser on test-jeedom."
+covers = ["FR11", "NFR7"]
+after = [9, 7, 8]
+hitl = true
+risk = "medium"
+references = ["ux — ux-17-wizard-step-1/EXPERIENCE.md, Photo / video verification card, Profiles and media, Build contracts", "ux — ux-17-wizard-step-1/.memlog.md, D2 D3 D9 D13 D14", "story — story-17-7-configurable-alarm-media-in-ba-frames-snapshot-clip-u-o.md and story-17-8-vesta-climax-and-foxstream-foxbox-csr-profiles.md (decisions reversed)", "design — internal-docs/design/wizard-design.md, advanced options; ADR-22 in architecture-my-project.md"]
+notes = ["Keep it one story; the server-side Frigate check at daemon start is part of it (user, 2026-11-06)", "With media off, also skip the Frigate prefetch and forced capture (user, 2026-11-06)"]
+
+[[entry]]
+id = 11
+type = "story"
+title = "17.11 — Advanced Panel Rework: Labels, Extension Choice, Supervision"
+description = "The advanced panel shows what is sent (photo, video, link formats named U URL Multimedia Direct and V Video Verification Link), the one-extension-or-one-per-link choice with real examples using a space between URLs (always visible, greyed with its reason when unavailable), the supervision card, and locked fields that stay readable with a caption; the orange NULL warning is removed, with wizard-design.md and the test harness updated."
+verify = "In a profile every field is visible, read-only (readonly or aria-disabled) with the lock caption; in Personnalisé all are editable. The one-extension choice is greyed with its reason for a single content or mixed formats, and the examples match the bytes of _format_media_tags. Folding the panel loses no value. The NULL warning is gone. Then looked at in the browser on test-jeedom."
+covers = []
+after = [10]
+hitl = true
+risk = "low"
+references = ["ux — ux-17-wizard-step-1/EXPERIENCE.md, Contents sent with the alarm, Supervision card; DESIGN.md", "ux — ux-17-wizard-step-1/.memlog.md, D4 D7 D10 D12"]
+
+[[entry]]
+id = 12
+type = "story"
+title = "17.12 — Wizard Step 2 Without Dead End"
+description = "A failed or refused test shows the message that was sent (testConnection returns the plaintext frame summary: type, account, transport; never an encrypted frame), only the two allowed suggestions and never the profile as if it were the center, and a Modifier la centrale button that returns to step 1 with values kept and live buttons, even during a running test; an expected DUH in the wizard test path is logged at WARNING in the AJAX handler."
+verify = "A jsdom scenario covers Modifier la centrale, including a late test answer being ignored and step 1 buttons live on return. A level 1 or 2 test shows testConnection returns the frame summary and no encrypted frame. A DUH on the wizard test path is logged at WARNING; the running daemon's SM1_DUH level is unchanged. Then looked at in the browser on test-jeedom."
+covers = []
+after = [9]
+hitl = true
+risk = "medium"
+references = ["ux — ux-17-wizard-step-1/EXPERIENCE.md, Step 2 states, Build contracts", "ux — ux-17-wizard-step-1/.memlog.md, D6 D11 D14"]
+notes = ["DUH at WARNING on the wizard test path only; the running daemon keeps SM1_DUH at error (user, 2026-11-06)", "Runs after 17.9 only, so it can run beside 17.10 and 17.11; they share siaDC09.js in different regions"]
+
+[[entry]]
+id = 13
+type = "story"
+title = "17.13 — Refactor Sweep"
+description = "Cleanup of the code and tests this epic left behind; the scope is set when it starts, from the plans and the review findings deferred during the epic."
+verify = "The level 1 and 2 test suites pass as before; each cleanup item is listed in the plan with its result."
+covers = []
+after = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+hitl = false
+risk = "low"
