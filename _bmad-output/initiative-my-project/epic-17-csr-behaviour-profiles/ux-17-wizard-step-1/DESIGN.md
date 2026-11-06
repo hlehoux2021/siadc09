@@ -59,15 +59,18 @@ Inherits the Jeedom body font. Two rules only: card titles use the heading level
 
 ## Layout & Spacing
 
-Step 1 is one column, in this order, each in its own card with the standard Bootstrap panel spacing:
+**Story 17.14: the Excalidraw mockup (`.working/flow-wizard-step-1-2026-11-05.excalidraw`, screens A to D) is the layout source of truth and wins over this text where they differ.** The wizard has three steps and a three-tab stepper on every screen: `1 Centrale`, `2 Test`, `3 Zones et alertes` (active tab #a5d8ff, others white, 1px #1e1e1e, non-clickable).
 
-| Order | Card | Always visible content |
+Each screen is one column of framed zones (fill #f8f9fa, 1px #1e1e1e, title 20px, 20px between zones):
+
+| Step | Zones (in order) | Always visible content |
 |---|---|---|
-| 1 | Votre centrale de télésurveillance | Profil, adresse IP, port, transport, numéro de compte, chiffrement (clé AES when checked) |
-| 2 | Levée de doute photo / vidéo | One checkbox; when checked, the Frigate server address |
-| 3 | Options avancées (folded) | Contents sent with the alarm, then Supervision de la liaison |
+| 1 Centrale | Votre centrale de télésurveillance | Profil (help to its right), adresse IP + port + transport on one row, numéro de compte + « Chiffrer les échanges (clé AES) » on one row, clé AES when checked |
+| 1 Centrale | Levée de doute photo / vidéo | One checkbox; when checked, the Frigate server address |
+| 2 Test | Summary line, test result, then the Options avancées bar, then the buttons | Contenu envoyé avec l'alarme and Supervision de la liaison inside the unfolded panel (bar ABOVE its content, user decision 2026-11-06) |
+| 3 Zones et alertes | Vos zones d'alarme, Alertes critiques | Zone table + user number; notification target; one « Terminer » button |
 
-Under the cards, in this order: error banner (only after a refusal), then the button row with "Suivant" aligned right. Related fields share a row (adresse, port, transport on one line; photo and vidéo formats on one line). A label sits above its field. Help text is muted and sits under the field it explains, never in a tooltip.
+Under the zones, in this order: error banner (only after a refusal), then the button row (« Suivant » aligned right, `btn-success` green; the light blue in the drawing was a placeholder). Related fields share a row (adresse, port, transport on one line; photo and vidéo on one line; both formats on one line). A label sits above its field (never a 2-column title/field layout). Help text is muted and sits under the field it explains, never in a tooltip. The Options avancées bar is a full-width dashed bar (fill #f8f9fa, 56px) with a chevron, a title and, when folded, a muted hint line.
 
 Inside the folded panel, two sub-sections, each introduced by a heading and one plain sentence:
 
@@ -83,7 +86,7 @@ Stock Bootstrap radii. No custom shape.
 | Component | Visual rules |
 |---|---|
 | section-card | One topic per card. Title only; no decoration. |
-| field-locked | Used in a profile. Grey, not editable, still readable and selectable. The profile's lock-caption is shown once per card or sub-section, not per field. |
+| field-locked | Used in a profile. Fill #e9ecef, border and text #868e96 (as drawn), not editable, still readable and selectable. The profile's lock-caption is shown ONCE for the whole Options avancées panel (with a « Passer en Personnalisé » action), never per card, sub-section or field. |
 | lock-caption | Text: « Fixé par le profil « {nom} ». Choisissez « Personnalisé » pour le modifier. » In the Personnalisé profile there is no caption and no locked look. |
 | field-error | Red border and message under the field. The message names the field and says what is wanted. |
 | banner-error | Title "Impossible de continuer :" then one line per error, same wording as under the fields. |

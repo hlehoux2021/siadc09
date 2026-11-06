@@ -58,15 +58,15 @@ def test_relaunch_then_suivant_saves_again() -> None:
 
 def test_several_errors_banner_marks_every_field() -> None:
     """
-    Bad account, empty IP, supervision none with RP off.
+    Bad account, empty IP, media on with an empty Frigate address.
 
     Expected result:
     - banner titled « Impossible de continuer : » lists 3 messages, role alert kept
     - three fields marked with aria-describedby on their message
-    - focus on the account field, advanced panel open, nothing saved
+    - focus on the account field, the advanced panel (Test step) untouched, nothing saved
     """
     out = _run({"fields": {"account_number": "zz", "csr_ip": "", "csr_port": "10002",
-                           "supervision_format": "none", "rp_enabled": False},
+                           "media_enabled": True, "frigate_media_url_template": ""},
                 "actions": [{"op": "showStep", "step": 1}, _NEXT, _SNAP]})
 
     snap = out["snapshots"][0]
@@ -76,12 +76,12 @@ def test_several_errors_banner_marks_every_field() -> None:
     assert snap["bannerTitle"] == "{{Impossible de continuer :}}"
     assert len(snap["bannerItems"]) == 3
     # Assert: three faulty fields with described-by messages
-    assert set(snap["fieldErrors"]) == {"account_number", "csr_ip", "supervision_format"}
+    assert set(snap["fieldErrors"]) == {"account_number", "csr_ip", "frigate_media_url_template"}
     assert snap["fieldErrors"]["account_number"]["describedBy"] == "siaDC09-error-account_number"
     assert all(v["message"] for v in snap["fieldErrors"].values())
-    # Assert: focus on the first faulty field, advanced panel opened
+    # Assert: focus on the first faulty field, the advanced panel lives on step 2 and stays folded
     assert snap["focused"] == "account_number"
-    assert snap["advancedVisible"] is True
+    assert snap["advancedVisible"] is False
     # Assert: no save, no daemon probe
     assert not any(c.startswith(("save:", "getDeamonInfo")) for c in out["calls"])
 
@@ -325,3 +325,93 @@ def test_non_duh_failure_still_shows_sent_message() -> None:
     # Assert: detail and sent summary, no checks list
     assert "Pas de réponse" in snap["step2ResultText"] and "SIA-DCS" in snap["step2ResultText"]
     assert snap["step2ChecksCount"] == 0
+
+
+# ── Story 17.14: three steps, advanced options on the Test step ──────────────
+
+_FOX = {"label": "FoxStream (FoxBox)", "supervision_format": "sia-dcs", "supervision_interval": 30,
+        "rp_enabled": 1, "rp_interval": 120}
+_RETEST = {"op": "click", "selector": "#bt_step2Retest"}
+_GO_CUSTOM = {"op": "click", "selector": "#bt_siaDC09_goCustom"}
+_FINISH = {"op": "click", "selector": "#bt_step3Finish"}
+
+
+def test_stepper_follows_the_step_shown() -> None:
+    """
+    The read-only stepper highlights the step being shown.
+
+    Expected result:
+    - active tab 1, 2, 3 after showStep(1), showStep(2), showStep(3)
+    """
+    out = _run({"fields": _VALID_FIELDS, "test": "pending",
+                "actions": [{"op": "showStep", "step": 1}, _SNAP, {"op": "showStep", "step": 2}, _SNAP,
+                            {"op": "showStep", "step": 3}, _SNAP]})
+
+    # Assert: one active tab per step
+    assert [s["activeTab"] for s in out["snapshots"]] == ["1", "2", "3"]
+
+
+def test_switch_to_custom_from_failed_test_does_not_rerun_the_test() -> None:
+    """
+    Story 17.14 (user decision): after a refused test, « Passer en Personnalisé » unlocks the
+    panel but never starts a new test; only « Relancer le test » does, after saving.
+
+    Expected result:
+    - the profile select reads Personnalisé and the caption is hidden after the switch
+    - exactly one testConnection call (the first) and no save before « Relancer le test »
+    - « Relancer le test » then saves (step 2) BEFORE the second testConnection
+    """
+    out = _run({"fields": {**_VALID_FIELDS, "csr_profile": "fox"}, "profiles": {"fox": _FOX},
+                "daemon": "nok", "test": "fail", "testExtra": _DUH_EXTRA,
+                "actions": [{"op": "showStep", "step": 2}, {"op": "fields", "fields": {"csr_profile": "fox"}},
+                            _GO_CUSTOM, _SNAP, {"op": "mark", "label": "retest"}, _RETEST]})
+
+    snap = out["snapshots"][0] if out["snapshots"] else {}
+    calls = out["calls"]
+    # Assert: no second test and no save before the explicit retest
+    before = calls[:calls.index("--retest")]
+    assert before.count("ajax:testConnection") == 1
+    assert not any(c.startswith("save:") for c in before)
+    # Assert: retest = save, then the test
+    after = calls[calls.index("--retest") + 1:]
+    assert after[:2] == ["save:2", "ajax:testConnection"]
+    assert snap.get("captionVisible") is False
+
+
+def test_retest_with_invalid_advanced_options_saves_and_tests_nothing() -> None:
+    """
+    Personnalisé with supervision none and RP off, then « Relancer le test ».
+
+    Expected result:
+    - the step 2 error box shows, the panel opens, no save and no second test
+    """
+    out = _run({"fields": {**_VALID_FIELDS, "supervision_format": "sia-dcs"}, "daemon": "nok", "test": "fail",
+                "testExtra": _DUH_EXTRA,
+                "actions": [{"op": "showStep", "step": 2},
+                            {"op": "fields", "fields": {"supervision_format": "none", "rp_enabled": False}},
+                            {"op": "mark", "label": "retest"}, _RETEST, _SNAP]})
+
+    snap = out["snapshots"][0]
+    after = out["calls"][out["calls"].index("--retest") + 1:]
+    # Assert: refused before any save or ajax
+    assert after == []
+    # Assert: errors shown, panel open, Relancer live again
+    assert snap["step2ErrorsVisible"] is True and snap["advancedVisible"] is True
+    assert snap["buttons"]["bt_step2Retest"]["disabledClass"] is False
+
+
+def test_terminer_writes_the_done_step_and_has_no_step_four() -> None:
+    """
+    « Terminer » on the merged step 3.
+
+    Expected result:
+    - the wizard step is saved as 4 ("complete"), after the notification target was checked
+    - an unusable target refuses and saves nothing
+    """
+    refused = _run({"fields": _VALID_FIELDS, "actions": [{"op": "showStep", "step": 3}, _FINISH]})
+    # Assert: no target chosen -> no save
+    assert not any(c.startswith("save:") for c in refused["calls"])
+
+    ok = _run({"fields": {**_VALID_FIELDS, "sia_notify_cmd_id": "12"}, "actions": [{"op": "showStep", "step": 3}, _FINISH]})
+    # Assert: saved as 4
+    assert [c for c in ok["calls"] if c.startswith("save:")] == ["save:4"]

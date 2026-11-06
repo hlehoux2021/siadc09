@@ -3,14 +3,14 @@ title: '17.14 — Wizard Visual Conformance and Step Rebalancing'
 type: 'feature'
 ticket: '14'
 created: '2026-11-06'
-status: 'draft'
-baseline_revision: ''
+status: 'in-review'
+baseline_revision: '87c671e7b92de0bc11df25412af74c7b7c7f31f3'
 route: 'full'
 route_source: 'auto'
 risk: 'medium'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: [quick]
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/initiative-my-project/epic-17-csr-behaviour-profiles/ux-17-wizard-step-1/.working/flow-wizard-step-1-2026-11-05.excalidraw'
@@ -32,6 +32,9 @@ context:
 - Three steps as above. Personnalisé chosen on the Test step modifies no preset and behaves exactly as if chosen on step 1 (profile select becomes Personnalisé, fields unlock, values kept).
 - After switching to Personnalisé on the Test step the test NEVER reruns by itself; it runs only when the user clicks « Relancer le test ».
 - Equipments already saved at a wizard step are out of scope (test phase): no mapping of stored steps.
+- The unfolded « Options avancées » bar stays ABOVE its content, as a standard collapsible panel (user, 2026-11-06). Screen B of the mockup is corrected accordingly; it overrides the drawing.
+- « Suivant » stays Jeedom green (`btn-success`), as in DESIGN.md; the light blue in the mockup was a placeholder (user, 2026-11-06).
+- The plan stays whole (not split).
 - The user checks a rendered page before the story is called built; a jsdom or structure test alone does not close it.
 
 ## Boundaries & Constraints
@@ -82,7 +85,7 @@ Step-number dependents (all must follow the new scheme). Scheme: stored `sia_wiz
 - AC5 Given the Options avancées panel (step 2), then Photo and Vidéo (sent + link format) share a row each pair side by side, and Message de vie and Test cyclique (RP) show their « Toutes les (secondes) » fields on the right as drawn.
 - AC6 Given a profile is chosen, then the Options avancées panel shows exactly ONE lock caption « Fixé par le profil « {nom} ». Choisissez « Personnalisé » pour le modifier. », located at the top of the panel; no caption appears on step 1, per field or per zone; locked fields are fill #e9ecef, border #868e96, grey text.
 - AC7 Given step 1, then the order is: stepper, zone « Votre centrale de télésurveillance » (profile, help text right of the select, row IP/port/transport, account row), zone « Levée de doute photo / vidéo », error banner (only after a refusal), « Suivant » right-aligned; no Options avancées bar on step 1.
-- AC8 Given step 2, then the Options avancées bar is a full-width dashed 1px bar, fill #f8f9fa, 56px high, folded text « > Options avancées : contenu envoyé, supervision de la liaison » plus the muted hint « (cliquez pour afficher ; s'ouvre toute seule si une erreur s'y trouve) »; unfolded, the two zones « Contenu envoyé avec l'alarme (photo / vidéo) » and « Supervision de la liaison » appear above a dashed bar « v Options avancées (cliquer pour replier) » exactly as screen B.
+- AC8 Given step 2, then the Options avancées bar is a full-width dashed 1px bar, fill #f8f9fa, 56px high, folded text « > Options avancées : contenu envoyé, supervision de la liaison » plus the muted hint « (cliquez pour afficher ; s'ouvre toute seule si une erreur s'y trouve) »; unfolded, the bar stays at the same place and reads « v Options avancées (cliquer pour replier) »; the two zones « Contenu envoyé avec l'alarme (photo / vidéo) » and « Supervision de la liaison » appear BELOW it (standard collapsible, user decision), otherwise as screen B once corrected. « Suivant » is `btn-success` green.
 - AC9 Given a failed test, then the page matches screen C: summary line, red zone (#ffe3e3, 2px #e03131) with sent frame, type line, « Vérifiez » list and « Puis relancez le test. », then a row « ← Modifier la centrale » left, « Relancer le test », « Ignorer », and « Suivant » grey and inert.
 - AC10 Given a failed test and a locked profile, when the user clicks the Personnalisé action in the lock caption, then the profile select reads Personnalisé, the panel opens unlocked with values kept, the caption disappears, and no request is sent [test]; the test runs only after « Relancer le test », which first saves the form [test].
 - AC11 Given Personnalisé with an invalid RP interval, when « Relancer le test » is clicked, then the field shows its error, the panel is open, nothing is saved or tested [test].
@@ -93,16 +96,24 @@ Step-number dependents (all must follow the new scheme). Scheme: stored `sia_wiz
 
 ## Implementation Notes
 
+Built directly (no implementation subagent), then a quick independent review.
+
+- **Rendering could NOT be run in this environment.** Chrome (`/Applications/Google Chrome.app`) was refused by the user for this run ("utilise firefox"); Firefox headless starts but cannot spawn its child processes inside the Seatbelt sandbox (`bootstrap_check_in failed`, no PNG produced). No screenshot exists. `tests/render/render_wizard.py` does generate four standalone pages (`.cleanup/screens/wizard-{A,B,C,D}-{Light,Dark}.html`) from the real PHP page, the real Jeedom CSS from `helpers/` and the real JS; they were only loaded in jsdom (script errors and screen state checked, no layout). The user must open them, or test-jeedom, to judge AC1-AC9, AC13, AC14.
+- Mockup (`flow-wizard-step-1-2026-11-05.excalidraw`) updated by a throwaway script: 3 tabs on A, B, C; A without the bar and with a green Suivant; B redrawn as the Test step with the bar ABOVE its content and one lock caption; C with the folded bar; new screen D (step 3). Not opened in Excalidraw either.
+- Step scheme: stored value = step shown (1..3), `SIADC09_WIZARD_DONE = 4` written by « Terminer » only; PHP guard `< 4` untouched.
+- Deviations to confirm visually: (1) Photo/Vidéo « Envoyée » is a checkbox in a field-sized box, not the `Envoyée v` select of the drawing (the saved keys are checkboxes; a select needs a mirrored field); (2) reconnection retries/delay moved into the Supervision zone (the mockup has no place for them); (3) screen C draws the raw frame line `"SIA-DCS"0001L0#...`; the backend deliberately returns only type/account/transport (story 17.12, bytes may be encrypted), so only the typed summary is shown; (4) a name clash with the diagnostic `siaDC09_renderErrors` was avoided by naming the new helper `siaDC09_renderFieldErrors`.
+- i18n: `core/i18n/fr_FR.json` resynced for the page and JS (18 added, 14 removed in the page section).
+
 ## Plan Change Log
 
 ## Review Triage Log
 
 ## Design Notes
 
-- The drawing puts the unfolded bar BELOW the unfolded content (screen B), unusual for a disclosure; built literally (AC8). To flip it, change the CSS order only.
+- The drawing put the unfolded bar below its content; the user decided it stays above (standard collapsible); screen B is redrawn that way.
 - Order on step 2: summary, result, Options avancées (bar + content), button row, so the user edits settings then presses « Relancer le test » without scrolling past them.
 - #f8f9fa zones set their own text color (#333) and hover colors, so they stay readable on both Jeedom themes.
-- Buttons keep Bootstrap `btn-success` / `btn-default` (DESIGN.md); the mockup's light-blue Suivant is treated as a placeholder, not a requirement.
+- Buttons keep Bootstrap `btn-success` / `btn-default` (DESIGN.md); the mockup's light-blue Suivant was a placeholder (confirmed by the user). Mockup Suivant fills are recoloured green.
 - Token budget: well above 1600 because the user asked for every layout rule as an AC; the ACs are the spec.
 
 ## Verification

@@ -1556,48 +1556,49 @@ def js_source() -> str:
     return _JS_FILE.read_text(encoding="utf-8")
 
 
-def test_bt_step3next_sets_wizard_step_4(js_source: str) -> None:
+def test_bt_step3finish_sets_wizard_done_before_save(js_source: str) -> None:
     """
-    Story 8-3 bug fix: #bt_step3Next click handler must call
-    siaDC09_setWizardStep(4) before jeedom.eqLogic.save(), so the saved
-    sia_wizard_step value matches the step displayed by siaDC09_showStep(4).
-
-    The original bug was siaDC09_setWizardStep(3) — wizard would show step 4
-    HTML but the DB would record step=3, causing step 3 to re-appear on reload.
+    Story 17.14: the wizard has three steps; #bt_step3Finish (« Terminer ») is the only
+    handler that writes the "wizard complete" value, and it does so before the save.
 
     Expected result:
-    - siaDC09_setWizardStep(4) appears inside the bt_step3Next handler block
-    - siaDC09_setWizardStep(3) does NOT appear inside the bt_step3Next handler block
+    - siaDC09_setWizardStep(SIADC09_WIZARD_DONE) appears in the #bt_step3Finish handler
+      before jeedom.eqLogic.save
+    - SIADC09_WIZARD_DONE is 4 (the value the PHP launch guard `< 4` and config mode rely on)
+    - no #bt_step3Next handler exists any more
     """
-    handler_body = _extract_js_handler(js_source, "#bt_step3Next")
+    handler_body = _extract_js_handler(js_source, "#bt_step3Finish")
 
-    # Assert: correct step (4) is set before save
-    assert "siaDC09_setWizardStep(4)" in handler_body, (
-        "#bt_step3Next handler must call siaDC09_setWizardStep(4) — "
-        "step must be saved as 4 so DB matches siaDC09_showStep(4)"
+    # Assert: the done value is written first
+    assert "siaDC09_setWizardStep(SIADC09_WIZARD_DONE)" in handler_body, (
+        "#bt_step3Finish must call siaDC09_setWizardStep(SIADC09_WIZARD_DONE)"
     )
-    # Assert: the bug (step 3) is not present
-    assert "siaDC09_setWizardStep(3)" not in handler_body, (
-        "#bt_step3Next handler must NOT call siaDC09_setWizardStep(3) — "
-        "this was the original bug: DB saved step=3 while UI showed step=4"
+    assert handler_body.find("siaDC09_setWizardStep(SIADC09_WIZARD_DONE)") < handler_body.find("jeedom.eqLogic.save"), (
+        "the step must be written before the save call"
     )
+    # Assert: the constant keeps the value the PHP guard relies on
+    assert re.search(r"var\s+SIADC09_WIZARD_DONE\s*=\s*4\b", js_source), (
+        "SIADC09_WIZARD_DONE must stay 4 (PHP launch guard is `< 4`)"
+    )
+    # Assert: the merged step has no Suivant handler
+    assert "#bt_step3Next" not in js_source, "step 3 has no Suivant button any more"
 
 
-def test_bt_step3next_calls_show_step_4_on_success(js_source: str) -> None:
+def test_bt_step3finish_serialises_zones_through_save_eqlogic(js_source: str) -> None:
     """
-    After jeedom.eqLogic.save() succeeds, the #bt_step3Next handler must call
-    siaDC09_showStep(4) to display the notification command picker.
+    « Terminer » is pressed while step 3 is visible, so the zone table must be serialised
+    by saveEqLogic() into the saved eqLogic.
 
     Expected result:
-    - siaDC09_showStep(4) appears in the success callback of the bt_step3Next handler
+    - the #bt_step3Finish handler passes the form values through saveEqLogic()
+    - siaDC09_showStep(4) no longer exists (there is no step 4 view)
     """
-    handler_body = _extract_js_handler(js_source, "#bt_step3Next")
+    handler_body = _extract_js_handler(js_source, "#bt_step3Finish")
 
-    # Assert: step 4 is shown after successful save
-    assert "siaDC09_showStep(4)" in handler_body, (
-        "#bt_step3Next success callback must call siaDC09_showStep(4) — "
-        "without it the UI stays on step 3 after zone mapping is saved"
-    )
+    # Assert: zones serialised
+    assert "saveEqLogic(" in handler_body, "#bt_step3Finish must serialise the zone table via saveEqLogic()"
+    # Assert: no step 4 view
+    assert "siaDC09_showStep(4)" not in js_source, "there is no step 4 view any more"
 
 
 def test_bt_restart_wizard_sets_step_0_before_save(js_source: str) -> None:
@@ -1630,7 +1631,7 @@ def test_bt_restart_wizard_sets_step_0_before_save(js_source: str) -> None:
 
 def test_bt_step4finish_validates_notify_cmd_before_save(js_source: str) -> None:
     """
-    #bt_step4Finish must check that sia_notify_cmd_id is non-empty and show an
+    #bt_step3Finish must check that sia_notify_cmd_id is non-empty and show an
     error if not — never save without a valid notification command. Without this
     guard, users could complete the wizard without configuring the mandatory T3
     notification command, causing critical alerts to be silently dropped.
@@ -1639,15 +1640,15 @@ def test_bt_step4finish_validates_notify_cmd_before_save(js_source: str) -> None
     target kind is selected (equipment command, message, scenario).
 
     Expected result:
-    - #bt_step4Finish returns early when siaDC09_validateNotifyTarget() is falsy
+    - #bt_step3Finish returns early when siaDC09_validateNotifyTarget() is falsy
     - siaDC09_validateNotifyTarget() reads sia_notify_cmd_id from the DOM and guards it
     """
-    handler_body = _extract_js_handler(js_source, "#bt_step4Finish")
+    handler_body = _extract_js_handler(js_source, "#bt_step3Finish")
     validator_body = _extract_js_function(js_source, "siaDC09_validateNotifyTarget")
 
     # Assert: the handler aborts the save when validation fails
     assert re.search(r"if\s*\(\s*!\s*siaDC09_validateNotifyTarget\s*\(\s*\)", handler_body), (
-        "#bt_step4Finish must return early on !siaDC09_validateNotifyTarget() — "
+        "#bt_step3Finish must return early on !siaDC09_validateNotifyTarget() — "
         "never save the wizard without a usable notification target"
     )
     # Assert: notify cmd id is read from the DOM

@@ -1,0 +1,244 @@
+/* siaDC09 wizard (story 17.14).
+ * Layout source of truth: the Excalidraw mockup
+ * _bmad-output/initiative-my-project/epic-17-csr-behaviour-profiles/ux-17-wizard-step-1/.working/flow-wizard-step-1-2026-11-05.excalidraw
+ * Stock Jeedom Bootstrap 3 + theme underneath; only the delta lives here.
+ *
+ * Jeedom forces `a:hover { color: var(--linkHover-color) !important }` (desktop.main.css) and,
+ * in the Light theme, that color is rgb(140,140,148): unreadable on light panels. Every rule that
+ * sets a color on a link therefore uses an id selector plus !important to out-rank it.
+ * The zones set their own text color so they stay readable on the Light and Dark themes. */
+
+/* ---- Stepper: three tabs, read-only ---- */
+#siaDC09-wizard .siaDC09-stepper {
+  display: flex;
+  gap: 9px;
+  list-style: none;
+  margin: 0 0 16px 0;
+  padding: 0;
+}
+#siaDC09-wizard .siaDC09-stepper li {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 34px;
+  line-height: 32px;
+  padding: 0 14px;
+  border: 1px solid #1e1e1e;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #1e1e1e;
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+}
+#siaDC09-wizard .siaDC09-stepper li.active {
+  background: #a5d8ff;
+  font-weight: bold;
+}
+
+/* ---- Framed zone: one topic, one frame, one title ---- */
+#siaDC09-wizard .siaDC09-zone {
+  background: #f8f9fa;
+  color: #333333;
+  border: 1px solid #1e1e1e;
+  border-radius: 4px;
+  padding: 12px 16px 16px 16px;
+  margin-bottom: 20px;
+}
+#siaDC09-wizard .siaDC09-zone-title {
+  margin: 0 0 14px 0;
+  font-size: 20px;
+  font-weight: normal;
+  color: #1e1e1e;
+}
+
+/* ---- Rows and fields: label ABOVE its field, related fields on one row ---- */
+#siaDC09-wizard .siaDC09-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 20px;
+  align-items: flex-end;
+  margin-bottom: 14px;
+}
+#siaDC09-wizard .siaDC09-field {
+  flex: 1 1 0;
+  min-width: 140px;
+}
+#siaDC09-wizard .siaDC09-field.siaDC09-w-wide { flex: 25 1 0; min-width: 200px; }
+#siaDC09-wizard .siaDC09-field.siaDC09-w-narrow { flex: 11 1 0; min-width: 90px; }
+#siaDC09-wizard .siaDC09-field.siaDC09-w-mid { flex: 14 1 0; min-width: 110px; }
+#siaDC09-wizard .siaDC09-field.siaDC09-w-full { flex: 1 1 100%; }
+#siaDC09-wizard .siaDC09-field.siaDC09-w-input { flex: 0 1 520px; max-width: 100%; }
+#siaDC09-wizard .siaDC09-label {
+  display: block;
+  margin: 0 0 4px 0;
+  font-size: 14px;
+  font-weight: normal;
+  color: #1e1e1e;
+}
+#siaDC09-wizard .siaDC09-field .form-control {
+  height: 34px;
+  background: #ffffff;
+  color: #333333;
+}
+#siaDC09-wizard .siaDC09-help,
+#siaDC09-wizard .siaDC09-zone .help-block {
+  display: block;
+  margin: 4px 0 0 0;
+  font-size: 13px;
+  color: #6c757d;
+}
+#siaDC09-wizard .siaDC09-zone .siaDC09-help-side {
+  flex: 1 1 0;
+  min-width: 160px;
+  margin: 0 0 6px 0;
+}
+#siaDC09-wizard .siaDC09-hint { font-size: 12px; }
+#siaDC09-wizard .siaDC09-zone a:not(.btn) { color: #0a58ca !important; text-decoration: underline; }
+#siaDC09-wizard .siaDC09-zone a:not(.btn):hover,
+#siaDC09-wizard .siaDC09-zone a:not(.btn):focus { color: #052c65 !important; text-decoration: underline; }
+
+/* A checkbox presented as a field-sized box (same height as the other fields) */
+#siaDC09-wizard .siaDC09-checkbox-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  margin: 0;
+  padding: 0 10px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #333333;
+  font-weight: normal;
+  font-size: 14px;
+}
+#siaDC09-wizard .siaDC09-checkbox-box input { margin: 0; }
+#siaDC09-wizard .siaDC09-check-line {
+  display: block;
+  margin: 0 0 8px 0;
+  font-size: 15px;
+  font-weight: normal;
+  color: #1e1e1e;
+}
+#siaDC09-wizard .siaDC09-check-line input { margin-right: 8px; }
+
+/* ---- Errors: field in error (2px red) and banner ---- */
+#siaDC09-wizard .siaDC09-field.has-error .form-control {
+  border: 2px solid #e03131;
+}
+#siaDC09-wizard .siaDC09-field.has-error .help-block,
+#siaDC09-wizard .siaDC09-field.has-error .siaDC09-label,
+#siaDC09-wizard .siaDC09-field-error { color: #c92a2a; }
+#siaDC09-wizard .siaDC09-banner-error {
+  background: #ffe3e3;
+  border: 1px solid #e03131;
+  color: #c92a2a;
+  border-radius: 4px;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+}
+#siaDC09-wizard .siaDC09-banner-error ul { padding-left: 20px; }
+#siaDC09-wizard .siaDC09-test-failure {
+  background: #ffe3e3;
+  border: 2px solid #e03131;
+  color: #1e1e1e;
+  border-radius: 4px;
+  padding: 14px 16px;
+  margin: 0 0 14px 0;
+}
+#siaDC09-wizard .siaDC09-test-failure p { margin: 8px 0 0 0; }
+#siaDC09-wizard .siaDC09-test-failure ul { margin: 4px 0 0 0; padding-left: 20px; }
+#siaDC09-wizard .siaDC09-test-success {
+  background: #d3f9d8; border: 1px solid #2f9e44; color: #1e1e1e;
+  border-radius: 4px; padding: 10px 16px; margin: 0 0 14px 0;
+}
+#siaDC09-wizard .siaDC09-test-warning {
+  background: #fff3bf; border: 1px solid #f08c00; color: #1e1e1e;
+  border-radius: 4px; padding: 10px 16px; margin: 0 0 14px 0;
+}
+#siaDC09-wizard .siaDC09-summary {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+}
+
+/* ---- Locked by a profile: grey fill, grey border, grey text; the caption says why (once) ---- */
+#siaDC09-wizard .siaDC09-locked,
+#siaDC09-wizard .siaDC09-field-locked .form-control,
+#siaDC09-wizard .siaDC09-field-locked .siaDC09-checkbox-box {
+  background: #e9ecef !important;
+  border-color: #868e96 !important;
+  color: #6c757d !important;
+}
+#siaDC09-wizard .siaDC09-field-locked .siaDC09-label,
+#siaDC09-wizard .siaDC09-field-locked .radio label,
+#siaDC09-wizard .siaDC09-field-locked .help-block { color: #6c757d; }
+#siaDC09-wizard .siaDC09-lock-caption {
+  margin: 0 0 12px 0;
+  font-size: 13px;
+  color: #495057;
+}
+#siaDC09-wizard .siaDC09-lock-caption .btn { margin-left: 8px; }
+
+/* ---- Options avancées bar: dashed, full width, folded and unfolded ---- */
+#siaDC09-wizard a.siaDC09-advbar {
+  display: block;
+  min-height: 56px;
+  margin: 0 0 20px 0;
+  padding: 8px 16px;
+  background: #f8f9fa;
+  border: 1px dashed #1e1e1e;
+  border-radius: 4px;
+  color: #1e1e1e !important;
+  text-decoration: none;
+  cursor: pointer;
+}
+#siaDC09-wizard a.siaDC09-advbar:hover,
+#siaDC09-wizard a.siaDC09-advbar:focus {
+  background: #e9ecef;
+  color: #000000 !important;
+  text-decoration: none;
+}
+#siaDC09-wizard .siaDC09-advbar-title { display: block; font-size: 15px; }
+#siaDC09-wizard .siaDC09-advbar-hint { display: block; font-size: 12px; color: #495057; }
+#siaDC09-wizard .siaDC09-advbar .fas { width: 14px; margin-right: 6px; }
+
+/* ---- Buttons: readable hover, disabled looks disabled (grey, dashed, no hover) ---- */
+#siaDC09-wizard .siaDC09-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  margin: 0 0 20px 0;
+}
+#siaDC09-wizard .siaDC09-actions .siaDC09-actions-left { margin-right: auto; }
+#siaDC09-wizard a.btn.btn-success,
+#siaDC09-wizard a.btn.btn-success:hover,
+#siaDC09-wizard a.btn.btn-success:focus { color: #ffffff !important; }
+#siaDC09-wizard a.btn.btn-success:hover,
+#siaDC09-wizard a.btn.btn-success:focus { background-color: #2f8f4a !important; }
+#siaDC09-wizard a.btn.btn-default,
+#siaDC09-wizard a.btn.btn-warning {
+  color: #212529 !important;
+}
+#siaDC09-wizard a.btn.btn-default:hover,
+#siaDC09-wizard a.btn.btn-default:focus,
+#siaDC09-wizard a.btn.btn-warning:hover,
+#siaDC09-wizard a.btn.btn-warning:focus {
+  color: #000000 !important;
+  background-color: #dee2e6 !important;
+}
+#siaDC09-wizard a.btn.disabled,
+#siaDC09-wizard a.btn.disabled:hover,
+#siaDC09-wizard a.btn.disabled:focus {
+  background: #e9ecef !important;
+  border: 1px dashed #868e96 !important;
+  color: #6c757d !important;
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+/* ---- Step 3 table sits inside its zone ---- */
+#siaDC09-wizard .siaDC09-zone .table { background: #ffffff; color: #333333; margin-bottom: 8px; }
+#siaDC09-wizard .siaDC09-zone .table th { color: #1e1e1e; background: #e9ecef; }

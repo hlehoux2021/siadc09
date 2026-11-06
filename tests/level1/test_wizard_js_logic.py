@@ -355,10 +355,10 @@ def test_step4_filters_action_message_commands(js_source: str) -> None:
 
 def test_step4_finish_validates_notify_cmd(js_source: str) -> None:
     """
-    bt_step4Finish must check that a notification target has a value before
+    bt_step3Finish must check that a notification target has a value before
     completing the wizard. Empty notify target is a config error. Since epic 12 the
     check is siaDC09_validateNotifyTarget(), declared above the handler, so the value
-    read no longer follows 'bt_step4Finish' in source order.
+    read no longer follows 'bt_step3Finish' in source order.
 
     Expected result:
     - finish handler calls siaDC09_validateNotifyTarget() and aborts when it is falsy
@@ -366,9 +366,9 @@ def test_step4_finish_validates_notify_cmd(js_source: str) -> None:
     """
     # Assert: finish button gates the save on the validator
     assert re.search(
-        r"bt_step4Finish.*?if\s*\(\s*!\s*siaDC09_validateNotifyTarget\s*\(\s*\)",
+        r"bt_step3Finish.*?if\s*\(\s*!\s*siaDC09_validateNotifyTarget\s*\(\s*\)",
         js_source, re.DOTALL
-    ), "#bt_step4Finish must abort on !siaDC09_validateNotifyTarget()"
+    ), "#bt_step3Finish must abort on !siaDC09_validateNotifyTarget()"
     # Assert: the validator checks the notify cmd value
     assert re.search(
         r"function\s+siaDC09_validateNotifyTarget.*?sia_notify_cmd_id.*?val\(\)",
@@ -378,18 +378,18 @@ def test_step4_finish_validates_notify_cmd(js_source: str) -> None:
 
 def test_step4_shows_error_when_no_cmd(js_source: str) -> None:
     """
-    When no notification command is selected, siaDC09-step4-error must be shown.
+    When no notification command is selected, siaDC09-notify-error must be shown.
 
     Expected result:
-    - siaDC09-step4-error show() in the validation branch
+    - siaDC09-notify-error show() in the validation branch
     """
     # Assert: error shown when no cmd selected
-    assert re.search(r"siaDC09-step4-error.*?\.show\(\)", js_source, re.DOTALL)
+    assert re.search(r"siaDC09-notify-error.*?\.show\(\)", js_source, re.DOTALL)
 
 
 def test_step4_finish_resets_modify_without_save_before_reload(js_source: str) -> None:
     """
-    Task 7.2 (live-test finding, 2026-09-23): bt_step4Finish saves via its own direct
+    Task 7.2 (live-test finding, 2026-09-23): bt_step3Finish saves via its own direct
     jeedom.eqLogic.save() call, then window.location.reload(). Jeedom core's global
     "unsaved changes" flags (window.modifyWithoutSave / jeeFrontEnd.modifyWithoutSave,
     set true by core/js/plugin.template.js on any .eqLogicAttr change) are never reset
@@ -400,14 +400,14 @@ def test_step4_finish_resets_modify_without_save_before_reload(js_source: str) -
 
     Expected result:
     - both window.modifyWithoutSave and jeeFrontEnd.modifyWithoutSave are set to false
-    - both resets happen before the reload() call, inside bt_step4Finish
+    - both resets happen before the reload() call, inside bt_step3Finish
     """
-    # Assert: both dirty-flag globals are reset, before reload(), inside bt_step4Finish
+    # Assert: both dirty-flag globals are reset, before reload(), inside bt_step3Finish
     assert re.search(
-        r"bt_step4Finish.*?modifyWithoutSave\s*=\s*false.*?"
+        r"bt_step3Finish.*?modifyWithoutSave\s*=\s*false.*?"
         r"modifyWithoutSave\s*=\s*false.*?location\.reload\(\)",
         js_source, re.DOTALL
-    ), "bt_step4Finish must reset both modifyWithoutSave flags before reload()"
+    ), "bt_step3Finish must reset both modifyWithoutSave flags before reload()"
 
 
 # ── printEqLogic: Wizard vs Config Mode ───────────────────────────────────────
@@ -432,7 +432,7 @@ def test_print_eq_logic_shows_config_summary_when_complete(js_source: str) -> No
     Expected result:
     - siaDC09-config-summary show() when step >= 4
     """
-    pattern = r'wizardStep\s*>=?\s*4.*?siaDC09-config-summary.*?\.show\(\)'
+    pattern = r'wizardStep\s*>=?\s*(?:4|SIADC09_WIZARD_DONE).*?siaDC09-config-summary.*?\.show\(\)'
     # Assert: config summary shown when wizard complete
     assert re.search(pattern, js_source, re.DOTALL)
 

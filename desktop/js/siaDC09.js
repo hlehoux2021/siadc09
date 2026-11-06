@@ -37,11 +37,13 @@ function printEqLogic(_eqLogic) {
     else $f.val(mediaDefaults[key])
   })
   siaDC09_updateMediaFields()
+  siaDC09_updateAesRow()
+  siaDC09_setAdvancedOpen(false)
   // Ajax-like profiles (no media keys): the box stays greyed and unchecked after the defaults above.
   if (savedProfile) siaDC09_applyProfile(savedProfile, false)
   var wizardStep = parseInt(_eqLogic.configuration && _eqLogic.configuration.sia_wizard_step || 0)
   siaDC09_initDiagnosticTab(wizardStep)
-  if (wizardStep >= 4) {
+  if (wizardStep >= SIADC09_WIZARD_DONE) {
     $('#siaDC09-wizard').hide()
     $('#siaDC09-config-summary').show()
     siaDC09_populateConfigSummary(_eqLogic)
@@ -101,9 +103,17 @@ function siaDC09_setButtonEnabled($btn, enabled) {
   }
 }
 
+// The wizard has three steps (story 17.14). `sia_wizard_step` holds the step shown (1..3);
+// SIADC09_WIZARD_DONE is the "wizard complete" value that selects config mode (PHP twin:
+// the `< 4` launch guard in siaDC09::deamon_info()).
+var SIADC09_WIZARD_DONE = 4
+
 function siaDC09_showStep(step) {
   $('.siaDC09-step').hide()
   $('#siaDC09-step' + step).show()
+  // Read-only stepper: the active tab follows the step shown.
+  $('#siaDC09-stepper li').removeClass('active').removeAttr('aria-current')
+  $('#siaDC09-stepper li[data-step="' + step + '"]').addClass('active').attr('aria-current', 'step')
 
   // A view shown again resets its own buttons (bug B1: Suivant stayed disabled after
   // « Relancer l'assistant »). Step 2 buttons are reset by siaDC09_runConnectionTest().
@@ -115,6 +125,9 @@ function siaDC09_showStep(step) {
     siaDC09_runConnectionTest()
   }
   if (step === 3) {
+    // Zones and critical alerts share this step (former steps 3 and 4).
+    siaDC09_setButtonEnabled($('#bt_step3Finish'), true)
+    siaDC09_initNotifyTarget()
     // sia_zone_mappings has no corresponding .eqLogicAttr input (it's a JS-managed config
     // blob, not a rendered form field), so getValues('.eqLogicAttr') can never return it —
     // it only ever reflects fields actually tagged in the DOM. Fetch the real persisted
@@ -131,10 +144,6 @@ function siaDC09_showStep(step) {
         siaDC09_loadZoneData(fullEqLogic)
       }
     })
-  }
-  if (step === 4) {
-    siaDC09_setButtonEnabled($('#bt_step4Finish'), true)
-    siaDC09_initNotifyTarget()
   }
 }
 
@@ -159,17 +168,41 @@ function siaDC09_lockProfileFields(locked, lockMedia) {
       $f.css('pointer-events', lock ? 'none' : '').attr('tabindex', lock ? '-1' : null)
     }
     // Every locked field exposes its state (readonly for text/number inputs, aria-disabled for the rest).
+    // The grey look comes from siaDC09.css (.siaDC09-locked / .siaDC09-field-locked), not from opacity.
     $f.attr('aria-disabled', lock ? 'true' : null)
-    $f.css('opacity', lock ? 0.6 : '').toggleClass('siaDC09-locked', lock)
+    $f.toggleClass('siaDC09-locked', lock).closest('.siaDC09-field').toggleClass('siaDC09-field-locked', lock)
   })
 }
 
-// Lock caption, shown once per sub-section of the advanced panel (never per field).
+// ONE lock caption for the whole advanced panel (never per section, never per field).
 // Text: « Fixé par le profil « {nom} ». Choisissez « Personnalisé » pour le modifier. »
-function siaDC09_setLockCaptions(profileLabel, mediaLocked, supervisionLocked) {
+// An empty label hides it (Personnalisé: no caption, no locked look).
+function siaDC09_setLockCaption(profileLabel) {
   var text = '{{Fixé par le profil}} « ' + profileLabel + ' ». {{Choisissez « Personnalisé » pour le modifier.}}'
-  $('#siaDC09-lock-caption-media').toggle(!!mediaLocked).find('span').text(text)
-  $('#siaDC09-lock-caption-supervision').toggle(!!supervisionLocked).find('span').text(text)
+  $('#siaDC09-lock-caption').toggle(!!profileLabel).find('> span').text(text)
+}
+
+// « Passer en Personnalisé » (Test step): exactly the profile select changed to Personnalisé on step 1
+// (same change handler). No preset is touched, values are kept, and the test is NOT rerun.
+function siaDC09_switchToCustom() {
+  $('#siaDC09-csr-profile').val('').trigger('change')
+}
+
+// AES key field only while the encryption box is checked.
+function siaDC09_updateAesRow() {
+  $('#siaDC09-aes-row').toggle($('.eqLogicAttr[data-l2key="encryption_enabled"]').is(':checked'))
+}
+$(document).on('change', '.eqLogicAttr[data-l2key="encryption_enabled"]', siaDC09_updateAesRow)
+
+// Advanced panel open/closed: the bar reads « Options avancées (cliquer pour replier) » when open.
+function siaDC09_setAdvancedOpen(open) {
+  $('#siaDC09-advanced').toggle(open)
+  $('#bt_siaDC09_toggleAdvanced').attr('aria-expanded', open ? 'true' : 'false')
+  $('#siaDC09-advbar-icon').toggleClass('fa-chevron-down', open).toggleClass('fa-chevron-right', !open)
+  $('#siaDC09-advbar-title-text').text(open
+    ? '{{Options avancées (cliquer pour replier)}}'
+    : '{{Options avancées : contenu envoyé, supervision de la liaison}}')
+  $('#siaDC09-advbar-hint').toggle(!open)
 }
 
 // Alarm media keys a profile may carry (stories 17.8, 17.10). Checkboxes take 0/1, selects take U/V.
@@ -222,7 +255,7 @@ function siaDC09_applyProfile(profileId, fill) {
   if (!preset) {
     siaDC09_lockProfileFields(false)
     siaDC09_setMediaCardAvailable(true)
-    siaDC09_setLockCaptions('', false, false)
+    siaDC09_setLockCaption('')
     return
   }
   if (fill) {
@@ -243,13 +276,19 @@ function siaDC09_applyProfile(profileId, fill) {
   var declaresMedia = siaDC09_profileDeclaresMedia(preset)
   siaDC09_lockProfileFields(true, declaresMedia)
   siaDC09_setMediaCardAvailable(declaresMedia)
-  // A profile without media keys (Ajax) leaves the content fields editable: no caption there.
-  siaDC09_setLockCaptions(preset.label || profileId, declaresMedia, true)
+  // A profile without media keys (Ajax) leaves the content fields editable; the single caption
+  // still says why the supervision fields are locked.
+  siaDC09_setLockCaption(preset.label || profileId)
 }
 
+// Choosing a profile (step 1) or Personnalisé (step 1 or the Test step) goes through here.
+// The advanced panel lives on the Test step and never opens by itself on a profile change.
 $('#siaDC09-csr-profile').on('change', function() {
   siaDC09_applyProfile($(this).val(), true)
-  if ($(this).val()) $('#siaDC09-advanced').show()
+})
+
+$('#bt_siaDC09_goCustom').on('click', function() {
+  siaDC09_switchToCustom()
 })
 
 // ===== ALARM MEDIA OPTIONS (story 17.7) =====
@@ -324,7 +363,13 @@ function siaDC09_mediaConfigError() {
 $(document).on('change', '.siaDC09-media-field', siaDC09_updateMediaFields)
 
 $('#bt_siaDC09_toggleAdvanced').on('click', function() {
-  $('#siaDC09-advanced').toggle()
+  siaDC09_setAdvancedOpen(!$('#siaDC09-advanced').is(':visible'))
+}).on('keydown', function(e) {
+  // The bar is an <a role="button">: Enter and Space fold it, like a button.
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault()
+    $(this).trigger('click')
+  }
 })
 
 // Summary lines [label, text] for the profile, the periodic frames and the reconnection policy.
@@ -376,7 +421,19 @@ function siaDC09_validateStep1() {
     errors.push({ key: 'encryption_key', message: "{{Clé AES requise quand le chiffrement est activé}}" })
   }
 
-  // PHP twin: siaDC09::periodicFrameConfigError() — keep the rules in sync.
+  var mediaError = siaDC09_mediaConfigError()
+  if (mediaError) {
+    errors.push({ key: 'frigate_media_url_template', message: mediaError })
+  }
+
+  siaDC09_renderStep1Errors(errors)
+  return errors.length === 0
+}
+
+// Advanced options (Test step, story 17.14), run before a test starts. A profile always gives
+// valid values; only Personnalisé can be wrong. PHP twin: siaDC09::periodicFrameConfigError().
+function siaDC09_validateAdvanced() {
+  var errors = []
   var supFormat = $('.eqLogicAttr[data-l2key="supervision_format"]').val() || 'sia-dcs'
   var rpOn = $('.eqLogicAttr[data-l2key="rp_enabled"]').is(':checked')
   var rpInterval = parseInt($('.eqLogicAttr[data-l2key="rp_interval"]').val(), 10)
@@ -388,22 +445,19 @@ function siaDC09_validateStep1() {
   if (badRpInterval) {
     errors.push({ key: 'rp_interval', message: '{{Intervalle RP : nombre entre 60 et 86400 secondes requis}}' })
   }
-
-  var mediaError = siaDC09_mediaConfigError()
-  if (mediaError) {
-    errors.push({ key: 'frigate_media_url_template', message: mediaError })
-  }
-
-  siaDC09_renderStep1Errors(errors)
+  siaDC09_renderFieldErrors(errors, $('#siaDC09-step2-errors'))
   return errors.length === 0
 }
 
-// Banner listing every error + a message under each faulty field. An empty list clears both.
 function siaDC09_renderStep1Errors(errors) {
-  var $banner = $('#siaDC09-step1-errors')
+  siaDC09_renderFieldErrors(errors, $('#siaDC09-step1-errors'))
+}
+
+// Banner listing every error + a message under each faulty field. An empty list clears both.
+function siaDC09_renderFieldErrors(errors, $banner) {
   $('.siaDC09-field-error').remove()
   $('.siaDC09-field-invalid').removeAttr('aria-describedby').removeAttr('aria-invalid')
-    .removeClass('siaDC09-field-invalid').closest('.form-group').removeClass('has-error')
+    .removeClass('siaDC09-field-invalid').closest('.siaDC09-field').removeClass('has-error')
 
   if (errors.length === 0) {
     $banner.empty().hide()
@@ -422,7 +476,7 @@ function siaDC09_renderStep1Errors(errors) {
       .append('<i class="fas fa-exclamation-circle"></i> ').append($('<span>').text(err.message))
     $field.after($msg)
     $field.addClass('siaDC09-field-invalid').attr('aria-describedby', msgId).attr('aria-invalid', 'true')
-      .closest('.form-group').addClass('has-error')
+      .closest('.siaDC09-field').addClass('has-error')
     if ($field.closest('#siaDC09-advanced').length > 0) openAdvanced = true
     if (!$first) $first = $field
   })
@@ -431,7 +485,7 @@ function siaDC09_renderStep1Errors(errors) {
     .append($list)
     .show()
   // Open the folded panel before focusing: a hidden field cannot take the focus.
-  if (openAdvanced) $('#siaDC09-advanced').show()
+  if (openAdvanced) siaDC09_setAdvancedOpen(true)
   if ($first) $first[0].focus()
 }
 
@@ -525,7 +579,7 @@ var _siaDC09_testRun = 0
 // Failure view: the DUH sentence, the message that was sent, then the only two checks allowed
 // (never the profile name, never advice to change a locked setting).
 function siaDC09_renderStep2Failure(result) {
-  var $box = $('<div class="alert alert-danger"><i class="fas fa-times-circle"></i> </div>')
+  var $box = $('<div class="alert alert-danger siaDC09-test-failure"><i class="fas fa-times-circle"></i> </div>')
   var sent = result.sent || null
   var isDuh = result.outcome === 'duh'
   if (isDuh) {
@@ -534,14 +588,14 @@ function siaDC09_renderStep2Failure(result) {
     $box.append($('<span>').text(result.detail || ''))
   }
   if (sent) {
-    var $sent = $('<p class="siaDC09-step2-sent" style="margin-top:8px;"></p>')
+    var $sent = $('<p class="siaDC09-step2-sent"></p>')
     $('<strong>').text('{{Message envoyé :}}').appendTo($sent)
     $sent.append(' ')
     $('<span>').text(sent.type + ' — {{Compte :}} ' + sent.account + ' — ' + sent.transport).appendTo($sent)
     $box.append($sent)
   }
   if (isDuh) {
-    $box.append($('<p style="margin-top:8px;"></p>').text('{{Vérifiez :}}'))
+    $box.append($('<p></p>').text('{{Vérifiez :}}'))
     var $list = $('<ul class="siaDC09-step2-checks"></ul>')
     $('<li>').text('{{que le profil choisi correspond bien à votre centre de télésurveillance ;}}').appendTo($list)
     $('<li>').text('{{que le numéro de compte (#compte#) est celui que le centre a enregistré pour vous.}}'.replace('#compte#', sent ? sent.account : '')).appendTo($list)
@@ -554,13 +608,20 @@ function siaDC09_renderStep2Failure(result) {
 function siaDC09_runConnectionTest() {
   var run = ++_siaDC09_testRun
   _siaDC09_testNakConfirmed = false
-  $('#siaDC09-step2-spinner').show()
-  $('#siaDC09-step2-result').hide()
   siaDC09_setButtonEnabled($('#bt_step2Next'), false)
   siaDC09_setButtonEnabled($('#bt_step2Retest'), false)
   siaDC09_setButtonEnabled($('#bt_step2Skip'), false)
   // « Modifier la centrale » stays live during the test.
   siaDC09_setButtonEnabled($('#bt_step2Back'), true)
+  $('#siaDC09-step2-result').hide()
+
+  // Invalid advanced options (Personnalisé only): errors under the fields, panel open, no test.
+  if (!siaDC09_validateAdvanced()) {
+    $('#siaDC09-step2-spinner').hide()
+    siaDC09_setButtonEnabled($('#bt_step2Retest'), true)
+    return
+  }
+  $('#siaDC09-step2-spinner').show()
 
   $.ajax({
     type: 'POST',
@@ -585,11 +646,11 @@ function siaDC09_runConnectionTest() {
       var icon = ''
 
       if (status === 'ok') {
-        cssClass = 'alert-success'
+        cssClass = 'alert-success siaDC09-test-success'
         icon = 'fa-check-circle'
         siaDC09_setButtonEnabled($('#bt_step2Next'), true)
       } else if (status === 'nak') {
-        cssClass = 'alert-warning'
+        cssClass = 'alert-warning siaDC09-test-warning'
         icon = 'fa-exclamation-triangle'
         siaDC09_setButtonEnabled($('#bt_step2Next'), true)
       } else {
@@ -613,7 +674,7 @@ function siaDC09_runConnectionTest() {
       siaDC09_setButtonEnabled($('#bt_step2Retest'), true)
       siaDC09_setButtonEnabled($('#bt_step2Skip'), true)
       $('#siaDC09-step2-result')
-        .html('<div class="alert alert-danger"><i class="fas fa-times-circle"></i> {{Erreur de communication avec le serveur}}</div>')
+        .html('<div class="alert alert-danger siaDC09-test-failure"><i class="fas fa-times-circle"></i> {{Erreur de communication avec le serveur}}</div>')
         .show()
     }
   })
@@ -626,13 +687,32 @@ $('#bt_step2Back').on('click', function() {
   _siaDC09_testRun++
   $('#siaDC09-step2-spinner').hide()
   $('#siaDC09-step2-result').hide()
+  $('#siaDC09-step2-errors').empty().hide()
   siaDC09_showStep(1)
 })
 
 // Retest button
+// « Relancer le test » is the ONLY thing that starts a new test after the first one (changing the
+// profile to Personnalisé or editing an advanced field never reruns it). The test reads the SAVED
+// configuration (core/ajax/siaDC09.ajax.php), so the form is validated and saved first.
 $('#bt_step2Retest').on('click', function() {
-  if ($(this).hasClass('disabled')) return
-  siaDC09_runConnectionTest()
+  var $btn = $(this)
+  if ($btn.hasClass('disabled')) return
+  if (!siaDC09_validateAdvanced()) return
+
+  siaDC09_setButtonEnabled($btn, false)
+  siaDC09_setWizardStep(2)
+  jeedom.eqLogic.save({
+    type: 'siaDC09',
+    eqLogics: [$('.eqLogic').getValues('.eqLogicAttr')[0]],
+    error: function(error) {
+      siaDC09_setButtonEnabled($btn, true)
+      $('#div_alert').showAlert({ message: (error && error.message) || '{{Erreur}}', level: 'danger' })
+    },
+    success: function() {
+      siaDC09_runConnectionTest()
+    }
+  })
 })
 
 // Ignorer button — advance to step 3 with warning
@@ -823,32 +903,7 @@ function siaDC09_buildZoneRow(zoneNumber, zoneName, saved, cameras) {
   return $tr
 }
 
-// ===== STEP 3: SUIVANT HANDLER =====
-
-$('#bt_step3Next').on('click', function() {
-  if ($(this).hasClass('disabled')) return
-  var mediaError = siaDC09_mediaConfigError()
-  if (mediaError) {
-    $('#siaDC09-step3-errors').text(mediaError).show()
-    return
-  }
-  $('#siaDC09-step3-errors').hide()
-  siaDC09_setWizardStep(4)
-  var eqLogic = $('.eqLogic').getValues('.eqLogicAttr')[0]
-  eqLogic = saveEqLogic(eqLogic)
-  jeedom.eqLogic.save({
-    type: 'siaDC09',
-    eqLogics: [eqLogic],
-    error: function(error) {
-      $('#div_alert').showAlert({ message: error.message, level: 'danger' })
-    },
-    success: function() {
-      siaDC09_showStep(4)
-    }
-  })
-})
-
-// ===== STEP 4: NOTIFICATION TARGET =====
+// ===== STEP 3: NOTIFICATION TARGET (former step 4, merged with the zones) =====
 
 // An equipment command is picked through the modal; a Jeedom internal action (message,
 // scenario) is not a cmd id, so it has its own selects. Empty kind means "cmd" — that is what
@@ -869,16 +924,16 @@ function siaDC09_toggleNotifyTarget() {
   $('.siaDC09-notify-internal').toggle(kind === 'internal')
   $('.siaDC09-notify-scenario').toggle(kind === 'internal' && internal === 'scenario')
 
-  $('#siaDC09-step4-error, #siaDC09-step4-error-internal, #siaDC09-step4-error-scenario').hide()
+  $('#siaDC09-notify-error, #siaDC09-notify-error-internal, #siaDC09-notify-error-scenario').hide()
 }
 
 // Shows the error that matches the missing field, so the message always names what to fix.
 function siaDC09_validateNotifyTarget() {
-  $('#siaDC09-step4-error, #siaDC09-step4-error-internal, #siaDC09-step4-error-scenario').hide()
+  $('#siaDC09-notify-error, #siaDC09-notify-error-internal, #siaDC09-notify-error-scenario').hide()
 
   if ($('#siaDC09_notifyKind').val() !== 'internal') {
     if (!$('.eqLogicAttr[data-l2key="sia_notify_cmd_id"]').val()) {
-      $('#siaDC09-step4-error').show()
+      $('#siaDC09-notify-error').show()
       return false
     }
     return true
@@ -886,11 +941,11 @@ function siaDC09_validateNotifyTarget() {
 
   var internal = $('#siaDC09_notifyInternal').val()
   if (!internal) {
-    $('#siaDC09-step4-error-internal').show()
+    $('#siaDC09-notify-error-internal').show()
     return false
   }
   if (internal === 'scenario' && !$('#siaDC09_notifyScenario').val()) {
-    $('#siaDC09-step4-error-scenario').show()
+    $('#siaDC09-notify-error-scenario').show()
     return false
   }
   return true
@@ -904,13 +959,23 @@ $('#siaDC09_searchNotifyCmd').on('click', function() {
     function(result) {
       $('.eqLogicAttr[data-l2key="sia_notify_cmd_human"]').val(result.human)
       $('.eqLogicAttr[data-l2key="sia_notify_cmd_id"]').val(result.cmd.id)
-      $('#siaDC09-step4-error').hide()
+      $('#siaDC09-notify-error').hide()
     }
   )
 })
 
-$('#bt_step4Finish').on('click', function() {
+// « Terminer »: the last step. Checks the Frigate address (safety net for an equipment saved outside
+// the wizard) and the notification target, serialises the zone table, then writes the "wizard
+// complete" step value and reloads into config mode.
+$('#bt_step3Finish').on('click', function() {
   if ($(this).hasClass('disabled')) return
+
+  var mediaError = siaDC09_mediaConfigError()
+  if (mediaError) {
+    $('#siaDC09-step3-errors').text(mediaError).show()
+    return
+  }
+  $('#siaDC09-step3-errors').hide()
 
   if (!siaDC09_validateNotifyTarget()) {
     return
@@ -919,11 +984,11 @@ $('#bt_step4Finish').on('click', function() {
   var $btn = $(this)
   siaDC09_setButtonEnabled($btn, false)
 
-  // No saveEqLogic() call needed — step 4 has no zone table; sia_zone_mappings preserved by Jeedom merge
-  siaDC09_setWizardStep(4)
+  siaDC09_setWizardStep(SIADC09_WIZARD_DONE)
   jeedom.eqLogic.save({
     type: 'siaDC09',
-    eqLogics: [$('.eqLogic').getValues('.eqLogicAttr')[0]],
+    // saveEqLogic() serialises the zone table while step 3 is the visible step.
+    eqLogics: [saveEqLogic($('.eqLogic').getValues('.eqLogicAttr')[0])],
     error: function(error) {
       siaDC09_setButtonEnabled($btn, true)
       $('#div_alert').showAlert({ message: error.message, level: 'danger' })

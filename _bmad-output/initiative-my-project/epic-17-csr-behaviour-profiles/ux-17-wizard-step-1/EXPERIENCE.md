@@ -34,7 +34,7 @@ Visual rules live in `DESIGN.md`. This file wins over `wizard-design.md` on ever
 | Step 2 - Test | "Suivant" on step 1 | Check the connection with a real test message |
 | Step 2 failure view | A refused or failed test | Diagnose; go back to fix; or skip |
 
-Steps 3 and 4 are unchanged by this run, except that the step 3 media check stays as a safety net (see "Validation").
+**Story 17.14 (2026-11-06): the wizard has THREE steps.** `1 Centrale` (the center + photo/video verification), `2 Test` (connection test + Options avancées), `3 Zones et alertes` (the former steps 3 and 4 merged, one « Terminer »). The Options avancées bar and panel therefore live on step 2, not step 1, and the step 3 media check stays as a safety net (see "Validation"). The table above reads: the "Step 1 advanced panel" row belongs to step 2. From a failed test the user can click « Passer en Personnalisé » in the single lock caption, edit the settings and press « Relancer le test » without leaving step 2; choosing Personnalisé there modifies no preset and never reruns the test by itself.
 
 ## Voice and Tone
 
