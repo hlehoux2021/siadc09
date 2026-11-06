@@ -3,7 +3,7 @@ title: '17.11 — Advanced Panel Rework: Labels, Extension Choice, Supervision'
 type: feature
 ticket: 'story-17-11-advanced-panel-rework-labels-extension-choice-supervis'
 created: '2026-11-06'
-status: 'draft'
+status: 'ready-for-dev'
 baseline_revision: '60567195453c329b1c93199284dcb2d1f36c3422'
 route: 'full'
 route_source: 'auto'
@@ -41,12 +41,11 @@ context:
 | Mixed formats | U + V | Same greyed state and reason | none |
 | Fold / unfold | any | No value lost | none |
 | Supervision NULL | format = null | No warning shown | none |
+| Ajax (no media keys) | Profile picked | Supervision card locked with caption; content fields stay editable (17.10 behavior), no caption on the content sub-section | none |
+
+**Decision (user, 2026-11-06):** for a profile that declares no media keys (Ajax), keep the 17.10 behavior: the media content fields stay editable and only supervision is locked. This deliberately departs from the story AC wording "in a profile every field is read-only".
 
 </frozen-after-approval>
-
-## Open Questions
-
-1. **Ajax (profile with no media keys): lock the content fields?** Today (17.10) a profile that declares no media leaves the five content fields editable. The story AC says "in a profile every field is read-only". Options: (a) lock all panel fields in every profile including Ajax, caption included; values unchanged (shown as saved or legacy defaults, possibly "sent" although the media box is greyed); (b) keep 17.10 behavior for Ajax only (content fields editable, supervision locked). (a) matches the AC literally; (b) avoids showing meaningless "photo sent" while the checkbox says the CSR takes no media.
 
 ## Code Map
 
