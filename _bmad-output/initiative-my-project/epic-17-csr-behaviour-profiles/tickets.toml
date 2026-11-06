@@ -147,12 +147,26 @@ references = ["ux — ux-17-wizard-step-1/EXPERIENCE.md, Step 2 states, Build co
 notes = ["DUH at WARNING on the wizard test path only; the running daemon keeps SM1_DUH at error (user, 2026-11-06)", "Runs after 17.9 only, so it can run beside 17.10 and 17.11; they share siaDC09.js in different regions"]
 
 [[entry]]
+id = 14
+type = "story"
+title = "17.14 — Wizard Visual Conformance and Step Rebalancing"
+description = "The wizard pages look like the Excalidraw mockup: a four-tab stepper (Centrale, Test, Zones, Alertes) on every screen; grey framed zones (#f8f9fa) with a title each; the label above its field, with related fields on one row (IP, port and transport; photo and video); one lock caption per locked panel, not one per field; the folded and unfolded Options avancées bar as drawn; step 2 as screen C. The page no longer scrolls far, and link hover is readable. The split of the four steps is rebalanced so that step 1 is no longer much larger than the others and each step has a reason to exist; the new split is designed with the user before the build."
+verify = "Screens A, B and C of the mockup and the built pages are looked at side by side by the user, on test-jeedom or in screenshots, and each layout rule of the mockup is a criterion that holds. Link hover shows text with readable contrast. A jsdom or structure test alone does not close the story."
+covers = []
+after = [9, 10, 11, 12]
+hitl = true
+risk = "medium"
+references = ["ux — ux-17-wizard-step-1/.working/flow-wizard-step-1-2026-11-05.excalidraw, screens A B C (layout source of truth)", "ux — ux-17-wizard-step-1/DESIGN.md and EXPERIENCE.md, Layout & Spacing, Lock caption, Step 2 states", "design — internal-docs/design/wizard-design.md, the step list"]
+notes = ["Rejected by the user after a test on test-jeedom, 2026-11-06: not like the mockup; 2-column title/field layout; a lock caption almost everywhere although the whole advanced panel is locked; the folded Options avancées is not as drawn; the page scrolls too much; grey link hover is unreadable (user, 2026-11-06)", "Step balance: step 1 is huge, step 2 is the test, step 3 is fine, step 4 is tiny and its place at the end is unexplained; rebalance the steps in this story (user, 2026-11-06)", "Plan context must include the mockup; each layout rule is a criterion; the user checks a rendered page before the story is called built (user, 2026-11-06)", "Assumption: the mockup wins over the text of DESIGN.md where they differ (stepper, framed zones, grey fill)"]
+unknown = "How are the four steps rebalanced (for example photo/video and advanced options in their own step, step 4 merged or justified)? Settle with the user, as a dated decision, before the build."
+
+[[entry]]
 id = 13
 type = "story"
 title = "17.13 — Refactor Sweep"
 description = "Cleanup of the code and tests this epic left behind; the scope is set when it starts, from the plans and the review findings deferred during the epic."
 verify = "The level 1 and 2 test suites pass as before; each cleanup item is listed in the plan with its result."
 covers = []
-after = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+after = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14]
 hitl = false
 risk = "low"
