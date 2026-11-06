@@ -201,6 +201,35 @@ def test_step2_buttons_exist(php_page: str, btn_id: str) -> None:
     )
 
 
+def test_step2_next_starts_visibly_disabled(php_page: str) -> None:
+    """
+    Step 2 « Suivant » is rendered disabled until a test answers (story 17.9).
+    A bare `disabled` attribute on an <a class="btn"> neither greys nor blocks it.
+
+    Expected result:
+    - the bt_step2Next tag carries class `disabled` and aria-disabled="true"
+    """
+    tag = re.search(r'<a [^>]*id="bt_step2Next"[^>]*>', php_page)
+    # Assert: tag found
+    assert tag, "bt_step2Next tag not found"
+    # Assert: Bootstrap disabled class present
+    assert re.search(r'class="[^"]*\bdisabled\b', tag.group(0))
+    # Assert: state exposed to assistive tech
+    assert 'aria-disabled="true"' in tag.group(0)
+
+
+def test_step1_error_banner_is_an_alert(php_page: str) -> None:
+    """
+    The step 1 error banner is announced by screen readers (story 17.9).
+
+    Expected result:
+    - #siaDC09-step1-errors carries role="alert"
+    """
+    tag = re.search(r'<div [^>]*id="siaDC09-step1-errors"[^>]*>', php_page)
+    # Assert: banner present with role alert
+    assert tag and 'role="alert"' in tag.group(0)
+
+
 # ── Step 3: Zone table structure ────────────────────────────────────────────
 
 

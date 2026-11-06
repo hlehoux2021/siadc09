@@ -87,10 +87,27 @@ function siaDC09_currentStep() {
   return match ? parseInt(match[1]) : 0
 }
 
+// Wizard buttons are <a class="btn">: the disabled attribute alone neither greys nor blocks
+// them. Bootstrap's .btn.disabled does both (pointer-events: none); aria-disabled and
+// tabindex=-1 take the link out of assistive tech and the tab order. Click handlers guard
+// on hasClass('disabled') for keyboard activation.
+function siaDC09_setButtonEnabled($btn, enabled) {
+  if (enabled) {
+    $btn.removeAttr('disabled').removeClass('disabled').attr('aria-disabled', 'false').removeAttr('tabindex')
+  } else {
+    $btn.attr('disabled', 'disabled').addClass('disabled').attr('aria-disabled', 'true').attr('tabindex', '-1')
+  }
+}
+
 function siaDC09_showStep(step) {
   $('.siaDC09-step').hide()
   $('#siaDC09-step' + step).show()
 
+  // A view shown again resets its own buttons (bug B1: Suivant stayed disabled after
+  // « Relancer l'assistant »). Step 2 buttons are reset by siaDC09_runConnectionTest().
+  if (step === 1) {
+    siaDC09_setButtonEnabled($('#bt_step1Next'), true)
+  }
   if (step === 2) {
     siaDC09_populateStep2Summary()
     siaDC09_runConnectionTest()
@@ -114,6 +131,7 @@ function siaDC09_showStep(step) {
     })
   }
   if (step === 4) {
+    siaDC09_setButtonEnabled($('#bt_step4Finish'), true)
     siaDC09_initNotifyTarget()
   }
 }
@@ -271,21 +289,21 @@ function siaDC09_validateStep1() {
   var encKey = $('.eqLogicAttr[data-l2key="encryption_key"]').val().trim()
 
   if (!accountNumber || !/^[0-9a-fA-F]{3,16}$/.test(accountNumber)) {
-    errors.push('{{Numéro de compte : 3 à 16 caractères hexadécimaux requis}}')
+    errors.push({ key: 'account_number', message: '{{Numéro de compte : 3 à 16 caractères hexadécimaux requis}}' })
   }
   if (!csrIp || csrIp === 'TBD') {
-    errors.push("{{Adresse IP de la centrale requise}}")
+    errors.push({ key: 'csr_ip', message: "{{Adresse IP de la centrale requise}}" })
   }
   if (isNaN(csrPort) || csrPort < 1 || csrPort > 65535) {
-    errors.push('{{Port : nombre entre 1 et 65535 requis}}')
+    errors.push({ key: 'csr_port', message: '{{Port : nombre entre 1 et 65535 requis}}' })
   }
   if (encEnabled && encKey) {
     if (!/^[0-9a-fA-F]+$/.test(encKey) || [32, 48, 64].indexOf(encKey.length) === -1) {
-      errors.push('{{Clé AES : 32, 48 ou 64 caractères hexadécimaux requis}}')
+      errors.push({ key: 'encryption_key', message: '{{Clé AES : 32, 48 ou 64 caractères hexadécimaux requis}}' })
     }
   }
   if (encEnabled && !encKey) {
-    errors.push("{{Clé AES requise quand le chiffrement est activé}}")
+    errors.push({ key: 'encryption_key', message: "{{Clé AES requise quand le chiffrement est activé}}" })
   }
 
   // PHP twin: siaDC09::periodicFrameConfigError() — keep the rules in sync.
@@ -295,73 +313,117 @@ function siaDC09_validateStep1() {
   var noPeriodicFrame = supFormat === 'none' && !rpOn
   var badRpInterval = rpOn && (isNaN(rpInterval) || rpInterval < 60 || rpInterval > 86400)
   if (noPeriodicFrame) {
-    errors.push('{{Au moins une trame périodique est requise : activez la supervision ou le test cyclique (RP)}}')
+    errors.push({ key: 'supervision_format', message: '{{Au moins une trame périodique est requise : activez la supervision ou le test cyclique (RP)}}' })
   }
   if (badRpInterval) {
-    errors.push('{{Intervalle RP : nombre entre 60 et 86400 secondes requis}}')
+    errors.push({ key: 'rp_interval', message: '{{Intervalle RP : nombre entre 60 et 86400 secondes requis}}' })
   }
 
-  if (errors.length > 0) {
-    $('#siaDC09-step1-errors').html(errors.join('<br>')).show()
-    // The periodic-frame errors concern fields folded in "Options avancées" — open it.
-    if (noPeriodicFrame || badRpInterval) {
-      $('#siaDC09-advanced').show()
-    }
-    return false
+  siaDC09_renderStep1Errors(errors)
+  return errors.length === 0
+}
+
+// Banner listing every error + a message under each faulty field. An empty list clears both.
+function siaDC09_renderStep1Errors(errors) {
+  var $banner = $('#siaDC09-step1-errors')
+  $('.siaDC09-field-error').remove()
+  $('.siaDC09-field-invalid').removeAttr('aria-describedby').removeAttr('aria-invalid')
+    .removeClass('siaDC09-field-invalid').closest('.form-group').removeClass('has-error')
+
+  if (errors.length === 0) {
+    $banner.empty().hide()
+    return
   }
-  $('#siaDC09-step1-errors').hide()
-  return true
+
+  var $list = $('<ul style="margin:5px 0 0 0;">')
+  var $first = null
+  var openAdvanced = false
+  errors.forEach(function(err) {
+    $list.append($('<li>').text(err.message))
+    var $field = $('.eqLogicAttr[data-l2key="' + err.key + '"]').first()
+    if ($field.length === 0) return
+    var msgId = 'siaDC09-error-' + err.key
+    var $msg = $('<span class="help-block siaDC09-field-error">').attr('id', msgId)
+      .append('<i class="fas fa-exclamation-circle"></i> ').append($('<span>').text(err.message))
+    $field.after($msg)
+    $field.addClass('siaDC09-field-invalid').attr('aria-describedby', msgId).attr('aria-invalid', 'true')
+      .closest('.form-group').addClass('has-error')
+    if ($field.closest('#siaDC09-advanced').length > 0) openAdvanced = true
+    if (!$first) $first = $field
+  })
+  $banner.empty()
+    .append($('<strong>').text('{{Impossible de continuer :}}'))
+    .append($list)
+    .show()
+  // Open the folded panel before focusing: a hidden field cannot take the focus.
+  if (openAdvanced) $('#siaDC09-advanced').show()
+  if ($first) $first[0].focus()
+}
+
+// ===== DAEMON STOP BEFORE THE WIZARD (bug B3) =====
+
+// Asks for confirmation when the daemon runs, then hands the caller a stop function.
+// The caller must save sia_wizard_step (< 4: launchable='nok', the watchdog cannot restart
+// the daemon) BEFORE calling stop(onStopped, onStopFailed). Not running, or a failed probe:
+// no dialog and stop() continues at once. A cancelled dialog calls onCancel.
+// jeedom.plugin.* calls go through jeedom.private: an error reply calls `error`, and
+// `success` receives data.result directly.
+function siaDC09_confirmStopDaemon(message, onProceed, onCancel) {
+  var noStop = function(onStopped) { onStopped() }
+  var stop = function(onStopped, onStopFailed) {
+    jeedom.plugin.deamonStop({
+      id: 'siaDC09',
+      error: function(error) { onStopFailed(error) },
+      success: function() { onStopped() }
+    })
+  }
+  jeedom.plugin.getDeamonInfo({
+    id: 'siaDC09',
+    error: function() {
+      onProceed(noStop)
+    },
+    success: function(info) {
+      if (!info || info.state !== 'ok') {
+        onProceed(noStop)
+        return
+      }
+      jeeDialog.confirm(message, function(result) {
+        if (result) {
+          onProceed(stop)
+        } else {
+          onCancel()
+        }
+      })
+    }
+  })
 }
 
 // ===== STEP 1 → STEP 2 ADVANCE =====
 
 $('#bt_step1Next').on('click', function() {
-  if ($(this).attr('disabled')) return
+  var $btn = $(this)
+  if ($btn.hasClass('disabled')) return
   if (!siaDC09_validateStep1()) return
 
-  var $btn = $(this)
-  $btn.attr('disabled', true)
+  siaDC09_setButtonEnabled($btn, false)
+  var reEnable = function() { siaDC09_setButtonEnabled($btn, true) }
+  var showError = function(error) {
+    reEnable()
+    $('#div_alert').showAlert({ message: (error && error.message) || '{{Erreur}}', level: 'danger' })
+  }
 
-  var doAdvance = function() {
+  // Running daemon: confirm, save step 2, stop it, then advance. The connection test needs it stopped.
+  siaDC09_confirmStopDaemon('{{Le démon est en cours d\'exécution. Il sera arrêté pour le test. Continuer ?}}', function(stop) {
     siaDC09_setWizardStep(2)
-    // Save then advance — async-safe pattern
     jeedom.eqLogic.save({
       type: 'siaDC09',
       eqLogics: [$('.eqLogic').getValues('.eqLogicAttr')[0]],
-      error: function(error) {
-        $btn.removeAttr('disabled')
-        $('#div_alert').showAlert({ message: error.message, level: 'danger' })
-      },
+      error: showError,
       success: function() {
-        siaDC09_showStep(2)
+        stop(function() { siaDC09_showStep(2) }, showError)
       }
     })
-  }
-
-  // Check if daemon is running — warn user
-  $.ajax({
-    type: 'POST',
-    url: 'core/ajax/plugin.ajax.php',
-    data: { action: 'deamonInfo', id: 'siaDC09' },
-    dataType: 'json',
-    global: false,
-    success: function(data) {
-      if (data.result && data.result.state === 'ok') {
-        jeeDialog.confirm('{{Le démon est en cours d\'exécution. Il sera arrêté pour le test. Continuer ?}}', function(result) {
-          if (result) {
-            doAdvance()
-          } else {
-            $btn.removeAttr('disabled')
-          }
-        })
-      } else {
-        doAdvance()
-      }
-    },
-    error: function() {
-      doAdvance()
-    }
-  })
+  }, reEnable)
 })
 
 // ===== STEP 2: CONNECTION TEST =====
@@ -385,9 +447,9 @@ function siaDC09_runConnectionTest() {
   _siaDC09_testNakConfirmed = false
   $('#siaDC09-step2-spinner').show()
   $('#siaDC09-step2-result').hide()
-  $('#bt_step2Next').attr('disabled', true)
-  $('#bt_step2Retest').attr('disabled', true)
-  $('#bt_step2Skip').attr('disabled', true)
+  siaDC09_setButtonEnabled($('#bt_step2Next'), false)
+  siaDC09_setButtonEnabled($('#bt_step2Retest'), false)
+  siaDC09_setButtonEnabled($('#bt_step2Skip'), false)
 
   $.ajax({
     type: 'POST',
@@ -401,8 +463,8 @@ function siaDC09_runConnectionTest() {
     timeout: 35000,
     success: function(data) {
       $('#siaDC09-step2-spinner').hide()
-      $('#bt_step2Retest').removeAttr('disabled')
-      $('#bt_step2Skip').removeAttr('disabled')
+      siaDC09_setButtonEnabled($('#bt_step2Retest'), true)
+      siaDC09_setButtonEnabled($('#bt_step2Skip'), true)
 
       var result = data.result || {}
       var status = result.status || 'error'
@@ -413,15 +475,15 @@ function siaDC09_runConnectionTest() {
       if (status === 'ok') {
         cssClass = 'alert-success'
         icon = 'fa-check-circle'
-        $('#bt_step2Next').removeAttr('disabled')
+        siaDC09_setButtonEnabled($('#bt_step2Next'), true)
       } else if (status === 'nak') {
         cssClass = 'alert-warning'
         icon = 'fa-exclamation-triangle'
-        $('#bt_step2Next').removeAttr('disabled')
+        siaDC09_setButtonEnabled($('#bt_step2Next'), true)
       } else {
         cssClass = 'alert-danger'
         icon = 'fa-times-circle'
-        $('#bt_step2Next').attr('disabled', true)
+        siaDC09_setButtonEnabled($('#bt_step2Next'), false)
       }
 
       var $resultDiv = $('<div class="alert ' + cssClass + '"><i class="fas ' + icon + '"></i> </div>')
@@ -430,8 +492,8 @@ function siaDC09_runConnectionTest() {
     },
     error: function(xhr, status, error) {
       $('#siaDC09-step2-spinner').hide()
-      $('#bt_step2Retest').removeAttr('disabled')
-      $('#bt_step2Skip').removeAttr('disabled')
+      siaDC09_setButtonEnabled($('#bt_step2Retest'), true)
+      siaDC09_setButtonEnabled($('#bt_step2Skip'), true)
       $('#siaDC09-step2-result')
         .html('<div class="alert alert-danger"><i class="fas fa-times-circle"></i> {{Erreur de communication avec le serveur}}</div>')
         .show()
@@ -441,11 +503,13 @@ function siaDC09_runConnectionTest() {
 
 // Retest button
 $('#bt_step2Retest').on('click', function() {
+  if ($(this).hasClass('disabled')) return
   siaDC09_runConnectionTest()
 })
 
 // Ignorer button — advance to step 3 with warning
 $('#bt_step2Skip').on('click', function() {
+  if ($(this).hasClass('disabled')) return
   siaDC09_setWizardStep(3)
   jeedom.eqLogic.save({
     type: 'siaDC09',
@@ -462,6 +526,7 @@ $('#bt_step2Skip').on('click', function() {
 
 // Suivant on Step 2
 $('#bt_step2Next').on('click', function() {
+  if ($(this).hasClass('disabled')) return
   var result = $('#siaDC09-step2-result .alert-warning')
   if (result.length > 0 && !_siaDC09_testNakConfirmed) {
     jeeDialog.confirm('{{La centrale a répondu NAK. Continuer malgré tout ?}}', function(ok) {
@@ -492,44 +557,33 @@ function siaDC09_advanceToStep3() {
 // ===== RESTART WIZARD =====
 
 $('#bt_restartWizard').on('click', function() {
-  var doRestart = function() {
+  var $btn = $(this)
+  if ($btn.hasClass('disabled')) return
+
+  siaDC09_setButtonEnabled($btn, false)
+  var reEnable = function() { siaDC09_setButtonEnabled($btn, true) }
+  var showError = function(error) {
+    reEnable()
+    $('#div_alert').showAlert({ message: (error && error.message) || '{{Erreur}}', level: 'danger' })
+  }
+
+  // Step 0 is saved before the stop: launchable='nok', so the watchdog cannot restart the daemon.
+  siaDC09_confirmStopDaemon('{{Le démon est en cours d\'exécution. Il sera arrêté. Continuer ?}}', function(stop) {
     siaDC09_setWizardStep(0)
     jeedom.eqLogic.save({
       type: 'siaDC09',
       eqLogics: [$('.eqLogic').getValues('.eqLogicAttr')[0]],
-      error: function(error) {
-        $('#div_alert').showAlert({ message: error.message, level: 'danger' })
-      },
+      error: showError,
       success: function() {
-        $('#siaDC09-config-summary').hide()
-        $('#siaDC09-wizard').show()
-        siaDC09_showStep(1)
+        stop(function() {
+          reEnable()
+          $('#siaDC09-config-summary').hide()
+          $('#siaDC09-wizard').show()
+          siaDC09_showStep(1)
+        }, showError)
       }
     })
-  }
-
-  // Check daemon running
-  $.ajax({
-    type: 'POST',
-    url: 'core/ajax/plugin.ajax.php',
-    data: { action: 'deamonInfo', id: 'siaDC09' },
-    dataType: 'json',
-    global: false,
-    success: function(data) {
-      if (data.result && data.result.state === 'ok') {
-        jeeDialog.confirm('{{Le démon est en cours d\'exécution. Il sera arrêté. Continuer ?}}', function(result) {
-          if (result) {
-            doRestart()
-          }
-        })
-      } else {
-        doRestart()
-      }
-    },
-    error: function() {
-      doRestart()
-    }
-  })
+  }, reEnable)
 })
 
 // ===== STEP 3: ZONE TABLE =====
@@ -644,7 +698,7 @@ function siaDC09_buildZoneRow(zoneNumber, zoneName, saved, cameras) {
 // ===== STEP 3: SUIVANT HANDLER =====
 
 $('#bt_step3Next').on('click', function() {
-  if ($(this).attr('disabled')) return
+  if ($(this).hasClass('disabled')) return
   var mediaError = siaDC09_mediaConfigError()
   if (mediaError) {
     $('#siaDC09-step3-errors').text(mediaError).show()
@@ -728,14 +782,14 @@ $('#siaDC09_searchNotifyCmd').on('click', function() {
 })
 
 $('#bt_step4Finish').on('click', function() {
-  if ($(this).attr('disabled')) return
+  if ($(this).hasClass('disabled')) return
 
   if (!siaDC09_validateNotifyTarget()) {
     return
   }
 
   var $btn = $(this)
-  $btn.attr('disabled', true)
+  siaDC09_setButtonEnabled($btn, false)
 
   // No saveEqLogic() call needed — step 4 has no zone table; sia_zone_mappings preserved by Jeedom merge
   siaDC09_setWizardStep(4)
@@ -743,7 +797,7 @@ $('#bt_step4Finish').on('click', function() {
     type: 'siaDC09',
     eqLogics: [$('.eqLogic').getValues('.eqLogicAttr')[0]],
     error: function(error) {
-      $btn.removeAttr('disabled')
+      siaDC09_setButtonEnabled($btn, true)
       $('#div_alert').showAlert({ message: error.message, level: 'danger' })
     },
     success: function() {

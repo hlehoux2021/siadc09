@@ -277,7 +277,7 @@ $scenarios = scenario::all();
 									</div>
 
 									<!-- Validation errors -->
-									<div id="siaDC09-step1-errors" class="alert alert-danger" style="display:none;"></div>
+									<div id="siaDC09-step1-errors" class="alert alert-danger" role="alert" style="display:none;"></div>
 
 									<!-- Navigation -->
 									<div class="form-group">
@@ -308,7 +308,7 @@ $scenarios = scenario::all();
 										<div class="col-sm-12" style="text-align:right;">
 											<a class="btn btn-default" id="bt_step2Retest"><i class="fas fa-redo"></i> {{Relancer le test}}</a>
 											<a class="btn btn-warning" id="bt_step2Skip"><i class="fas fa-forward"></i> {{Ignorer}}</a>
-											<a class="btn btn-success" id="bt_step2Next" disabled><i class="fas fa-arrow-right"></i> {{Suivant}}</a>
+											<a class="btn btn-success disabled" id="bt_step2Next" disabled aria-disabled="true" tabindex="-1"><i class="fas fa-arrow-right"></i> {{Suivant}}</a>
 										</div>
 									</div>
 								</div><!-- /#siaDC09-step2 -->

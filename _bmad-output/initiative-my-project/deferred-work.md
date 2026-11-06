@@ -237,3 +237,11 @@ level2/level3 tests + golden fixture + harness. This closes the 4-group review o
 - source_plan: `_bmad-output/initiative-my-project/epic-17-csr-behaviour-profiles/story-17-7-configurable-alarm-media-in-ba-frames-snapshot-clip-u-o-plan.md`
   summary: Validate "media on and URL template empty" when the equipment is saved, not only in the wizard step.
   evidence: An equipment saved with a media on and an empty template resolves no URL and sends the alarm without media and without any message; only the wizard step 3 button checks it.
+
+- source_plan: `_bmad-output/initiative-my-project/epic-17-csr-behaviour-profiles/story-17-9-wizard-step-1-blocking-fixes-suivant-banner-daemon-stop-plan.md`
+  summary: `test_get_csr_profiles_reads_real_file` still expects only the ajax and scutum profiles; vesta and foxstream (story 17.8) make it fail.
+  evidence: Full level-1 run on 2026-11-06 gives 1 failed, 1510 passed; the failure is the set comparison in test_php_periodic_frame_guard.py:266, unrelated to 17.9.
+
+- source_plan: `_bmad-output/initiative-my-project/epic-17-csr-behaviour-profiles/story-17-9-wizard-step-1-blocking-fixes-suivant-banner-daemon-stop-plan.md`
+  summary: When `deamonStop` fails after the wizard step was saved, the saved step stays at 2 (Suivant) or 0 (Relancer), so a reload lands on the wrong screen.
+  evidence: Review finding, low: save-before-stop is required so the watchdog cannot restart the daemon; a rollback save on stop error would fix it.

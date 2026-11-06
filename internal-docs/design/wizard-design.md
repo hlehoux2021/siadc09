@@ -1,8 +1,8 @@
 # Config Wizard Design — Jeedom siaDC09 Plugin
 
-**Version:** 0.3
-**Date:** 2026-10-18
-**Status:** Step 1 rewritten for CSR profiles and periodic-frame options (Story 17.4, ADR-22)
+**Version:** 0.4
+**Date:** 2026-11-06
+**Status:** Step 1 rewritten for CSR profiles and periodic-frame options (Story 17.4, ADR-22); daemon stop moved to the JS (Story 17.9)
 
 ---
 
@@ -50,12 +50,16 @@ dialog is shown:
 > "Le démon est en cours d'exécution. L'assistant de connexion requiert que le démon
 > soit arrêté. Voulez-vous l'arrêter maintenant ?"
 
-On confirm: PHP sets `sia_wizard_step = 0` **first** (makes `launchable='nok'` immediately
-visible to Jeedom's watchdog — prevents auto-restart during wizard), then calls
-`siaDC09::deamon_stop()`, then reloads the page at step 1.
-If the `sia_wizard_step` save fails, the daemon is still running with valid config (no harm —
-do not proceed to stop). If the daemon is already stopped, the button sets `sia_wizard_step = 0`
-and reloads immediately.
+The stop is done by the JS (story 17.9), shared by "Relancer l'assistant" and step 1
+"Suivant" (`siaDC09_confirmStopDaemon`). The probe is `jeedom.plugin.getDeamonInfo` (core has
+no `deamonInfo` action; a failed probe counts as "not running"). On confirm: the JS sets
+`sia_wizard_step` (0 for the restart, 2 for "Suivant") and saves the eqLogic **first**
+(step < 4 makes `launchable='nok'`, so the watchdog cannot auto-restart the daemon), then calls
+`jeedom.plugin.deamonStop`, then shows step 1 (or 2) in-page, without reloading.
+If the save fails, no stop is called (the daemon keeps running with valid config). If the stop
+fails, an alert is shown and the button is re-enabled. A cancelled dialog saves and stops
+nothing and re-enables the button. If the daemon is not running, the same sequence runs
+without the dialog and without the stop.
 
 ---
 
@@ -220,7 +224,7 @@ JS                     PHP (ajax.php)              Subprocess (--test-only)   CS
 - The subprocess reads CSR config from the eqLogic config JSON passed as `--config`
 
 **Preconditions enforced by the wizard:**
-- The daemon must be stopped (guaranteed by "Relancer l'assistant" daemon-stop flow)
+- The daemon must be stopped (guaranteed by the JS stop sequence of "Relancer l'assistant" and step 1 "Suivant")
 - Step 1 must have been saved before reaching step 2 (config available on disk)
 
 ---

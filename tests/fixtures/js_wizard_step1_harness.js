@@ -34,6 +34,7 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
   <input class="eqLogicAttr" data-l2key="csr_port">
   <input type="checkbox" class="eqLogicAttr" data-l2key="encryption_enabled">
   <input class="eqLogicAttr" data-l2key="encryption_key">
+  <div id="siaDC09-advanced" style="display:none">
   <select class="eqLogicAttr siaDC09-profile-field" data-l2key="supervision_format">
     <option value="sia-dcs">sia-dcs</option><option value="null">null</option>
     <option value="none">none</option>
@@ -49,7 +50,7 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
   <div id="siaDC09-media-url-group" style="display:none"><input class="eqLogicAttr" data-l2key="frigate_media_url_template"></div>
   <div id="siaDC09-media-single-tag-help" style="display:none"></div>
   <div id="siaDC09-null-warning" style="display:none"></div>
-  <div id="siaDC09-advanced" style="display:none"></div>
+  </div>
   <div id="siaDC09-step1-errors" style="display:none"></div>
 </body></html>`, { runScripts: 'dangerously' })
 

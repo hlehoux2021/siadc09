@@ -550,27 +550,51 @@ def test_restart_wizard_resets_to_step_zero(js_source: str) -> None:
     assert "siaDC09_setWizardStep(0)" in js_source
 
 
-def test_restart_wizard_checks_daemon_running(js_source: str) -> None:
+def _handler_body(js_source: str, button_id: str) -> str:
+    """Return the source of the $('#<button_id>').on('click', ...) handler, up to the next '})' at column 0."""
+    start = js_source.index(f"$('#{button_id}').on('click'")
+    end = js_source.index("\n})", start)
+    return js_source[start:end]
+
+
+def _function_body(js_source: str, name: str) -> str:
+    """Return the source of a top-level `function <name>(` up to the next '}' at column 0."""
+    start = js_source.index(f"function {name}(")
+    end = js_source.index("\n}", start)
+    return js_source[start:end]
+
+
+def test_daemon_probe_and_stop_use_jeedom_core_api(js_source: str) -> None:
     """
-    Restarting the wizard while daemon is running could cause issues.
-    The handler must check daemon state and warn user.
+    The daemon probe and stop go through Jeedom core's jeedom.plugin helpers (story 17.9, B3).
+    Core's plugin.ajax.php has no 'deamonInfo' action: the old raw call always fell through
+    to "not running", so the dialog never appeared and nothing was stopped.
 
     Expected result:
-    - deamonInfo AJAX call in restart handler
+    - siaDC09_confirmStopDaemon calls jeedom.plugin.getDeamonInfo and jeedom.plugin.deamonStop
+    - the non-existent 'deamonInfo' action is gone from the file
     """
-    pattern = r'bt_restartWizard.*?deamonInfo'
-    # Assert: daemon check in restart
-    assert re.search(pattern, js_source, re.DOTALL)
+    body = _function_body(js_source, "siaDC09_confirmStopDaemon")
+    # Assert: core probe used
+    assert "jeedom.plugin.getDeamonInfo(" in body
+    # Assert: core stop used
+    assert "jeedom.plugin.deamonStop(" in body
+    # Assert: no raw call to the non-existent action left
+    assert "action: 'deamonInfo'" not in js_source
 
 
-def test_step1_advance_checks_daemon_running(js_source: str) -> None:
+@pytest.mark.parametrize("button_id", ["bt_restartWizard", "bt_step1Next"])
+def test_wizard_handlers_check_and_stop_daemon(js_source: str, button_id: str) -> None:
     """
-    bt_step1Next must check if daemon is running before connection test.
-    Running daemon would conflict with standalone test subprocess.
+    « Relancer l'assistant » and step 1 « Suivant » ask before stopping a running daemon,
+    save the wizard step, then stop it (the connection test conflicts with a running daemon).
 
     Expected result:
-    - deamonInfo AJAX call in step 1 next handler
+    - the handler goes through siaDC09_confirmStopDaemon
+    - the wizard step is set and saved before stop() is called
     """
-    pattern = r'bt_step1Next.*?deamonInfo'
-    # Assert: daemon check before test
-    assert re.search(pattern, js_source, re.DOTALL)
+    body = _handler_body(js_source, button_id)
+    # Assert: shared probe/confirm/stop helper used
+    assert "siaDC09_confirmStopDaemon(" in body
+    # Assert: step saved before the stop
+    assert re.search(r"siaDC09_setWizardStep\(\d\).*?jeedom\.eqLogic\.save.*?success.*?stop\(", body, re.DOTALL)

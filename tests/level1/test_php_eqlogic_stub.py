@@ -1508,7 +1508,10 @@ def _extract_js_handler(js_source: str, btn_id: str) -> str:
     handler function body, tracks brace depth to find the matching '}', and
     returns the content between them. Works correctly on nested callbacks.
     """
-    start = js_source.find(f"'{btn_id}'")
+    # Prefer the binding itself: the id may also be used elsewhere (e.g. showStep resets it).
+    start = js_source.find(f"'{btn_id}').on(")
+    if start == -1:
+        start = js_source.find(f"'{btn_id}'")
     if start == -1:
         start = js_source.find(f'"{btn_id}"')
     assert start != -1, f"Handler for {btn_id} not found in siaDC09.js"
