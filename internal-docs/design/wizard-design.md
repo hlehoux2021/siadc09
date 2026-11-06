@@ -160,7 +160,7 @@ Validation, then `sia_wizard_step = 2` and a save, then the wizard advances to s
 |   [spinner]  Test en cours...                             |
 |                                                           |
 +-----------------------------------------------------------+
-|  [Relancer le test]          [Ignorer]    [Suivant →]     |
+|  [← Modifier la centrale] [Relancer le test] [Ignorer] [Suivant →] |
 +-----------------------------------------------------------+
 ```
 
@@ -192,10 +192,22 @@ blocks; the subprocess is free to use any Python async pattern.
 | exit 1, stdout `"failure"` | Red banner: "Connexion échouée — vérifiez l'adresse IP, le port et votre réseau" |
 | Subprocess error (non-zero + unexpected output) | Red banner: "Impossible de lancer le test — vérifiez que Python 3 et les dépendances sont installés" |
 
+**Failure view (Story 17.12, EXPERIENCE.md "Step 2 states").** Every red result also shows the message
+that was sent (`sent`: type, account, transport). A DUH (`outcome: "duh"`) reads: « La centrale de
+télésurveillance a reçu le message de test, mais l'a refusé (DUH). », the sent message, « Vérifiez : - que
+le profil choisi correspond bien à votre centre de télésurveillance ; - que le numéro de compte ({compte})
+est celui que le centre a enregistré pour vous. », « Puis relancez le test. » Exactly these two checks: the
+profile is never named as if it were the center, and there is no advice to change the supervision format or
+to switch to « Personnalisé » (a profile locks those settings).
+
+> The "exit contract" above predates the JSON verdict: `--test-only` prints a JSON verdict on stdout; its
+> stderr (plaintext frame, technical cause) is relayed to the plugin log by PHP.
+
 ### Button behavior
 
 | Button | Behavior |
 |---|---|
+| "← Modifier la centrale" | Returns to step 1 with every value kept, saves nothing, and resets step 1 buttons (`showStep(1)`). Live in every step 2 state, including while the test runs: the run is abandoned and its late answer is ignored (run token). Replaces "stepper non-clickable, no way back". |
 | "Relancer le test" | Re-triggers the same auto-test flow |
 | "Ignorer" | Advances to step 3 WITHOUT testing; shows an inline warning: "Connexion non testée — le plugin ne pourra pas transmettre d'alarmes si la connexion échoue." |
 | "Suivant →" | Only available after exit 0 (`"success"` or `"failure"`/NAK). Blocked (greyed) if test is pending or timed out (exit 1 `"timeout"`). Advances to step 3. If the last result was `"failure"` (NAK), a confirmation dialog is shown before advancing. |
@@ -539,8 +551,16 @@ All stored in `eqLogic->getConfiguration()`. Fields introduced by the wizard:
 
 ```
 Request:  POST action=testConnection
-Response: {status: "ok"|"fail"|"nak"|"error", detail: "<human-readable string>"}
+Response: {status: "ok"|"fail"|"nak"|"error", detail: "<human-readable string>",
+           outcome: "<internal status, e.g. ack|duh|timeout>",
+           sent: {type: "SIA-DCS", account: "001234", transport: "UDP"}}
 ```
+
+`sent` (Story 17.12) is the plaintext summary of the test message: frame type, account, transport. It
+never carries frame bytes (they may be encrypted) nor the key. It is absent when nothing was sent
+(incomplete configuration, bad AES key). `outcome: "duh"` marks an expected refusal: PHP logs the
+subprocess stderr of a DUH at WARNING, any other stderr at ERROR. The running daemon's SM1_DUH level is
+unrelated and unchanged.
 
 PHP implementation (see Task 3.6 for full code). No caching, no polling endpoint.
 

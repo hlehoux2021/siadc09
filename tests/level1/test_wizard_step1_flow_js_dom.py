@@ -246,3 +246,82 @@ def test_step2_buttons_look_disabled_while_testing(button_id: str) -> None:
     assert btn["disabledClass"] is True
     assert btn["ariaDisabled"] == "true"
     assert btn["tabindex"] == "-1"
+
+
+_BACK = {"op": "click", "selector": "#bt_step2Back"}
+_DUH_EXTRA = {"outcome": "duh", "sent": {"type": "SIA-DCS", "account": "001234", "transport": "UDP"}}
+
+
+def test_modifier_la_centrale_during_test_ignores_late_answer() -> None:
+    """
+    Story 17.12: Modifier la centrale while the test runs, then the answer arrives late.
+
+    Expected result:
+    - step 1 shown with every value kept and a live Suivant
+    - the back button was live while testing
+    - the late answer renders nothing and enables no step 2 button
+    - nothing was saved by the back click
+    """
+    out = _run({"fields": _VALID_FIELDS, "daemon": "nok", "test": "pending",
+                "actions": [{"op": "showStep", "step": 1}, _NEXT, _SNAP, _BACK, _SNAP,
+                            {"op": "answer", "status": "ok"}, _SNAP]})
+
+    testing, back, late = out["snapshots"]
+    # Assert: back live while the test runs
+    assert testing["step"] == 2 and testing["buttons"]["bt_step2Back"]["disabledClass"] is False
+    assert testing["spinnerVisible"] is True
+    # Assert: step 1 with values kept and Suivant live
+    assert back["step"] == 1
+    assert back["buttons"]["bt_step1Next"]["disabledClass"] is False
+    assert back["fieldValues"] == {"csr_ip": "192.168.1.1", "account_number": "001234"}
+    # Assert: the late answer is ignored
+    assert late["step"] == 1 and late["step2ResultVisible"] is False
+    assert late["buttons"]["bt_step2Next"]["disabledClass"] is True
+    # Assert: only the step 1 save happened
+    assert [c for c in out["calls"] if c.startswith("save:")] == ["save:2"]
+
+
+def test_duh_view_shows_sent_message_and_two_checks_then_back_works() -> None:
+    """
+    Story 17.12: a DUH answer, then Modifier la centrale.
+
+    Expected result:
+    - the view shows the DUH sentence, the sent message and exactly two checks
+    - no profile name, no NULL / Personnalisé advice
+    - Modifier, Relancer and Ignorer live, Suivant disabled
+    - back to step 1 with a live Suivant, which saves again
+    """
+    out = _run({"fields": _VALID_FIELDS, "daemon": "nok", "test": "fail", "testExtra": _DUH_EXTRA,
+                "actions": [{"op": "showStep", "step": 1}, _NEXT, _SNAP, _BACK, _SNAP, _NEXT]})
+
+    duh, back = out["snapshots"]
+    text = duh["step2ResultText"]
+    # Assert: sentence, sent message, checks
+    assert "(DUH)" in text and "SIA-DCS" in text and "001234" in text
+    assert duh["step2ChecksCount"] == 2
+    # Assert: forbidden advice absent
+    assert "NULL" not in text and "Personnalisé" not in text and "FoxStream" not in text
+    # Assert: button states of the failure view
+    b = duh["buttons"]
+    assert [b[k]["disabledClass"] for k in ("bt_step2Back", "bt_step2Retest", "bt_step2Skip")] == [False] * 3
+    assert b["bt_step2Next"]["disabledClass"] is True
+    # Assert: step 1 is live again and saves a second time
+    assert back["step"] == 1 and back["buttons"]["bt_step1Next"]["disabledClass"] is False
+    assert [c for c in out["calls"] if c.startswith("save:")] == ["save:2", "save:2"]
+
+
+def test_non_duh_failure_still_shows_sent_message() -> None:
+    """
+    Story 17.12: a timeout failure keeps its text and shows the message sent.
+
+    Expected result:
+    - the detail text and the sent summary are shown, no DUH checks
+    """
+    out = _run({"fields": _VALID_FIELDS, "daemon": "nok", "test": "fail",
+                "testExtra": {"detail": "Pas de réponse", "sent": _DUH_EXTRA["sent"]},
+                "actions": [{"op": "showStep", "step": 2}, _SNAP]})
+
+    snap = out["snapshots"][0]
+    # Assert: detail and sent summary, no checks list
+    assert "Pas de réponse" in snap["step2ResultText"] and "SIA-DCS" in snap["step2ResultText"]
+    assert snap["step2ChecksCount"] == 0

@@ -59,6 +59,7 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
         <div id="siaDC09-step2-summary"></div>
         <div id="siaDC09-step2-spinner" style="display:none;"></div>
         <div id="siaDC09-step2-result" style="display:none;"></div>
+        <a class="btn btn-default" id="bt_step2Back">Modifier</a>
         <a class="btn btn-default" id="bt_step2Retest">Relancer le test</a>
         <a class="btn btn-warning" id="bt_step2Skip">Ignorer</a>
         <a class="btn btn-success disabled" id="bt_step2Next" disabled aria-disabled="true" tabindex="-1">Suivant</a>
@@ -125,9 +126,14 @@ $.ajax = function(opts) {
   record('ajax:' + action)
   if (action !== 'testConnection') return
   const test = scenario.test || 'pending'
-  if (test === 'pending') return
+  // Story 17.12: "pending" keeps the callbacks so an "answer" action can deliver them late.
+  if (test === 'pending') { heldTests.push(opts); return }
+  deliver(opts, test)
+}
+const heldTests = []
+function deliver(opts, test) {
   if (test === 'error') opts.error({}, 'error', 'boom')
-  else opts.success({ state: 'ok', result: { status: test, detail: test } })
+  else opts.success({ state: 'ok', result: Object.assign({ status: test, detail: test }, scenario.testExtra || {}) })
 }
 
 window.eval(fs.readFileSync(path.join(PROJECT_ROOT, 'desktop/js/siaDC09.js'), 'utf8'))
@@ -140,7 +146,7 @@ const setFields = (fields) => {
   }
 }
 
-const BUTTONS = ['bt_restartWizard', 'bt_step1Next', 'bt_step2Retest', 'bt_step2Skip', 'bt_step2Next', 'bt_step4Finish']
+const BUTTONS = ['bt_restartWizard', 'bt_step2Back', 'bt_step1Next', 'bt_step2Retest', 'bt_step2Skip', 'bt_step2Next', 'bt_step4Finish']
 
 function snapshot() {
   const visible = $('.siaDC09-step').filter(function() { return this.style.display !== 'none' })
@@ -175,7 +181,12 @@ function snapshot() {
     fieldErrors: fieldErrors,
     helpBlocks: $('.siaDC09-field-error').length,
     focused: active && active.getAttribute ? active.getAttribute('data-l2key') : null,
-    advancedVisible: $('#siaDC09-advanced').css('display') !== 'none'
+    advancedVisible: $('#siaDC09-advanced').css('display') !== 'none',
+    step2ResultVisible: $('#siaDC09-step2-result').css('display') !== 'none',
+    step2ResultText: $('#siaDC09-step2-result').text(),
+    step2ChecksCount: $('#siaDC09-step2-result .siaDC09-step2-checks li').length,
+    spinnerVisible: $('#siaDC09-step2-spinner').css('display') !== 'none',
+    fieldValues: { csr_ip: field('csr_ip').val(), account_number: field('account_number').val() }
   }
 }
 
@@ -186,6 +197,7 @@ for (const action of scenario.actions || []) {
   else if (action.op === 'click') $(action.selector).trigger('click')
   else if (action.op === 'fields') setFields(action.fields)
   else if (action.op === 'snapshot') snapshots.push(snapshot())
+  else if (action.op === 'answer') heldTests.forEach(function(o) { deliver(o, action.status || 'ok') })
   else if (action.op === 'mark') record('--' + action.label)
 }
 

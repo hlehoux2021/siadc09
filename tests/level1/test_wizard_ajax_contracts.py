@@ -217,6 +217,19 @@ def test_test_connection_suppresses_stderr(ajax_source: str) -> None:
     assert "2>/dev/null" in ajax_source
 
 
+def test_test_connection_logs_duh_stderr_at_warning(ajax_source: str) -> None:
+    """
+    Story 17.12: an expected DUH on the wizard test path is logged at WARNING;
+    any other stderr stays at error.
+
+    Expected result:
+    - the stderr log level depends on the 'duh' outcome
+    - both 'warning' and 'error' levels are used for the Python stderr line
+    """
+    # Assert: the DUH outcome selects the level
+    assert "'duh'" in ajax_source and "'warning' : 'error'" in ajax_source
+
+
 def test_test_connection_uses_get_cmd_python3(ajax_source: str) -> None:
     """
     Must use system::getCmdPython3() when available (Jeedom 4.4+) to get

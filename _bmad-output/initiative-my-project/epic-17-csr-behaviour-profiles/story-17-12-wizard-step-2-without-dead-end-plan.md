@@ -3,14 +3,14 @@ title: '17.12 — Wizard Step 2 Without Dead End'
 type: 'feature'
 ticket: 12
 created: '2026-11-06'
-status: 'draft'
+status: 'built'
 baseline_revision: '2a03d057b24d505c892f12741e37ef6354282d78'
 route: 'full'
 route_source: 'auto'
 risk: 'medium'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/initiative-my-project/epic-17-csr-behaviour-profiles/ux-17-wizard-step-1/EXPERIENCE.md'

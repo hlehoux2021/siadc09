@@ -100,11 +100,13 @@ try {
 
         $jsonOutput = implode('', $output);
         log::add('siaDC09', 'debug', 'Test connexion — code retour ' . $retCode . ', sortie : ' . $jsonOutput);
-        if ($stderr !== '') {
-            log::add('siaDC09', 'error', 'Test connexion — erreur Python : ' . $stderr);
-        }
-
         $result = json_decode($jsonOutput, true);
+        // Story 17.12: a DUH is an expected refusal of the test frame (wrong profile or account),
+        // not a fault — WARNING here. The running daemon's SM1_DUH level is unrelated.
+        if ($stderr !== '') {
+            $isDuh = is_array($result) && ($result['outcome'] ?? '') === 'duh';
+            log::add('siaDC09', $isDuh ? 'warning' : 'error', 'Test connexion — erreur Python : ' . $stderr);
+        }
         if (!is_array($result)) {
             log::add('siaDC09', 'error', 'Test connexion — sortie illisible (code retour ' . $retCode . ')');
             ajax::success([

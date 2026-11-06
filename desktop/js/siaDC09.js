@@ -443,13 +443,49 @@ function siaDC09_populateStep2Summary() {
   $('<span>').text(account).appendTo($summary)
 }
 
+// Story 17.12: identifies the current test run. Leaving step 2 (or relaunching the test) bumps it,
+// so the answer of an abandoned run is ignored when it finally arrives.
+var _siaDC09_testRun = 0
+
+// Failure view: the DUH sentence, the message that was sent, then the only two checks allowed
+// (never the profile name, never advice to change a locked setting).
+function siaDC09_renderStep2Failure(result) {
+  var $box = $('<div class="alert alert-danger"><i class="fas fa-times-circle"></i> </div>')
+  var sent = result.sent || null
+  var isDuh = result.outcome === 'duh'
+  if (isDuh) {
+    $box.append($('<span>').text('{{La centrale de télésurveillance a reçu le message de test, mais l\'a refusé (DUH).}}'))
+  } else {
+    $box.append($('<span>').text(result.detail || ''))
+  }
+  if (sent) {
+    var $sent = $('<p class="siaDC09-step2-sent" style="margin-top:8px;"></p>')
+    $('<strong>').text('{{Message envoyé :}}').appendTo($sent)
+    $sent.append(' ')
+    $('<span>').text(sent.type + ' — {{Compte :}} ' + sent.account + ' — ' + sent.transport).appendTo($sent)
+    $box.append($sent)
+  }
+  if (isDuh) {
+    $box.append($('<p style="margin-top:8px;"></p>').text('{{Vérifiez :}}'))
+    var $list = $('<ul class="siaDC09-step2-checks"></ul>')
+    $('<li>').text('{{que le profil choisi correspond bien à votre centre de télésurveillance ;}}').appendTo($list)
+    $('<li>').text('{{que le numéro de compte (#compte#) est celui que le centre a enregistré pour vous.}}'.replace('#compte#', sent ? sent.account : '')).appendTo($list)
+    $box.append($list)
+    $box.append($('<p></p>').text('{{Puis relancez le test.}}'))
+  }
+  return $box
+}
+
 function siaDC09_runConnectionTest() {
+  var run = ++_siaDC09_testRun
   _siaDC09_testNakConfirmed = false
   $('#siaDC09-step2-spinner').show()
   $('#siaDC09-step2-result').hide()
   siaDC09_setButtonEnabled($('#bt_step2Next'), false)
   siaDC09_setButtonEnabled($('#bt_step2Retest'), false)
   siaDC09_setButtonEnabled($('#bt_step2Skip'), false)
+  // « Modifier la centrale » stays live during the test.
+  siaDC09_setButtonEnabled($('#bt_step2Back'), true)
 
   $.ajax({
     type: 'POST',
@@ -462,6 +498,7 @@ function siaDC09_runConnectionTest() {
     global: false,
     timeout: 35000,
     success: function(data) {
+      if (run !== _siaDC09_testRun) return
       $('#siaDC09-step2-spinner').hide()
       siaDC09_setButtonEnabled($('#bt_step2Retest'), true)
       siaDC09_setButtonEnabled($('#bt_step2Skip'), true)
@@ -486,11 +523,17 @@ function siaDC09_runConnectionTest() {
         siaDC09_setButtonEnabled($('#bt_step2Next'), false)
       }
 
-      var $resultDiv = $('<div class="alert ' + cssClass + '"><i class="fas ' + icon + '"></i> </div>')
-      $resultDiv.append($('<span>').text(detail))
+      var $resultDiv
+      if (cssClass === 'alert-danger') {
+        $resultDiv = siaDC09_renderStep2Failure(result)
+      } else {
+        $resultDiv = $('<div class="alert ' + cssClass + '"><i class="fas ' + icon + '"></i> </div>')
+        $resultDiv.append($('<span>').text(detail))
+      }
       $('#siaDC09-step2-result').empty().append($resultDiv).show()
     },
     error: function(xhr, status, error) {
+      if (run !== _siaDC09_testRun) return
       $('#siaDC09-step2-spinner').hide()
       siaDC09_setButtonEnabled($('#bt_step2Retest'), true)
       siaDC09_setButtonEnabled($('#bt_step2Skip'), true)
@@ -500,6 +543,16 @@ function siaDC09_runConnectionTest() {
     }
   })
 }
+
+// « Modifier la centrale » — back to step 1, every value kept, nothing saved. Available while a
+// test runs: the run is abandoned and its late answer ignored. showStep(1) revives step 1 buttons.
+$('#bt_step2Back').on('click', function() {
+  if ($(this).hasClass('disabled')) return
+  _siaDC09_testRun++
+  $('#siaDC09-step2-spinner').hide()
+  $('#siaDC09-step2-result').hide()
+  siaDC09_showStep(1)
+})
 
 // Retest button
 $('#bt_step2Retest').on('click', function() {
