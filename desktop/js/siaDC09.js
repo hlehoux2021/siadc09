@@ -174,6 +174,16 @@ function siaDC09_lockProfileFields(locked, lockMedia) {
   })
 }
 
+// pointer-events:none stops a mouse click on the control itself, but a click on its <label> still
+// toggles it, and the keyboard (space, arrows) still reaches a focused select. A locked control
+// (aria-disabled) therefore refuses the click and the select keys; disabled would not be saved.
+$(document).on('click', 'input[type="checkbox"][aria-disabled="true"], input[type="radio"][aria-disabled="true"]', function(event) {
+  event.preventDefault()
+})
+$(document).on('mousedown keydown', 'select[aria-disabled="true"]', function(event) {
+  if (event.type === 'mousedown' || event.key !== 'Tab') event.preventDefault()
+})
+
 // ONE lock caption for the whole advanced panel (never per section, never per field).
 // Text: « Fixé par le profil « {nom} ». Choisissez « Personnalisé » pour le modifier. »
 // An empty label hides it (Personnalisé: no caption, no locked look).

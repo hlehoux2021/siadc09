@@ -115,7 +115,7 @@ const mediaErrors = []
 for (const action of scenario.actions || []) {
   if (action.op === 'apply') window.siaDC09_applyProfile(action.profile, action.fill)
   else if (action.op === 'validateAdvanced') validate.push(window.siaDC09_validateAdvanced())
-  else if (action.op === 'click') $(action.selector).trigger('click')
+  else if (action.op === 'click') $(action.selector)[0].click()
   else if (action.op === 'summary') summaries.push(window.siaDC09_periodicSummaryLines(action.cfg))
   else if (action.op === 'printEqLogic') {
     // Jeedom fills the form from the saved configuration before calling printEqLogic.

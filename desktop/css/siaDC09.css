@@ -135,6 +135,15 @@
 }
 #siaDC09-wizard input[type=checkbox]:checked:after { color: var(--siaDC09-strong); }
 
+/* Inline code (extension examples): Bootstrap paints it red on pink, which clashes with both themes */
+#siaDC09-wizard code {
+  background: rgba(var(--contrast-color), 0.1);
+  color: var(--siaDC09-strong);
+  border: 1px solid rgba(var(--contrast-color), 0.25);
+  border-radius: 3px;
+  padding: 1px 6px;
+}
+
 /* A checkbox presented as a field-sized box (same height as the other fields) */
 #siaDC09-wizard .siaDC09-checkbox-box {
   display: flex;

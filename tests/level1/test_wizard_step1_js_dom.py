@@ -392,6 +392,32 @@ def test_extension_radio_drives_saved_single_tag_key() -> None:
     assert (out["extChoice"]["single"], out["extChoice"]["multi"]) == (False, True)
 
 
+def test_locked_checkboxes_and_radios_refuse_a_click() -> None:
+    """
+    A profile-locked checkbox or radio keeps its value when clicked (also through its label).
+
+    Expected result:
+    - clicking a locked checkbox leaves it unchanged
+    - clicking a locked radio leaves the saved choice unchanged
+    - after Personnalisé the same checkbox toggles again
+    """
+    profile = {"label": "FoxStream (FoxBox)", "supervision_format": "sia-dcs", "supervision_interval": 30,
+               "rp_enabled": 1, "rp_interval": 120, **_FULL_ON}
+    locked = _run({"profiles": {"fox": profile}, "actions": [
+        {"op": "apply", "profile": "fox", "fill": True},
+        {"op": "click", "selector": '.eqLogicAttr[data-l2key="rp_enabled"]'},
+        {"op": "click", "selector": '.eqLogicAttr[data-l2key="media_clip_enabled"]'}]})
+    # Assert: both checkboxes kept the value the profile set
+    assert locked["fields"]["rp_enabled"] is True
+    assert locked["media"]["media_clip_enabled"] is True
+
+    custom = _run({"profiles": {"fox": profile}, "actions": [
+        {"op": "apply", "profile": "fox", "fill": True}, {"op": "apply", "profile": "", "fill": True},
+        {"op": "click", "selector": '.eqLogicAttr[data-l2key="rp_enabled"]'}]})
+    # Assert: unlocked, the click toggles it
+    assert custom["fields"]["rp_enabled"] is False
+
+
 def test_profile_locks_with_caption_and_exposes_state() -> None:
     """
     A profile locks every panel field, readable, with ONE caption for the whole panel.
