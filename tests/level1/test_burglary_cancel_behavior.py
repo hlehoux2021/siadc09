@@ -81,12 +81,13 @@ class cmd {
 
 class siaDC09 {
     const MEDIA_FORMATS = ['U', 'V'];
+    const MEDIA_ENABLED_KEY = 'media_enabled';
     const MEDIA_SNAPSHOT_ENABLED_KEY = 'media_snapshot_enabled';
     const MEDIA_CLIP_ENABLED_KEY = 'media_clip_enabled';
     const MEDIA_SNAPSHOT_FORMAT_KEY = 'media_snapshot_format';
     const MEDIA_CLIP_FORMAT_KEY = 'media_clip_format';
     const MEDIA_SINGLE_TAG_KEY = 'media_single_tag';
-    const MEDIA_DEFAULTS = ['media_snapshot_enabled' => 1, 'media_clip_enabled' => 1, 'media_snapshot_format' => 'V', 'media_clip_format' => 'V', 'media_single_tag' => 1];
+    const MEDIA_DEFAULTS = ['media_enabled' => 1, 'media_snapshot_enabled' => 1, 'media_clip_enabled' => 1, 'media_snapshot_format' => 'V', 'media_clip_format' => 'V', 'media_single_tag' => 1];
     public static array $sent = [];
     public static function sendToDaemon(array $params): void {
         self::$sent[] = $params;

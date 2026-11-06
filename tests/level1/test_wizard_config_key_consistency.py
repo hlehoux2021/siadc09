@@ -392,7 +392,7 @@ def test_js_profile_apply_and_validator_rules(js_source: str) -> None:
 # ── Story 17.7: alarm media keys: PHP class constants ↔ wizard page ↔ JS ─────
 
 _MEDIA_KEYS = [
-    "media_snapshot_enabled", "media_clip_enabled",
+    "media_enabled", "media_snapshot_enabled", "media_clip_enabled",
     "media_snapshot_format", "media_clip_format", "media_single_tag",
 ]
 
@@ -414,19 +414,30 @@ def test_media_key_in_class_page_and_js(php_class: str, php_page: str, js_source
     assert key in js_source
 
 
-def test_media_url_field_is_in_advanced_options_not_step3(php_page: str) -> None:
+def test_media_url_field_is_in_media_card_not_step3(php_page: str) -> None:
     """
-    The URL template moved from step 3 to the advanced options, hidden until a media is on.
+    Story 17.10: the Frigate address lives in the photo/video card on step 1 (outside the
+    advanced panel), hidden until the box is checked.
 
     Expected result:
-    - the template input sits inside #siaDC09-advanced, before step 2
+    - the template input sits in #siaDC09-media-card, before the advanced panel and step 2
     - the URL group starts hidden; step 3 has an error area
+    - the card holds the media_enabled box, which is not a profile field
     """
+    card = php_page.index('id="siaDC09-media-card"')
     advanced = php_page.index('id="siaDC09-advanced"')
-    step2 = php_page.index('id="siaDC09-step2"')
     field = php_page.index('data-l2key="frigate_media_url_template"')
-    # Assert: field inside the advanced block
-    assert advanced < field < step2
+    # Assert: field inside the card, ahead of the advanced block
+    assert card < field < advanced
+    # Assert: the box is in the card and is a user choice (no profile lock class)
+    box_tag = php_page[php_page.rindex("<input", 0, php_page.index('data-l2key="media_enabled"')):][:400].split(">")[0]
+    assert card < php_page.index('data-l2key="media_enabled"') < advanced
+    assert "siaDC09-profile-field" not in box_tag
+    # Assert: the five content keys are locked by the profile
+    for key in ("media_snapshot_enabled", "media_clip_enabled", "media_snapshot_format",
+                "media_clip_format", "media_single_tag"):
+        tag = php_page[php_page.rindex("<", 0, php_page.index(f'data-l2key="{key}"')):].split(">")[0]
+        assert "siaDC09-profile-field" in tag, key
     # Assert: hidden by default
     assert 'id="siaDC09-media-url-group" style="display:none;"' in php_page
     # Assert: step 3 error area exists

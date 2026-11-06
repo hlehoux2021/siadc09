@@ -57,31 +57,30 @@ def test_apply_profile_fills_and_locks_fields() -> None:
 
 
 @pytest.mark.parametrize("fmt", ["U", "V"])
-def test_apply_media_profile_fills_media_options_without_locking_them(fmt: str) -> None:
+def test_apply_media_profile_fills_media_options(fmt: str) -> None:
     """
-    A profile carrying media keys (17.8) sets the media options and leaves them editable.
+    A profile carrying media keys (17.8) fills the media options (locked since 17.10).
 
     Expected result:
     - snapshot and clip on, both formats = fmt, one tag on, URL field shown
-    - only the four periodic-frame fields are locked
     """
     profile = {"supervision_format": "sia-dcs", "supervision_interval": 30,
-               "rp_enabled": 1, "rp_interval": 120,
+               "rp_enabled": 1, "rp_interval": 120, "media_enabled": 1,
                "media_snapshot_enabled": 1, "media_clip_enabled": 1,
                "media_snapshot_format": fmt, "media_clip_format": fmt, "media_single_tag": 1}
     out = _run({"profiles": {"p": profile},
                 "actions": [{"op": "apply", "profile": "p", "fill": True}]})
 
     # Assert: media options copied
-    assert out["media"] == {"media_snapshot_enabled": True, "media_clip_enabled": True,
+    assert out["media"] == {"media_enabled": True, "media_snapshot_enabled": True,
+                            "media_clip_enabled": True,
                             "media_snapshot_format": fmt, "media_clip_format": fmt,
                             "media_single_tag": True}
-    # Assert: the URL template field appears because a media is on
+    # Assert: the Frigate field appears because the box is on
     assert out["mediaUrlVisible"] is True
-    # Assert: periodic-frame values copied too, and only those four fields locked
+    # Assert: periodic-frame values copied too
     assert out["fields"]["supervision_interval"] == "30"
     assert out["fields"]["rp_interval"] == "120"
-    assert out["locked"] == 4
 
 
 def test_apply_profile_without_media_keys_leaves_media_options_alone() -> None:
@@ -307,20 +306,21 @@ def _media_trigger(key: str, **kwargs: Any) -> dict[str, Any]:
     return {"op": "trigger", "selector": f'.eqLogicAttr[data-l2key="{key}"]', **kwargs}
 
 
-def test_media_url_field_follows_media_toggles() -> None:
+def test_media_url_field_follows_media_box() -> None:
     """
-    The URL field shows only when a media is on.
+    The Frigate address shows only when the photo/video box is checked (17.10).
 
     Expected result:
-    - hidden with both media off, shown with the snapshot on, hidden again when off
+    - hidden with the box off, shown when it is checked
     """
-    off = {"media_snapshot_enabled": False, "media_clip_enabled": False}
-    out_off = _run({"fields": off, "actions": [_media_trigger("media_clip_enabled", checked=False)]})
-    out_on = _run({"fields": off, "actions": [_media_trigger("media_snapshot_enabled", checked=True)]})
+    out_off = _run({"fields": {"media_enabled": True},
+                    "actions": [_media_trigger("media_enabled", checked=False)]})
+    out_on = _run({"fields": {"media_enabled": False},
+                   "actions": [_media_trigger("media_enabled", checked=True)]})
 
-    # Assert: hidden with both off
+    # Assert: hidden with the box off
     assert out_off["mediaUrlVisible"] is False
-    # Assert: shown with one on
+    # Assert: shown with the box on
     assert out_on["mediaUrlVisible"] is True
 
 
@@ -345,20 +345,152 @@ def test_single_tag_disabled_and_unchecked_for_mixed_formats() -> None:
 
 def test_media_config_error_on_empty_url() -> None:
     """
-    Step 3 Next is refused when a media is on and the URL empty.
+    Step 1 and step 3 Next are refused when the box is checked and the address empty (17.10).
 
     Expected result:
-    - error with media on and no URL; none with a URL or with both media off
+    - error with the box on and no address; none with an address or with the box off
     """
-    on = {"media_snapshot_enabled": True}
+    on = {"media_enabled": True}
     out = _run({"fields": on, "actions": [{"op": "mediaError"}]})
     out_url = _run({"fields": {**on, "frigate_media_url_template": "https://h/"},
                     "actions": [{"op": "mediaError"}]})
-    out_off = _run({"fields": {}, "actions": [{"op": "mediaError"}]})
+    out_off = _run({"fields": {"media_enabled": False}, "actions": [{"op": "mediaError"}]})
 
-    # Assert: error shown for an empty URL
+    # Assert: error shown for an empty address
     assert out["mediaErrors"][0] != ""
-    # Assert: no error once the URL is set
+    # Assert: no error once the address is set
     assert out_url["mediaErrors"] == [""]
-    # Assert: no error with both media off
+    # Assert: no error with the box off
     assert out_off["mediaErrors"] == [""]
+
+
+# ── Story 17.10: photo / video verification card and locked media keys ────────
+
+_FULL_ON = {"media_enabled": 1, "media_snapshot_enabled": 1, "media_clip_enabled": 1,
+            "media_snapshot_format": "U", "media_clip_format": "U", "media_single_tag": 1}
+_SCUTUM = {"supervision_format": "none", "rp_enabled": 1, "rp_interval": 60,
+           "media_enabled": 0, "media_snapshot_enabled": 0, "media_clip_enabled": 1,
+           "media_snapshot_format": "V", "media_clip_format": "V", "media_single_tag": 1}
+_AJAX = {"supervision_format": "none", "rp_enabled": 1, "rp_interval": 60}
+
+
+def test_media_profile_locks_content_keys_and_checks_box() -> None:
+    """
+    A profile with media keys locks the five content keys and checks the box (not locked).
+
+    Expected result:
+    - box checked and available; Frigate address field shown
+    - 4 periodic fields + 5 media content fields locked
+    """
+    out = _run({"profiles": {"p": {"supervision_format": "sia-dcs", "supervision_interval": 30,
+                                   "rp_enabled": 1, "rp_interval": 120, **_FULL_ON}},
+                "actions": [{"op": "apply", "profile": "p", "fill": True}]})
+
+    # Assert: box checked, not greyed
+    assert out["media"]["media_enabled"] is True
+    assert out["mediaBox"] == {"greyed": False, "ariaDisabled": False}
+    # Assert: address field shown
+    assert out["mediaUrlVisible"] is True
+    # Assert: nine profile fields locked
+    assert out["locked"] == 9
+
+
+def test_scutum_locks_video_only_v_and_leaves_box_off() -> None:
+    """
+    Scutum: video only in V, box unchecked yet available.
+
+    Expected result:
+    - snapshot off, clip on, formats V; box off and not greyed; Frigate field hidden
+    """
+    out = _run({"profiles": {"scutum": _SCUTUM},
+                "actions": [{"op": "apply", "profile": "scutum", "fill": True}]})
+
+    # Assert: video only in V
+    assert (out["media"]["media_snapshot_enabled"], out["media"]["media_clip_enabled"]) == (False, True)
+    assert (out["media"]["media_snapshot_format"], out["media"]["media_clip_format"]) == ("V", "V")
+    # Assert: the box is off but the user may check it
+    assert out["media"]["media_enabled"] is False
+    assert out["mediaBox"]["greyed"] is False
+    assert out["mediaUrlVisible"] is False
+
+
+def test_ajax_greys_box_unchecked_with_caption() -> None:
+    """
+    A profile declaring no media key greys the box, unchecked, with the explanatory caption.
+
+    Expected result:
+    - box unchecked even if it was checked, greyed, aria-disabled; caption shown
+    """
+    out = _run({"profiles": {"ajax": _AJAX}, "fields": {"media_enabled": True},
+                "actions": [{"op": "apply", "profile": "ajax", "fill": True}]})
+
+    # Assert: unchecked and greyed
+    assert out["media"]["media_enabled"] is False
+    assert out["mediaBox"] == {"greyed": True, "ariaDisabled": True}
+    # Assert: caption visible
+    assert out["nomediaVisible"] is True
+
+
+def test_custom_profile_unlocks_media_and_box_after_ajax() -> None:
+    """
+    Personnalisé (empty profile) unlocks everything and makes the box available again.
+
+    Expected result:
+    - no locked field, box not greyed, caption hidden
+    """
+    out = _run({"profiles": {"ajax": _AJAX},
+                "actions": [{"op": "apply", "profile": "ajax", "fill": True},
+                            {"op": "apply", "profile": "", "fill": True}]})
+
+    # Assert: nothing locked, box available
+    assert out["locked"] == 0
+    assert out["mediaBox"] == {"greyed": False, "ariaDisabled": False}
+    assert out["nomediaVisible"] is False
+
+
+def test_box_off_keeps_frigate_value_and_hides_field() -> None:
+    """
+    Unchecking the box hides the address field but keeps its value.
+
+    Expected result:
+    - field hidden, value kept, no media error
+    """
+    out = _run({"fields": {"media_enabled": True, "frigate_media_url_template": "https://f/"},
+                "actions": [_media_trigger("media_enabled", checked=False), {"op": "mediaError"}]})
+
+    # Assert: hidden
+    assert out["mediaUrlVisible"] is False
+    # Assert: value kept in the form
+    assert out["frigateValue"] == "https://f/"
+    # Assert: nothing to complain about
+    assert out["mediaErrors"] == [""]
+
+
+def test_validate_step1_refuses_empty_frigate_with_field_error() -> None:
+    """
+    Suivant is refused at step 1 with the box on and an empty address.
+
+    Expected result:
+    - validate false; banner lists the message; the field carries the error class
+    """
+    out = _run({"fields": {**_VALID_CONNECTION, "supervision_format": "sia-dcs", "media_enabled": True},
+                "actions": [{"op": "validate"}]})
+
+    # Assert: refused
+    assert out["validate"] == [False]
+    # Assert: banner message and field marked
+    assert "Adresse du serveur Frigate" in out["errors"]
+    assert out["frigateInvalid"] is True
+
+
+def test_legacy_equipment_reads_box_on() -> None:
+    """
+    An equipment saved before 17.10 (no media_enabled) loads with the box on.
+
+    Expected result:
+    - box checked after printEqLogic
+    """
+    out = _run({"actions": [{"op": "printEqLogic", "eqLogic": {"configuration": {"csr_profile": ""}}}]})
+
+    # Assert: absent key reads as on
+    assert out["media"]["media_enabled"] is True

@@ -49,6 +49,11 @@ class siaDC09Cmd extends cmd {
                 // closes the connection before invoking on_message()).
                 log::add('siaDC09', 'debug', 'prefetchEvent: execute() invoked, raw title='
                     . json_encode($_options['title'] ?? null));
+                // Story 17.10: photo/video verification off — no Frigate prefetch, no forced capture.
+                if (!$this->_mediaSetting(siaDC09::MEDIA_ENABLED_KEY)) {
+                    log::add('siaDC09', 'debug', 'prefetchEvent ignoré : levée de doute photo/vidéo désactivée');
+                    break;
+                }
                 $zone = trim($_options['title'] ?? '');
                 if ($zone === '') {
                     log::add('siaDC09', 'warning', 'prefetchEvent déclenché sans zone — '
@@ -128,13 +133,14 @@ class siaDC09Cmd extends cmd {
                 // before clip. The daemon groups them into [U..]/[V..] tags. Both off or none
                 // resolved: no 'media' key at all (same omit-not-null contract as 14-1..14-3).
                 $media = [];
-                if ($this->_mediaSetting(siaDC09::MEDIA_SNAPSHOT_ENABLED_KEY)) {
+                $mediaOn = (bool) $this->_mediaSetting(siaDC09::MEDIA_ENABLED_KEY);  // Story 17.10 master switch
+                if ($mediaOn && $this->_mediaSetting(siaDC09::MEDIA_SNAPSHOT_ENABLED_KEY)) {
                     $snapshotUrl = $this->_resolveFrigateSnapshotUrl($zoneEntry, $cacheEntry);
                     if ($snapshotUrl !== null) {
                         $media[] = ['format' => $this->_mediaFormat(siaDC09::MEDIA_SNAPSHOT_FORMAT_KEY), 'url' => $snapshotUrl];
                     }
                 }
-                if ($this->_mediaSetting(siaDC09::MEDIA_CLIP_ENABLED_KEY)) {
+                if ($mediaOn && $this->_mediaSetting(siaDC09::MEDIA_CLIP_ENABLED_KEY)) {
                     $clipUrl = $this->_resolveFrigateClipUrl($zoneEntry, $cacheEntry);
                     if ($clipUrl !== null) {
                         $media[] = ['format' => $this->_mediaFormat(siaDC09::MEDIA_CLIP_FORMAT_KEY), 'url' => $clipUrl];

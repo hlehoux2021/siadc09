@@ -790,6 +790,16 @@ captures (`internal-docs/ajax.md`) showed the expected shape `Nri<area>/<code><a
 - ADR-03 is superseded.
 - Implemented by Epic 17 (Stories 17.1-17.5).
 
+**Amendment (2026-11-06, Story 17.10): alarm media in profiles.**
+- A profile pre-fills **and locks** every key it declares, the alarm media content keys included
+  (`media_snapshot_enabled`, `media_clip_enabled`, `media_snapshot_format`, `media_clip_format`, `media_single_tag`).
+  This corrects 17.7 ("not profile fields") and 17.8 ("filled but not locked").
+- `media_enabled` (0/1, absent = 1) is the user's switch for photo/video verification. A profile gives only its default,
+  never locks it; a profile that declares no media key (Ajax) leaves the box greyed and unchecked.
+  `frigate_media_url_template` is never a profile key; it is required while the box is on.
+- `media_enabled=0` sends no media tag and skips the Frigate prefetch and forced capture. `deamon_info()` refuses an empty
+  address only when `media_enabled` is explicitly stored as 1: equipment saved before the key keeps launching.
+
 ---
 
 ### ADR-18 — User-addressed event codes and the configured SIA user *(added 2026-09-25)*

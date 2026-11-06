@@ -44,12 +44,16 @@ class siaDC09 extends eqLogic {
      * (snapshot + clip, both "V", one tag) for equipment saved before the keys existed.
      */
     const MEDIA_FORMATS = ['U', 'V'];
+    /** Story 17.10: master switch of the "Levée de doute photo / vidéo" card; absent = on. */
+    const MEDIA_ENABLED_KEY = 'media_enabled';
+    const MEDIA_URL_TEMPLATE_KEY = 'frigate_media_url_template';
     const MEDIA_SNAPSHOT_ENABLED_KEY = 'media_snapshot_enabled';
     const MEDIA_CLIP_ENABLED_KEY = 'media_clip_enabled';
     const MEDIA_SNAPSHOT_FORMAT_KEY = 'media_snapshot_format';
     const MEDIA_CLIP_FORMAT_KEY = 'media_clip_format';
     const MEDIA_SINGLE_TAG_KEY = 'media_single_tag';
     const MEDIA_DEFAULTS = [
+        'media_enabled'          => 1,
         'media_snapshot_enabled' => 1,
         'media_clip_enabled'     => 1,
         'media_snapshot_format'  => 'V',
@@ -235,6 +239,19 @@ class siaDC09 extends eqLogic {
         if ($periodicFrameError !== null) {
             $return['launchable'] = 'nok';
             $return['launchable_message'] = $periodicFrameError;
+            return $return;
+        }
+
+        // Guard 3f — Story 17.10: photo/video verification needs the Frigate address. Applies
+        // only when media_enabled is explicitly stored as 1 (user decision 2026-11-06): an
+        // equipment saved before the key existed keeps launching; the wizard writes the key.
+        $mediaAddressError = self::mediaConfigError(
+            $eqLogic->getConfiguration(self::MEDIA_ENABLED_KEY, null),
+            (string) $eqLogic->getConfiguration(self::MEDIA_URL_TEMPLATE_KEY, '')
+        );
+        if ($mediaAddressError !== null) {
+            $return['launchable'] = 'nok';
+            $return['launchable_message'] = $mediaAddressError;
             return $return;
         }
 
@@ -511,6 +528,21 @@ class siaDC09 extends eqLogic {
                 "Intervalle du test cyclique RP invalide — entre 60 et 86400 secondes (étape 1 de l'assistant, Options avancées).",
                 __FILE__
             );
+        }
+        return null;
+    }
+
+    /**
+     * deamon_info() Guard 3f (Story 17.10): why the photo/video setting is refused, or null.
+     * Refused only when `media_enabled` is explicitly stored as on (1/'1'/true) and the Frigate
+     * address is blank; an absent (null) or '' key is a pre-17.10 equipment and is not checked.
+     *
+     * @param mixed $mediaEnabled Stored `media_enabled` value, null when never saved.
+     */
+    public static function mediaConfigError(mixed $mediaEnabled, string $frigateAddress): ?string {
+        $explicitlyOn = $mediaEnabled !== null && $mediaEnabled !== '' && (bool) $mediaEnabled;
+        if ($explicitlyOn && trim($frigateAddress) === '') {
+            return __("Adresse du serveur Frigate : obligatoire quand la levée de doute est activée (étape 1 de l'assistant).", __FILE__);
         }
         return null;
     }

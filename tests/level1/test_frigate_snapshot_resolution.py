@@ -651,12 +651,13 @@ class cmd {
 
 class siaDC09 {
     const MEDIA_FORMATS = ['U', 'V'];
+    const MEDIA_ENABLED_KEY = 'media_enabled';
     const MEDIA_SNAPSHOT_ENABLED_KEY = 'media_snapshot_enabled';
     const MEDIA_CLIP_ENABLED_KEY = 'media_clip_enabled';
     const MEDIA_SNAPSHOT_FORMAT_KEY = 'media_snapshot_format';
     const MEDIA_CLIP_FORMAT_KEY = 'media_clip_format';
     const MEDIA_SINGLE_TAG_KEY = 'media_single_tag';
-    const MEDIA_DEFAULTS = ['media_snapshot_enabled' => 1, 'media_clip_enabled' => 1, 'media_snapshot_format' => 'V', 'media_clip_format' => 'V', 'media_single_tag' => 1];
+    const MEDIA_DEFAULTS = ['media_enabled' => 1, 'media_snapshot_enabled' => 1, 'media_clip_enabled' => 1, 'media_snapshot_format' => 'V', 'media_clip_format' => 'V', 'media_single_tag' => 1];
     public static array $sent = [];
     public static function sendToDaemon(array $params): void {
         self::$sent[] = $params;
@@ -923,6 +924,30 @@ class TestExecuteAlarmMediaSettings:
         # Assert: keys omitted entirely
         assert "media" not in out["sent"][0]
         assert "media_single_tag" not in out["sent"][0]
+
+    def test_media_enabled_off_sends_no_media_despite_content_keys_on(self) -> None:
+        """
+        Story 17.10, expected result:
+        - media_enabled=0 with snapshot and clip still on: no media tag at all
+        """
+        out = _run_execute_burglar_alarm(
+            _fresh_entry(found=True, clip_found=True), media_config={"media_enabled": 0}
+        )
+        # Assert: keys omitted entirely
+        assert "media" not in out["sent"][0]
+        assert "media_single_tag" not in out["sent"][0]
+
+    def test_media_enabled_on_keeps_todays_media(self) -> None:
+        """
+        Story 17.10, expected result:
+        - media_enabled=1 explicit: same list as the legacy (key absent) equipment
+        """
+        legacy = _run_execute_burglar_alarm(_fresh_entry(found=True, clip_found=True))["sent"][0]
+        on = _run_execute_burglar_alarm(
+            _fresh_entry(found=True, clip_found=True), media_config={"media_enabled": 1}
+        )["sent"][0]
+        # Assert: identical payload
+        assert on == legacy
 
 
 class TestExecuteMediaAcrossAlarmTypesAndPartialResolution:

@@ -171,6 +171,14 @@ _DEAMON_INFO_CASES: list[tuple[dict, str]] = [
     ({"supervision_format": "sia-dcs", "rp_enabled": 1, "rp_interval": 120}, "ok"),
     ({"supervision_format": "sia-dcs", "rp_enabled": 0, "rp_interval": 5}, "ok"),
     ({"supervision_format": "keepalive"}, "nok"),
+    # Guard 3f (story 17.10, user decision 2026-11-06): only an explicitly stored media_enabled=1 is checked.
+    ({"media_enabled": 1}, "nok"),
+    ({"media_enabled": "1", "frigate_media_url_template": "  "}, "nok"),
+    ({"media_enabled": 1, "frigate_media_url_template": "https://frigate.maison.fr"}, "ok"),
+    ({"media_enabled": 0}, "ok"),
+    ({"media_enabled": "0"}, "ok"),
+    ({"media_enabled": ""}, "ok"),
+    ({"frigate_media_url_template": ""}, "ok"),                          # legacy: key absent, still launches
 ]
 
 
@@ -185,7 +193,9 @@ def _php_deamon_info_guard_results(cases: list[tuple[dict, str]]) -> list[str]:
     consts = _class_constants(source, [
         "SENDER_CRC_FORMATS", "SUPERVISION_FORMATS", "SUPERVISION_FORMAT_DEFAULT",
         "RP_INTERVAL_DEFAULT_S", "RP_INTERVAL_MIN_S", "RP_INTERVAL_MAX_S",
+        "MEDIA_ENABLED_KEY", "MEDIA_URL_TEMPLATE_KEY",
     ])
+    media_body = _extract_method_body(source, "mediaConfigError")
     script = (
         _PHP_STUBS
         + " class StubEq { public function __construct(private array $c) {}"
@@ -194,6 +204,8 @@ def _php_deamon_info_guard_results(cases: list[tuple[dict, str]]) -> list[str]:
         " class siaDC09 { " + consts
         + " public static function periodicFrameConfigError(string $format, bool $rpEnabled,"
         " int $rpInterval): ?string {" + guard_body + "}"
+        " public static function mediaConfigError(mixed $mediaEnabled, string $frigateAddress):"
+        " ?string {" + media_body + "}"
         " public static function run($eqLogic) { $return = ['launchable' => 'ok'];"
         + guards + " return $return; } }"
         " $cases = json_decode(stream_get_contents(STDIN), true);"

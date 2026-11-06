@@ -41,7 +41,8 @@
         "Fichier des profils de télésurveillance invalide (JSON ou schema_version)": "Fichier des profils de télésurveillance invalide (JSON ou schema_version)",
         "Format CRC non pris en charge (seul « hex » est accepté) — réenregistrez l'équipement.": "Format CRC non pris en charge (seul « hex » est accepté) — réenregistrez l'équipement.",
         "Format de supervision inconnu (étape 1 de l'assistant, Options avancées).": "Format de supervision inconnu (étape 1 de l'assistant, Options avancées).",
-        "Intervalle du test cyclique RP invalide — entre 60 et 86400 secondes (étape 1 de l'assistant, Options avancées).": "Intervalle du test cyclique RP invalide — entre 60 et 86400 secondes (étape 1 de l'assistant, Options avancées)."
+        "Intervalle du test cyclique RP invalide — entre 60 et 86400 secondes (étape 1 de l'assistant, Options avancées).": "Intervalle du test cyclique RP invalide — entre 60 et 86400 secondes (étape 1 de l'assistant, Options avancées).",
+        "Adresse du serveur Frigate : obligatoire quand la levée de doute est activée (étape 1 de l'assistant).": "Adresse du serveur Frigate : obligatoire quand la levée de doute est activée (étape 1 de l'assistant)."
     },
     "plugins/siaDC09/core/class/siaDC09Cmd.class.php": {
         "absente de la table des zones — trame envoyée sans numéro de zone": "absente de la table des zones — trame envoyée sans numéro de zone"
@@ -126,7 +127,6 @@
         "Numéro utilisateur SIA": "Numéro utilisateur SIA",
         "N°": "N°",
         "Objet parent": "Objet parent",
-        "Requise quand un média est activé — voir": "Requise quand un média est activé — voir",
         "Clip dans les alarmes": "Clip dans les alarmes",
         "Snapshot dans les alarmes": "Snapshot dans les alarmes",
         "Un seul tag pour les médias": "Un seul tag pour les médias",
@@ -156,7 +156,6 @@
         "Trois commandes à câbler dans le plugin Alarme —": "Trois commandes à câbler dans le plugin Alarme —",
         "Type": "Type",
         "Type de notification": "Type de notification",
-        "URL media Frigate": "URL media Frigate",
         "Veuillez choisir l'action interne à exécuter.": "Veuillez choisir l'action interne à exécuter.",
         "Veuillez choisir le scénario à lancer.": "Veuillez choisir le scénario à lancer.",
         "Veuillez sélectionner une commande. Vous pouvez toujours utiliser la messagerie Jeedom.": "Veuillez sélectionner une commande. Vous pouvez toujours utiliser la messagerie Jeedom.",
@@ -171,10 +170,16 @@
         "Étape 1 — Centrale de télésurveillance": "Étape 1 — Centrale de télésurveillance",
         "Étape 2 — Test de connexion": "Étape 2 — Test de connexion",
         "Étape 3 — Zones": "Étape 3 — Zones",
-        "Étape 4 — Alertes critiques": "Étape 4 — Alertes critiques"
+        "Étape 4 — Alertes critiques": "Étape 4 — Alertes critiques",
+        "Levée de doute photo / vidéo": "Levée de doute photo / vidéo",
+        "Joindre une photo ou une vidéo à l'alarme (levée de doute)": "Joindre une photo ou une vidéo à l'alarme (levée de doute)",
+        "Le télésurveilleur peut ainsi voir ce qui a déclenché l'alarme.": "Le télésurveilleur peut ainsi voir ce qui a déclenché l'alarme.",
+        "Cette centrale ne reçoit ni photo ni vidéo.": "Cette centrale ne reçoit ni photo ni vidéo.",
+        "Ce qui est envoyé (photo, vidéo, format) est fixé par le profil : voir les options avancées.": "Ce qui est envoyé (photo, vidéo, format) est fixé par le profil : voir les options avancées.",
+        "Adresse de votre serveur Frigate *": "Adresse de votre serveur Frigate *",
+        "Exemple : https://frigate.maison.fr": "Exemple : https://frigate.maison.fr"
     },
     "plugins/siaDC09/desktop/js/siaDC09.js": {
-        "URL media Frigate requise quand un média est activé : renseignez-la dans l'étape 1, Options avancées, ou désactivez les médias": "URL media Frigate requise quand un média est activé : renseignez-la dans l'étape 1, Options avancées, ou désactivez les médias",
         "Adresse IP de la centrale requise": "Adresse IP de la centrale requise",
         "Afficher": "Afficher",
         "Au moins une trame périodique est requise : activez la supervision ou le test cyclique (RP)": "Au moins une trame périodique est requise : activez la supervision ou le test cyclique (RP)",
@@ -209,6 +214,7 @@
         "incident": "incident",
         "retry": "retry",
         "routine": "routine",
-        "événement": "événement"
+        "événement": "événement",
+        "Adresse du serveur Frigate : obligatoire quand la levée de doute est activée.": "Adresse du serveur Frigate : obligatoire quand la levée de doute est activée."
     }
 }

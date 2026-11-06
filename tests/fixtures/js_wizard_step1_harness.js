@@ -34,6 +34,9 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
   <input class="eqLogicAttr" data-l2key="csr_port">
   <input type="checkbox" class="eqLogicAttr" data-l2key="encryption_enabled">
   <input class="eqLogicAttr" data-l2key="encryption_key">
+  <input type="checkbox" class="eqLogicAttr siaDC09-media-field" data-l2key="media_enabled">
+  <div id="siaDC09-media-nomedia" style="display:none"></div>
+  <div id="siaDC09-media-url-group" style="display:none"><input class="eqLogicAttr" data-l2key="frigate_media_url_template"></div>
   <div id="siaDC09-advanced" style="display:none">
   <select class="eqLogicAttr siaDC09-profile-field" data-l2key="supervision_format">
     <option value="sia-dcs">sia-dcs</option><option value="null">null</option>
@@ -42,12 +45,11 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
   <input type="number" class="eqLogicAttr siaDC09-profile-field" data-l2key="supervision_interval">
   <input type="checkbox" class="eqLogicAttr siaDC09-profile-field" data-l2key="rp_enabled">
   <input type="number" class="eqLogicAttr siaDC09-profile-field" data-l2key="rp_interval">
-  <input type="checkbox" class="eqLogicAttr siaDC09-media-field" data-l2key="media_snapshot_enabled">
-  <select class="eqLogicAttr siaDC09-media-field" data-l2key="media_snapshot_format"><option value="U">U</option><option value="V">V</option></select>
-  <input type="checkbox" class="eqLogicAttr siaDC09-media-field" data-l2key="media_clip_enabled">
-  <select class="eqLogicAttr siaDC09-media-field" data-l2key="media_clip_format"><option value="U">U</option><option value="V">V</option></select>
-  <input type="checkbox" class="eqLogicAttr siaDC09-media-field" data-l2key="media_single_tag">
-  <div id="siaDC09-media-url-group" style="display:none"><input class="eqLogicAttr" data-l2key="frigate_media_url_template"></div>
+  <input type="checkbox" class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l2key="media_snapshot_enabled">
+  <select class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l2key="media_snapshot_format"><option value="U">U</option><option value="V">V</option></select>
+  <input type="checkbox" class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l2key="media_clip_enabled">
+  <select class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l2key="media_clip_format"><option value="U">U</option><option value="V">V</option></select>
+  <input type="checkbox" class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l2key="media_single_tag">
   <div id="siaDC09-media-single-tag-help" style="display:none"></div>
   <div id="siaDC09-null-warning" style="display:none"></div>
   </div>
@@ -118,7 +120,7 @@ for (const key of ['supervision_format', 'supervision_interval', 'rp_interval'])
 out.fields.rp_enabled = field('rp_enabled').is(':checked')
 out.media = {}
 for (const key of ['media_snapshot_format', 'media_clip_format']) out.media[key] = field(key).val()
-for (const key of ['media_snapshot_enabled', 'media_clip_enabled', 'media_single_tag']) {
+for (const key of ['media_enabled', 'media_snapshot_enabled', 'media_clip_enabled', 'media_single_tag']) {
   out.media[key] = field(key).is(':checked')
 }
 out.locked = $('.siaDC09-locked').length
@@ -128,7 +130,12 @@ out.selectedProfile = $('#siaDC09-csr-profile').val()
 out.advancedVisible = $('#siaDC09-advanced').css('display') !== 'none'
 out.nullWarningVisible = $('#siaDC09-null-warning').css('display') !== 'none'
 out.mediaUrlVisible = $('#siaDC09-media-url-group').css('display') !== 'none'
+const $box = field('media_enabled')
+out.mediaBox = { greyed: $box.css('pointer-events') === 'none', ariaDisabled: $box.attr('aria-disabled') === 'true' }
+out.nomediaVisible = $('#siaDC09-media-nomedia').css('display') !== 'none'
 out.singleTagDisabled = field('media_single_tag').prop('disabled')
 out.singleTagChecked = field('media_single_tag').is(':checked')
+out.frigateValue = field('frigate_media_url_template').val()
+out.frigateInvalid = field('frigate_media_url_template').hasClass('siaDC09-field-invalid')
 out.errors = $('#siaDC09-step1-errors').html()
 process.stdout.write(JSON.stringify(out) + '\n')

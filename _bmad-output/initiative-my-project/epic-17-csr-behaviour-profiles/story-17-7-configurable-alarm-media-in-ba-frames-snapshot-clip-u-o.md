@@ -35,3 +35,4 @@ Verify: A BA frame is built for each valid combination of snapshot on/off, clip 
 - Open question: the current code attaches media to burglar, fire and panic alarms alike. The user asked for BA only. Does the new setting apply to all three, or do fire and panic keep today's behavior?
 - Open question: when one media URL cannot be resolved and the formats differ, does the frame carry one tag for the available media only? Assumed yes.
 - Open question: this story is large (wizard, equipment config, PHP, daemon, tests). Split into frames and wizard if the build plan finds it too big.
+- Decision (reversed by 17.10, user 2026-11-06): the media content keys are profile fields, locked by the profile; only media_enabled and the Frigate address are user choices.

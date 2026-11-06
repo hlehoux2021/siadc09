@@ -29,7 +29,7 @@ function printEqLogic(_eqLogic) {
   if (!cfgSaved.rp_interval) $('.eqLogicAttr[data-l2key="rp_interval"]').val(60)
   siaDC09_applyProfile(savedProfile, false)
   // Story 17.7: absent media keys = pre-17.7 behaviour (snapshot + clip, V, V, one tag).
-  var mediaDefaults = { media_snapshot_enabled: 1, media_clip_enabled: 1, media_snapshot_format: 'V', media_clip_format: 'V', media_single_tag: 1 }
+  var mediaDefaults = { media_enabled: 1, media_snapshot_enabled: 1, media_clip_enabled: 1, media_snapshot_format: 'V', media_clip_format: 'V', media_single_tag: 1 }
   Object.keys(mediaDefaults).forEach(function(key) {
     if (cfgSaved[key] !== undefined && cfgSaved[key] !== '') return
     var $f = $('.eqLogicAttr[data-l2key="' + key + '"]')
@@ -37,6 +37,8 @@ function printEqLogic(_eqLogic) {
     else $f.val(mediaDefaults[key])
   })
   siaDC09_updateMediaFields()
+  // Ajax-like profiles (no media keys): the box stays greyed and unchecked after the defaults above.
+  if (savedProfile) siaDC09_applyProfile(savedProfile, false)
   var wizardStep = parseInt(_eqLogic.configuration && _eqLogic.configuration.sia_wizard_step || 0)
   siaDC09_initDiagnosticTab(wizardStep)
   if (wizardStep >= 4) {
@@ -144,16 +146,19 @@ function siaDC09_setWizardStep(step) {
 
 // Locking uses readonly on inputs and pointer-events on select/checkbox: disabled controls may be
 // skipped by Jeedom's getValues() serialisation, readonly ones are always saved.
-function siaDC09_lockProfileFields(locked) {
+// The media content keys (story 17.10) are locked only by a profile that declares media
+// (lockMedia); a profile without media keys leaves them untouched.
+function siaDC09_lockProfileFields(locked, lockMedia) {
   $('.siaDC09-profile-field').each(function() {
     var $f = $(this)
+    var lock = locked && (lockMedia || !$f.hasClass('siaDC09-media-field'))
     var isInput = $f.is('input[type="number"], input[type="text"]')
     if (isInput) {
-      $f.prop('readonly', locked)
+      $f.prop('readonly', lock)
     } else {
-      $f.css('pointer-events', locked ? 'none' : '').attr('tabindex', locked ? '-1' : null)
+      $f.css('pointer-events', lock ? 'none' : '').attr('tabindex', lock ? '-1' : null)
     }
-    $f.css('opacity', locked ? 0.6 : '').toggleClass('siaDC09-locked', locked)
+    $f.css('opacity', lock ? 0.6 : '').toggleClass('siaDC09-locked', lock)
   })
 }
 
@@ -162,11 +167,17 @@ function siaDC09_updateNullWarning() {
   $('#siaDC09-null-warning').toggle(isNull)
 }
 
-// Alarm media keys a profile may carry (story 17.8). Checkboxes take 0/1, selects take U/V.
-// They are filled but not locked: the profile is a starting point, the media URL template
-// is never part of a profile.
+// Alarm media keys a profile may carry (stories 17.8, 17.10). Checkboxes take 0/1, selects take U/V.
+// The content keys are filled AND locked by the profile (ADR-22). `media_enabled` is the user's
+// choice: a profile only gives its default, never locks it; the Frigate address is never a profile key.
 var SIADC09_PROFILE_MEDIA_CHECKBOXES = ['media_snapshot_enabled', 'media_clip_enabled', 'media_single_tag']
 var SIADC09_PROFILE_MEDIA_SELECTS = ['media_snapshot_format', 'media_clip_format']
+
+// A profile declares media when it carries any media key (media_enabled included).
+function siaDC09_profileDeclaresMedia(preset) {
+  return SIADC09_PROFILE_MEDIA_CHECKBOXES.concat(SIADC09_PROFILE_MEDIA_SELECTS, ['media_enabled'])
+    .some(function(key) { return preset[key] !== undefined })
+}
 
 function siaDC09_applyProfileMedia(preset) {
   SIADC09_PROFILE_MEDIA_CHECKBOXES.forEach(function(key) {
@@ -179,6 +190,22 @@ function siaDC09_applyProfileMedia(preset) {
       $('.eqLogicAttr[data-l2key="' + key + '"]').val(preset[key])
     }
   })
+  if (preset.media_enabled !== undefined) {
+    $('.eqLogicAttr[data-l2key="media_enabled"]').prop('checked', !!parseInt(preset.media_enabled, 10))
+  } else if (siaDC09_profileDeclaresMedia(preset)) {
+    $('.eqLogicAttr[data-l2key="media_enabled"]').prop('checked', true)
+  }
+  siaDC09_updateMediaFields()
+}
+
+// Checkbox availability: greyed and unchecked when the chosen profile declares no media (Ajax).
+// pointer-events + aria-disabled, not `disabled`, so Jeedom's serialisation still saves the 0.
+function siaDC09_setMediaCardAvailable(available) {
+  var $box = $('.eqLogicAttr[data-l2key="media_enabled"]')
+  if (!available) $box.prop('checked', false)
+  $box.css({ 'pointer-events': available ? '' : 'none', opacity: available ? '' : 0.6 })
+    .attr('tabindex', available ? null : '-1').attr('aria-disabled', available ? null : 'true')
+  $('#siaDC09-media-nomedia').toggle(!available)
   siaDC09_updateMediaFields()
 }
 
@@ -189,6 +216,7 @@ function siaDC09_applyProfile(profileId, fill) {
   var preset = profileId ? profiles[profileId] : null
   if (!preset) {
     siaDC09_lockProfileFields(false)
+    siaDC09_setMediaCardAvailable(true)
     siaDC09_updateNullWarning()
     return
   }
@@ -207,7 +235,9 @@ function siaDC09_applyProfile(profileId, fill) {
     }
     siaDC09_applyProfileMedia(preset)
   }
-  siaDC09_lockProfileFields(true)
+  var declaresMedia = siaDC09_profileDeclaresMedia(preset)
+  siaDC09_lockProfileFields(true, declaresMedia)
+  siaDC09_setMediaCardAvailable(declaresMedia)
   siaDC09_updateNullWarning()
 }
 
@@ -222,6 +252,7 @@ $('.eqLogicAttr[data-l2key="supervision_format"]').on('change', siaDC09_updateNu
 
 function siaDC09_mediaState() {
   return {
+    enabled: $('.eqLogicAttr[data-l2key="media_enabled"]').is(':checked'),
     snapshotOn: $('.eqLogicAttr[data-l2key="media_snapshot_enabled"]').is(':checked'),
     clipOn: $('.eqLogicAttr[data-l2key="media_clip_enabled"]').is(':checked'),
     snapshotFormat: $('.eqLogicAttr[data-l2key="media_snapshot_format"]').val() || 'V',
@@ -229,11 +260,11 @@ function siaDC09_mediaState() {
   }
 }
 
-// URL template only when a media is on; one-tag option unavailable when both media are on
-// with different formats (a single tag holds one format only).
+// Frigate address only when the box is checked (its value is kept when hidden); one-tag option
+// unavailable when both media are on with different formats (a single tag holds one format only).
 function siaDC09_updateMediaFields() {
   var m = siaDC09_mediaState()
-  $('#siaDC09-media-url-group').toggle(m.snapshotOn || m.clipOn)
+  $('#siaDC09-media-url-group').toggle(m.enabled)
   var mixed = m.snapshotOn && m.clipOn && m.snapshotFormat !== m.clipFormat
   var $single = $('.eqLogicAttr[data-l2key="media_single_tag"]')
   if (mixed) $single.prop('checked', false)
@@ -245,8 +276,8 @@ function siaDC09_updateMediaFields() {
 function siaDC09_mediaConfigError() {
   var m = siaDC09_mediaState()
   var url = ($('.eqLogicAttr[data-l2key="frigate_media_url_template"]').val() || '').trim()
-  if ((m.snapshotOn || m.clipOn) && !url) {
-    return "{{URL media Frigate requise quand un média est activé : renseignez-la dans l'étape 1, Options avancées, ou désactivez les médias}}"
+  if (m.enabled && !url) {
+    return "{{Adresse du serveur Frigate : obligatoire quand la levée de doute est activée.}}"
   }
   return ''
 }
@@ -317,6 +348,11 @@ function siaDC09_validateStep1() {
   }
   if (badRpInterval) {
     errors.push({ key: 'rp_interval', message: '{{Intervalle RP : nombre entre 60 et 86400 secondes requis}}' })
+  }
+
+  var mediaError = siaDC09_mediaConfigError()
+  if (mediaError) {
+    errors.push({ key: 'frigate_media_url_template', message: mediaError })
   }
 
   siaDC09_renderStep1Errors(errors)

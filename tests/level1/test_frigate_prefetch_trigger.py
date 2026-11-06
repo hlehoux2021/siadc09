@@ -375,12 +375,13 @@ class cmd {
 
 class siaDC09 {
     const MEDIA_FORMATS = ['U', 'V'];
+    const MEDIA_ENABLED_KEY = 'media_enabled';
     const MEDIA_SNAPSHOT_ENABLED_KEY = 'media_snapshot_enabled';
     const MEDIA_CLIP_ENABLED_KEY = 'media_clip_enabled';
     const MEDIA_SNAPSHOT_FORMAT_KEY = 'media_snapshot_format';
     const MEDIA_CLIP_FORMAT_KEY = 'media_clip_format';
     const MEDIA_SINGLE_TAG_KEY = 'media_single_tag';
-    const MEDIA_DEFAULTS = ['media_snapshot_enabled' => 1, 'media_clip_enabled' => 1, 'media_snapshot_format' => 'V', 'media_clip_format' => 'V', 'media_single_tag' => 1];
+    const MEDIA_DEFAULTS = ['media_enabled' => 1, 'media_snapshot_enabled' => 1, 'media_clip_enabled' => 1, 'media_snapshot_format' => 'V', 'media_clip_format' => 'V', 'media_single_tag' => 1];
     public static array $sent = [];
     public static function sendToDaemon(array $params): void {
         self::$sent[] = $params;
@@ -397,9 +398,9 @@ config::$values = [
 eqLogic::$byId = [
     $scenario['camera_eqlogic_id'] => new FakeEqLogic([], ['name' => $scenario['camera_name']]),
 ];
-$siaEqLogic = new FakeEqLogic($scenario['initial_cache'], [
+$siaEqLogic = new FakeEqLogic($scenario['initial_cache'], array_merge([
     'sia_zone_mappings' => $scenario['zone_mappings'],
-]);
+], $scenario['eq_config']));
 $cmd = new siaDC09Cmd();
 $cmd->logicalId = 'prefetchEvent';
 $cmd->eqLogic = $siaEqLogic;
@@ -415,6 +416,7 @@ def _run_execute_prefetch_event(
     frigate_url: str = "192.168.100.18",
     frigate_port: str = "5000",
     initial_cache: dict[str, Any] | None = None,
+    eq_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run one real execute(['title' => zone]) call for logicalId='prefetchEvent' and
     return the daemon payload plus the resulting Jeedom-side cache.
@@ -435,6 +437,7 @@ def _run_execute_prefetch_event(
         "frigate_url": frigate_url,
         "frigate_port": frigate_port,
         "initial_cache": {"sia_prefetch_cache": initial_cache} if initial_cache else {},
+        "eq_config": eq_config or {},
     }
     with tempfile.TemporaryDirectory() as tmp:
         harness = Path(tmp) / "harness.php"
@@ -510,3 +513,28 @@ class TestExecutePrefetchEventRealRun:
         # an empty PHP array, decoded by json.loads() as either {} or [])
         assert result["sent"] == []
         assert "sia_prefetch_cache" not in result["cache"] or not result["cache"]["sia_prefetch_cache"]
+
+
+class TestExecutePrefetchEventMediaSwitch:
+    """Story 17.10: the photo/video box gates the Frigate prefetch (and its forced capture)."""
+
+    def test_media_disabled_sends_nothing_and_writes_no_placeholder(self) -> None:
+        """
+        Expected result:
+        - media_enabled=0: no prefetchEvent payload to the daemon, no cache placeholder
+        """
+        result = _run_execute_prefetch_event(eq_config={"media_enabled": 0})
+        # Assert: no forced capture can start without a payload
+        assert result["sent"] == []
+        # Assert: cache untouched
+        assert "sia_prefetch_cache" not in result["cache"] or not result["cache"]["sia_prefetch_cache"]
+
+    @pytest.mark.parametrize("config", [{}, {"media_enabled": 1}, {"media_enabled": "1"}])
+    def test_media_enabled_or_legacy_still_prefetches(self, config: dict[str, Any]) -> None:
+        """
+        Expected result:
+        - key absent (equipment saved before 17.10) or on: the prefetch payload is sent as before
+        """
+        result = _run_execute_prefetch_event(eq_config=config)
+        # Assert: one prefetchEvent payload
+        assert [m["cmd"] for m in result["sent"]] == ["prefetchEvent"]

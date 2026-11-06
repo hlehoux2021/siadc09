@@ -29,3 +29,4 @@ Verify: Choosing each profile in the wizard sets the media options and the two t
 - Decision: the Vesta and FoxStream profiles set sia-dcs supervision every 30 s and RP every 120 s; these are test values (user, 2026-11-05).
 - Decision: the media URL template is never part of a profile (user, 2026-11-05).
 - Decision: Vesta uses format U and FoxStream format V, both with one tag and a single space between the URLs (user, 2026-11-05). U is `[U<url>]`, see 17.7.
+- Decision (reversed by 17.10, user 2026-11-06): the profile media keys are filled and locked by the profile; Scutum also declares video only, format V, box off (to test).

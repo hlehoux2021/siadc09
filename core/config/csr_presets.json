@@ -2,10 +2,11 @@
   "schema_version": 1,
   "profiles": {
     "ajax":   { "label": "Ajax",   "supervision_format": "none", "rp_enabled": 1, "rp_interval": 60 },
-    "scutum": { "label": "Scutum", "supervision_format": "none", "rp_enabled": 1, "rp_interval": 60 },
+    "scutum": { "label": "Scutum", "supervision_format": "none", "rp_enabled": 1, "rp_interval": 60,
+                "media_enabled": 0, "media_snapshot_enabled": 0, "media_clip_enabled": 1, "media_snapshot_format": "V", "media_clip_format": "V", "media_single_tag": 1 },
     "vesta":  { "label": "Vesta (Climax)", "supervision_format": "sia-dcs", "supervision_interval": 30, "rp_enabled": 1, "rp_interval": 120,
-                "media_snapshot_enabled": 1, "media_clip_enabled": 1, "media_snapshot_format": "U", "media_clip_format": "U", "media_single_tag": 1 },
+                "media_enabled": 1, "media_snapshot_enabled": 1, "media_clip_enabled": 1, "media_snapshot_format": "U", "media_clip_format": "U", "media_single_tag": 1 },
     "foxstream": { "label": "FoxStream (FoxBox)", "supervision_format": "sia-dcs", "supervision_interval": 30, "rp_enabled": 1, "rp_interval": 120,
-                "media_snapshot_enabled": 1, "media_clip_enabled": 1, "media_snapshot_format": "V", "media_clip_format": "V", "media_single_tag": 1 }
+                "media_enabled": 1, "media_snapshot_enabled": 1, "media_clip_enabled": 1, "media_snapshot_format": "V", "media_clip_format": "V", "media_single_tag": 1 }
   }
 }

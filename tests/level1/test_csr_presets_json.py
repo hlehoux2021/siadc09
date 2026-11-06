@@ -24,17 +24,22 @@ _ALLOWED_PROFILE_KEYS = {
     # Alarm media (story 17.7 keys, carried by profiles from 17.8). The URL template is never a profile key.
     "media_snapshot_enabled", "media_clip_enabled", "media_snapshot_format",
     "media_clip_format", "media_single_tag",
+    # Story 17.10: the box default; the user's choice, never locked.
+    "media_enabled",
 }
 
 _MEDIA_PROFILE = {
-    "media_snapshot_enabled": 1, "media_clip_enabled": 1, "media_single_tag": 1,
+    "media_enabled": 1, "media_snapshot_enabled": 1, "media_clip_enabled": 1, "media_single_tag": 1,
     "supervision_format": "sia-dcs", "supervision_interval": 30, "rp_enabled": 1, "rp_interval": 120,
 }
 
 # Epic 17 table: Ajax and Scutum are both on-demand, no supervision frame, RP every 60 s.
 _EXPECTED_PROFILES = {
     "ajax": {"label": "Ajax", "supervision_format": "none", "rp_enabled": 1, "rp_interval": 60},
-    "scutum": {"label": "Scutum", "supervision_format": "none", "rp_enabled": 1, "rp_interval": 60},
+    # Story 17.10: video only in format V, box off by default (to test with the CSR).
+    "scutum": {"label": "Scutum", "supervision_format": "none", "rp_enabled": 1, "rp_interval": 60,
+               "media_enabled": 0, "media_snapshot_enabled": 0, "media_clip_enabled": 1,
+               "media_snapshot_format": "V", "media_clip_format": "V", "media_single_tag": 1},
     # Story 17.8: snapshot + clip, one tag; SIA-DCS every 30 s and RP every 120 s (test values).
     "vesta": {"label": "Vesta (Climax)", **_MEDIA_PROFILE,
               "media_snapshot_format": "U", "media_clip_format": "U"},

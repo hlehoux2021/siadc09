@@ -202,6 +202,29 @@ $scenarios = scenario::all();
 										</div>
 									</div>
 
+									<!-- Levée de doute photo / vidéo (story 17.10) : choix utilisateur, jamais verrouillé -->
+									<div id="siaDC09-media-card">
+										<div class="form-group">
+											<label class="col-sm-4 control-label">{{Levée de doute photo / vidéo}}</label>
+											<div class="col-sm-6">
+												<label class="checkbox-inline">
+													<input type="checkbox" class="eqLogicAttr siaDC09-media-field" id="siaDC09-media-enabled" data-l1key="configuration" data-l2key="media_enabled" aria-describedby="siaDC09-media-help">
+													{{Joindre une photo ou une vidéo à l'alarme (levée de doute)}}
+												</label>
+												<p class="help-block" id="siaDC09-media-help">{{Le télésurveilleur peut ainsi voir ce qui a déclenché l'alarme.}}</p>
+												<p class="help-block" id="siaDC09-media-nomedia" style="display:none;">{{Cette centrale ne reçoit ni photo ni vidéo.}}</p>
+												<p class="help-block">{{Ce qui est envoyé (photo, vidéo, format) est fixé par le profil : voir les options avancées.}}</p>
+											</div>
+										</div>
+										<div class="form-group" id="siaDC09-media-url-group" style="display:none;">
+											<label class="col-sm-4 control-label">{{Adresse de votre serveur Frigate *}}</label>
+											<div class="col-sm-6">
+												<input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="frigate_media_url_template" placeholder="https://frigate.maison.fr">
+												<p class="help-block">{{Exemple : https://frigate.maison.fr}} — <a href="https://hlehoux2021.github.io/siadc09/fr_FR/#photos-et-vidéos-frigate-optionnel" target="_blank" rel="noopener">{{la documentation Frigate}}</a>.</p>
+											</div>
+										</div>
+									</div>
+
 									<!-- Options avancées (ADR-22) -->
 									<div class="form-group">
 										<div class="col-sm-offset-4 col-sm-6">
@@ -239,12 +262,12 @@ $scenarios = scenario::all();
 											</div>
 										</div>
 
-										<!-- Médias d'alarme (story 17.7) : réglage par équipement, hors profil -->
+										<!-- Contenu des médias (story 17.7, verrouillé par le profil depuis 17.10) -->
 										<div class="form-group">
 											<label class="col-sm-4 control-label">{{Snapshot dans les alarmes}}</label>
 											<div class="col-sm-6">
-												<input type="checkbox" class="eqLogicAttr siaDC09-media-field" data-l1key="configuration" data-l2key="media_snapshot_enabled">
-												<select class="eqLogicAttr form-control siaDC09-media-field" data-l1key="configuration" data-l2key="media_snapshot_format" style="display:inline-block;width:auto;margin-left:10px;">
+												<input type="checkbox" class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l1key="configuration" data-l2key="media_snapshot_enabled">
+												<select class="eqLogicAttr form-control siaDC09-media-field siaDC09-profile-field" data-l1key="configuration" data-l2key="media_snapshot_format" style="display:inline-block;width:auto;margin-left:10px;">
 													<option value="U">U</option>
 													<option value="V">V</option>
 												</select>
@@ -253,8 +276,8 @@ $scenarios = scenario::all();
 										<div class="form-group">
 											<label class="col-sm-4 control-label">{{Clip dans les alarmes}}</label>
 											<div class="col-sm-6">
-												<input type="checkbox" class="eqLogicAttr siaDC09-media-field" data-l1key="configuration" data-l2key="media_clip_enabled">
-												<select class="eqLogicAttr form-control siaDC09-media-field" data-l1key="configuration" data-l2key="media_clip_format" style="display:inline-block;width:auto;margin-left:10px;">
+												<input type="checkbox" class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l1key="configuration" data-l2key="media_clip_enabled">
+												<select class="eqLogicAttr form-control siaDC09-media-field siaDC09-profile-field" data-l1key="configuration" data-l2key="media_clip_format" style="display:inline-block;width:auto;margin-left:10px;">
 													<option value="U">U</option>
 													<option value="V">V</option>
 												</select>
@@ -263,15 +286,8 @@ $scenarios = scenario::all();
 										<div class="form-group" id="siaDC09-media-single-tag-group">
 											<label class="col-sm-4 control-label">{{Un seul tag pour les médias}}</label>
 											<div class="col-sm-6">
-												<input type="checkbox" class="eqLogicAttr siaDC09-media-field" data-l1key="configuration" data-l2key="media_single_tag">
+												<input type="checkbox" class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l1key="configuration" data-l2key="media_single_tag">
 												<p class="help-block" id="siaDC09-media-single-tag-help" style="display:none;">{{Indisponible : un tag unique ne porte qu'un format (U ou V).}}</p>
-											</div>
-										</div>
-										<div class="form-group" id="siaDC09-media-url-group" style="display:none;">
-											<label class="col-sm-4 control-label">{{URL media Frigate}}</label>
-											<div class="col-sm-6">
-												<input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="frigate_media_url_template" placeholder="https://<user>:<pass>@host/ ou https://host/?accesstoken=<token>">
-												<p class="help-block">{{Requise quand un média est activé — voir}} <a href="https://hlehoux2021.github.io/siadc09/fr_FR/#photos-et-vidéos-frigate-optionnel" target="_blank" rel="noopener">{{la documentation Frigate}}</a>.</p>
 											</div>
 										</div>
 									</div>

@@ -1115,7 +1115,11 @@ A profile may omit a key (e.g. `supervision_interval`); the wizard then leaves t
 
 A profile may also carry the story 17.7 media keys: `media_snapshot_enabled`, `media_clip_enabled`
 (0/1), `media_snapshot_format`, `media_clip_format` (`U` or `V`) and `media_single_tag` (0/1).
-The wizard fills them but does not lock them, and the media URL template is never a profile key.
+The wizard fills them **and locks them** (Story 17.10, ADR-22 amendment), and the media URL template is never a profile key.
+A profile may also declare `media_enabled` (0/1), the default of the photo/video box on step 1: Vesta and FoxStream 1,
+Scutum 0 (with `media_snapshot_enabled` 0, `media_clip_enabled` 1, both formats `V`, to be tested). The box itself is never
+locked. A profile that declares no media key (Ajax) leaves the box greyed and unchecked, with the caption
+« Cette centrale ne reçoit ni photo ni vidéo. ».
 
 | Profile | Media | Supervision | RP |
 |---|---|---|---|
@@ -1164,4 +1168,6 @@ The 30 s and 120 s values are test values.
 
 ## Story 17.7 - Alarm media in the wizard
 
-The advanced options of step 1 carry the media block: `media_snapshot_enabled` / `media_clip_enabled` (checkboxes), `media_snapshot_format` / `media_clip_format` (U or V), `media_single_tag` (checkbox), and the `frigate_media_url_template` field (moved from step 3). The URL field is shown only when a media is on. The one-tag option is disabled (and unchecked) when both media are on with different formats. Step 3 "Suivant" is blocked with a message in `#siaDC09-step3-errors` when a media is on and the URL is empty. Absent keys load as snapshot on, clip on, V, V, one tag. These fields are not profile fields (17.8 does not touch them).
+The advanced options of step 1 carry the media block: `media_snapshot_enabled` / `media_clip_enabled` (checkboxes), `media_snapshot_format` / `media_clip_format` (U or V), `media_single_tag` (checkbox), and the `frigate_media_url_template` field (moved from step 3). The one-tag option is disabled (and unchecked) when both media are on with different formats. Absent keys load as snapshot on, clip on, V, V, one tag.
+
+**Story 17.10 amendment.** The five content fields are profile fields (locked by a profile that declares media; editable in Personnalisé). The Frigate address left the advanced panel for the card « Levée de doute photo / vidéo » (`#siaDC09-media-card`), above « Options avancées »: the checkbox `media_enabled` (« Joindre une photo ou une vidéo à l'alarme (levée de doute) », absent = on, set explicitly by the JS on load) and the required address « Adresse de votre serveur Frigate * » (`#siaDC09-media-url-group`, shown only while the box is checked, value kept when hidden). Step 1 « Suivant » refuses a checked box with an empty address (field error + banner, key `frigate_media_url_template`); step 3 keeps the same check as a safety net. With `media_enabled=0` PHP sends no `media` to the daemon and does not send `prefetchEvent` (no Frigate prefetch, no forced capture). `deamon_info()` Guard 3f (`siaDC09::mediaConfigError()`) refuses an empty address only when `media_enabled` is explicitly stored as 1, so equipment saved before the key keeps launching; the wizard writes the key on save.
