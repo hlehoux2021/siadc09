@@ -69,6 +69,15 @@ context:
 - Given a DUH on the wizard path, then PHP logs it at WARNING and `daemon.py` SM1_DUH is unchanged.
 - Given a DUH, then the view shows exactly the two suggestions and no profile name.
 
+## Implementation Notes
+
+- Implemented directly (no subagent); quick self-review of the diff, no reviewer subagents.
+- `sent.type` is the frame token without `*` ("SIA-DCS", "NULL"). Every red result shows the sent message; only a DUH gets the sentence and the two checks.
+- `core/i18n/fr_FR.json` keys added (the i18n round-trip test requires them); the account check uses a `#compte#` replacement so it stays one translatable string.
+- `sia_wizard_step` stays 2 after Back; step 1 Suivant re-saves it.
+- A `node_modules` symlink to the main tree was created locally to run the jsdom tests; not committed.
+- Not done: browser check on test-jeedom (needs push and a human).
+
 ## Design Notes
 
 `outcome` is a new key beside `status` because the UI status set (ok/nak/fail/error) must not grow (comment l.70 of siadc09d.py). The JS composes the user-facing DUH text from `outcome`, `sent` and the account, so the profile never appears.
