@@ -715,6 +715,8 @@ def test_run_connection_test_encrypted_sent_summary_has_no_frame(capsys, monkeyp
     out = json.loads(captured.out.strip())
     # Assert: only the summary keys
     assert set(out["sent"]) == {"type", "account", "transport"}
+    # Assert: the type shows no leading asterisk, even for an encrypted frame
+    assert out["sent"]["type"] == "SIA-DCS"
     # Assert: neither the key nor the encrypted frame is printed anywhere
     assert key not in captured.out + captured.err
     assert sent["frame"].hex() not in captured.out + captured.err

@@ -281,7 +281,8 @@ def _frame_type(frame: bytes) -> str:
         The token, or "?" when the header is unreadable.
     """
     try:
-        return parse_frame_header(frame)[0]
+        # The header token carries its "*" on encrypted frames ("*SIA-DCS"); the summary shows none.
+        return parse_frame_header(frame)[0].lstrip("*")
     except SIAProtocolError:
         return _UNKNOWN_FRAME_TYPE
 
