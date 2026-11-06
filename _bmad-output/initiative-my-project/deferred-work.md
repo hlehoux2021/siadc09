@@ -245,3 +245,19 @@ level2/level3 tests + golden fixture + harness. This closes the 4-group review o
 - source_plan: `_bmad-output/initiative-my-project/epic-17-csr-behaviour-profiles/story-17-9-wizard-step-1-blocking-fixes-suivant-banner-daemon-stop-plan.md`
   summary: When `deamonStop` fails after the wizard step was saved, the saved step stays at 2 (Suivant) or 0 (Relancer), so a reload lands on the wrong screen.
   evidence: Review finding, low: save-before-stop is required so the watchdog cannot restart the daemon; a rollback save on stop error would fix it.
+
+- source_plan: `_bmad-output/initiative-my-project/epic-17-csr-behaviour-profiles/story-17-12-wizard-step-2-without-dead-end-plan.md`
+  summary: Strengthen the 17.12 tests: the PHP DUH-at-WARNING test only matches substrings, and the "no frame content" assertion checks for the words "hex" and "b'" rather than the frame.
+  evidence: Review of 2026-11-06: test_test_connection_logs_duh_stderr_at_warning would pass if the branch were inverted or moved; test_run_connection_test_returns_sent_summary would pass with a hex dump that lacks the word "hex".
+
+- source_plan: `_bmad-output/initiative-my-project/epic-17-csr-behaviour-profiles/story-17-12-wizard-step-2-without-dead-end-plan.md`
+  summary: Cover late answers after Modifier la centrale beyond the ok case: a late fail answer, and a held answer from an earlier run delivered after a new run started.
+  evidence: test_wizard_step1_flow_js_dom.py tests only a late ok answer; the harness answer op delivers all held callbacks, including those of earlier runs, so the run-token guard is untested for those paths.
+
+- source_plan: `_bmad-output/initiative-my-project/epic-17-csr-behaviour-profiles/story-17-12-wizard-step-2-without-dead-end-plan.md`
+  summary: siaDC09_renderStep2Failure builds the last sentence with replace of #compte# on the translated string, so a translation that drops the token silently loses the account number.
+  evidence: Review finding, low: harmless while only fr_FR exists, but en_US is partial and unchecked.
+
+- source_plan: `_bmad-output/initiative-my-project/epic-17-csr-behaviour-profiles/story-17-12-wizard-step-2-without-dead-end-plan.md`
+  summary: Modifier la centrale leaves the stored sia_wizard_step at 2, so a reload from step 1 re-enters step 2 and relaunches the connection test.
+  evidence: Accepted in the plan, but EXPERIENCE.md says Back resets the wizard step; decide whether a reset save is wanted.
