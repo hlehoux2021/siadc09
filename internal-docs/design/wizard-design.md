@@ -2,14 +2,14 @@
 
 **Version:** 0.4
 **Date:** 2026-11-06
-**Status:** Step 1 rewritten for CSR profiles and periodic-frame options (Story 17.4, ADR-22); daemon stop moved to the JS (Story 17.9)
+**Status (story 17.14):** three steps (Centrale / Test + Options avancées / Zones et alertes), layout from the Excalidraw mockup. The "Task breakdown" and "Testing strategy" sections below still name the former four steps (historical); the sections above are current. Earlier: Step 1 rewritten for CSR profiles and periodic-frame options (Story 17.4, ADR-22); daemon stop moved to the JS (Story 17.9)
 
 ---
 
 ## Overview
 
 The wizard is the **equipment configuration page** (`desktop/php/siaDC09.php`). It guides
-the user through 4 steps the first time, then switches to a standard flat config layout once
+the user through 3 steps the first time (story 17.14), then switches to a standard flat config layout once
 complete. It is the only configuration interface for the plugin — there is no separate
 "wizard page".
 
@@ -29,12 +29,16 @@ The page has two modes, selected by checking `sia_wizard_step` on load:
 
 ### Canonical Wizard Step Map
 
+Story 17.14 reduced the wizard to three steps. `sia_wizard_step` holds the step being shown;
+`4` stays the "wizard complete" value (JS constant `SIADC09_WIZARD_DONE`, PHP launch guard `< 4`),
+written only by « Terminer ». No stored value is migrated (test phase).
+
 | `sia_wizard_step` | Meaning |
 |---|---|
 | `0` | Not started |
-| `1` | Step 1 (CSR parameters) complete |
-| `2` | Connection test complete |
-| `3` | Zone mapping complete |
+| `1` | Step 1 shown (Centrale + photo/video verification) |
+| `2` | Step 2 shown (Test + Options avancées) |
+| `3` | Step 3 shown (Zones et alertes) |
 | `4` | Configuration mode (wizard complete) |
 
 > **Browser-refresh safety:** on every "Next" click, saving `sia_wizard_step` must be the
@@ -65,14 +69,23 @@ without the dialog and without the stop.
 
 ## Wizard steps
 
-| Step | Title | What the user configures |
+| Step | Tab | What the user configures |
 |---|---|---|
-| 1 | Centrale de télésurveillance | Profile, CSR address, account, encryption, periodic-frame options |
-| 2 | Test de connexion | Live connection test to the CSR |
-| 3 | Vos zones d'alarme | Zone → camera action + media URL mapping |
-| 4 | Alertes critiques | Jeedom command to call on critical errors |
+| 1 | Centrale | Profile, CSR address, account, encryption; photo/video verification (Frigate address) |
+| 2 | Test | Live connection test to the CSR; Options avancées (content sent, supervision), unlocked by « Personnalisé » |
+| 3 | Zones et alertes | Zone → camera mapping and user number; Jeedom command to call on critical errors; « Terminer » |
 
-Progress is shown as a horizontal stepper at the top (non-clickable, read-only).
+Progress is shown by a three-tab stepper at the top of the wizard (`#siaDC09-stepper`, non-clickable,
+read-only, the active tab follows `siaDC09_showStep()`).
+
+**Layout (story 17.14).** The layout source of truth is the Excalidraw mockup
+`_bmad-output/initiative-my-project/epic-17-csr-behaviour-profiles/ux-17-wizard-step-1/.working/flow-wizard-step-1-2026-11-05.excalidraw`
+(screens A to D); it wins over DESIGN.md text where they differ. Styles live in `desktop/css/siaDC09.css`:
+one framed zone (`.siaDC09-zone`, fill #f8f9fa) per topic with its title, the label above its field,
+related fields on one row (`.siaDC09-row`), one lock caption per locked panel, and the Options avancées
+dashed bar (`.siaDC09-advbar`) above its content. Jeedom forces a grey `a:hover` color
+(`--linkHover-color`), unreadable in the Light theme: the plugin CSS overrides link and button hover
+colors with id selectors.
 
 ---
 
@@ -104,19 +117,25 @@ All fields are always rendered and bound via `data-l2key`.
 | Port | `csr_port` | 1–65535 |
 | Transport | `transport` | udp / tcp |
 | Numéro de compte | `account_number` | 3–16 hex chars |
-| Chiffrement activé / Clé AES | `encryption_enabled` / `encryption_key` | 32, 48 or 64 hex chars |
-| Tentatives de reconnexion | `retry_count` | reconnection attempts (previously mislabelled "Tentatives") |
-| Délai de reconnexion (s) | `reconnect_delay` | |
+| Chiffrer les échanges / Clé AES | `encryption_enabled` / `encryption_key` | 32, 48 or 64 hex chars; the key field shows only while the box is checked |
 
-**Options avancées** (collapsed panel `#siaDC09-advanced`, toggled by `#bt_siaDC09_toggleAdvanced`).
-The supervision fields below carry the class `siaDC09-profile-field` and are the ones a profile locks:
+Step 1 holds two framed zones: « Votre centrale de télésurveillance » and « Levée de doute photo / vidéo »
+(`media_enabled`, Frigate address). The profile help sits to the right of the select. No Options avancées bar
+on step 1; its summary line points to the Test step.
+
+**Options avancées** now live on step 2 (Test): a dashed bar `#bt_siaDC09_toggleAdvanced` (folded: « Options
+avancées : contenu envoyé, supervision de la liaison » plus a muted hint; open: « Options avancées (cliquer
+pour replier) ») with the panel `#siaDC09-advanced` BELOW it (user decision 2026-11-06, not as screen B first
+drew it). The supervision fields below carry the class `siaDC09-profile-field` and are the ones a profile locks:
 
 | Field | HTML binding | Notes |
 |---|---|---|
-| Trame de supervision | `supervision_format` | none / sia-dcs / null |
-| Intervalle supervision (s) | `supervision_interval` | |
+| Message de vie (trame de supervision) | `supervision_format` | none / sia-dcs / null |
+| Toutes les (secondes) | `supervision_interval` | |
 | Test cyclique (RP) | `rp_enabled` | checkbox |
-| Intervalle RP (s) | `rp_interval` | 60–86400 |
+| Toutes les (secondes) | `rp_interval` | 60–86400 |
+| Tentatives de reconnexion | `retry_count` | reconnection attempts; not a profile field |
+| Délai de reconnexion (s) | `reconnect_delay` | not a profile field |
 
 > **Locking:** `disabled` controls may be skipped by Jeedom's `getValues()` serialisation, so
 > inputs use `readonly`; selects, checkboxes and radios use `pointer-events:none`, `tabindex=-1` and `aria-disabled="true"`.
@@ -127,7 +146,9 @@ The supervision fields below carry the class `siaDC09-profile-field` and are the
 - **Contenu envoyé avec l'alarme (photo / vidéo)**: photo and video (`media_snapshot_enabled`, `media_clip_enabled`) each with a format select labelled « Video Verification Link (V) » / « URL Multimedia Direct (U) » (stored values stay `V` / `U`), then the extension choice. `media_single_tag` stays the saved key (a hidden checkbox); two radios (`.siaDC09-ext-radio`) drive it: « une seule extension pour les deux liens » (`[Vhttps://monsite/..../snapshot.jpg https://monsite/..../clip.mp4]`, a space between URLs) and « une extension par lien » (`[V…snapshot.jpg][V…clip.mp4]`), with the letter of the current format. These examples are the bytes of `SIAMessageBuilder._format_media_tags`. The choice is always visible; when photo and video are not both sent with the same format it is greyed, unselected, with the reason « Disponible seulement si photo et vidéo sont envoyées avec le même format. » (`#siaDC09-media-single-tag-help`).
 - **Supervision de la liaison**: intro « Votre alarme signale régulièrement à la centrale qu'elle fonctionne. », then supervision format and interval, RP and RP interval.
 
-A profile locks the fields it declares; locked fields stay visible and readable (opacity 0.6) and expose `readonly` (text/number inputs) or `aria-disabled="true"` (others). One caption per sub-section (`#siaDC09-lock-caption-media`, `#siaDC09-lock-caption-supervision`): « Fixé par le profil « {nom} ». Choisissez « Personnalisé » pour le modifier. ». In Personnalisé there is no caption and nothing is locked. A profile that declares no media key (Ajax) locks the supervision sub-section only: the content fields stay editable and carry no caption (decision 2026-11-06). Folding the panel never changes a value.
+A profile locks the fields it declares; locked fields stay visible and readable (grey fill #e9ecef, grey border and text, set by `.siaDC09-locked` / `.siaDC09-field-locked`) and expose `readonly` (text/number inputs) or `aria-disabled="true"` (others). ONE caption for the whole panel (`#siaDC09-lock-caption`, top of the panel): « Fixé par le profil « {nom} ». Choisissez « Personnalisé » pour le modifier. », followed by the action « Passer en Personnalisé » (`#bt_siaDC09_goCustom`). In Personnalisé there is no caption and nothing is locked. A profile that declares no media key (Ajax) leaves the content fields editable (decision 2026-11-06). Folding the panel never changes a value.
+
+**Personnalisé from the Test step (story 17.14).** « Passer en Personnalisé » sets the profile select to Personnalisé and fires the same `change` handler as choosing it on step 1: fields unlock, values are kept, no preset is modified. The test does NOT rerun by itself (user decision): only « Relancer le test » validates the advanced options (`siaDC09_validateAdvanced()`, errors in `#siaDC09-step2-errors`, panel opens), saves the form (the test reads the saved config) and reruns the test.
 
 The orange NULL warning (`#siaDC09-null-warning`) is removed: the cause of a refusal is not known to be specific to the NULL format.
 
@@ -136,11 +157,12 @@ The orange NULL warning (`#siaDC09-null-warning`) is removed: the cause of a ref
 - `account_number` non-empty, 3–16 hex chars
 - If `encryption_enabled`: `encryption_key` non-empty, 32, 48 or 64 hex chars
 - `csr_ip` non-empty; `csr_port` numeric, 1–65535
-- Supervision `none` with RP off is refused (no periodic frame at all)
-- RP on with a period outside 60–86400 s is refused
+- Media on: Frigate address non-empty
 
-The two periodic-frame rules are the JS twin of `siaDC09::periodicFrameConfigError()`. Errors go
-to `#siaDC09-step1-errors`; no advance when validation fails.
+Errors go to `#siaDC09-step1-errors`; no advance when validation fails. The two periodic-frame rules
+(supervision `none` with RP off refused; RP on with a period outside 60–86400 s refused) moved to the Test
+step (`siaDC09_validateAdvanced()`, run before every test); they are the JS twin of
+`siaDC09::periodicFrameConfigError()`.
 
 ### Data flow
 
@@ -167,9 +189,14 @@ Validation, then `sia_wizard_step = 2` and a save, then the wizard advances to s
 |   [spinner]  Test en cours...                             |
 |                                                           |
 +-----------------------------------------------------------+
+|  [> Options avancées : contenu envoyé, supervision]       |
++-----------------------------------------------------------+
 |  [← Modifier la centrale] [Relancer le test] [Ignorer] [Suivant →] |
 +-----------------------------------------------------------+
 ```
+
+Order on the page: summary, result, Options avancées bar (and panel), buttons. Screen C of the mockup is
+the failed state; screen B the unfolded panel. « Suivant » is `btn-success`; when inert it is grey and dashed.
 
 The CSR summary is computed from the saved config (read-only display, not input fields).
 
@@ -215,7 +242,7 @@ to switch to « Personnalisé » (a profile locks those settings).
 | Button | Behavior |
 |---|---|
 | "← Modifier la centrale" | Returns to step 1 with every value kept, saves nothing, and resets step 1 buttons (`showStep(1)`). Live in every step 2 state, including while the test runs: the run is abandoned and its late answer is ignored (run token). Replaces "stepper non-clickable, no way back". |
-| "Relancer le test" | Re-triggers the same auto-test flow |
+| "Relancer le test" | Validates the advanced options, saves the form, then re-triggers the auto-test flow. The only way to start a new test after the first (switching to Personnalisé never reruns it). |
 | "Ignorer" | Advances to step 3 WITHOUT testing; shows an inline warning: "Connexion non testée — le plugin ne pourra pas transmettre d'alarmes si la connexion échoue." |
 | "Suivant →" | Only available after exit 0 (`"success"` or `"failure"`/NAK). Blocked (greyed) if test is pending or timed out (exit 1 `"timeout"`). Advances to step 3. If the last result was `"failure"` (NAK), a confirmation dialog is shown before advancing. |
 
@@ -248,7 +275,9 @@ JS                     PHP (ajax.php)              Subprocess (--test-only)   CS
 
 ---
 
-## Step 3 — Vos zones d'alarme
+## Step 3 — Zones et alertes (zone 1: Vos zones d'alarme)
+
+Story 17.14 merged the former steps 3 and 4 into one page with two framed zones and one « Terminer » button (`#bt_step3Finish`). « Terminer » checks the Frigate address and the notification target, serialises the zone table, writes `sia_wizard_step = 4` and reloads into config mode. There is no « Suivant » on this step and no `#siaDC09-step4` element.
 
 ### Zone source
 
@@ -359,11 +388,11 @@ DC-03 user-addressed code (`BC`, `OP`, and `CL` — story 13-4) — see `php-cor
 ### On "Suivant"
 
 Saves the current `sia_zone_mappings` and `sia_user_number` via standard save, advances to
-step 4. No mandatory validation — empty mapping is allowed; `sia_user_number` defaults to `1`.
+the Alertes zone (same page). No mandatory validation — empty mapping is allowed; `sia_user_number` defaults to `1`.
 
 ---
 
-## Step 4 — Alertes critiques
+## Step 3 (zone 2) — Alertes critiques (former step 4)
 
 ### Layout
 
@@ -541,11 +570,11 @@ All stored in `eqLogic->getConfiguration()`. Fields introduced by the wizard:
 | `retry_count` | int | Step 1 |
 | `sia_zone_mappings` | array | Step 3 |
 | `sia_user_number` | int (1-999) | Step 3 — Story 13.1, default `1` |
-| `sia_notify_kind` | string | Step 4 — `cmd` \| `internal`; empty means `cmd` |
-| `sia_notify_cmd_id` | int | Step 4 (kind `cmd`) |
-| `sia_notify_cmd_human` | string | Step 4 (kind `cmd`, display only) |
-| `sia_notify_internal` | string | Step 4 (kind `internal`) — `message` \| `scenario` |
-| `sia_notify_scenario_id` | int | Step 4 (`sia_notify_internal = scenario`) |
+| `sia_notify_kind` | string | Step 3 (Alertes) — `cmd` \| `internal`; empty means `cmd` |
+| `sia_notify_cmd_id` | int | Step 3 (Alertes) (kind `cmd`) |
+| `sia_notify_cmd_human` | string | Step 3 (Alertes) (kind `cmd`, display only) |
+| `sia_notify_internal` | string | Step 3 (Alertes) (kind `internal`) — `message` \| `scenario` |
+| `sia_notify_scenario_id` | int | Step 3 (Alertes) (`sia_notify_internal = scenario`) |
 | `sia_wizard_step` | int | Updated at each step completion |
 
 ---

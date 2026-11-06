@@ -439,7 +439,7 @@ def test_media_url_field_is_in_media_card_not_step3(php_page: str) -> None:
         tag = php_page[php_page.rindex("<", 0, php_page.index(f'data-l2key="{key}"')):].split(">")[0]
         assert "siaDC09-profile-field" in tag, key
     # Assert: hidden by default
-    assert 'id="siaDC09-media-url-group" style="display:none;"' in php_page
+    assert re.search(r'id="siaDC09-media-url-group"[^>]*style="[^"]*display:none;', php_page)
     # Assert: step 3 error area exists
     assert 'id="siaDC09-step3-errors"' in php_page
 
@@ -447,15 +447,15 @@ def test_media_url_field_is_in_media_card_not_step3(php_page: str) -> None:
 def test_js_media_rules(js_source: str) -> None:
     """
     JS shows the URL only when a media is on, disables the one-tag option for mixed
-    formats and blocks step 3 Next on an empty URL.
+    formats and blocks Terminer (step 3) on an empty URL.
 
     Expected result:
-    - the three helpers exist and step 3 Next calls the validator
+    - the three helpers exist and Terminer calls the validator
     """
     # Assert: helpers defined
     assert "function siaDC09_updateMediaFields(" in js_source
     assert "function siaDC09_mediaConfigError(" in js_source
     # Assert: mixed formats disable the single-tag option
     assert "snapshotFormat === m.clipFormat" in js_source
-    # Assert: step 3 Next is gated
-    assert "siaDC09_mediaConfigError()" in js_source.split("#bt_step3Next")[1]
+    # Assert: Terminer is gated
+    assert "siaDC09_mediaConfigError()" in js_source.split("#bt_step3Finish")[1]

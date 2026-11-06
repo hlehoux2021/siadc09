@@ -29,7 +29,7 @@ const path = require('path')
 const PROJECT_ROOT = path.resolve(__dirname, '../..')
 const scenario = JSON.parse(process.argv[2] || '{}')
 
-const group = (inner) => `<div class="form-group"><label></label><div class="col-sm-6">${inner}</div></div>`
+const group = (inner) => `<div class="siaDC09-field"><label></label>${inner}</div>`
 
 const dom = new JSDOM(`<!DOCTYPE html><html><body>
   <div id="div_alert"></div>
@@ -38,6 +38,7 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
     <a class="btn btn-warning btn-sm" id="bt_restartWizard">Relancer</a>
     <div id="siaDC09-config-summary" style="display:none;"></div>
     <div id="siaDC09-wizard">
+      <ul id="siaDC09-stepper"><li data-step="1">1</li><li data-step="2">2</li><li data-step="3">3</li></ul>
       <div id="siaDC09-step1" class="siaDC09-step" style="display:none;">
         ${group('<select id="siaDC09-csr-profile" class="eqLogicAttr" data-l2key="csr_profile"><option value=""></option></select>')}
         ${group('<input class="eqLogicAttr" data-l2key="csr_ip">')}
@@ -46,12 +47,8 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
         ${group('<input class="eqLogicAttr" data-l2key="account_number">')}
         ${group('<input type="checkbox" class="eqLogicAttr" data-l2key="encryption_enabled">')}
         ${group('<input class="eqLogicAttr" data-l2key="encryption_key">')}
-        <div id="siaDC09-advanced" style="display:none;">
-          ${group('<select class="eqLogicAttr siaDC09-profile-field" data-l2key="supervision_format"><option value="none">none</option><option value="sia-dcs">sia-dcs</option><option value="null">null</option></select>')}
-          ${group('<input type="number" class="eqLogicAttr siaDC09-profile-field" data-l2key="supervision_interval">')}
-          ${group('<input type="checkbox" class="eqLogicAttr siaDC09-profile-field" data-l2key="rp_enabled">')}
-          ${group('<input type="number" class="eqLogicAttr siaDC09-profile-field" data-l2key="rp_interval">')}
-        </div>
+        ${group('<input type="checkbox" class="eqLogicAttr siaDC09-media-field" id="siaDC09-media-enabled" data-l2key="media_enabled">')}
+        <div id="siaDC09-media-url-group" style="display:none;">${group('<input class="eqLogicAttr" data-l2key="frigate_media_url_template">')}</div>
         <div id="siaDC09-step1-errors" class="alert alert-danger" role="alert" style="display:none;"></div>
         <a class="btn btn-success" id="bt_step1Next">Suivant</a>
       </div>
@@ -59,6 +56,15 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
         <div id="siaDC09-step2-summary"></div>
         <div id="siaDC09-step2-spinner" style="display:none;"></div>
         <div id="siaDC09-step2-result" style="display:none;"></div>
+        <a id="bt_siaDC09_toggleAdvanced" aria-expanded="false"><i id="siaDC09-advbar-icon"></i><span id="siaDC09-advbar-title-text"></span><span id="siaDC09-advbar-hint"></span></a>
+        <div id="siaDC09-advanced" style="display:none;">
+          <p id="siaDC09-lock-caption" style="display:none;"><span></span><a id="bt_siaDC09_goCustom">Personnalisé</a></p>
+          ${group('<select class="eqLogicAttr siaDC09-profile-field" data-l2key="supervision_format"><option value="none">none</option><option value="sia-dcs">sia-dcs</option><option value="null">null</option></select>')}
+          ${group('<input type="number" class="eqLogicAttr siaDC09-profile-field" data-l2key="supervision_interval">')}
+          ${group('<input type="checkbox" class="eqLogicAttr siaDC09-profile-field" data-l2key="rp_enabled">')}
+          ${group('<input type="number" class="eqLogicAttr siaDC09-profile-field" data-l2key="rp_interval">')}
+        </div>
+        <div id="siaDC09-step2-errors" style="display:none;"></div>
         <a class="btn btn-default" id="bt_step2Back">Modifier</a>
         <a class="btn btn-default" id="bt_step2Retest">Relancer le test</a>
         <a class="btn btn-warning" id="bt_step2Skip">Ignorer</a>
@@ -66,10 +72,12 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
       </div>
       <div id="siaDC09-step3" class="siaDC09-step" style="display:none;">
         <div id="siaDC09-step3-warning" style="display:none;"></div>
-        <a class="btn btn-success" id="bt_step3Next">Suivant</a>
-      </div>
-      <div id="siaDC09-step4" class="siaDC09-step" style="display:none;">
-        <a class="btn btn-success" id="bt_step4Finish">Terminer</a>
+        <div id="siaDC09-step3-errors" style="display:none;"></div>
+        <table><tbody id="siaDC09-zone-tbody"></tbody></table>
+        <select id="siaDC09_notifyKind" class="eqLogicAttr" data-l2key="sia_notify_kind"><option value="cmd">cmd</option><option value="internal">internal</option></select>
+        <input type="hidden" class="eqLogicAttr" data-l2key="sia_notify_cmd_id">
+        <div id="siaDC09-notify-error" style="display:none;"></div>
+        <a class="btn btn-success" id="bt_step3Finish">Terminer</a>
       </div>
     </div>
   </div>
@@ -91,7 +99,8 @@ $.fn.showAlert = function(opts) { record('alert:' + (opts && opts.message)); ret
 $.fn.getValues = function() {
   return [{ id: 1, configuration: { sia_wizard_step: $('.eqLogicAttr[data-l2key="sia_wizard_step"]').val() } }]
 }
-window.siaDC09_csrProfiles = {}
+window.siaDC09_csrProfiles = scenario.profiles || {}
+for (const id of Object.keys(window.siaDC09_csrProfiles)) $("#siaDC09-csr-profile").append($("<option>").val(id).text(id))
 window.jeeFrontEnd = {}
 window.jeeDialog = {
   confirm: function(message, callback) { record('confirm'); callback(next('confirm', true)) }
@@ -146,7 +155,7 @@ const setFields = (fields) => {
   }
 }
 
-const BUTTONS = ['bt_restartWizard', 'bt_step2Back', 'bt_step1Next', 'bt_step2Retest', 'bt_step2Skip', 'bt_step2Next', 'bt_step4Finish']
+const BUTTONS = ['bt_restartWizard', 'bt_step2Back', 'bt_step1Next', 'bt_step2Retest', 'bt_step2Skip', 'bt_step2Next', 'bt_step3Finish']
 
 function snapshot() {
   const visible = $('.siaDC09-step').filter(function() { return this.style.display !== 'none' })
@@ -161,7 +170,7 @@ function snapshot() {
     }
   }
   const fieldErrors = {}
-  $('.form-group.has-error').each(function() {
+  $('.siaDC09-field.has-error').each(function() {
     const $f = $(this).find('.eqLogicAttr').first()
     const describedBy = $f.attr('aria-describedby') || null
     fieldErrors[$f.attr('data-l2key')] = {
@@ -186,6 +195,10 @@ function snapshot() {
     step2ResultText: $('#siaDC09-step2-result').text(),
     step2ChecksCount: $('#siaDC09-step2-result .siaDC09-step2-checks li').length,
     spinnerVisible: $('#siaDC09-step2-spinner').css('display') !== 'none',
+    activeTab: $('#siaDC09-stepper li.active').attr('data-step') || null,
+    step2ErrorsVisible: $('#siaDC09-step2-errors').css('display') !== 'none',
+    captionVisible: $('#siaDC09-lock-caption').css('display') !== 'none',
+    profileValue: $('#siaDC09-csr-profile').val(),
     fieldValues: { csr_ip: field('csr_ip').val(), account_number: field('account_number').val() }
   }
 }

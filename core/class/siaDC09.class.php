@@ -20,7 +20,7 @@ require_once __DIR__ . '/siaDC09Cmd.class.php';
 
 class siaDC09 extends eqLogic {
 
-    /** Notification target kinds, stored in `sia_notify_kind` at wizard step 4. */
+    /** Notification target kinds, stored in `sia_notify_kind` at wizard step 3. */
     const NOTIFY_KIND_CMD = 'cmd';
     const NOTIFY_KIND_INTERNAL = 'internal';
 
@@ -70,7 +70,7 @@ class siaDC09 extends eqLogic {
 
     /**
      * Jeedom internal actions the plugin knows how to run as a critical alert, stored in
-     * `sia_notify_internal`. Adding one means: an <option> at step 4, a case in
+     * `sia_notify_internal`. Adding one means: an <option> at step 3, a case in
      * _runNotifyInternal() and, if it needs a target, a config key + a check in
      * _hasNotifyTarget().
      */
@@ -166,7 +166,7 @@ class siaDC09 extends eqLogic {
         if ((int) $eqLogic->getConfiguration('sia_wizard_step', 0) < 4) {
             $return['launchable'] = 'nok';
             $return['launchable_message'] = __(
-                "L'assistant de configuration n'est pas terminé — complétez les 4 étapes.", __FILE__
+                "L'assistant de configuration n'est pas terminé — complétez les 3 étapes.", __FILE__
             );
             return $return;
         }
@@ -222,7 +222,7 @@ class siaDC09 extends eqLogic {
             && (int) $eqLogic->getConfiguration('supervision_interval', 60) <= 0) {
             $return['launchable'] = 'nok';
             $return['launchable_message'] = __(
-                "Intervalle de supervision invalide (étape 1 de l'assistant).", __FILE__
+                "Intervalle de supervision invalide (étape 2 de l'assistant).", __FILE__
             );
             return $return;
         }
@@ -297,7 +297,7 @@ class siaDC09 extends eqLogic {
         if (!self::_hasNotifyTarget($eqLogic)) {
             $return['launchable'] = 'nok';
             $return['launchable_message'] = __(
-                "Notification critique non configurée (étape 4 de l'assistant).", __FILE__
+                "Notification critique non configurée (étape 3 de l'assistant).", __FILE__
             );
             return $return;
         }
@@ -515,17 +515,17 @@ class siaDC09 extends eqLogic {
      */
     public static function periodicFrameConfigError(string $format, bool $rpEnabled, int $rpInterval): ?string {
         if (!in_array($format, self::SUPERVISION_FORMATS, true)) {
-            return __("Format de supervision inconnu (étape 1 de l'assistant, Options avancées).", __FILE__);
+            return __("Format de supervision inconnu (étape 2 de l'assistant, Options avancées).", __FILE__);
         }
         if ($format === 'none' && !$rpEnabled) {
             return __(
-                "Aucune trame périodique active : supervision « none » et test cyclique RP désactivé (étape 1 de l'assistant, Options avancées).",
+                "Aucune trame périodique active : supervision « none » et test cyclique RP désactivé (étape 2 de l'assistant, Options avancées).",
                 __FILE__
             );
         }
         if ($rpEnabled && ($rpInterval < self::RP_INTERVAL_MIN_S || $rpInterval > self::RP_INTERVAL_MAX_S)) {
             return __(
-                "Intervalle du test cyclique RP invalide — entre 60 et 86400 secondes (étape 1 de l'assistant, Options avancées).",
+                "Intervalle du test cyclique RP invalide — entre 60 et 86400 secondes (étape 2 de l'assistant, Options avancées).",
                 __FILE__
             );
         }
@@ -580,7 +580,7 @@ class siaDC09 extends eqLogic {
     }
 
     /**
-     * Notification target kind chosen at wizard step 4 (self::NOTIFY_KIND_*). Installations
+     * Notification target kind chosen at wizard step 3 (self::NOTIFY_KIND_*). Installations
      * configured before the internal-action option existed carry no `sia_notify_kind`, so an
      * empty value means "an equipment command" and their `sia_notify_cmd_id` keeps working.
      */
@@ -591,7 +591,7 @@ class siaDC09 extends eqLogic {
     }
 
     /**
-     * True when step 4 left behind something able to raise a critical alert. Guards the daemon
+     * True when step 3 left behind something able to raise a critical alert. Guards the daemon
      * start: an installation with no reachable target would fail silently on the first alarm.
      */
     private static function _hasNotifyTarget(self $eqLogic): bool {
@@ -612,7 +612,7 @@ class siaDC09 extends eqLogic {
 
     /**
      * Single entry point for every critical notification: routes to the equipment command or to
-     * the Jeedom internal action selected at step 4. Never throws — a notification that fails
+     * the Jeedom internal action selected at step 3. Never throws — a notification that fails
      * must not abort its caller (supervision check, daemon message handler).
      *
      * @param bool $messageCenterDone the caller already posted $message to the message centre,
@@ -645,7 +645,7 @@ class siaDC09 extends eqLogic {
     }
 
     /**
-     * Runs the Jeedom internal action selected at step 4. A keyword such as `message` or
+     * Runs the Jeedom internal action selected at step 3. A keyword such as `message` or
      * `scenario` is a scenario-expression action, not a cmd id, so cmd::byId() cannot execute
      * it — each keyword is dispatched to its own core API.
      */

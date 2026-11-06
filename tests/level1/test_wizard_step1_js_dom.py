@@ -52,8 +52,9 @@ def test_apply_profile_fills_and_locks_fields() -> None:
     # Assert: all four profile fields locked, number inputs readonly
     assert out["locked"] == 4
     assert out["readonlyInputs"] == 2
-    # Assert: locked fields are visibly dimmed
-    assert out["dimmed"] == 4
+    # Assert: locked fields get the grey look from the stylesheet (class), not an inline opacity
+    assert out["greyed"] == 4
+    assert out["opacityDimmed"] == 0
 
 
 @pytest.mark.parametrize("fmt", ["U", "V"])
@@ -127,7 +128,7 @@ def test_apply_empty_profile_unlocks_fields() -> None:
     ]})
 
     # Assert: everything editable again
-    assert (out["locked"], out["readonlyInputs"], out["dimmed"]) == (0, 0, 0)
+    assert (out["locked"], out["greyed"], out["readonlyInputs"]) == (0, 0, 0)
 
 
 @pytest.mark.parametrize("fields, expected_ok, advanced_open", [
@@ -139,24 +140,32 @@ def test_apply_empty_profile_unlocks_fields() -> None:
     ({"rp_enabled": True, "rp_interval": ""}, False, True),                  # not a number
     ({"rp_enabled": False, "rp_interval": "5"}, True, False),                # unused interval
 ])
-def test_validate_step1_periodic_frame_rules(
+def test_validate_advanced_periodic_frame_rules(
     fields: dict[str, Any], expected_ok: bool, advanced_open: bool,
 ) -> None:
     """
-    Step 1 validation applies the periodic-frame rules of siaDC09::periodicFrameConfigError().
+    Story 17.14: the periodic-frame rules of siaDC09::periodicFrameConfigError() run on the Test
+    step (validateAdvanced, before every test), no longer on step 1.
 
     Expected result:
     - format none needs RP on; RP on needs an interval in [60, 86400]
-    - a refusal opens "Options avancées" and fills the error box
+    - a refusal opens "Options avancées" (bar reads « cliquer pour replier ») and fills the step 2 box
+    - step 1 validation does not look at these rules any more
     """
-    out = _run({"fields": {**_VALID_CONNECTION, **fields}, "actions": [{"op": "validate"}]})
+    out = _run({"fields": {**_VALID_CONNECTION, **fields}, "actions": [{"op": "validateAdvanced"}]})
 
     # Assert: verdict
     assert out["validate"] == [expected_ok]
     # Assert: advanced options opened exactly when a periodic-frame rule failed
     assert out["advancedVisible"] is advanced_open
-    # Assert: error box filled only on refusal
-    assert bool(out["errors"]) is (not expected_ok)
+    assert (out["advancedBar"]["expanded"] == "true") is advanced_open
+    # Assert: step 2 error box filled only on refusal; step 1 box untouched
+    assert bool(out["step2Errors"]) is (not expected_ok)
+    assert not out["errors"]
+
+    step1 = _run({"fields": {**_VALID_CONNECTION, **fields}, "actions": [{"op": "validate"}]})
+    # Assert: step 1 accepts a valid connection whatever the advanced values are
+    assert step1["validate"] == [True]
 
 
 _LABELS_PROFILES = {"scutum": {"label": "Scutum", "supervision_format": "none"}}
@@ -242,22 +251,23 @@ def test_print_eqlogic_saved_profile_keeps_saved_values_and_locks() -> None:
     assert out["locked"] == 4
 
 
-def test_profile_change_fills_fields_and_opens_advanced() -> None:
+def test_profile_change_fills_fields_and_keeps_advanced_folded() -> None:
     """
-    Picking a profile in the selector (change event) applies it and unfolds the advanced block.
+    Picking a profile in the selector (change event) applies it; the advanced panel (Test step)
+    never opens by itself on a profile change (story 17.14).
 
     Expected result:
-    - preset values in the fields, fields locked, "Options avancées" visible
+    - preset values in the fields, fields locked, "Options avancées" still folded
     - back to Personnalisé unlocks and keeps the values
     """
     out = _run({"profiles": _PROFILES, "actions": [
         {"op": "trigger", "selector": _SEL_PROFILE, "value": "ajax"},
     ]})
 
-    # Assert: filled, locked, unfolded
+    # Assert: filled, locked, still folded
     assert out["fields"]["rp_interval"] == "90"
     assert out["locked"] == 4
-    assert out["advancedVisible"] is True
+    assert out["advancedVisible"] is False
 
     back = _run({"profiles": _PROFILES, "actions": [
         {"op": "trigger", "selector": _SEL_PROFILE, "value": "ajax"},
@@ -384,11 +394,11 @@ def test_extension_radio_drives_saved_single_tag_key() -> None:
 
 def test_profile_locks_with_caption_and_exposes_state() -> None:
     """
-    A profile locks every panel field, readable, with one caption per sub-section.
+    A profile locks every panel field, readable, with ONE caption for the whole panel.
 
     Expected result:
     - every locked field is readonly or aria-disabled
-    - both captions name the profile; Personnalisé hides them and unlocks
+    - the single caption names the profile; Personnalisé hides it and unlocks
     """
     profile = {"label": "FoxStream (FoxBox)", "supervision_format": "sia-dcs", "supervision_interval": 30,
                "rp_enabled": 1, "rp_interval": 120, **_FULL_ON}
@@ -398,14 +408,14 @@ def test_profile_locks_with_caption_and_exposes_state() -> None:
     # Assert: locked fields expose their state
     assert out["locked"] == 11
     assert out["lockedUnexposed"] == 0
-    # Assert: captions for both sub-sections
-    assert out["captions"] == {"media": expected, "supervision": expected}
+    # Assert: one caption for the whole panel
+    assert out["caption"] == expected
 
     custom = _run({"profiles": {"fox": profile}, "actions": [
         {"op": "apply", "profile": "fox", "fill": True}, {"op": "apply", "profile": "", "fill": True}]})
     # Assert: Personnalisé unlocks and hides the captions
     assert custom["locked"] == 0
-    assert custom["captions"] == {"media": None, "supervision": None}
+    assert custom["caption"] is None
 
 
 def test_folding_the_advanced_panel_loses_no_value() -> None:
@@ -433,7 +443,7 @@ def test_ajax_locks_supervision_only_keeping_content_editable() -> None:
     Decision 2026-11-06: a profile without media keys keeps the content fields editable.
 
     Expected result:
-    - 4 supervision fields locked; supervision caption shown, content caption hidden
+    - 4 supervision fields locked; the single caption shown
     """
     out = _run({"profiles": {"ajax": {**_AJAX, "label": "Ajax"}},
                 "actions": [{"op": "apply", "profile": "ajax", "fill": True}]})
@@ -441,9 +451,39 @@ def test_ajax_locks_supervision_only_keeping_content_editable() -> None:
     # Assert: only the supervision card is locked
     assert out["locked"] == 4
     assert out["lockedUnexposed"] == 0
-    # Assert: caption only where something is locked
-    assert out["captions"]["media"] is None
-    assert out["captions"]["supervision"] is not None
+    # Assert: the one caption is shown because something is locked
+    assert out["caption"] is not None
+
+
+def test_go_custom_from_the_test_step_behaves_like_step_1_and_changes_no_preset() -> None:
+    """
+    « Passer en Personnalisé » on the Test step (story 17.14, user decision).
+
+    Expected result:
+    - the profile select reads Personnalisé, fields unlock, values kept, caption hidden
+    - no preset object is modified (the same profile can be chosen again and refills)
+    - the panel state is untouched (no auto-open) and nothing started a test (no ajax in the harness)
+    """
+    profile = {"label": "FoxStream (FoxBox)", "supervision_format": "sia-dcs", "supervision_interval": 30,
+               "rp_enabled": 1, "rp_interval": 120, **_FULL_ON}
+    out = _run({"profiles": {"fox": profile}, "actions": [
+        {"op": "trigger", "selector": _SEL_PROFILE, "value": "fox"},
+        {"op": "click", "selector": "#bt_siaDC09_goCustom"},
+    ]})
+
+    # Assert: same end state as choosing Personnalisé on step 1
+    assert out["selectedProfile"] in ("", None)
+    assert out["locked"] == 0 and out["greyed"] == 0 and out["caption"] is None
+    # Assert: values kept (preset values were filled by the first step)
+    assert out["fields"]["supervision_interval"] == "30"
+    assert out["fields"]["rp_interval"] == "120"
+    # Assert: the preset is intact: choosing the profile again refills and locks
+    again = _run({"profiles": {"fox": profile}, "actions": [
+        {"op": "trigger", "selector": _SEL_PROFILE, "value": "fox"},
+        {"op": "click", "selector": "#bt_siaDC09_goCustom"},
+        {"op": "trigger", "selector": _SEL_PROFILE, "value": "fox"},
+    ]})
+    assert again["locked"] == 11 and again["fields"]["rp_interval"] == "120"
 
 
 # ── Story 17.7: alarm media options ───────────────────────────────────────────

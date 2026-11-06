@@ -59,7 +59,6 @@ def test_config_summary_div_exists(php_page: str) -> None:
     "siaDC09-step1",
     "siaDC09-step2",
     "siaDC09-step3",
-    "siaDC09-step4",
 ])
 def test_step_div_exists(php_page: str, step_id: str) -> None:
     """
@@ -79,7 +78,6 @@ def test_step_div_exists(php_page: str, step_id: str) -> None:
     "siaDC09-step1",
     "siaDC09-step2",
     "siaDC09-step3",
-    "siaDC09-step4",
 ])
 def test_step_div_has_class_marker(php_page: str, step_id: str) -> None:
     """
@@ -304,7 +302,7 @@ def test_step3_prefetch_event_wiring_guidance_present(php_page: str) -> None:
       field, never automatically
     """
     step3_start = php_page.index('id="siaDC09-step3"')
-    step3_end = php_page.index('id="siaDC09-step4"')
+    step3_end = php_page.index('<!-- /#siaDC09-step3 -->')
     step3_markup = php_page[step3_start:step3_end]
     # Assert: the command's display name is referenced so the installer can find it
     assert "Prefetch événement Frigate" in step3_markup, (
@@ -368,10 +366,10 @@ def test_step4_finish_button_exists(php_page: str) -> None:
     Step 4 must have the "Terminer" button to complete the wizard.
 
     Expected result:
-    - id="bt_step4Finish" button present
+    - id="bt_step3Finish" button present
     """
     # Assert: finish button present
-    assert 'id="bt_step4Finish"' in php_page
+    assert 'id="bt_step3Finish"' in php_page
 
 
 def test_step4_error_div_exists(php_page: str) -> None:
@@ -379,10 +377,10 @@ def test_step4_error_div_exists(php_page: str) -> None:
     Step 4 must have an error div shown when notify cmd is not selected.
 
     Expected result:
-    - id="siaDC09-step4-error" div present
+    - id="siaDC09-notify-error" div present
     """
     # Assert: step 4 error div present
-    assert 'id="siaDC09-step4-error"' in php_page
+    assert 'id="siaDC09-notify-error"' in php_page
 
 
 # ── Navigation buttons across all steps ─────────────────────────────────────
@@ -391,8 +389,7 @@ def test_step4_error_div_exists(php_page: str) -> None:
 @pytest.mark.parametrize("btn_id", [
     "bt_step1Next",
     "bt_step2Next",
-    "bt_step3Next",
-    "bt_step4Finish",
+    "bt_step3Finish",
     "bt_restartWizard",
 ])
 def test_navigation_button_exists(php_page: str, btn_id: str) -> None:
@@ -538,3 +535,63 @@ def test_step1_advanced_fields_are_lockable(php_page: str) -> None:
         m = re.search(rf'<[^>]*data-l2key="{key}"[^>]*>', php_page)
         # Assert: field exists and is lockable
         assert m is not None and "siaDC09-profile-field" in m.group(0), f"{key} not lockable"
+
+
+# ── Story 17.14: three steps, mockup layout hooks ───────────────────────────
+
+
+def test_three_step_stepper_and_no_step4(php_page: str) -> None:
+    """
+    The wizard shows a three-tab stepper and has no fourth step.
+
+    Expected result:
+    - #siaDC09-stepper holds exactly three <li data-step> tabs (1 Centrale, 2 Test, 3 Zones et alertes)
+    - there is no element with id siaDC09-step4 and no bt_step3Next / bt_step4Finish button
+    """
+    stepper = php_page[php_page.index('id="siaDC09-stepper"'):php_page.index('<!-- Step 1')]
+    # Assert: three tabs, with the labels of the mockup
+    assert len(re.findall(r"<li data-step=", stepper)) == 3, "stepper must have exactly three tabs"
+    for label in ("{{Centrale}}", "{{Test}}", "{{Zones et alertes}}"):
+        assert label in stepper, f"tab label {label} missing"
+    # Assert: no fourth step left behind
+    assert 'id="siaDC09-step4"' not in php_page, "step 4 was merged into step 3"
+    assert 'id="bt_step3Next"' not in php_page and 'id="bt_step4Finish"' not in php_page
+
+
+def test_advanced_options_live_on_the_test_step(php_page: str) -> None:
+    """
+    The Options avancées bar and panel are inside step 2, the bar sits ABOVE the panel,
+    and there is ONE lock caption.
+
+    Expected result:
+    - #bt_siaDC09_toggleAdvanced and #siaDC09-advanced are between step2 and step3 markup
+    - the bar precedes the panel; only #siaDC09-lock-caption exists (no per-section captions)
+    """
+    step2 = php_page[php_page.index('id="siaDC09-step2"'):php_page.index('id="siaDC09-step3"')]
+    # Assert: both inside step 2, bar first
+    assert 'id="bt_siaDC09_toggleAdvanced"' in step2 and 'id="siaDC09-advanced"' in step2
+    assert step2.index('id="bt_siaDC09_toggleAdvanced"') < step2.index('id="siaDC09-advanced"')
+    # Assert: a single caption, with the switch to Personnalisé
+    assert php_page.count("siaDC09-lock-caption") == 2, "one caption element (id + class), not one per section"
+    assert 'id="bt_siaDC09_goCustom"' in step2
+    # Assert: not on step 1
+    assert 'id="siaDC09-advanced"' not in php_page[:php_page.index('id="siaDC09-step2"')]
+
+
+def test_plugin_css_is_included_and_has_the_mockup_rules() -> None:
+    """
+    The plugin ships desktop/css/siaDC09.css, includes it, and it carries the mockup rules.
+
+    Expected result:
+    - the page includes the css with include_file('desktop', 'siaDC09', 'css', 'siaDC09')
+    - the css has the #f8f9fa zone fill and a link hover color rule with an id selector and !important
+    """
+    page = _PHP_PAGE.read_text(encoding="utf-8")
+    css = (_PHP_PAGE.parents[1] / "css" / "siaDC09.css").read_text(encoding="utf-8")
+    # Assert: included
+    assert "include_file('desktop', 'siaDC09', 'css', 'siaDC09')" in page
+    # Assert: zone fill and readable hover (Jeedom forces a grey a:hover with !important)
+    assert "#f8f9fa" in css
+    assert re.search(r"#siaDC09-wizard[^{]*:hover[^{]*\{[^}]*color:[^;]*!important", css), (
+        "link hover must be overridden with an id selector plus !important"
+    )

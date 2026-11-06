@@ -37,15 +37,24 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
   <input type="checkbox" class="eqLogicAttr siaDC09-media-field" data-l2key="media_enabled">
   <div id="siaDC09-media-nomedia" style="display:none"></div>
   <div id="siaDC09-media-url-group" style="display:none"><input class="eqLogicAttr" data-l2key="frigate_media_url_template"></div>
-  <a id="bt_siaDC09_toggleAdvanced"></a>
+  <a id="bt_siaDC09_toggleAdvanced"><i id="siaDC09-advbar-icon" class="fas fa-chevron-right"></i><span id="siaDC09-advbar-title-text"></span><span id="siaDC09-advbar-hint"></span></a>
+  <div id="siaDC09-aes-row" style="display:none"></div>
   <div id="siaDC09-advanced" style="display:none">
+  <div class="siaDC09-field">
   <select class="eqLogicAttr siaDC09-profile-field" data-l2key="supervision_format">
     <option value="sia-dcs">sia-dcs</option><option value="null">null</option>
     <option value="none">none</option>
   </select>
+  </div>
+  <div class="siaDC09-field">
   <input type="number" class="eqLogicAttr siaDC09-profile-field" data-l2key="supervision_interval">
+  </div>
+  <div class="siaDC09-field">
   <input type="checkbox" class="eqLogicAttr siaDC09-profile-field" data-l2key="rp_enabled">
+  </div>
+  <div class="siaDC09-field">
   <input type="number" class="eqLogicAttr siaDC09-profile-field" data-l2key="rp_interval">
+  </div>
   <input type="checkbox" class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l2key="media_snapshot_enabled">
   <select class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l2key="media_snapshot_format"><option value="U">U</option><option value="V">V</option></select>
   <input type="checkbox" class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l2key="media_clip_enabled">
@@ -58,9 +67,9 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
     <input type="radio" name="siaDC09-ext-mode" class="siaDC09-ext-radio siaDC09-media-field siaDC09-profile-field" value="0">
     <code id="siaDC09-ext-example-multi"></code>
   </div>
-  <p id="siaDC09-lock-caption-media" style="display:none"><span></span></p>
-  <p id="siaDC09-lock-caption-supervision" style="display:none"><span></span></p>
+  <p id="siaDC09-lock-caption" style="display:none"><span></span><a id="bt_siaDC09_goCustom"></a></p>
   </div>
+  <div id="siaDC09-step2-errors" style="display:none"></div>
   <div id="siaDC09-step1-errors" style="display:none"></div>
 </body></html>`, { runScripts: 'dangerously' })
 
@@ -87,6 +96,7 @@ if (peStart === -1 || peEnd === -1 || peEnd < peStart) {
 window.siaDC09_initDiagnosticTab = () => {}
 window.siaDC09_showStep = () => {}
 window.siaDC09_populateConfigSummary = () => {}
+window.eval(source.match(/var SIADC09_WIZARD_DONE = \d+/)[0])
 window.eval(source.slice(peStart, peEnd))
 
 for (const id of Object.keys(window.siaDC09_csrProfiles)) {
@@ -104,6 +114,8 @@ const summaries = []
 const mediaErrors = []
 for (const action of scenario.actions || []) {
   if (action.op === 'apply') window.siaDC09_applyProfile(action.profile, action.fill)
+  else if (action.op === 'validateAdvanced') validate.push(window.siaDC09_validateAdvanced())
+  else if (action.op === 'click') $(action.selector).trigger('click')
   else if (action.op === 'summary') summaries.push(window.siaDC09_periodicSummaryLines(action.cfg))
   else if (action.op === 'printEqLogic') {
     // Jeedom fills the form from the saved configuration before calling printEqLogic.
@@ -132,7 +144,8 @@ for (const key of ['media_enabled', 'media_snapshot_enabled', 'media_clip_enable
   out.media[key] = field(key).is(':checked')
 }
 out.locked = $('.siaDC09-locked').length
-out.dimmed = $('.siaDC09-profile-field').filter(function() { return this.style.opacity === '0.6' }).length
+out.greyed = $('.siaDC09-field-locked').length
+out.opacityDimmed = $('.siaDC09-profile-field').filter(function() { return this.style.opacity === '0.6' }).length
 out.readonlyInputs = $('input[readonly]').length
 out.selectedProfile = $('#siaDC09-csr-profile').val()
 out.advancedVisible = $('#siaDC09-advanced').css('display') !== 'none'
@@ -152,10 +165,9 @@ out.extChoice = {
   exampleSingle: $('#siaDC09-ext-example-single').text(),
   exampleMulti: $('#siaDC09-ext-example-multi').text()
 }
-out.captions = {
-  media: $('#siaDC09-lock-caption-media').css('display') !== 'none' ? $('#siaDC09-lock-caption-media span').text() : null,
-  supervision: $('#siaDC09-lock-caption-supervision').css('display') !== 'none' ? $('#siaDC09-lock-caption-supervision span').text() : null
-}
+out.caption = $('#siaDC09-lock-caption').css('display') !== 'none' ? $('#siaDC09-lock-caption > span').text() : null
+out.advancedBar = { expanded: $('#bt_siaDC09_toggleAdvanced').attr('aria-expanded') || null, title: $('#siaDC09-advbar-title-text').text() }
+out.step2Errors = $('#siaDC09-step2-errors').html()
 // Every locked field must be readonly or aria-disabled.
 out.lockedUnexposed = $('.siaDC09-locked').filter(function() {
   return !this.readOnly && this.getAttribute('aria-disabled') !== 'true'
