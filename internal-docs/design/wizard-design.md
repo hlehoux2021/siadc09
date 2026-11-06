@@ -109,7 +109,7 @@ All fields are always rendered and bound via `data-l2key`.
 | Délai de reconnexion (s) | `reconnect_delay` | |
 
 **Options avancées** (collapsed panel `#siaDC09-advanced`, toggled by `#bt_siaDC09_toggleAdvanced`).
-These four carry the class `siaDC09-profile-field` and are the ones a profile locks:
+The supervision fields below carry the class `siaDC09-profile-field` and are the ones a profile locks:
 
 | Field | HTML binding | Notes |
 |---|---|---|
@@ -122,7 +122,14 @@ These four carry the class `siaDC09-profile-field` and are the ones a profile lo
 > inputs use `readonly`; selects and the checkbox use `pointer-events:none` plus `tabindex=-1`.
 > All locked fields are therefore still saved.
 
-Selecting the `null` format shows a warning (`#siaDC09-null-warning`): some receivers reject it.
+**Story 17.11 rework of the advanced panel.** `#siaDC09-advanced` has two sub-sections, each with a heading:
+
+- **Contenu envoyé avec l'alarme (photo / vidéo)**: photo and video (`media_snapshot_enabled`, `media_clip_enabled`) each with a format select labelled « Video Verification Link (V) » / « URL Multimedia Direct (U) » (stored values stay `V` / `U`), then the extension choice. `media_single_tag` stays the saved key (a hidden checkbox); two radios (`.siaDC09-ext-radio`) drive it: « une seule extension pour les deux liens » (`[Vhttps://monsite/..../snapshot.jpg https://monsite/..../clip.mp4]`, a space between URLs) and « une extension par lien » (`[V…snapshot.jpg][V…clip.mp4]`), with the letter of the current format. These examples are the bytes of `SIAMessageBuilder._format_media_tags`. The choice is always visible; when photo and video are not both sent with the same format it is greyed, unselected, with the reason « Disponible seulement si photo et vidéo sont envoyées avec le même format. » (`#siaDC09-media-single-tag-help`).
+- **Supervision de la liaison**: intro « Votre alarme signale régulièrement à la centrale qu'elle fonctionne. », then supervision format and interval, RP and RP interval.
+
+A profile locks the fields it declares; locked fields stay visible and readable (opacity 0.6) and expose `readonly` (text/number inputs) or `aria-disabled="true"` (others). One caption per sub-section (`#siaDC09-lock-caption-media`, `#siaDC09-lock-caption-supervision`): « Fixé par le profil « {nom} ». Choisissez « Personnalisé » pour le modifier. ». In Personnalisé there is no caption and nothing is locked. A profile that declares no media key (Ajax) locks the supervision sub-section only: the content fields stay editable and carry no caption (decision 2026-11-06). Folding the panel never changes a value.
+
+The orange NULL warning (`#siaDC09-null-warning`) is removed: the cause of a refusal is not known to be specific to the NULL format.
 
 ### Validation before "Suivant"
 
@@ -1168,6 +1175,6 @@ The 30 s and 120 s values are test values.
 
 ## Story 17.7 - Alarm media in the wizard
 
-The advanced options of step 1 carry the media block: `media_snapshot_enabled` / `media_clip_enabled` (checkboxes), `media_snapshot_format` / `media_clip_format` (U or V), `media_single_tag` (checkbox), and the `frigate_media_url_template` field (moved from step 3). The one-tag option is disabled (and unchecked) when both media are on with different formats. Absent keys load as snapshot on, clip on, V, V, one tag.
+The advanced options of step 1 carry the media block: `media_snapshot_enabled` / `media_clip_enabled` (checkboxes), `media_snapshot_format` / `media_clip_format` (U or V), `media_single_tag` (checkbox), and the `frigate_media_url_template` field (moved from step 3). The one-tag option is unchecked when both media are on with different formats; since Story 17.11 it is shown as the extension choice described in Step 1. Absent keys load as snapshot on, clip on, V, V, one tag.
 
 **Story 17.10 amendment.** The five content fields are profile fields (locked by a profile that declares media; editable in Personnalisé). The Frigate address left the advanced panel for the card « Levée de doute photo / vidéo » (`#siaDC09-media-card`), above « Options avancées »: the checkbox `media_enabled` (« Joindre une photo ou une vidéo à l'alarme (levée de doute) », absent = on, set explicitly by the JS on load) and the required address « Adresse de votre serveur Frigate * » (`#siaDC09-media-url-group`, shown only while the box is checked, value kept when hidden). Step 1 « Suivant » refuses a checked box with an empty address (field error + banner, key `frigate_media_url_template`); step 3 keeps the same check as a safety net. With `media_enabled=0` PHP sends no `media` to the daemon and does not send `prefetchEvent` (no Frigate prefetch, no forced capture). `deamon_info()` Guard 3f (`siaDC09::mediaConfigError()`) refuses an empty address only when `media_enabled` is explicitly stored as 1, so equipment saved before the key keeps launching; the wizard writes the key on save.

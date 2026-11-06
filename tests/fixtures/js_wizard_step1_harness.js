@@ -51,7 +51,14 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
   <select class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l2key="media_clip_format"><option value="U">U</option><option value="V">V</option></select>
   <input type="checkbox" class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l2key="media_single_tag">
   <div id="siaDC09-media-single-tag-help" style="display:none"></div>
-  <div id="siaDC09-null-warning" style="display:none"></div>
+  <div id="siaDC09-ext-choice">
+    <input type="radio" name="siaDC09-ext-mode" class="siaDC09-ext-radio siaDC09-media-field siaDC09-profile-field" value="1">
+    <code id="siaDC09-ext-example-single"></code>
+    <input type="radio" name="siaDC09-ext-mode" class="siaDC09-ext-radio siaDC09-media-field siaDC09-profile-field" value="0">
+    <code id="siaDC09-ext-example-multi"></code>
+  </div>
+  <p id="siaDC09-lock-caption-media" style="display:none"><span></span></p>
+  <p id="siaDC09-lock-caption-supervision" style="display:none"><span></span></p>
   </div>
   <div id="siaDC09-step1-errors" style="display:none"></div>
 </body></html>`, { runScripts: 'dangerously' })
@@ -128,13 +135,30 @@ out.dimmed = $('.siaDC09-profile-field').filter(function() { return this.style.o
 out.readonlyInputs = $('input[readonly]').length
 out.selectedProfile = $('#siaDC09-csr-profile').val()
 out.advancedVisible = $('#siaDC09-advanced').css('display') !== 'none'
-out.nullWarningVisible = $('#siaDC09-null-warning').css('display') !== 'none'
 out.mediaUrlVisible = $('#siaDC09-media-url-group').css('display') !== 'none'
 const $box = field('media_enabled')
 out.mediaBox = { greyed: $box.css('pointer-events') === 'none', ariaDisabled: $box.attr('aria-disabled') === 'true' }
 out.nomediaVisible = $('#siaDC09-media-nomedia').css('display') !== 'none'
 out.singleTagDisabled = field('media_single_tag').prop('disabled')
 out.singleTagChecked = field('media_single_tag').is(':checked')
+const $radios = $('.siaDC09-ext-radio')
+out.extChoice = {
+  visible: $('#siaDC09-ext-choice').css('display') !== 'none',
+  disabled: $radios.filter('[value="1"]').prop('disabled'),
+  single: $radios.filter('[value="1"]').is(':checked'),
+  multi: $radios.filter('[value="0"]').is(':checked'),
+  reasonVisible: $('#siaDC09-media-single-tag-help').css('display') !== 'none',
+  exampleSingle: $('#siaDC09-ext-example-single').text(),
+  exampleMulti: $('#siaDC09-ext-example-multi').text()
+}
+out.captions = {
+  media: $('#siaDC09-lock-caption-media').css('display') !== 'none' ? $('#siaDC09-lock-caption-media span').text() : null,
+  supervision: $('#siaDC09-lock-caption-supervision').css('display') !== 'none' ? $('#siaDC09-lock-caption-supervision span').text() : null
+}
+// Every locked field must be readonly or aria-disabled.
+out.lockedUnexposed = $('.siaDC09-locked').filter(function() {
+  return !this.readOnly && this.getAttribute('aria-disabled') !== 'true'
+}).length
 out.frigateValue = field('frigate_media_url_template').val()
 out.frigateInvalid = field('frigate_media_url_template').hasClass('siaDC09-field-invalid')
 out.errors = $('#siaDC09-step1-errors').html()

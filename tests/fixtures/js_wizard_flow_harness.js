@@ -47,7 +47,7 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
         ${group('<input type="checkbox" class="eqLogicAttr" data-l2key="encryption_enabled">')}
         ${group('<input class="eqLogicAttr" data-l2key="encryption_key">')}
         <div id="siaDC09-advanced" style="display:none;">
-          ${group('<select class="eqLogicAttr siaDC09-profile-field" data-l2key="supervision_format"><option value="none">none</option><option value="sia-dcs">sia-dcs</option><option value="null">null</option></select><div id="siaDC09-null-warning" style="display:none;"></div>')}
+          ${group('<select class="eqLogicAttr siaDC09-profile-field" data-l2key="supervision_format"><option value="none">none</option><option value="sia-dcs">sia-dcs</option><option value="null">null</option></select>')}
           ${group('<input type="number" class="eqLogicAttr siaDC09-profile-field" data-l2key="supervision_interval">')}
           ${group('<input type="checkbox" class="eqLogicAttr siaDC09-profile-field" data-l2key="rp_enabled">')}
           ${group('<input type="number" class="eqLogicAttr siaDC09-profile-field" data-l2key="rp_interval">')}

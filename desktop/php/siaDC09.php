@@ -231,7 +231,52 @@ $scenarios = scenario::all();
 											<a class="btn btn-default btn-sm" id="bt_siaDC09_toggleAdvanced"><i class="fas fa-cog"></i> {{Options avancées}}</a>
 										</div>
 									</div>
+
 									<div id="siaDC09-advanced" style="display:none;">
+										<!-- Contenu envoyé avec l'alarme (stories 17.7, 17.10, 17.11) -->
+										<h4>{{Contenu envoyé avec l'alarme (photo / vidéo)}}</h4>
+										<p class="help-block siaDC09-lock-caption" id="siaDC09-lock-caption-media" style="display:none;"><i class="fas fa-lock"></i> <span></span></p>
+										<div class="form-group">
+											<label class="col-sm-4 control-label">{{Photo}}</label>
+											<div class="col-sm-6">
+												<label class="checkbox-inline"><input type="checkbox" class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l1key="configuration" data-l2key="media_snapshot_enabled">{{Envoyée avec l'alarme}}</label>
+												<select class="eqLogicAttr form-control siaDC09-media-field siaDC09-profile-field" data-l1key="configuration" data-l2key="media_snapshot_format" aria-label="{{Format du lien de la photo}}" style="display:inline-block;width:auto;margin-left:10px;">
+													<option value="V">Video Verification Link (V)</option>
+													<option value="U">URL Multimedia Direct (U)</option>
+												</select>
+											</div>
+										</div>
+										<div class="form-group">
+											<label class="col-sm-4 control-label">{{Vidéo}}</label>
+											<div class="col-sm-6">
+												<label class="checkbox-inline"><input type="checkbox" class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l1key="configuration" data-l2key="media_clip_enabled">{{Envoyée avec l'alarme}}</label>
+												<select class="eqLogicAttr form-control siaDC09-media-field siaDC09-profile-field" data-l1key="configuration" data-l2key="media_clip_format" aria-label="{{Format du lien de la vidéo}}" style="display:inline-block;width:auto;margin-left:10px;">
+													<option value="V">Video Verification Link (V)</option>
+													<option value="U">URL Multimedia Direct (U)</option>
+												</select>
+												<p class="help-block">{{Formats possibles : Video Verification Link (V) / URL Multimedia Direct (U)}}</p>
+											</div>
+										</div>
+										<div class="form-group" id="siaDC09-media-single-tag-group">
+											<label class="col-sm-4 control-label">{{Extension des liens}}</label>
+											<div class="col-sm-6">
+												<!-- media_single_tag stays the saved field; the radios below drive it -->
+												<input type="checkbox" class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l1key="configuration" data-l2key="media_single_tag" style="display:none;" aria-hidden="true" tabindex="-1">
+												<div id="siaDC09-ext-choice">
+													<p class="help-block" style="margin-top:0;">{{Quand photo ET vidéo ont le même format :}}</p>
+													<div class="radio"><label><input type="radio" name="siaDC09-ext-mode" class="siaDC09-ext-radio siaDC09-media-field siaDC09-profile-field" value="1"> {{une seule extension pour les deux liens}}</label>
+														<br><code id="siaDC09-ext-example-single"></code></div>
+													<div class="radio"><label><input type="radio" name="siaDC09-ext-mode" class="siaDC09-ext-radio siaDC09-media-field siaDC09-profile-field" value="0"> {{une extension par lien}}</label>
+														<br><code id="siaDC09-ext-example-multi"></code></div>
+												</div>
+												<p class="help-block" id="siaDC09-media-single-tag-help" style="display:none;">{{Disponible seulement si photo et vidéo sont envoyées avec le même format.}}</p>
+											</div>
+										</div>
+
+										<!-- Supervision de la liaison -->
+										<h4>{{Supervision de la liaison}}</h4>
+										<p class="help-block">{{Votre alarme signale régulièrement à la centrale qu'elle fonctionne.}}</p>
+										<p class="help-block siaDC09-lock-caption" id="siaDC09-lock-caption-supervision" style="display:none;"><i class="fas fa-lock"></i> <span></span></p>
 										<div class="form-group">
 											<label class="col-sm-4 control-label">{{Trame de supervision}}</label>
 											<div class="col-sm-6">
@@ -240,7 +285,6 @@ $scenarios = scenario::all();
 													<option value="sia-dcs">SIA-DCS</option>
 													<option value="null">NULL</option>
 												</select>
-												<div id="siaDC09-null-warning" class="alert alert-warning" style="display:none; margin-top:5px;">{{Le format NULL : certains récepteurs le rejettent.}}</div>
 											</div>
 										</div>
 										<div class="form-group">
@@ -259,35 +303,6 @@ $scenarios = scenario::all();
 											<label class="col-sm-4 control-label">{{Intervalle RP (s)}}</label>
 											<div class="col-sm-6">
 												<input type="number" class="eqLogicAttr form-control siaDC09-profile-field" data-l1key="configuration" data-l2key="rp_interval" placeholder="60" min="60" max="86400">
-											</div>
-										</div>
-
-										<!-- Contenu des médias (story 17.7, verrouillé par le profil depuis 17.10) -->
-										<div class="form-group">
-											<label class="col-sm-4 control-label">{{Snapshot dans les alarmes}}</label>
-											<div class="col-sm-6">
-												<input type="checkbox" class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l1key="configuration" data-l2key="media_snapshot_enabled">
-												<select class="eqLogicAttr form-control siaDC09-media-field siaDC09-profile-field" data-l1key="configuration" data-l2key="media_snapshot_format" style="display:inline-block;width:auto;margin-left:10px;">
-													<option value="U">U</option>
-													<option value="V">V</option>
-												</select>
-											</div>
-										</div>
-										<div class="form-group">
-											<label class="col-sm-4 control-label">{{Clip dans les alarmes}}</label>
-											<div class="col-sm-6">
-												<input type="checkbox" class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l1key="configuration" data-l2key="media_clip_enabled">
-												<select class="eqLogicAttr form-control siaDC09-media-field siaDC09-profile-field" data-l1key="configuration" data-l2key="media_clip_format" style="display:inline-block;width:auto;margin-left:10px;">
-													<option value="U">U</option>
-													<option value="V">V</option>
-												</select>
-											</div>
-										</div>
-										<div class="form-group" id="siaDC09-media-single-tag-group">
-											<label class="col-sm-4 control-label">{{Un seul tag pour les médias}}</label>
-											<div class="col-sm-6">
-												<input type="checkbox" class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l1key="configuration" data-l2key="media_single_tag">
-												<p class="help-block" id="siaDC09-media-single-tag-help" style="display:none;">{{Indisponible : un tag unique ne porte qu'un format (U ou V).}}</p>
 											</div>
 										</div>
 									</div>

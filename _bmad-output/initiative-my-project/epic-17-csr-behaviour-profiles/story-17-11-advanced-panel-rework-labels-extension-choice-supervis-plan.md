@@ -3,14 +3,14 @@ title: '17.11 — Advanced Panel Rework: Labels, Extension Choice, Supervision'
 type: feature
 ticket: 'story-17-11-advanced-panel-rework-labels-extension-choice-supervis'
 created: '2026-11-06'
-status: 'ready-for-dev'
+status: 'in-review'
 baseline_revision: '60567195453c329b1c93199284dcb2d1f36c3422'
 route: 'full'
 route_source: 'auto'
 risk: 'low'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: [quick]
 review_loop_iteration: 0
 context:
   - '{project-root}/internal-docs/design/wizard-design.md'

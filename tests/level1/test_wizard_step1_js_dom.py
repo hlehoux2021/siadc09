@@ -290,13 +290,140 @@ def test_profile_with_supervision_interval_copies_it() -> None:
     assert out["fields"]["supervision_interval"] == "120"
 
 
-@pytest.mark.parametrize("value, visible", [("null", True), ("sia-dcs", False), ("none", False)])
-def test_null_format_warning_follows_format_select(value: str, visible: bool) -> None:
-    """The NULL-format warning is shown only while the format select is on null."""
-    out = _run({"actions": [{"op": "trigger", "selector": _SEL_FORMAT, "value": value}]})
+def test_null_format_warning_is_gone() -> None:
+    """
+    Story 17.11: the orange NULL warning no longer exists in the page nor in the script.
 
-    # Assert: warning visibility
-    assert out["nullWarningVisible"] is visible
+    Expected result:
+    - no #siaDC09-null-warning in the PHP view, no updateNullWarning in the JS
+    """
+    php = (_PROJECT_ROOT / "desktop" / "php" / "siaDC09.php").read_text(encoding="utf-8")
+    js = (_PROJECT_ROOT / "desktop" / "js" / "siaDC09.js").read_text(encoding="utf-8")
+
+    # Assert: element and handler removed
+    assert "siaDC09-null-warning" not in php
+    assert "NullWarning" not in js and "siaDC09-null-warning" not in js
+
+
+# ── Story 17.11: advanced panel (captions, extension choice) ──────────────────
+
+_URL_SNAPSHOT = "https://monsite/..../snapshot.jpg"
+_URL_CLIP = "https://monsite/..../clip.mp4"
+
+
+@pytest.mark.parametrize("fmt", ["U", "V"])
+def test_extension_examples_match_format_media_tags_bytes(fmt: str) -> None:
+    """
+    The examples shown next to the extension choice are the bytes _format_media_tags builds.
+
+    Expected result:
+    - single-extension example == _format_media_tags(..., single_tag=True), space between URLs
+    - per-link example == _format_media_tags(..., single_tag=False)
+    - the choice is enabled (photo and clip sent, same format)
+    """
+    from resources.siadc09d.sia_protocol import SIAMessageBuilder
+
+    entries = [{"format": fmt, "url": _URL_SNAPSHOT}, {"format": fmt, "url": _URL_CLIP}]
+    fields = {"media_snapshot_enabled": True, "media_clip_enabled": True, "media_single_tag": True,
+              "media_snapshot_format": fmt, "media_clip_format": fmt}
+    out = _run({"fields": fields, "actions": [_media_trigger("media_clip_format", value=fmt)]})
+
+    # Assert: examples equal the real tag bytes
+    assert out["extChoice"]["exampleSingle"] == SIAMessageBuilder._format_media_tags(entries, True)
+    assert out["extChoice"]["exampleMulti"] == SIAMessageBuilder._format_media_tags(entries, False)
+    # Assert: available, with the saved single-tag value reflected by the radios
+    assert out["extChoice"]["disabled"] is False
+    assert (out["extChoice"]["single"], out["extChoice"]["multi"]) == (True, False)
+    assert out["extChoice"]["reasonVisible"] is False
+
+
+@pytest.mark.parametrize("fields", [
+    {"media_snapshot_enabled": False, "media_clip_enabled": True,
+     "media_snapshot_format": "V", "media_clip_format": "V"},   # single content
+    {"media_snapshot_enabled": True, "media_clip_enabled": False,
+     "media_snapshot_format": "V", "media_clip_format": "V"},   # single content
+    {"media_snapshot_enabled": True, "media_clip_enabled": True,
+     "media_snapshot_format": "U", "media_clip_format": "V"},   # mixed formats
+])
+def test_extension_choice_greyed_with_reason(fields: dict[str, Any]) -> None:
+    """
+    The choice stays visible but greyed, nothing selected, with its reason.
+
+    Expected result:
+    - visible, radios disabled and unchecked, reason shown
+    """
+    out = _run({"fields": {**fields, "media_single_tag": True},
+                "actions": [_media_trigger("media_clip_format", value=fields["media_clip_format"])]})
+
+    # Assert: visible yet unavailable
+    assert out["extChoice"]["visible"] is True
+    assert out["extChoice"]["disabled"] is True
+    # Assert: nothing selected
+    assert (out["extChoice"]["single"], out["extChoice"]["multi"]) == (False, False)
+    # Assert: the reason is displayed
+    assert out["extChoice"]["reasonVisible"] is True
+
+
+def test_extension_radio_drives_saved_single_tag_key() -> None:
+    """
+    In Personnalisé, picking « une extension par lien » clears media_single_tag.
+
+    Expected result:
+    - checkbox unchecked, second radio selected
+    """
+    fields = {"media_snapshot_enabled": True, "media_clip_enabled": True, "media_single_tag": True,
+              "media_snapshot_format": "V", "media_clip_format": "V"}
+    out = _run({"fields": fields, "actions": [
+        _media_trigger("media_clip_format", value="V"),
+        {"op": "trigger", "selector": '.siaDC09-ext-radio[value="0"]', "checked": True}]})
+
+    # Assert: the saved key follows the radio
+    assert out["singleTagChecked"] is False
+    assert (out["extChoice"]["single"], out["extChoice"]["multi"]) == (False, True)
+
+
+def test_profile_locks_with_caption_and_exposes_state() -> None:
+    """
+    A profile locks every panel field, readable, with one caption per sub-section.
+
+    Expected result:
+    - every locked field is readonly or aria-disabled
+    - both captions name the profile; Personnalisé hides them and unlocks
+    """
+    profile = {"label": "FoxStream (FoxBox)", "supervision_format": "sia-dcs", "supervision_interval": 30,
+               "rp_enabled": 1, "rp_interval": 120, **_FULL_ON}
+    out = _run({"profiles": {"fox": profile}, "actions": [{"op": "apply", "profile": "fox", "fill": True}]})
+    expected = "{{Fixé par le profil}} « FoxStream (FoxBox) ». {{Choisissez « Personnalisé » pour le modifier.}}"
+
+    # Assert: locked fields expose their state
+    assert out["locked"] == 11
+    assert out["lockedUnexposed"] == 0
+    # Assert: captions for both sub-sections
+    assert out["captions"] == {"media": expected, "supervision": expected}
+
+    custom = _run({"profiles": {"fox": profile}, "actions": [
+        {"op": "apply", "profile": "fox", "fill": True}, {"op": "apply", "profile": "", "fill": True}]})
+    # Assert: Personnalisé unlocks and hides the captions
+    assert custom["locked"] == 0
+    assert custom["captions"] == {"media": None, "supervision": None}
+
+
+def test_ajax_locks_supervision_only_keeping_content_editable() -> None:
+    """
+    Decision 2026-11-06: a profile without media keys keeps the content fields editable.
+
+    Expected result:
+    - 4 supervision fields locked; supervision caption shown, content caption hidden
+    """
+    out = _run({"profiles": {"ajax": {**_AJAX, "label": "Ajax"}},
+                "actions": [{"op": "apply", "profile": "ajax", "fill": True}]})
+
+    # Assert: only the supervision card is locked
+    assert out["locked"] == 4
+    assert out["lockedUnexposed"] == 0
+    # Assert: caption only where something is locked
+    assert out["captions"]["media"] is None
+    assert out["captions"]["supervision"] is not None
 
 
 # ── Story 17.7: alarm media options ───────────────────────────────────────────
@@ -380,7 +507,7 @@ def test_media_profile_locks_content_keys_and_checks_box() -> None:
 
     Expected result:
     - box checked and available; Frigate address field shown
-    - 4 periodic fields + 5 media content fields locked
+    - 4 periodic fields + 5 media content fields + the 2 extension radios locked
     """
     out = _run({"profiles": {"p": {"supervision_format": "sia-dcs", "supervision_interval": 30,
                                    "rp_enabled": 1, "rp_interval": 120, **_FULL_ON}},
@@ -391,8 +518,8 @@ def test_media_profile_locks_content_keys_and_checks_box() -> None:
     assert out["mediaBox"] == {"greyed": False, "ariaDisabled": False}
     # Assert: address field shown
     assert out["mediaUrlVisible"] is True
-    # Assert: nine profile fields locked
-    assert out["locked"] == 9
+    # Assert: four periodic + five content fields + two radios locked
+    assert out["locked"] == 11
 
 
 def test_scutum_locks_video_only_v_and_leaves_box_off() -> None:

@@ -158,13 +158,18 @@ function siaDC09_lockProfileFields(locked, lockMedia) {
     } else {
       $f.css('pointer-events', lock ? 'none' : '').attr('tabindex', lock ? '-1' : null)
     }
+    // Every locked field exposes its state (readonly for text/number inputs, aria-disabled for the rest).
+    $f.attr('aria-disabled', lock ? 'true' : null)
     $f.css('opacity', lock ? 0.6 : '').toggleClass('siaDC09-locked', lock)
   })
 }
 
-function siaDC09_updateNullWarning() {
-  var isNull = $('.eqLogicAttr[data-l2key="supervision_format"]').val() === 'null'
-  $('#siaDC09-null-warning').toggle(isNull)
+// Lock caption, shown once per sub-section of the advanced panel (never per field).
+// Text: « Fixé par le profil « {nom} ». Choisissez « Personnalisé » pour le modifier. »
+function siaDC09_setLockCaptions(profileLabel, mediaLocked, supervisionLocked) {
+  var text = '{{Fixé par le profil}} « ' + profileLabel + ' ». {{Choisissez « Personnalisé » pour le modifier.}}'
+  $('#siaDC09-lock-caption-media').toggle(!!mediaLocked).find('span').text(text)
+  $('#siaDC09-lock-caption-supervision').toggle(!!supervisionLocked).find('span').text(text)
 }
 
 // Alarm media keys a profile may carry (stories 17.8, 17.10). Checkboxes take 0/1, selects take U/V.
@@ -217,7 +222,7 @@ function siaDC09_applyProfile(profileId, fill) {
   if (!preset) {
     siaDC09_lockProfileFields(false)
     siaDC09_setMediaCardAvailable(true)
-    siaDC09_updateNullWarning()
+    siaDC09_setLockCaptions('', false, false)
     return
   }
   if (fill) {
@@ -238,15 +243,14 @@ function siaDC09_applyProfile(profileId, fill) {
   var declaresMedia = siaDC09_profileDeclaresMedia(preset)
   siaDC09_lockProfileFields(true, declaresMedia)
   siaDC09_setMediaCardAvailable(declaresMedia)
-  siaDC09_updateNullWarning()
+  // A profile without media keys (Ajax) leaves the content fields editable: no caption there.
+  siaDC09_setLockCaptions(preset.label || profileId, declaresMedia, true)
 }
 
 $('#siaDC09-csr-profile').on('change', function() {
   siaDC09_applyProfile($(this).val(), true)
   if ($(this).val()) $('#siaDC09-advanced').show()
 })
-
-$('.eqLogicAttr[data-l2key="supervision_format"]').on('change', siaDC09_updateNullWarning)
 
 // ===== ALARM MEDIA OPTIONS (story 17.7) =====
 
@@ -260,17 +264,48 @@ function siaDC09_mediaState() {
   }
 }
 
-// Frigate address only when the box is checked (its value is kept when hidden); one-tag option
-// unavailable when both media are on with different formats (a single tag holds one format only).
+// Abbreviated URLs used in the extension examples (story 17.11). The shapes follow
+// SIAMessageBuilder._format_media_tags: a space between URLs inside one extension,
+// one bracketed extension per link otherwise.
+var SIADC09_EXAMPLE_SNAPSHOT_URL = 'https://monsite/..../snapshot.jpg'
+var SIADC09_EXAMPLE_CLIP_URL = 'https://monsite/..../clip.mp4'
+
+function siaDC09_mediaExamples(format) {
+  return {
+    single: '[' + format + SIADC09_EXAMPLE_SNAPSHOT_URL + ' ' + SIADC09_EXAMPLE_CLIP_URL + ']',
+    multi: '[' + format + SIADC09_EXAMPLE_SNAPSHOT_URL + '][' + format + SIADC09_EXAMPLE_CLIP_URL + ']'
+  }
+}
+
+// Frigate address only when the box is checked (its value is kept when hidden). The extension
+// choice is always visible; it is available only when photo and video are both sent with the
+// same format. Otherwise it is greyed, nothing is selected, and the reason is shown. The saved
+// key media_single_tag is only reset for mixed formats (a single tag holds one format only).
 function siaDC09_updateMediaFields() {
   var m = siaDC09_mediaState()
   $('#siaDC09-media-url-group').toggle(m.enabled)
-  var mixed = m.snapshotOn && m.clipOn && m.snapshotFormat !== m.clipFormat
+  var available = m.snapshotOn && m.clipOn && m.snapshotFormat === m.clipFormat
+  var mixed = m.snapshotOn && m.clipOn && !available
   var $single = $('.eqLogicAttr[data-l2key="media_single_tag"]')
   if (mixed) $single.prop('checked', false)
   $single.prop('disabled', mixed)
-  $('#siaDC09-media-single-tag-help').toggle(mixed)
+  var examples = siaDC09_mediaExamples(m.snapshotFormat)
+  $('#siaDC09-ext-example-single').text(examples.single)
+  $('#siaDC09-ext-example-multi').text(examples.multi)
+  var $radios = $('.siaDC09-ext-radio')
+  $radios.prop('disabled', !available)
+  $radios.filter('[value="1"]').prop('checked', available && $single.is(':checked'))
+  $radios.filter('[value="0"]').prop('checked', available && !$single.is(':checked'))
+  $('#siaDC09-ext-choice').css('opacity', available ? '' : 0.6)
+  $('#siaDC09-media-single-tag-help').toggle(!available)
 }
+
+// The radios drive the saved checkbox; a locked radio (profile) ignores the click.
+$(document).on('change', '.siaDC09-ext-radio', function() {
+  if ($(this).hasClass('siaDC09-locked')) return
+  $('.eqLogicAttr[data-l2key="media_single_tag"]').prop('checked', $(this).val() === '1')
+  siaDC09_updateMediaFields()
+})
 
 // Returns the error message, or '' when the media settings are consistent.
 function siaDC09_mediaConfigError() {
