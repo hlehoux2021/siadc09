@@ -584,14 +584,22 @@ def test_plugin_css_is_included_and_has_the_mockup_rules() -> None:
 
     Expected result:
     - the page includes the css with include_file('desktop', 'siaDC09', 'css', 'siaDC09')
-    - the css has the #f8f9fa zone fill and a link hover color rule with an id selector and !important
+    - the css frames the zones with the theme panel colour (no hard-coded colour at all, so the
+      Light and Dark Jeedom themes both work)
+    - a link hover color rule with an id selector and !important
     """
     page = _PHP_PAGE.read_text(encoding="utf-8")
     css = (_PHP_PAGE.parents[1] / "css" / "siaDC09.css").read_text(encoding="utf-8")
     # Assert: included
     assert "include_file('desktop', 'siaDC09', 'css', 'siaDC09')" in page
-    # Assert: zone fill and readable hover (Jeedom forces a grey a:hover with !important)
-    assert "#f8f9fa" in css
+    # Assert: zones use the theme panel colour and a frame
+    assert "--panel-bg-color" in css
+    # Assert: no hard-coded hex colour outside comments (theme variables only)
+    code = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    assert not re.search(r"#[0-9a-fA-F]{3,8}\b", code.replace("#siaDC09", "")), (
+        "the wizard css must not hard-code colours"
+    )
+    # Assert: readable hover (Jeedom forces a grey a:hover with !important)
     assert re.search(r"#siaDC09-wizard[^{]*:hover[^{]*\{[^}]*color:[^;]*!important", css), (
         "link hover must be overridden with an id selector plus !important"
     )

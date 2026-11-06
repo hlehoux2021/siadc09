@@ -3,10 +3,24 @@
  * _bmad-output/initiative-my-project/epic-17-csr-behaviour-profiles/ux-17-wizard-step-1/.working/flow-wizard-step-1-2026-11-05.excalidraw
  * Stock Jeedom Bootstrap 3 + theme underneath; only the delta lives here.
  *
- * Jeedom forces `a:hover { color: var(--linkHover-color) !important }` (desktop.main.css) and,
- * in the Light theme, that color is rgb(140,140,148): unreadable on light panels. Every rule that
- * sets a color on a link therefore uses an id selector plus !important to out-rank it.
- * The zones set their own text color so they stay readable on the Light and Dark themes. */
+ * COLOURS: none is hard-coded. Everything comes from the variables of the active Jeedom theme
+ * (core2019_Light / core2019_Dark, same names in both), so the wizard follows the theme:
+ *   panel      rgb(var(--panel-bg-color))        zone fill
+ *   strong     rgb(var(--contrast-color))        titles, labels, frames (dark text on Light, light on Dark)
+ *   body       var(--txt-color)                  secondary text
+ *   fields     var(--form-bg-color)              inputs, as stock Jeedom
+ *   buttons    var(--btn-default-color) + var(--sc-lightTxt-color), as stock Jeedom
+ *   states     var(--al-success|warning|danger-color), mixed into the panel colour
+ *
+ * Jeedom forces `a:hover { color: var(--linkHover-color) !important }` (desktop.main.css); in the
+ * Light theme that grey is unreadable on a panel. Rules that colour a link therefore use an id
+ * selector plus !important to out-rank it. */
+
+#siaDC09-wizard {
+  --siaDC09-strong: rgb(var(--contrast-color));
+  --siaDC09-frame: rgba(var(--contrast-color), 0.55);
+  --siaDC09-panel: rgb(var(--panel-bg-color));
+}
 
 /* ---- Stepper: three tabs, read-only ---- */
 #siaDC09-wizard .siaDC09-stepper {
@@ -22,10 +36,10 @@
   height: 34px;
   line-height: 32px;
   padding: 0 14px;
-  border: 1px solid #1e1e1e;
+  border: 1px solid var(--siaDC09-frame);
   border-radius: 4px;
-  background: #ffffff;
-  color: #1e1e1e;
+  background: var(--siaDC09-panel);
+  color: var(--siaDC09-strong);
   font-size: 15px;
   white-space: nowrap;
   overflow: hidden;
@@ -33,15 +47,17 @@
   cursor: default;
 }
 #siaDC09-wizard .siaDC09-stepper li.active {
-  background: #a5d8ff;
+  background: var(--al-primary-color);
+  border-color: var(--al-primary-color);
+  color: var(--sc-lightTxt-color);
   font-weight: bold;
 }
 
 /* ---- Framed zone: one topic, one frame, one title ---- */
 #siaDC09-wizard .siaDC09-zone {
-  background: #f8f9fa;
-  color: #333333;
-  border: 1px solid #1e1e1e;
+  background: var(--siaDC09-panel);
+  color: var(--txt-color);
+  border: 1px solid var(--siaDC09-frame);
   border-radius: 4px;
   padding: 12px 16px 16px 16px;
   margin-bottom: 20px;
@@ -50,7 +66,7 @@
   margin: 0 0 14px 0;
   font-size: 20px;
   font-weight: normal;
-  color: #1e1e1e;
+  color: var(--siaDC09-strong);
 }
 
 /* ---- Rows and fields: label ABOVE its field, related fields on one row ---- */
@@ -75,19 +91,18 @@
   margin: 0 0 4px 0;
   font-size: 14px;
   font-weight: normal;
-  color: #1e1e1e;
+  color: var(--siaDC09-strong);
 }
+/* Fields keep the stock Jeedom look (fill, text colour); only the height is aligned */
 #siaDC09-wizard .siaDC09-field .form-control {
   height: 34px;
-  background: #ffffff;
-  color: #333333;
 }
 #siaDC09-wizard .siaDC09-help,
 #siaDC09-wizard .siaDC09-zone .help-block {
   display: block;
   margin: 4px 0 0 0;
   font-size: 13px;
-  color: #6c757d;
+  color: var(--txt-color);
 }
 #siaDC09-wizard .siaDC09-zone .siaDC09-help-side {
   flex: 1 1 0;
@@ -95,9 +110,30 @@
   margin: 0 0 6px 0;
 }
 #siaDC09-wizard .siaDC09-hint { font-size: 12px; }
-#siaDC09-wizard .siaDC09-zone a:not(.btn) { color: #0a58ca !important; text-decoration: underline; }
+#siaDC09-wizard .siaDC09-zone a:not(.btn) {
+  color: var(--siaDC09-strong) !important;
+  text-decoration: underline;
+}
 #siaDC09-wizard .siaDC09-zone a:not(.btn):hover,
-#siaDC09-wizard .siaDC09-zone a:not(.btn):focus { color: #052c65 !important; text-decoration: underline; }
+#siaDC09-wizard .siaDC09-zone a:not(.btn):focus {
+  color: var(--siaDC09-strong) !important;
+  opacity: 0.7;
+  text-decoration: underline;
+}
+
+/* Checkboxes and radios: stock Jeedom paints them with the field fill, which nearly vanishes on a
+ * dark panel. A frame in the strong colour makes the control (and its tick) visible on both themes. */
+#siaDC09-wizard input[type=checkbox],
+#siaDC09-wizard input[type=radio] {
+  border: 1px solid var(--siaDC09-frame) !important;
+  background: var(--form-bg-color);
+  color: var(--siaDC09-strong);
+}
+#siaDC09-wizard input[type=radio]:checked {
+  background: var(--siaDC09-strong) !important;
+  box-shadow: inset 0 0 0 3px var(--form-bg-color);
+}
+#siaDC09-wizard input[type=checkbox]:checked:after { color: var(--siaDC09-strong); }
 
 /* A checkbox presented as a field-sized box (same height as the other fields) */
 #siaDC09-wizard .siaDC09-checkbox-box {
@@ -107,10 +143,10 @@
   height: 34px;
   margin: 0;
   padding: 0 10px;
-  border: 1px solid #ced4da;
+  border: 1px solid var(--siaDC09-frame);
   border-radius: 4px;
-  background: #ffffff;
-  color: #333333;
+  background: var(--form-bg-color);
+  color: var(--siaDC09-strong);
   font-weight: normal;
   font-size: 14px;
 }
@@ -120,64 +156,73 @@
   margin: 0 0 8px 0;
   font-size: 15px;
   font-weight: normal;
-  color: #1e1e1e;
+  color: var(--siaDC09-strong);
 }
 #siaDC09-wizard .siaDC09-check-line input { margin-right: 8px; }
+#siaDC09-wizard .radio label,
+#siaDC09-wizard .checkbox label { color: var(--siaDC09-strong); }
 
-/* ---- Errors: field in error (2px red) and banner ---- */
+/* ---- States: the theme's alert colour mixed into the panel, text in the strong colour ---- */
 #siaDC09-wizard .siaDC09-field.has-error .form-control {
-  border: 2px solid #e03131;
+  border: 2px solid var(--al-danger-color) !important;
 }
 #siaDC09-wizard .siaDC09-field.has-error .help-block,
 #siaDC09-wizard .siaDC09-field.has-error .siaDC09-label,
-#siaDC09-wizard .siaDC09-field-error { color: #c92a2a; }
-#siaDC09-wizard .siaDC09-banner-error {
-  background: #ffe3e3;
-  border: 1px solid #e03131;
-  color: #c92a2a;
+#siaDC09-wizard .siaDC09-field-error { color: var(--siaDC09-strong); }
+#siaDC09-wizard .siaDC09-field.has-error .help-block,
+#siaDC09-wizard .siaDC09-field-error { font-weight: bold; }
+#siaDC09-wizard .siaDC09-banner-error,
+#siaDC09-wizard .siaDC09-test-failure,
+#siaDC09-wizard .siaDC09-test-success,
+#siaDC09-wizard .siaDC09-test-warning {
+  color: var(--siaDC09-strong);
   border-radius: 4px;
+  margin: 0 0 14px 0;
+}
+#siaDC09-wizard .siaDC09-banner-error {
+  background: color-mix(in srgb, var(--al-danger-color) 28%, var(--siaDC09-panel));
+  border: 1px solid var(--al-danger-color);
   padding: 12px 16px;
-  margin-bottom: 14px;
 }
 #siaDC09-wizard .siaDC09-banner-error ul { padding-left: 20px; }
 #siaDC09-wizard .siaDC09-test-failure {
-  background: #ffe3e3;
-  border: 2px solid #e03131;
-  color: #1e1e1e;
-  border-radius: 4px;
+  background: color-mix(in srgb, var(--al-danger-color) 28%, var(--siaDC09-panel));
+  border: 2px solid var(--al-danger-color);
   padding: 14px 16px;
-  margin: 0 0 14px 0;
 }
 #siaDC09-wizard .siaDC09-test-failure p { margin: 8px 0 0 0; }
 #siaDC09-wizard .siaDC09-test-failure ul { margin: 4px 0 0 0; padding-left: 20px; }
 #siaDC09-wizard .siaDC09-test-success {
-  background: #d3f9d8; border: 1px solid #2f9e44; color: #1e1e1e;
-  border-radius: 4px; padding: 10px 16px; margin: 0 0 14px 0;
+  background: color-mix(in srgb, var(--al-success-color) 28%, var(--siaDC09-panel));
+  border: 1px solid var(--al-success-color);
+  padding: 10px 16px;
 }
 #siaDC09-wizard .siaDC09-test-warning {
-  background: #fff3bf; border: 1px solid #f08c00; color: #1e1e1e;
-  border-radius: 4px; padding: 10px 16px; margin: 0 0 14px 0;
+  background: color-mix(in srgb, var(--al-warning-color) 28%, var(--siaDC09-panel));
+  border: 1px solid var(--al-warning-color);
+  padding: 10px 16px;
 }
 #siaDC09-wizard .siaDC09-summary {
   margin: 0 0 12px 0;
   font-size: 14px;
 }
 
-/* ---- Locked by a profile: grey fill, grey border, grey text; the caption says why (once) ---- */
+/* ---- Locked by a profile: dimmed fill, dashed frame; the caption says why (once) ----
+ * Text stays at 70% of the strong colour (>= 4.5:1 on both themes): locked, not illegible. */
 #siaDC09-wizard .siaDC09-locked,
 #siaDC09-wizard .siaDC09-field-locked .form-control,
 #siaDC09-wizard .siaDC09-field-locked .siaDC09-checkbox-box {
-  background: #e9ecef !important;
-  border-color: #868e96 !important;
-  color: #6c757d !important;
+  background: rgba(var(--contrast-color), 0.1) !important;
+  border: 1px dashed var(--siaDC09-frame) !important;
+  color: rgba(var(--contrast-color), 0.75) !important;
 }
 #siaDC09-wizard .siaDC09-field-locked .siaDC09-label,
 #siaDC09-wizard .siaDC09-field-locked .radio label,
-#siaDC09-wizard .siaDC09-field-locked .help-block { color: #6c757d; }
+#siaDC09-wizard .siaDC09-field-locked .help-block { color: rgba(var(--contrast-color), 0.75); }
 #siaDC09-wizard .siaDC09-lock-caption {
   margin: 0 0 12px 0;
   font-size: 13px;
-  color: inherit;
+  color: var(--txt-color);
 }
 #siaDC09-wizard .siaDC09-lock-caption .btn { margin-left: 8px; }
 
@@ -187,24 +232,26 @@
   min-height: 56px;
   margin: 0 0 20px 0;
   padding: 8px 16px;
-  background: #f8f9fa;
-  border: 1px dashed #1e1e1e;
+  background: var(--siaDC09-panel);
+  border: 1px dashed var(--siaDC09-frame);
   border-radius: 4px;
-  color: #1e1e1e !important;
+  color: var(--siaDC09-strong) !important;
   text-decoration: none;
   cursor: pointer;
 }
 #siaDC09-wizard a.siaDC09-advbar:hover,
 #siaDC09-wizard a.siaDC09-advbar:focus {
-  background: #e9ecef;
-  color: #000000 !important;
+  background: color-mix(in srgb, var(--siaDC09-strong) 12%, var(--siaDC09-panel));
+  color: var(--siaDC09-strong) !important;
+  opacity: 1;
   text-decoration: none;
 }
 #siaDC09-wizard .siaDC09-advbar-title { display: block; font-size: 15px; }
-#siaDC09-wizard .siaDC09-advbar-hint { display: block; font-size: 12px; color: #495057; }
+#siaDC09-wizard .siaDC09-advbar-hint { display: block; font-size: 12px; color: var(--txt-color); }
 #siaDC09-wizard .siaDC09-advbar .fas { width: 14px; margin-right: 6px; }
 
-/* ---- Buttons: readable hover, disabled looks disabled (grey, dashed, no hover) ---- */
+/* ---- Buttons: stock Jeedom colours (light text on the theme button fill), readable hover,
+ * disabled looks disabled (dimmed, dashed, no hover) ---- */
 #siaDC09-wizard .siaDC09-actions {
   display: flex;
   flex-wrap: wrap;
@@ -213,32 +260,46 @@
   margin: 0 0 20px 0;
 }
 #siaDC09-wizard .siaDC09-actions .siaDC09-actions-left { margin-right: auto; }
-#siaDC09-wizard a.btn.btn-success,
-#siaDC09-wizard a.btn.btn-success:hover,
-#siaDC09-wizard a.btn.btn-success:focus { color: #ffffff !important; }
-#siaDC09-wizard a.btn.btn-success:hover,
-#siaDC09-wizard a.btn.btn-success:focus { background-color: #2f8f4a !important; }
-#siaDC09-wizard a.btn.btn-default,
-#siaDC09-wizard a.btn.btn-warning {
-  color: #212529 !important;
+#siaDC09-wizard a.btn.btn-default {
+  background-color: var(--btn-default-color) !important;
+  border-color: var(--siaDC09-frame) !important;
 }
+#siaDC09-wizard a.btn.btn-default,
+#siaDC09-wizard a.btn.btn-warning,
+#siaDC09-wizard a.btn.btn-success,
 #siaDC09-wizard a.btn.btn-default:hover,
-#siaDC09-wizard a.btn.btn-default:focus,
 #siaDC09-wizard a.btn.btn-warning:hover,
-#siaDC09-wizard a.btn.btn-warning:focus {
-  color: #000000 !important;
-  background-color: #dee2e6 !important;
+#siaDC09-wizard a.btn.btn-success:hover,
+#siaDC09-wizard a.btn.btn-default:focus,
+#siaDC09-wizard a.btn.btn-warning:focus,
+#siaDC09-wizard a.btn.btn-success:focus {
+  color: var(--sc-lightTxt-color) !important;
+}
+#siaDC09-wizard a.btn:not(.disabled):hover,
+#siaDC09-wizard a.btn:not(.disabled):focus {
+  filter: brightness(1.15);
 }
 #siaDC09-wizard a.btn.disabled,
 #siaDC09-wizard a.btn.disabled:hover,
 #siaDC09-wizard a.btn.disabled:focus {
-  background: #e9ecef !important;
-  border: 1px dashed #868e96 !important;
-  color: #6c757d !important;
+  background: rgba(var(--contrast-color), 0.1) !important;
+  border: 1px dashed var(--siaDC09-frame) !important;
+  color: rgba(var(--contrast-color), 0.75) !important;
+  filter: none;
   opacity: 1;
   cursor: not-allowed;
 }
 
-/* ---- Step 3 table sits inside its zone ---- */
-#siaDC09-wizard .siaDC09-zone .table { background: #ffffff; color: #333333; margin-bottom: 8px; }
-#siaDC09-wizard .siaDC09-zone .table th { color: #1e1e1e; background: #e9ecef; }
+/* ---- Step 3 table sits inside its zone: transparent, the zone shows through ---- */
+#siaDC09-wizard .siaDC09-zone .table {
+  background: transparent;
+  color: var(--siaDC09-strong);
+  margin-bottom: 8px;
+}
+#siaDC09-wizard .siaDC09-zone .table > thead > tr > th,
+#siaDC09-wizard .siaDC09-zone .table > tbody > tr > td {
+  background: transparent !important;
+  color: var(--siaDC09-strong);
+  border-color: rgba(var(--contrast-color), 0.25);
+}
+#siaDC09-wizard .siaDC09-zone .table th { background: rgba(var(--contrast-color), 0.1) !important; }
