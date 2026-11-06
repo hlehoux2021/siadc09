@@ -3,7 +3,7 @@ title: '17.14 — Wizard Visual Conformance and Step Rebalancing'
 type: 'feature'
 ticket: '14'
 created: '2026-11-06'
-status: 'in-review'
+status: done
 baseline_revision: '87c671e7b92de0bc11df25412af74c7b7c7f31f3'
 route: 'full'
 route_source: 'auto'
