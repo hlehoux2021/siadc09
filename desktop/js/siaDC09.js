@@ -302,9 +302,13 @@ function siaDC09_updateMediaFields() {
 
 // The radios drive the saved checkbox; a locked radio (profile) ignores the click.
 $(document).on('change', '.siaDC09-ext-radio', function() {
-  if ($(this).hasClass('siaDC09-locked')) return
-  $('.eqLogicAttr[data-l2key="media_single_tag"]').prop('checked', $(this).val() === '1')
-  siaDC09_updateMediaFields()
+  if ($(this).hasClass('siaDC09-locked')) {
+    siaDC09_updateMediaFields() // a locked radio moved by keyboard snaps back to the saved value
+    return
+  }
+  // trigger('change'): the radios are not eqLogicAttr, so Jeedom only sees the form as modified
+  // through the bound checkbox's change event (it also re-runs siaDC09_updateMediaFields).
+  $('.eqLogicAttr[data-l2key="media_single_tag"]').prop('checked', $(this).val() === '1').trigger('change')
 })
 
 // Returns the error message, or '' when the media settings are consistent.

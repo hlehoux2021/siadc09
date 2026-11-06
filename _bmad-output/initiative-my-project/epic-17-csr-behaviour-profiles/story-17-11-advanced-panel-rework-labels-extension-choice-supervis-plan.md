@@ -72,9 +72,23 @@ context:
 
 ## Implementation Notes
 
+Built directly (no subagent). Radios have class `siaDC09-profile-field` so the existing lock path covers them; `aria-disabled` is now set on every locked field. In the greyed state the saved `media_single_tag` is cleared only for mixed formats (unchanged from 17.7); with a single content it is left as is (one URL gives the same bytes either way). Ajax-like profiles lock supervision only, per the user decision. `fr_FR.json` synced; five obsolete keys removed.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+Quick lens, 7 findings. Verdicts: 0 high, 1 medium, 2 low patched, 4 rejected.
+
+| Finding | Verdict | Route | Evidence |
+|---|---|---|---|
+| Radio change does not set Jeedom's modified flag | medium | patch | Radios are not `eqLogicAttr`; fixed by triggering `change` on the bound checkbox |
+| Locked radio can move by keyboard | low | patch | Handler now resyncs from the saved value; tabindex -1 and pointer-events none already block normal use |
+| Missing fold/unfold test | medium | patch | Added `test_folding_the_advanced_panel_loses_no_value` |
+| Stale lock note in wizard-design.md | low | patch | Lines 121-123 rewritten |
+| Single content leaves saved `media_single_tag` | low | rejected | One content yields identical bytes with either value; changing a profile-declared key silently would be worse |
+| Locked count 9 to 11 blurs the field count | low | rejected | Cosmetic test bookkeeping |
+| Example letter follows snapshot format when greyed | low | rejected | Examples are illustrative while greyed; fix adds branches |
 
 ## Design Notes
 

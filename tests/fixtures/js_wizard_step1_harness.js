@@ -37,6 +37,7 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
   <input type="checkbox" class="eqLogicAttr siaDC09-media-field" data-l2key="media_enabled">
   <div id="siaDC09-media-nomedia" style="display:none"></div>
   <div id="siaDC09-media-url-group" style="display:none"><input class="eqLogicAttr" data-l2key="frigate_media_url_template"></div>
+  <a id="bt_siaDC09_toggleAdvanced"></a>
   <div id="siaDC09-advanced" style="display:none">
   <select class="eqLogicAttr siaDC09-profile-field" data-l2key="supervision_format">
     <option value="sia-dcs">sia-dcs</option><option value="null">null</option>

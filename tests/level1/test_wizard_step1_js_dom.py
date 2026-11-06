@@ -408,6 +408,26 @@ def test_profile_locks_with_caption_and_exposes_state() -> None:
     assert custom["captions"] == {"media": None, "supervision": None}
 
 
+def test_folding_the_advanced_panel_loses_no_value() -> None:
+    """
+    Folding then unfolding the panel changes no value (story 17.11).
+
+    Expected result:
+    - panel closed after two clicks on the toggle, every field value identical to the start
+    """
+    fields = {"supervision_format": "null", "supervision_interval": "45", "rp_interval": "300",
+              "media_snapshot_enabled": True, "media_clip_enabled": True, "media_single_tag": False,
+              "media_snapshot_format": "U", "media_clip_format": "U"}
+    toggle = {"op": "trigger", "selector": "#bt_siaDC09_toggleAdvanced"}
+    start = _run({"fields": fields, "actions": []})
+    out = _run({"fields": fields, "actions": [toggle, toggle]})
+
+    # Assert: folded again, nothing lost
+    assert out["advancedVisible"] is False
+    assert out["fields"] == start["fields"]
+    assert out["media"] == start["media"]
+
+
 def test_ajax_locks_supervision_only_keeping_content_editable() -> None:
     """
     Decision 2026-11-06: a profile without media keys keeps the content fields editable.

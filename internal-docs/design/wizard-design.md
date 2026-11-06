@@ -119,7 +119,7 @@ The supervision fields below carry the class `siaDC09-profile-field` and are the
 | Intervalle RP (s) | `rp_interval` | 60–86400 |
 
 > **Locking:** `disabled` controls may be skipped by Jeedom's `getValues()` serialisation, so
-> inputs use `readonly`; selects and the checkbox use `pointer-events:none` plus `tabindex=-1`.
+> inputs use `readonly`; selects, checkboxes and radios use `pointer-events:none`, `tabindex=-1` and `aria-disabled="true"`.
 > All locked fields are therefore still saved.
 
 **Story 17.11 rework of the advanced panel.** `#siaDC09-advanced` has two sub-sections, each with a heading:

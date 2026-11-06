@@ -456,6 +456,6 @@ def test_js_media_rules(js_source: str) -> None:
     assert "function siaDC09_updateMediaFields(" in js_source
     assert "function siaDC09_mediaConfigError(" in js_source
     # Assert: mixed formats disable the single-tag option
-    assert "snapshotFormat !== m.clipFormat" in js_source
+    assert "snapshotFormat === m.clipFormat" in js_source
     # Assert: step 3 Next is gated
     assert "siaDC09_mediaConfigError()" in js_source.split("#bt_step3Next")[1]
