@@ -1076,7 +1076,7 @@ function siaDC09_populateConfigSummary(eqLogic) {
   }
 }
 
-// Human-readable notification target, or '' when step 4 left nothing usable.
+// Human-readable notification target, or '' when step 3 left nothing usable.
 function siaDC09_notifyTargetLabel(cfg) {
   if (cfg.sia_notify_kind !== 'internal') {
     return cfg.sia_notify_cmd_human || ''

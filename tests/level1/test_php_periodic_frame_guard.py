@@ -130,7 +130,7 @@ def test_php_guard_3e_matches_csr_preset() -> None:
 
     # Assert: PHP verdict equals the daemon verdict for every case
     assert [e is None for e in errors] == [_python_accepts(*c) for c in _GUARD_CASES]
-    # Assert: every refusal points at "étape 1 de l'assistant (Options avancées)"
+    # Assert: every refusal points at "étape 2 de l'assistant (Options avancées)"
     assert all("Options avancées" in e for e in errors if e is not None)
 
 
