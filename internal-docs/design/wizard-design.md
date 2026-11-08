@@ -1180,7 +1180,7 @@ locked. A profile that declares no media key (Ajax) leaves the box greyed and un
 | Profile | Media | Supervision | RP |
 |---|---|---|---|
 | `vesta` (Vesta, Climax) | snapshot + clip, `U`, one tag | `sia-dcs` every 30 s | every 120 s |
-| `foxstream` (FoxStream, FoxBox) | snapshot + clip, `V`, one tag | `sia-dcs` every 30 s | every 120 s |
+| `foxstream` (FoxStream, FoxBox) | snapshot + clip, `V`, one tag | `null` (DC-09 NULL frame) every 30 s | every 120 s |
 
 The 30 s and 120 s values are test values.
 

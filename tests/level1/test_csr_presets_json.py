@@ -41,7 +41,8 @@ _EXPECTED_PROFILES = {
     # Story 17.8: snapshot + clip, one tag; SIA-DCS every 30 s and RP every 120 s (test values).
     "vesta": {"label": "Vesta (Climax)", **_MEDIA_PROFILE,
               "media_snapshot_format": "U", "media_clip_format": "U"},
-    "foxstream": {"label": "FoxStream (FoxBox)", **_MEDIA_PROFILE,
+    # FoxBox supervision is the DC-09 NULL frame (not SIA-DCS).
+    "foxstream": {"label": "FoxStream (FoxBox)", **_MEDIA_PROFILE, "supervision_format": "null",
                   "media_snapshot_format": "V", "media_clip_format": "V"},
 }
 
