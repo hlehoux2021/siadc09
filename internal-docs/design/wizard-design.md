@@ -94,7 +94,7 @@ colors with id selectors.
 ### Profile selection
 
 A `csr_profile` select (`data-l2key="csr_profile"`) offers the profiles of
-`core/config/csr_presets.json` (Ajax, Scutum, Vesta, FoxStream) plus **Personnalisé** (empty value). The options
+`core/config/csr_presets.json` (Ajax, Vesta, FoxStream; Scutum was retired, see "Retired profile: Scutum") plus **Personnalisé** (empty value). The options
 are built server-side from `siaDC09::getCsrProfiles()`, and the same array is handed to JS with
 `sendVarToJS('siaDC09_csrProfiles', ...)`. Profile names stay PHP/JS-side (ADR-22): the daemon
 only receives the resolved values through `deamon_start()`.
@@ -813,7 +813,7 @@ Both are rendered server-side. JS controls visibility on `printEqLogic()`.
 
 ### Task 3.2 — Step 1 HTML + JS: CSR profile & credentials
 
-**What:** Profile selector (Ajax / Scutum / Personnalisé), connection fields, collapsed "Options avancées" panel (always rendered).
+**What:** Profile selector (Ajax / Vesta / FoxStream / Personnalisé), connection fields, collapsed "Options avancées" panel (always rendered).
 
 **HTML fields** use `class="eqLogicAttr" data-l1key="configuration" data-l2key="..."`.
 
@@ -1160,7 +1160,7 @@ profile name: `deamon_start` passes the resolved `supervision_format`, `supervis
 {
   "schema_version": 1,
   "profiles": {
-    "scutum": { "label": "Scutum", "supervision_format": "none", "rp_enabled": 1, "rp_interval": 60 }
+    "ajax": { "label": "Ajax", "supervision_format": "none", "rp_enabled": 1, "rp_interval": 60 }
   }
 }
 ```
@@ -1172,8 +1172,8 @@ A profile may omit a key (e.g. `supervision_interval`); the wizard then leaves t
 A profile may also carry the story 17.7 media keys: `media_snapshot_enabled`, `media_clip_enabled`
 (0/1), `media_snapshot_format`, `media_clip_format` (`U` or `V`) and `media_single_tag` (0/1).
 The wizard fills them **and locks them** (Story 17.10, ADR-22 amendment), and the media URL template is never a profile key.
-A profile may also declare `media_enabled` (0/1), the default of the photo/video box on step 1: Vesta and FoxStream 1,
-Scutum 0 (with `media_snapshot_enabled` 0, `media_clip_enabled` 1, both formats `V`, to be tested). The box itself is never
+A profile may also declare `media_enabled` (0/1), the default of the photo/video box on step 1: Vesta and FoxStream 1
+(the retired Scutum preset used 0, see "Retired profile: Scutum"). The box itself is never
 locked. A profile that declares no media key (Ajax) leaves the box greyed and unchecked, with the caption
 « Cette centrale ne reçoit ni photo ni vidéo. ».
 
@@ -1189,13 +1189,36 @@ The 30 s and 120 s values are test values.
 1. Add an entry under `profiles` in `csr_presets.json`.
 2. No PHP, JS or daemon change: the selector is built from the file.
 
+### Retired profile: Scutum
+
+The `scutum` preset was removed from `core/config/csr_presets.json` (the wizard no longer offers it). Its
+configuration is kept here as the reference for the Scutum CSR (observed behaviour: `internal-docs/ajax.md`).
+To re-create it: add the entry below under `profiles` (step 2 above needs no code change), or choose
+**Personnalisé** and set the same values by hand.
+
+```json
+"scutum": { "label": "Scutum", "supervision_format": "none", "rp_enabled": 1, "rp_interval": 60,
+            "media_enabled": 0, "media_snapshot_enabled": 0, "media_clip_enabled": 1,
+            "media_snapshot_format": "V", "media_clip_format": "V", "media_single_tag": 1 }
+```
+
+| Setting | Value | Why |
+|---|---|---|
+| `supervision_format` | `none` | on-demand transmitter like Ajax: no `NULL` frame; Scutum supervises it with the RP |
+| `rp_enabled` / `rp_interval` | 1 / 60 s | the RP "Test Cyclique" is what Scutum uses to see the transmitter alive |
+| `media_enabled` | 0 | the photo/video box off by default (to be tested with the CSR) |
+| snapshot / clip | snapshot off, clip on, both format `V`, one tag | video only, in the `V` extension |
+
+Behaviour of an equipment saved with `csr_profile` = `scutum` after the removal: the profile is unknown, so the
+wizard treats it as **Personnalisé** (fields unlocked, saved values kept).
+
 ---
 
 ## Testing strategy for Component 3
 
 | Test | How |
 |---|---|
-| Step 1 profile | Select Scutum → verify advanced fields pre-filled and read-only |
+| Step 1 profile | Select Ajax → verify advanced fields pre-filled and read-only |
 | Step 1 Personnalisé | Select Personnalisé → verify advanced fields become editable, values kept |
 | Step 1 reload saved config | Save manual config, reload page → verify "Personnalisé" selected, saved values shown |
 | Step 1 validation | Leave account empty, click Suivant → verify error shown, no advance |

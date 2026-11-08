@@ -270,12 +270,12 @@ def test_get_csr_profiles_reads_real_file() -> None:
     getCsrProfiles() returns the `profiles` object of core/config/csr_presets.json (AC2).
 
     Expected result:
-    - ajax and scutum returned, nothing logged
+    - ajax, vesta and foxstream returned (scutum is retired), nothing logged
     """
     profiles, lines = _php_get_profiles(_PROFILES_FILE)
 
-    # Assert: both profiles returned
-    assert set(profiles) == {"ajax", "scutum"}
+    # Assert: the shipped profiles are returned
+    assert set(profiles) == {"ajax", "vesta", "foxstream"}
     # Assert: no error logged
     assert lines == []
 
