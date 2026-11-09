@@ -101,3 +101,9 @@ id = 17
 slug = "epic-17-csr-behaviour-profiles"
 title = "Epic 17 — CSR Behaviour Profiles & Periodic Frames"
 covers = ["FR11", "NFR4", "NFR7"]
+
+[[epic]]
+id = 18
+slug = "epic-18-ftps-alarm-media-upload"
+title = "Epic 18 — FTPS Upload of Alarm Verification Media"
+covers = []

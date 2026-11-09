@@ -1,0 +1,118 @@
+# Epic 18 breakdown, agreed with the user on 2026-11-09. Status lives in the plans.
+
+[[entry]]
+id = 1
+type = "story"
+title = "FTPS test server"
+description = "Sets up an FTPS server the plugin can upload to, reachable from test-jeedom, with a known certificate."
+verify = "A standard FTPS client connects to it and uploads a file."
+covers = ["E18-R1"]
+after = []
+hitl = true
+risk = "low"
+unknown = "Explicit (port 21) or implicit (port 990) TLS, and CA-signed or self-signed certificate: both certificate cases must be supported, settle which one the test server uses."
+
+[[entry]]
+id = 2
+type = "story"
+title = "Tracer: per-equipment FTPS keys, PHP to daemon, snapshot upload on BA alarm"
+description = "Adds the equipment configuration keys for the FTPS upload (password as a password field like encryption_key), passes them to the daemon, and uploads the Frigate snapshot of a BA alarm, with no wizard yet."
+verify = "With the keys set by hand on test-jeedom, a BA alarm puts a snapshot on the test server and the frame is sent as before."
+covers = ["E18-R1", "E18-R2", "E18-R7"]
+after = [1]
+hitl = false
+risk = "medium"
+references = ["resources/siadc09d/frigate_prefetch.py", "core/class/siaDC09.class.php"]
+
+[[entry]]
+id = 3
+type = "story"
+title = "Wizard mockup: verification media block with transport choice"
+description = "Produces the mockup of the reworked verification-media block: transport choice (URL in the frame or FTPS), FTPS fields, snapshot and clip switches, certificate option, test-connection button, in the Jeedom theme."
+verify = "The user approves the mockup; it is saved in the epic folder as the input of the wizard story."
+covers = ["E18-R6"]
+after = []
+hitl = true
+risk = "low"
+references = ["internal-docs/design/wizard-design.md", "_bmad-output/initiative-my-project/epic-17-csr-behaviour-profiles/ux-17-wizard-step-1"]
+
+[[entry]]
+id = 4
+type = "story"
+title = "Wizard UI: transport choice and FTPS settings"
+description = "Reworks the verification-media block per the approved mockup: choice between URL in the SIA frame and FTPS, FTPS fields shown only for FTPS, required-field errors at save, and the existing URL behaviour untouched."
+verify = "On test-jeedom the rendered block matches the mockup in Dark and Light themes, an FTPS equipment saves and reaches the daemon, and an existing URL equipment behaves as before."
+covers = ["E18-R1", "E18-R6"]
+after = [2, 3]
+hitl = false
+risk = "medium"
+references = ["_bmad-output/initiative-my-project/epic-18-ftps-alarm-media-upload/ux-18-verification-media"]
+notes = ["bien utiliser la maquette comme input au build"]
+
+[[entry]]
+id = 5
+type = "story"
+title = "Clip upload"
+description = "Uploads the clip of a BA alarm once Frigate has it, in addition to the snapshot, following the snapshot and clip switches."
+verify = "A BA alarm with both switches on leaves a snapshot and a clip on the test server."
+covers = ["E18-R2"]
+after = [2]
+hitl = false
+risk = "medium"
+unknown = "Whether the clip is ready when the alarm fires; frigate_prefetch.py upgrades to the clip later, so the upload may have to wait."
+
+[[entry]]
+id = 6
+type = "story"
+title = "Upload robustness: timeout, certificate, secret handling"
+description = "Adds the timeout so the frame is never delayed, certificate validation with a CA-signed or pinned self-signed certificate, and keeps the password out of logs and the debug UI."
+verify = "With the server down or stalled the frame is ACKed on time and the failure is logged; a wrong certificate is refused; the password appears in no log."
+covers = ["E18-R3", "E18-R4"]
+after = [2]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 7
+type = "story"
+title = "Test-connection button"
+description = "Adds the wizard button that tests the FTPS settings and tells apart unreachable host, authentication failure and certificate failure."
+verify = "Against the test server each of the three failures shows its own message and a correct setup reports success."
+covers = ["E18-R5"]
+after = [4, 6]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 8
+type = "story"
+title = "Remote file naming and layout"
+description = "Defines and implements the remote folder and file names (account, zone, date) so files from different alarms do not collide."
+verify = "Two alarms from different zones and times leave distinct, predictable paths on the test server."
+covers = ["E18-R2"]
+after = [2]
+hitl = false
+risk = "low"
+unknown = "Layout and any retention or cleanup on the server."
+
+[[entry]]
+id = 9
+type = "story"
+title = "Field validation against a real FTPS server"
+description = "Runs the whole path against the user's real server and records the evidence."
+verify = "A real alarm on test-jeedom puts its snapshot and clip on the server and the CSR still gets the frame; the evidence is written in the story."
+covers = ["E18-R1", "E18-R2", "E18-R3"]
+after = [4, 5, 6, 7, 8]
+hitl = true
+risk = "low"
+
+[[entry]]
+id = 10
+type = "story"
+title = "Refactor sweep"
+description = "Cleanup of the epic's code from the plans and the review findings deferred during the epic."
+verify = "The level 1 and level 2 suites pass unchanged and the deferred findings are closed or recorded."
+covers = []
+after = [1, 2, 3, 4, 5, 6, 7, 8]
+hitl = false
+risk = "low"
