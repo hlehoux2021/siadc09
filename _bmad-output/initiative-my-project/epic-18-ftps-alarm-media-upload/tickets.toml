@@ -52,11 +52,23 @@ notes = ["bien utiliser la maquette comme input au build"]
 [[entry]]
 id = 11
 type = "story"
-title = "18.11 — Wizard step 2: single test button and FTPS settings"
-description = "Reworks step 2 per the approved mockup (screens C, C1, C2, D2, H): no automatic test, one button Lancer le test / Relancer le test for the SIA test and the FTPS test, a right-hand slot that is Suivant only when every test passed and Ignorer otherwise, results cleared when a setting changes, and the Serveur FTPS card in the advanced options with its validation; works against a stub until 18.7 builds the FTPS test action; wizard-design.md updated."
-verify = "On test-jeedom nothing runs on arrival, the single button runs the tests, Suivant and Ignorer never show together, incomplete FTPS settings are refused with their errors, and the step 2 render matches the mockup in Dark and Light."
-covers = ["E18-R1", "E18-R6"]
+title = "18.11 — Wizard step 2: FTPS settings in the advanced options"
+description = "Moves the FTPS settings from the interim step 1 card into the Options avancées panel of step 2 per the approved mockup (screens C, D2): server, port, user, password, folder, certificate radios with the fingerprint field, never profile-locked, the panel opening by itself when the settings are incomplete, the step 1 note shown and the interim card removed, FTPS validation with the banner Impossible de lancer le test, the FTPS completeness check at Terminer, and the step 2 summary."
+verify = "On test-jeedom the settings are edited in the advanced panel, an incomplete FTPS setup is refused with its errors, an FTPS equipment saves and reaches the daemon, and the render matches the mockup in Dark and Light."
+covers = ["E18-R1"]
 after = [4]
+hitl = false
+risk = "medium"
+references = ["_bmad-output/initiative-my-project/epic-18-ftps-alarm-media-upload/ux-18-wizard-media-block"]
+
+[[entry]]
+id = 12
+type = "story"
+title = "18.12 — Wizard step 2: single test button and results"
+description = "Reworks the step 2 behaviour per the approved mockup (screens C, C1, C2, H): no automatic test, one button Lancer le test / Relancer le test running the SIA test and, under FTPS, the FTPS test, two result zones starting at Pas encore testé, a right-hand slot that is Suivant only when every test passed and Ignorer otherwise, results cleared when a setting changes, the step 3 warnings per test, the trust-this-fingerprint action, and a stub FTPS action (testFtps returning unavailable) until 18.7 builds the real one; wizard-design.md updated."
+verify = "On test-jeedom nothing runs on arrival, the single button runs the tests, Suivant and Ignorer never show together, and the step 2 render matches the mockup in Dark and Light."
+covers = ["E18-R1", "E18-R6"]
+after = [11]
 hitl = false
 risk = "medium"
 references = ["_bmad-output/initiative-my-project/epic-18-ftps-alarm-media-upload/ux-18-wizard-media-block"]
@@ -91,7 +103,7 @@ title = "18.7 — FTPS connection test action"
 description = "Builds the FTPS test action that the step 2 test button calls (a stub until now): connection, certificate and login only, nothing written; it tells apart unreachable host, certificate failure and authentication failure, and returns the fingerprint the server presents for the trust button."
 verify = "Against the test server each of the three failures shows its own message in step 2 and a correct setup reports success."
 covers = ["E18-R5"]
-after = [6, 11]
+after = [6, 12]
 hitl = false
 risk = "low"
 
@@ -114,7 +126,7 @@ title = "18.9 — Field validation against a real FTPS server"
 description = "Runs the whole path against the user's real server and records the evidence."
 verify = "A real alarm on test-jeedom puts its snapshot and clip on the server and the CSR still gets the frame; the evidence is written in the story."
 covers = ["E18-R1", "E18-R2", "E18-R3"]
-after = [4, 5, 6, 7, 8, 11]
+after = [4, 5, 6, 7, 8, 11, 12]
 hitl = true
 risk = "low"
 
@@ -125,6 +137,6 @@ title = "18.10 — Refactor sweep"
 description = "Cleanup of the epic's code from the plans and the review findings deferred during the epic."
 verify = "The level 1 and level 2 suites pass unchanged and the deferred findings are closed or recorded."
 covers = []
-after = [1, 2, 3, 4, 5, 6, 7, 8, 11]
+after = [1, 2, 3, 4, 5, 6, 7, 8, 11, 12]
 hitl = false
 risk = "low"

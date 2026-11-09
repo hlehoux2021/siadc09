@@ -4,7 +4,7 @@ type: story
 title: "18.7 — FTPS connection test action"
 parent: epic-18-ftps-alarm-media-upload
 covers: [E18-R5]
-after: [6, 11]
+after: [6, 12]
 hitl: false
 risk: low
 ---
