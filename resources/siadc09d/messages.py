@@ -110,6 +110,11 @@ FTPS_UPLOAD_FAILED: Final[str] = (
     "Alarme transmise à la centrale, mais la photo de levée de doute n'a pas été envoyée "
     "au serveur FTPS {host}:{port} (zone: {zone}) — {reason}"
 )
+FTPS_UPLOAD_FAILED_VIDEO_TITLE: Final[str] = "SIA DC-09 : vidéo de levée de doute non transmise (FTPS)"
+FTPS_UPLOAD_FAILED_VIDEO: Final[str] = (
+    "Alarme transmise à la centrale, mais la vidéo de levée de doute n'a pas été envoyée "
+    "au serveur FTPS {host}:{port} (zone: {zone}) — {reason}"
+)
 SM2_FAILED_CONFIG: Final[str] = (
     "Alarme {type} non transmise — clé de chiffrement invalide (zone: {zone})"
 )

@@ -19,6 +19,8 @@ import asyncio
 import http.client
 import json
 import logging
+import os
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -68,6 +70,17 @@ EVENTS_QUERY_LIMIT: Final[int] = 20
 
 # Upper bound on a downloaded snapshot (ticket 18.2): a JPEG far above this is not a snapshot.
 SNAPSHOT_MAX_BYTES: Final[int] = 10 * 1024 * 1024
+
+# Clip upload (ticket 18.5). Every limit follows the event row; these are the bounds.
+# Margin after the event's end_time for Frigate to finish writing the clip.
+CLIP_END_MARGIN_S: Final[float] = 3.0
+# Longest wait for a clip (end of event, and retries while Frigate answers an error).
+CLIP_MAX_WAIT_S: Final[float] = 60.0
+CLIP_POLL_INTERVAL_S: Final[float] = 2.0
+# Download deadline = this base + the clip duration.
+CLIP_DOWNLOAD_BASE_S: Final[float] = 30.0
+CLIP_MAX_BYTES: Final[int] = 200 * 1024 * 1024
+CLIP_CHUNK_BYTES: Final[int] = 64 * 1024
 
 _PERSON_LABEL: Final[str] = "person"
 
@@ -153,6 +166,190 @@ async def fetch_event_snapshot(frigate_host: str, event_id: str) -> bytes | None
     )
     return await _run_with_deadline_timeout(_get_bytes, url, PREFETCH_HTTP_TIMEOUT_S,
                                             timeout=PREFETCH_HTTP_TIMEOUT_S)
+
+
+class ClipFetchError(Exception):
+    """The clip could not be obtained; the message is shown to the user (French, no secret)."""
+
+
+@dataclass(frozen=True)
+class ClipFile:
+    """A downloaded clip in a temporary file the caller must delete with `remove_clip_file()`.
+
+    Attributes:
+        path: Temporary file holding the mp4.
+        size: Bytes written.
+        duration_s: Clip duration from the event row (`end_time - start_time`), 0 when unknown.
+    """
+
+    path: str
+    size: int
+    duration_s: float
+
+
+def remove_clip_file(path: str) -> None:
+    """Delete a temporary clip file; a file already gone is fine."""
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        _logger.warning(f"clip temporary file {path} could not be deleted: {e!r}")
+
+
+def _as_epoch(value: object) -> float | None:
+    """A Frigate event time (epoch seconds) as a float, or None when missing or invalid."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+def clip_wait_s(end_time: float | None, now: float) -> float:
+    """How long to wait before the clip of an event is complete.
+
+    Args:
+        end_time: The event row's `end_time` (epoch seconds), None while it runs or unknown.
+        now: Current epoch time.
+
+    Returns:
+        Seconds until `end_time` plus `CLIP_END_MARGIN_S`; 0 when the event already ended,
+        when `end_time` is missing, or when the wait would exceed `CLIP_MAX_WAIT_S` (the
+        daemon then downloads what exists).
+    """
+    if end_time is None or end_time <= now:
+        return 0.0
+    wait = end_time - now + CLIP_END_MARGIN_S
+    return wait if wait <= CLIP_MAX_WAIT_S else 0.0
+
+
+_CONTENT_LENGTH: Final[str] = "Content-Length"
+_DOWNLOAD_TOO_SLOW: Final[str] = "téléchargement trop long"
+
+
+def _local_disk_error(err: OSError) -> ClipFetchError:
+    """A local write problem is not "Frigate has no clip": name it for the user."""
+    return ClipFetchError(f"écriture du clip impossible sur le disque ({err.strerror or err})")
+
+
+def _open_clip_file(path: str):
+    """Open the clip destination for writing; a local failure is a ClipFetchError."""
+    try:
+        return open(path, "wb")  # pylint: disable=consider-using-with
+    except OSError as err:
+        raise _local_disk_error(err) from None
+
+
+def _write_clip_chunk(out, chunk: bytes) -> None:
+    """Write one chunk; a local failure (disk full, permission) is a ClipFetchError."""
+    try:
+        out.write(chunk)
+    except OSError as err:
+        raise _local_disk_error(err) from None
+
+
+def _download_clip_to_file(url: str, path: str, deadline: float) -> int:
+    """Stream `url` into `path` in chunks, capped at `CLIP_MAX_BYTES` (blocking).
+
+    Args:
+        url: Clip URL.
+        path: Destination file (overwritten).
+        deadline: `time.monotonic()` value after which the download is abandoned.
+
+    Returns:
+        Bytes written; 0 when Frigate answers an error, has no clip yet, or the transfer broke.
+
+    Raises:
+        ClipFetchError: The body exceeds the cap, or the deadline passed mid-transfer.
+    """
+    req = urllib.request.Request(url, method="GET")
+    total = 0
+    try:
+        with urllib.request.urlopen(req, timeout=PREFETCH_HTTP_TIMEOUT_S) as resp:
+            declared = resp.headers.get(_CONTENT_LENGTH)
+            if declared and declared.isdigit() and int(declared) > CLIP_MAX_BYTES:
+                raise ClipFetchError(_clip_too_large())
+            with _open_clip_file(path) as out:
+                while True:
+                    if time.monotonic() > deadline:
+                        raise ClipFetchError(_DOWNLOAD_TOO_SLOW)
+                    chunk = resp.read(CLIP_CHUNK_BYTES)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > CLIP_MAX_BYTES:
+                        raise ClipFetchError(_clip_too_large())
+                    _write_clip_chunk(out, chunk)
+    except (urllib.error.URLError, OSError, http.client.HTTPException, ValueError):
+        # HTTP 4xx/5xx, connection reset or timeout: not ready (a truncated body is rejected).
+        return 0
+    return total
+
+
+def _clip_too_large() -> str:
+    """Wording of the size-cap failure, naming the cap."""
+    return f"clip trop volumineux (limite {CLIP_MAX_BYTES // (1024 * 1024)} Mo)"
+
+
+async def fetch_event_clip(frigate_host: str, event_id: str) -> ClipFile:
+    """Wait for the clip of an event to be complete, then download it to a temporary file.
+
+    The wait comes from the event row (`clip_wait_s()`); retries of a clip Frigate does not
+    serve yet stop at `CLIP_MAX_WAIT_S` after the call. The download deadline is
+    `CLIP_DOWNLOAD_BASE_S` plus the clip duration. The clip is never held in memory.
+
+    Args:
+        frigate_host: Frigate "host:port".
+        event_id: Frigate event id.
+
+    Returns:
+        The downloaded clip; the caller deletes it with `remove_clip_file()`.
+
+    Raises:
+        ClipFetchError: Clip not ready in time, too large, or download too slow. No file
+            remains in that case.
+    """
+    quoted = urllib.parse.quote(event_id, safe="")
+    row = await _run_with_deadline_timeout(
+        _get_json, f"http://{frigate_host}/api/events/{quoted}", PREFETCH_HTTP_TIMEOUT_S,
+        timeout=PREFETCH_HTTP_TIMEOUT_S,
+    )
+    start_time = _as_epoch(row.get("start_time")) if isinstance(row, dict) else None
+    end_time = _as_epoch(row.get("end_time")) if isinstance(row, dict) else None
+    duration = end_time - start_time if start_time is not None and end_time is not None else 0.0
+    duration = max(0.0, duration)
+    wait = clip_wait_s(end_time, time.time())
+    _logger.debug(f"fetch_event_clip: event={event_id!r} wait={wait:.1f}s duration={duration:.1f}s")
+    if wait > 0:
+        await asyncio.sleep(wait)
+    # Retries of a clip Frigate does not serve yet start counting after the event-end wait.
+    give_up_at = time.monotonic() + CLIP_MAX_WAIT_S
+    download_s = CLIP_DOWNLOAD_BASE_S + duration
+    url = f"http://{frigate_host}/api/events/{quoted}/clip.mp4"
+    try:
+        fd, path = tempfile.mkstemp(prefix="sia-clip-", suffix=".mp4")
+    except OSError as err:
+        raise _local_disk_error(err) from None
+    os.close(fd)
+    keep = False
+    try:
+        while True:
+            deadline = time.monotonic() + download_s
+            try:
+                size = await asyncio.wait_for(
+                    asyncio.to_thread(_download_clip_to_file, url, path, deadline),
+                    timeout=download_s + PREFETCH_WAIT_FOR_SLACK_S,
+                )
+            except (asyncio.TimeoutError, TimeoutError):
+                raise ClipFetchError(_DOWNLOAD_TOO_SLOW) from None
+            if size > 0:
+                keep = True
+                return ClipFile(path=path, size=size, duration_s=duration)
+            if time.monotonic() >= give_up_at:
+                raise ClipFetchError(f"clip non disponible sur Frigate {frigate_host}")
+            await asyncio.sleep(CLIP_POLL_INTERVAL_S)
+    finally:
+        if not keep:
+            remove_clip_file(path)
 
 
 def _post_json(

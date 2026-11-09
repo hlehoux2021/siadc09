@@ -117,4 +117,7 @@ def test_ftps_upload_follows_the_media_switches() -> None:
     assert ("$snapshotWanted = $mediaOn && "
             "$this->_mediaSetting(siaDC09::MEDIA_SNAPSHOT_ENABLED_KEY);") in _CMD
     # Assert: the upload is resolved only for a BA alarm with that flag
-    assert "($logicalId === 'burglarAlarm' && $snapshotWanted)" in _CMD
+    # (ticket 18.5: the clip switch also triggers the resolution, and both flags are sent)
+    assert "($logicalId === 'burglarAlarm' && ($snapshotWanted || $clipWanted))" in _CMD
+    assert "$ftpsUpload['snapshot'] = (bool) $snapshotWanted;" in _CMD
+    assert "$ftpsUpload['clip'] = (bool) $clipWanted;" in _CMD

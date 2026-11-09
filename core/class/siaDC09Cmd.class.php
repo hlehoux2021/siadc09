@@ -161,16 +161,20 @@ class siaDC09Cmd extends cmd {
                         . ' ftps_enabled=' . json_encode((bool) $eqForLog?->getConfiguration(self::FTPS_ENABLED_KEY, 0))
                         . ' média=' . json_encode((bool) $mediaOn) . ' photo=' . json_encode((bool) $snapshotWanted));
                 }
-                $ftpsUpload = ($logicalId === 'burglarAlarm' && $snapshotWanted)
+                // Ticket 18.5: the clip follows its own switch (master + clip).
+                $clipWanted = $mediaOn && $this->_mediaSetting(siaDC09::MEDIA_CLIP_ENABLED_KEY);
+                $ftpsUpload = ($logicalId === 'burglarAlarm' && ($snapshotWanted || $clipWanted))
                     ? $this->_resolveFtpsUpload($zoneEntry, $cacheEntry) : null;
                 if ($logicalId === 'burglarAlarm' && $this->_ftpsTransportActive()) {
                     $media = [];
-                    if (!$snapshotWanted) {
+                    if (!$snapshotWanted && !$clipWanted) {
                         log::add('siaDC09', 'info',
-                            'FTPS : photo non demandée (médias ou photo désactivés sur l\'équipement) — pas d\'envoi');
+                            'FTPS : ni photo ni vidéo demandées (médias, photo et vidéo désactivés sur l\'équipement) — pas d\'envoi');
                     }
                 }
                 if ($ftpsUpload !== null) {
+                    $ftpsUpload['snapshot'] = (bool) $snapshotWanted;
+                    $ftpsUpload['clip'] = (bool) $clipWanted;
                     $payload['ftps_upload'] = $ftpsUpload;
                 }
                 if (!empty($media)) {
@@ -249,13 +253,13 @@ class siaDC09Cmd extends cmd {
         }
         if (!is_array($cacheEntry) || empty($cacheEntry['found'])
             || time() - (int) ($cacheEntry['ts'] ?? 0) > self::PREFETCH_CACHE_TTL) {
-            log::add('siaDC09', 'warning', 'FTPS : aucun évènement Frigate récent — pas d\'envoi de photo');
+            log::add('siaDC09', 'warning', 'FTPS : aucun évènement Frigate récent — pas d\'envoi de photo ni de vidéo');
             return null;
         }
         $eventId = $cacheEntry['event_id'] ?? null;
         $target = $this->_resolvePrefetchTarget($zoneEntry);
         if (!is_string($eventId) || $eventId === '' || $target === null) {
-            log::add('siaDC09', 'warning', 'FTPS : évènement ou hôte Frigate introuvable — pas d\'envoi de photo');
+            log::add('siaDC09', 'warning', 'FTPS : évènement ou hôte Frigate introuvable — pas d\'envoi de photo ni de vidéo');
             return null;
         }
         return ['frigate_host' => $target['frigate_host'], 'event_id' => $eventId];

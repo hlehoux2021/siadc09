@@ -17,11 +17,12 @@ import ftplib
 import hashlib
 import io
 import logging
+import os
 import re
 import ssl
 import time
 from dataclasses import dataclass, field
-from typing import Final
+from typing import BinaryIO, Final
 
 _logger = logging.getLogger(__name__)
 
@@ -136,6 +137,33 @@ def upload_bytes(settings: FtpsSettings, name: str, data: bytes) -> None:
         FtpsUploadError: Any connection, TLS, login or transfer failure. The message names
             the failing exception type and server reply, never the password.
     """
+    _upload_stream(settings, name, io.BytesIO(data), len(data))
+
+
+def upload_file(settings: FtpsSettings, name: str, path: str) -> None:
+    """Upload the local file at `path` as `name` (blocking, streamed, not read into memory).
+
+    Same connection, TLS, fingerprint and error handling as `upload_bytes()`.
+
+    Args:
+        settings: FTPS settings (must be complete).
+        name: Remote file name (no path).
+        path: Local file to send.
+
+    Raises:
+        FtpsUploadError: Any connection, TLS, login, transfer or local file failure.
+    """
+    try:
+        with open(path, "rb") as source:
+            size = os.fstat(source.fileno()).st_size
+            _upload_stream(settings, name, source, size)
+    except OSError as err:
+        # FtpsUploadError is not an OSError, so only local file problems land here.
+        raise FtpsUploadError(f"step read: {type(err).__name__}: {err}") from None
+
+
+def _upload_stream(settings: FtpsSettings, name: str, source: BinaryIO, size: int) -> None:
+    """Connect, authenticate and STOR `source` as `name` (shared by bytes and file uploads)."""
     ftp = ftplib.FTP_TLS(context=_build_context(settings), timeout=FTPS_TIMEOUT_S)
     target = f"{settings.host}:{settings.port}"
     step = "connect"
@@ -163,9 +191,9 @@ def upload_bytes(settings: FtpsSettings, name: str, data: bytes) -> None:
             step = "cwd"
             ftp.cwd(settings.folder)
         step = "upload"
-        reply = ftp.storbinary(f"STOR {name}", io.BytesIO(data))
+        reply = ftp.storbinary(f"STOR {name}", source)
         _logger.debug(
-            f"FTPS {step}: STOR {name} {len(data)} bytes -> {reply!r} "
+            f"FTPS {step}: STOR {name} {size} bytes -> {reply!r} "
             f"in {time.monotonic() - started:.2f}s"
         )
     except FtpsUploadError as err:

@@ -61,6 +61,8 @@ from .messages import (
     ENCRYPTION_KEY_INVALID_TITLE,
     FTPS_UPLOAD_FAILED,
     FTPS_UPLOAD_FAILED_TITLE,
+    FTPS_UPLOAD_FAILED_VIDEO,
+    FTPS_UPLOAD_FAILED_VIDEO_TITLE,
     SM1_DEGRADED_1_2_FR,
     SM1_DEGRADED_3_FR,
     SM1_DEGRADED_DUH_FR,
@@ -71,7 +73,14 @@ from .messages import (
     SM1_NO_NETWORK_FR,
     SM1_CONFIG_ERROR_FR,
 )
-from .frigate_prefetch import PrefetchResult, fetch_event_snapshot, prefetch_alarm_media
+from .frigate_prefetch import (
+    ClipFetchError,
+    PrefetchResult,
+    fetch_event_clip,
+    fetch_event_snapshot,
+    prefetch_alarm_media,
+    remove_clip_file,
+)
 from .ftps_upload import (
     FTPS_DEFAULT_PORT,
     FTPS_TIMEOUT_S,
@@ -80,6 +89,7 @@ from .ftps_upload import (
     normalize_fingerprint,
     safe_name_part,
     upload_bytes,
+    upload_file,
 )
 from .ring_buffer import RingBuffer, make_message_entry
 from .sia_protocol import (
@@ -302,7 +312,7 @@ class OnMessageParams(TypedDict, total=False):
     media_url: str
     media: list[dict[str, str]]
     media_single_tag: bool
-    ftps_upload: dict[str, str]
+    ftps_upload: dict[str, str | bool]
     camera_eqlogic_id: int
     camera_name: str
     frigate_host: str
@@ -590,14 +600,73 @@ class SIADaemon(BaseDaemon):
             self._logger.warning("FTPS upload enabled but host or user is empty — no upload will run")
         return settings
 
-    async def _run_ftps_upload(
-        self, frigate_host: str, event_id: str, zone: str | None = None
+    async def _run_ftps_upload(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self, frigate_host: str, event_id: str, zone: str | None = None,
+        snapshot: bool = True, clip: bool = False,
     ) -> None:
+        """Upload the wanted media of a BA alarm by FTPS: snapshot first, then the clip.
+
+        Runs as a tracked background task, so the SIA frame never waits for it. The two
+        media are independent: one failing does not skip the other (ticket 18.5).
+
+        Args:
+            frigate_host: Frigate "host:port".
+            event_id: Frigate event id (also part of the remote file names).
+            zone: Zone label of the alarm, for the user-facing message.
+            snapshot: Upload the snapshot.
+            clip: Upload the clip.
+        """
+        if snapshot:
+            await self._upload_snapshot(frigate_host, event_id, zone)
+        if clip:
+            await self._upload_clip(frigate_host, event_id, zone)
+
+    async def _upload_clip(self, frigate_host: str, event_id: str, zone: str | None) -> None:
+        """Download the event clip into a temporary file and upload it by FTPS (best effort).
+
+        The temporary file is always deleted. A failure is logged at ERROR and reported to
+        the user with the video wording; the password never appears.
+
+        Args:
+            frigate_host: Frigate "host:port".
+            event_id: Frigate event id.
+            zone: Zone label of the alarm.
+        """
+        target = f"{self._ftps.host}:{self._ftps.port}"
+        started = time.monotonic()
+        try:
+            clip = await fetch_event_clip(frigate_host, event_id)
+        except ClipFetchError as e:
+            await self._report_ftps_failure(zone, str(e), video=True)
+            return
+        deadline = FTPS_UPLOAD_DEADLINE_S + clip.duration_s
+        name = f"{safe_name_part(self._account)}-{safe_name_part(event_id)}-clip.mp4"
+        try:
+            self._logger.debug(
+                f"FTPS upload task: clip {clip.size} bytes from Frigate "
+                f"in {time.monotonic() - started:.2f}s (upload deadline {deadline:.0f}s)"
+            )
+            await asyncio.wait_for(
+                asyncio.to_thread(upload_file, self._ftps, name, clip.path), timeout=deadline
+            )
+        except FtpsUploadError as e:
+            await self._report_ftps_failure(zone, str(e), video=True)
+        except (asyncio.TimeoutError, TimeoutError):
+            await self._report_ftps_failure(zone, f"délai dépassé ({deadline:.0f} s)", video=True)
+        else:
+            self._logger.info(
+                f"FTPS upload to {target} done: {name} ({clip.size} bytes, "
+                f"{time.monotonic() - started:.2f}s)"
+            )
+        finally:
+            remove_clip_file(clip.path)
+
+    async def _upload_snapshot(self, frigate_host: str, event_id: str, zone: str | None) -> None:
         """Fetch the event snapshot from Frigate and upload it by FTPS (best effort).
 
-        Runs as a tracked background task, so the SIA frame never waits for it. A failure
-        means the verification photo is missing at the receiver: it is logged at ERROR and
-        reported to the user (message center + notification); the password never appears.
+        A failure means the verification photo is missing at the receiver: it is logged at
+        ERROR and reported to the user (message center + notification); the password never
+        appears.
 
         Args:
             frigate_host: Frigate "host:port".
@@ -637,7 +706,9 @@ class SIADaemon(BaseDaemon):
                 f"{time.monotonic() - started:.2f}s)"
             )
 
-    async def _report_ftps_failure(self, zone: str | None, reason: str) -> None:
+    async def _report_ftps_failure(
+        self, zone: str | None, reason: str, video: bool = False
+    ) -> None:
         """Log an FTPS upload failure at ERROR and tell the user (message center + notify).
 
         Same direct path as the encryption-key error: ErrorCode admits no new code without
@@ -645,9 +716,12 @@ class SIADaemon(BaseDaemon):
 
         Args:
             zone: Zone label of the alarm (None when unknown).
-            reason: Why the photo did not reach the server.
+            reason: Why the media did not reach the server.
+            video: True for the clip (video wording), False for the snapshot (photo wording).
         """
-        message = FTPS_UPLOAD_FAILED.format(
+        template = FTPS_UPLOAD_FAILED_VIDEO if video else FTPS_UPLOAD_FAILED
+        title = FTPS_UPLOAD_FAILED_VIDEO_TITLE if video else FTPS_UPLOAD_FAILED_TITLE
+        message = template.format(
             host=self._ftps.host, port=self._ftps.port, zone=zone or "?", reason=reason
         )
         self._logger.error(f"FTPS upload failed: {message}")
@@ -659,7 +733,7 @@ class SIADaemon(BaseDaemon):
                 "type": "message_center", "message": message, "logical_id": FTPS_UPLOAD_LOGICAL_ID,
             })
             await self._send_callback({
-                "type": "notify", "title": FTPS_UPLOAD_FAILED_TITLE, "message": message,
+                "type": "notify", "title": title, "message": message,
             })
         except Exception as e:  # pylint: disable=broad-exception-caught
             self._logger.error(f"FTPS failure notification failed: {e!r}")
@@ -2976,10 +3050,19 @@ class SIADaemon(BaseDaemon):
         if sia_code == "BA" and isinstance(raw_ftps, dict) and self._ftps.active:
             ftps_host = str(raw_ftps.get("frigate_host") or "")
             ftps_event_id = str(raw_ftps.get("event_id") or "")
-            if ftps_host and ftps_event_id:
+            # Ticket 18.5: which media the equipment wants; payloads without the flags keep
+            # the 18.2 behaviour (snapshot only).
+            want_snapshot = raw_ftps.get("snapshot", True) is not False
+            want_clip = raw_ftps.get("clip", False) is True
+            if ftps_host and ftps_event_id and (want_snapshot or want_clip):
                 self._track_task(
-                    self._run_ftps_upload(ftps_host, ftps_event_id, zone), name="ftps-upload"
+                    self._run_ftps_upload(
+                        ftps_host, ftps_event_id, zone, snapshot=want_snapshot, clip=want_clip
+                    ),
+                    name="ftps-upload",
                 )
+            elif ftps_host and ftps_event_id:
+                self._logger.warning("on_message: ftps_upload asks for neither snapshot nor clip")
             else:
                 self._logger.warning("on_message: ftps_upload without frigate_host/event_id — no upload")
         elif sia_code == "BA" and isinstance(raw_ftps, dict):
