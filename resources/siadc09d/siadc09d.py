@@ -498,6 +498,14 @@ if __name__ == "__main__":
     _config.add_argument("--crc-format", type=str, choices=["hex"], default="hex")
     _config.add_argument("--encryption-enabled", action="store_true")
     _config.add_argument("--encryption-key", type=str, default="")
+    # Epic 18 (18.2): FTPS media upload keys, per equipment (hand-entered; wizard is 18.4).
+    _config.add_argument("--ftps-enabled", action="store_true")
+    _config.add_argument("--ftps-host", type=str, default="")
+    _config.add_argument("--ftps-port", type=int, default=21)
+    _config.add_argument("--ftps-user", type=str, default="")
+    _config.add_argument("--ftps-password", type=str, default="")
+    _config.add_argument("--ftps-folder", type=str, default="")
+    _config.add_argument("--ftps-cert-fingerprint", type=str, default="")
     _config.add_argument("--supervision-interval", type=int, default=60)
     # Story 17.1 (ADR-22): periodic-frame settings, resolved PHP-side — the daemon
     # never sees a CSR profile name. Validated by CSRPreset.__post_init__.

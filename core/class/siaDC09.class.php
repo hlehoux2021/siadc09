@@ -61,6 +61,14 @@ class siaDC09 extends eqLogic {
         'media_single_tag'       => 1,
     ];
 
+    /**
+     * Epic 18 (ticket 18.2): per-equipment FTPS media upload, hand-entered until the wizard
+     * (18.4). `media_transport` 'url' (default) keeps the U/V tag; 'ftps' sends no tag on a BA
+     * frame and has the daemon upload the Frigate snapshot instead (read by siaDC09Cmd).
+     */
+    const FTPS_ENABLED_KEY = 'ftps_enabled';
+    const FTPS_PORT_DEFAULT = 21;
+
     /** Sender-side CRC formats: 'bin' removed on 2026-10-17 (Story 17.1, ADR-06 note). */
     const SENDER_CRC_FORMATS = ['hex'];
 
@@ -348,6 +356,23 @@ class siaDC09 extends eqLogic {
             }
         }
 
+        // Epic 18 (18.2): FTPS media upload keys, same hand-off as the encryption key.
+        if ((bool) $eqLogic->getConfiguration(self::FTPS_ENABLED_KEY, 0)) {
+            $cmd .= ' --ftps-enabled';
+            $cmd .= ' --ftps-host ' . escapeshellarg((string) $eqLogic->getConfiguration('ftps_host', ''));
+            $cmd .= ' --ftps-port ' . ((int) $eqLogic->getConfiguration('ftps_port', self::FTPS_PORT_DEFAULT) ?: self::FTPS_PORT_DEFAULT);
+            $cmd .= ' --ftps-user ' . escapeshellarg((string) $eqLogic->getConfiguration('ftps_user', ''));
+            $ftpsPassword = (string) $eqLogic->getConfiguration('ftps_password', '');
+            if ($ftpsPassword !== '') {
+                $cmd .= ' --ftps-password ' . escapeshellarg($ftpsPassword);
+            }
+            $cmd .= ' --ftps-folder ' . escapeshellarg((string) $eqLogic->getConfiguration('ftps_folder', ''));
+            $ftpsFingerprint = trim((string) $eqLogic->getConfiguration('ftps_cert_fingerprint', ''));
+            if ($ftpsFingerprint !== '') {
+                $cmd .= ' --ftps-cert-fingerprint ' . escapeshellarg($ftpsFingerprint);
+            }
+        }
+
         $supervisionInterval = (int) $eqLogic->getConfiguration('supervision_interval', 60);
         if ($supervisionInterval > 0) {
             $cmd .= ' --supervision-interval ' . $supervisionInterval;
@@ -373,7 +398,13 @@ class siaDC09 extends eqLogic {
             $cmd .= ' --notify-cmd-id ' . $notifyCmdId;
         }
 
-        $cmdLog = preg_replace('/--encryption-key\s+\S+/', '--encryption-key [REDACTED]', $cmd);
+        // escapeshellarg() wraps in single quotes (and may contain spaces), so match a quoted
+        // argument as a whole; the bare \S+ alternative covers an unquoted value.
+        $cmdLog = preg_replace(
+            ["/--encryption-key\s+('(?:[^']|'\\\\'')*'|\S+)/", "/--ftps-password\s+('(?:[^']|'\\\\'')*'|\S+)/"],
+            ['--encryption-key [REDACTED]', '--ftps-password [REDACTED]'],
+            $cmd
+        );
         log::add(__CLASS__, 'info', __('Lancement démon', __FILE__) . ': ' . $cmdLog);
         exec($cmd . ' >> ' . log::getPathToLog(__CLASS__ . '_daemon') . ' 2>&1 &');
 

@@ -208,6 +208,53 @@ $scenarios = scenario::all();
 										<p class="siaDC09-help siaDC09-hint" style="margin-top:12px;">{{Ce qui est envoyé (photo, vidéo, format) est fixé par le profil : voir les options avancées de l'étape Test.}}</p>
 									</div>
 
+									<!-- Envoi FTPS des photos (epic 18, ticket 18.2) : saisie manuelle, l'assistant viendra en 18.4 -->
+									<div class="siaDC09-zone" id="siaDC09-ftps-card">
+										<h4 class="siaDC09-zone-title">{{Envoi des photos par FTPS (avancé)}}</h4>
+										<div class="siaDC09-row">
+											<div class="siaDC09-field siaDC09-w-wide">
+												<label class="siaDC09-label">{{Transport des médias}}</label>
+												<select class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="media_transport">
+													<option value="url">{{Adresse (URL) dans la trame}}</option>
+													<option value="ftps">{{Envoi FTPS de la photo}}</option>
+												</select>
+											</div>
+											<div class="siaDC09-field siaDC09-w-wide">
+												<label class="siaDC09-check-line"><input type="checkbox" class="eqLogicAttr" data-l1key="configuration" data-l2key="ftps_enabled">{{Activer l'envoi FTPS}}</label>
+											</div>
+										</div>
+										<div class="siaDC09-row">
+											<div class="siaDC09-field siaDC09-w-input">
+												<label class="siaDC09-label">{{Serveur FTPS}}</label>
+												<input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="ftps_host" placeholder="ftp.exemple.fr">
+											</div>
+											<div class="siaDC09-field siaDC09-w-narrow">
+												<label class="siaDC09-label">{{Port}}</label>
+												<input type="number" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="ftps_port" placeholder="21">
+											</div>
+										</div>
+										<div class="siaDC09-row">
+											<div class="siaDC09-field siaDC09-w-input">
+												<label class="siaDC09-label">{{Utilisateur}}</label>
+												<input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="ftps_user" autocomplete="off">
+											</div>
+											<div class="siaDC09-field siaDC09-w-input">
+												<label class="siaDC09-label">{{Mot de passe}}</label>
+												<input type="password" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="ftps_password" autocomplete="new-password">
+											</div>
+										</div>
+										<div class="siaDC09-row">
+											<div class="siaDC09-field siaDC09-w-input">
+												<label class="siaDC09-label">{{Dossier distant}}</label>
+												<input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="ftps_folder" placeholder="upload">
+											</div>
+											<div class="siaDC09-field siaDC09-w-input">
+												<label class="siaDC09-label">{{Empreinte SHA-256 du certificat (optionnel)}}</label>
+												<input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="ftps_cert_fingerprint" placeholder="serveur à certificat auto-signé">
+											</div>
+										</div>
+									</div>
+
 									<!-- Validation errors -->
 									<div id="siaDC09-step1-errors" class="alert alert-danger siaDC09-banner-error" role="alert" style="display:none;"></div>
 

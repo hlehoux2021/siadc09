@@ -69,7 +69,16 @@ from .messages import (
     SM1_NO_NETWORK_FR,
     SM1_CONFIG_ERROR_FR,
 )
-from .frigate_prefetch import PrefetchResult, prefetch_alarm_media
+from .frigate_prefetch import PrefetchResult, fetch_event_snapshot, prefetch_alarm_media
+from .ftps_upload import (
+    FTPS_DEFAULT_PORT,
+    FTPS_TIMEOUT_S,
+    FtpsSettings,
+    FtpsUploadError,
+    normalize_fingerprint,
+    safe_name_part,
+    upload_bytes,
+)
 from .ring_buffer import RingBuffer, make_message_entry
 from .sia_protocol import (
     NULL_TOKEN,
@@ -259,6 +268,8 @@ QueueItemType = Literal["EVENT", "SUPERVISION", "RP"]
 MAX_RETRY_DEFAULT: Final[int] = 3
 # Wait for the CSR's answer to one RP frame (story 17-3); a miss is one SM1 strike.
 RP_SEND_TIMEOUT_S: Final[float] = 10.0
+# Slack on top of FTPS_TIMEOUT_S for the whole blocking upload (several socket steps).
+FTPS_UPLOAD_DEADLINE_S: Final[float] = FTPS_TIMEOUT_S * 3
 
 
 class OnMessageParams(TypedDict, total=False):
@@ -288,6 +299,7 @@ class OnMessageParams(TypedDict, total=False):
     media_url: str
     media: list[dict[str, str]]
     media_single_tag: bool
+    ftps_upload: dict[str, str]
     camera_eqlogic_id: int
     camera_name: str
     frigate_host: str
@@ -512,6 +524,9 @@ class SIADaemon(BaseDaemon):
         self._logger = logging.getLogger(__name__)
         if preset.encryption_enabled and _enc_key_error is not None:
             self._logger.error(f"Encryption enabled but key rejected: {_enc_key_error} — nothing will be sent")
+        # Epic 18 (18.2): FTPS media upload keys, passed by PHP like the encryption key.
+        # The password stays inside FtpsSettings (repr=False) and is never logged.
+        self._ftps: FtpsSettings = self._read_ftps_settings(config)
 
         # Queue coordination (Story 5-3): PriorityQueue + monotonic counter.
         # 4-tuple items: (priority: int, counter: int, item_type: QueueItemType, payload: QueuePayload)
@@ -537,6 +552,71 @@ class SIADaemon(BaseDaemon):
         # Last sent frame bytes — stored in _send_raw() for message_trace callbacks.
         self._last_sent_frame: bytes = b""
 
+
+    def _read_ftps_settings(self, config: BaseConfig | None) -> FtpsSettings:
+        """Build the FTPS settings from the CLI config; warn once if enabled but incomplete.
+
+        Args:
+            config: Parsed daemon configuration (may lack the ftps attributes).
+
+        Returns:
+            The settings; `enabled` is forced off when the fingerprint is malformed.
+        """
+        try:
+            port = int(getattr(config, "ftps_port", 0) or FTPS_DEFAULT_PORT)
+        except (TypeError, ValueError):
+            port = FTPS_DEFAULT_PORT
+        fingerprint_error: str | None = None
+        try:
+            fingerprint = normalize_fingerprint(str(getattr(config, "ftps_cert_fingerprint", "") or ""))
+        except ValueError as e:
+            fingerprint, fingerprint_error = "", str(e)
+        settings = FtpsSettings(
+            enabled=getattr(config, "ftps_enabled", False) is True,
+            host=str(getattr(config, "ftps_host", "") or ""),
+            port=port,
+            user=str(getattr(config, "ftps_user", "") or ""),
+            password=str(getattr(config, "ftps_password", "") or ""),
+            folder=str(getattr(config, "ftps_folder", "") or ""),
+            cert_fingerprint=fingerprint,
+        )
+        if settings.enabled and fingerprint_error is not None:
+            self._logger.warning(f"FTPS upload disabled: {fingerprint_error}")
+            return FtpsSettings()
+        if settings.enabled and not settings.complete:
+            self._logger.warning("FTPS upload enabled but host or user is empty — no upload will run")
+        return settings
+
+    async def _run_ftps_upload(self, frigate_host: str, event_id: str) -> None:
+        """Fetch the event snapshot from Frigate and upload it by FTPS (best effort).
+
+        Runs as a tracked background task, so the SIA frame never waits for it. Every
+        failure is logged with host and reason (never the password) and swallowed.
+
+        Args:
+            frigate_host: Frigate "host:port".
+            event_id: Frigate event id (also part of the remote file name).
+        """
+        snapshot = await fetch_event_snapshot(frigate_host, event_id)
+        if snapshot is None:
+            self._logger.warning(
+                f"FTPS upload skipped: no snapshot from Frigate {frigate_host} for event {event_id!r}"
+            )
+            return
+        name = f"{safe_name_part(self._account)}-{safe_name_part(event_id)}-snapshot.jpg"
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(upload_bytes, self._ftps, name, snapshot),
+                timeout=FTPS_UPLOAD_DEADLINE_S,
+            )
+        except FtpsUploadError as e:
+            self._logger.warning(f"FTPS upload to {self._ftps.host}:{self._ftps.port} failed: {e}")
+        except (asyncio.TimeoutError, TimeoutError):
+            self._logger.warning(
+                f"FTPS upload to {self._ftps.host}:{self._ftps.port} failed: timeout"
+            )
+        else:
+            self._logger.info(f"FTPS upload to {self._ftps.host}:{self._ftps.port} done: {name}")
 
     def _notify(self, error_code: ErrorCode, context: NotificationContext) -> None:
         """Dispatch error notification as a non-blocking background task.
@@ -2844,6 +2924,18 @@ class SIADaemon(BaseDaemon):
             sia_code, zone, media_url, zone_number=zone_number, user_number=user_number,
             media=media, media_single_tag=bool(params.get("media_single_tag", False)),
         )
+        # Epic 18 (18.2): snapshot upload for a burglary alarm only, after the frame is queued;
+        # a tracked task, so the frame never waits for it.
+        raw_ftps = params.get("ftps_upload")
+        if sia_code == "BA" and isinstance(raw_ftps, dict) and self._ftps.active:
+            ftps_host = str(raw_ftps.get("frigate_host") or "")
+            ftps_event_id = str(raw_ftps.get("event_id") or "")
+            if ftps_host and ftps_event_id:
+                self._track_task(
+                    self._run_ftps_upload(ftps_host, ftps_event_id), name="ftps-upload"
+                )
+            else:
+                self._logger.warning("on_message: ftps_upload without frigate_host/event_id — no upload")
 
     # ===== STORY 14-2/14-4 (ADR-17 Amendment 3/4): FRIGATE EVENT PREFETCH =====
 

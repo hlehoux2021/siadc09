@@ -25,6 +25,9 @@ class siaDC09Cmd extends cmd {
     // ADR-17 Amendment 3 (Option D): generous relative to a typical 30-60s alarm-plugin
     // trigger delay — a confirmed prefetch hit older than this is treated as expired.
     private const PREFETCH_CACHE_TTL = 120;
+    /** Epic 18 (18.2): equipment keys of the FTPS media transport (own copies: the PHP test harnesses stub siaDC09). */
+    private const MEDIA_TRANSPORT_KEY = 'media_transport';
+    private const FTPS_ENABLED_KEY = 'ftps_enabled';
 
     // ADR-17 Amendment 4 (Story 14-4): the placeholder rank written at prefetchEvent time,
     // before the daemon has reported anything back — mirrors
@@ -146,6 +149,19 @@ class siaDC09Cmd extends cmd {
                         $media[] = ['format' => $this->_mediaFormat(siaDC09::MEDIA_CLIP_FORMAT_KEY), 'url' => $clipUrl];
                     }
                 }
+                // Epic 18 (18.2): on a BA alarm with transport ftps the frame carries no U/V tag;
+                // the daemon fetches the snapshot from Frigate (host + event id held here) and
+                // uploads it. Other alarm types keep the URL behaviour.
+                // E18-R2: the upload follows the same media switches as the URL path (master + snapshot).
+                $snapshotWanted = $mediaOn && $this->_mediaSetting(siaDC09::MEDIA_SNAPSHOT_ENABLED_KEY);
+                $ftpsUpload = ($logicalId === 'burglarAlarm' && $snapshotWanted)
+                    ? $this->_resolveFtpsUpload($zoneEntry, $cacheEntry) : null;
+                if ($logicalId === 'burglarAlarm' && $this->_ftpsTransportActive()) {
+                    $media = [];
+                }
+                if ($ftpsUpload !== null) {
+                    $payload['ftps_upload'] = $ftpsUpload;
+                }
                 if (!empty($media)) {
                     $payload['media'] = $media;
                     $payload['media_single_tag'] = (bool) $this->_mediaSetting(siaDC09::MEDIA_SINGLE_TAG_KEY);
@@ -199,6 +215,39 @@ class siaDC09Cmd extends cmd {
                 }
                 break;
         }
+    }
+
+    /** Epic 18 (18.2): true when the equipment chose the ftps media transport and enabled it. */
+    private function _ftpsTransportActive(): bool {
+        $eqLogic = $this->getEqLogic();
+        if ($eqLogic === null) {
+            return false;
+        }
+        return $eqLogic->getConfiguration(self::MEDIA_TRANSPORT_KEY, 'url') === 'ftps'
+            && (bool) $eqLogic->getConfiguration(self::FTPS_ENABLED_KEY, 0);
+    }
+
+    /**
+     * Epic 18 (18.2): the Frigate host and event id the daemon needs to fetch the snapshot, or
+     * null when ftps is not active or no usable prefetched event exists. Never throws; reuses
+     * the single shared cache read of execute() and the same found/TTL checks as the URL path.
+     */
+    private function _resolveFtpsUpload(array $zoneEntry, ?array $cacheEntry): ?array {
+        if (!$this->_ftpsTransportActive()) {
+            return null;
+        }
+        if (!is_array($cacheEntry) || empty($cacheEntry['found'])
+            || time() - (int) ($cacheEntry['ts'] ?? 0) > self::PREFETCH_CACHE_TTL) {
+            log::add('siaDC09', 'warning', 'FTPS : aucun évènement Frigate récent — pas d\'envoi de photo');
+            return null;
+        }
+        $eventId = $cacheEntry['event_id'] ?? null;
+        $target = $this->_resolvePrefetchTarget($zoneEntry);
+        if (!is_string($eventId) || $eventId === '' || $target === null) {
+            log::add('siaDC09', 'warning', 'FTPS : évènement ou hôte Frigate introuvable — pas d\'envoi de photo');
+            return null;
+        }
+        return ['frigate_host' => $target['frigate_host'], 'event_id' => $eventId];
     }
 
     /** Story 17.7: an alarm-media equipment key, falling back to the pre-17.7 default. */

@@ -16,6 +16,7 @@ Reference: _bmad-output/implementation-artifacts/14-4-best-effort-alarm-media-fo
 from __future__ import annotations
 
 import asyncio
+import http.client
 import json
 import logging
 import time
@@ -65,6 +66,9 @@ MANUAL_EVENT_API_TYPE: Final[str] = "api"
 # slot in the result set (it's filtered out client-side, not by the query).
 EVENTS_QUERY_LIMIT: Final[int] = 20
 
+# Upper bound on a downloaded snapshot (ticket 18.2): a JPEG far above this is not a snapshot.
+SNAPSHOT_MAX_BYTES: Final[int] = 10 * 1024 * 1024
+
 _PERSON_LABEL: Final[str] = "person"
 
 # Priority ladder (ADR-17 Amendment 4, Decision 3): person > any other real label > the
@@ -107,6 +111,48 @@ def _get_json(url: str, timeout: float) -> object | None:
             return json.loads(resp.read())
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError):
         return None
+
+
+def _get_bytes(url: str, timeout: float) -> bytes | None:
+    """GET url, return the raw body, or None on any HTTP/network error or empty/oversized body.
+
+    Never raises (epic 18, ticket 18.2: snapshot download).
+
+    Args:
+        url: Full request URL.
+        timeout: Per-request timeout in seconds.
+
+    Returns:
+        The body, or None on any error.
+    """
+    req = urllib.request.Request(url, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read(SNAPSHOT_MAX_BYTES + 1)
+    except (urllib.error.URLError, OSError, http.client.HTTPException, ValueError):
+        # OSError covers a connection reset or timeout while reading the body.
+        return None
+    if not body or len(body) > SNAPSHOT_MAX_BYTES:
+        return None
+    return body
+
+
+async def fetch_event_snapshot(frigate_host: str, event_id: str) -> bytes | None:
+    """Download an event's snapshot from the Frigate API (best effort, never raises).
+
+    Args:
+        frigate_host: Frigate "host:port", e.g. "192.168.100.18:5000".
+        event_id: Frigate event id.
+
+    Returns:
+        The JPEG bytes, or None when Frigate is unreachable or the event has no snapshot.
+    """
+    url = (
+        f"http://{frigate_host}/api/events/"
+        f"{urllib.parse.quote(event_id, safe='')}/snapshot.jpg"
+    )
+    return await _run_with_deadline_timeout(_get_bytes, url, PREFETCH_HTTP_TIMEOUT_S,
+                                            timeout=PREFETCH_HTTP_TIMEOUT_S)
 
 
 def _post_json(

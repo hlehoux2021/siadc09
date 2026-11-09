@@ -1453,3 +1453,14 @@ surgery).
 ## Story 17.7 - Media tags
 
 The EVENT payload carries `media` (ordered list of `{format: "U"|"V", url}`) and `media_single_tag` instead of `media_url`. `SIAMessageBuilder._format_media_tags()` renders `[U<url> <url>]` (one tag, one format only) or one `[U..]`/`[V..]` tag per URL. A single tag with mixed formats raises `ValueError`; `_build_event_frame()` catches it, logs an error and sends the alarm without media. `media_url` is still accepted as a legacy single `[V..]` tag. The daemon never reads equipment config.
+
+## Ticket 18.2 - FTPS snapshot upload (tracer)
+
+**TLDR:** per-equipment FTPS keys reach the daemon as `--ftps-*` arguments (like `--encryption-key`). On a BA alarm with `media_transport = ftps`, PHP sends the frame without media and adds `ftps_upload = {frigate_host, event_id}`; the daemon downloads `/api/events/{id}/snapshot.jpg` from Frigate and uploads it by explicit FTPS in a tracked task. The frame never waits for it.
+
+- Keys (hand entry, wizard is 18.4): `media_transport` (url default | ftps), `ftps_enabled`, `ftps_host`, `ftps_port`, `ftps_user`, `ftps_password` (password input), `ftps_folder`, `ftps_cert_fingerprint` (SHA-256, optional).
+- `ftps_upload.py` is the one module that talks FTPS: `FtpsSettings` (password `repr=False`) and blocking `upload_bytes()` (stdlib `ftplib.FTP_TLS`, `FTPS_TIMEOUT_S`). The certificate is verified by default; a configured fingerprint pins it instead (self-signed server), checked before the login so the password is not sent to a wrong server.
+- `daemon.py`: `on_message` calls `_track_task(_run_ftps_upload(...))` after `_enqueue_event`, for `sia_code == "BA"` only and only when the settings are active (enabled, host and user set; one warning at start otherwise). Fetch goes through `frigate_prefetch.fetch_event_snapshot()` (unauthenticated port 5000, size capped); upload runs in `asyncio.to_thread` under `wait_for(FTPS_UPLOAD_DEADLINE_S)`. Failures are logged with host and reason, never the password.
+- Remote name until 18.8: `<account>-<event id>-snapshot.jpg`. The `media_url` template is not fetched (placeholder credentials); the Frigate plugin's files are not read.
+- Transports are exclusive: with `media_transport = ftps` and the upload enabled, a BA frame carries no U/V tag even when the upload cannot run (incomplete keys, malformed fingerprint, snapshot switch off, no recent Frigate event). Each case is logged (warning at start or at the alarm); the frame is never held back.
+- Out of scope here: clip (18.5), timeouts/certificate hardening (18.6), test button (18.7), final naming (18.8).
