@@ -54,6 +54,10 @@ context: []
 
 Oneshot: a small script and a note; no existing code involved.
 
+## Plan Change Log
+
+- 2026-11-09, user: the Synology is unreachable from the test VLAN (.40.x) and the firewall stays; the test server becomes vsftpd on test-jeedom (account `siaftps`, folder `upload`). Decisions on explicit TLS on port 21 and a self-signed certificate first are unchanged. `internal-docs/ftps-test-server.md` is rewritten for vsftpd; the probe script is unchanged.
+
 ## Review Triage Log
 
 - medium, patched: cleanup in `finally` could replace the real failing step with `delete` -- `_delete` now never raises; the delete error is raised only when nothing else failed.
