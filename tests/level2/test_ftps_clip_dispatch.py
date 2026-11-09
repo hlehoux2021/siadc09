@@ -193,8 +193,8 @@ async def test_both_switches_upload_snapshot_then_clip(daemon, tmp_path) -> None
     order: list[str] = []
     with patch.object(daemon_module, "fetch_event_snapshot", AsyncMock(return_value=b"jpeg")), \
          patch.object(daemon_module, "fetch_event_clip", AsyncMock(return_value=clip)), \
-         patch.object(daemon_module, "upload_bytes", side_effect=lambda *a: order.append(a[1])), \
-         patch.object(daemon_module, "upload_file", side_effect=lambda *a: order.append(a[1])):
+         patch.object(daemon_module, "upload_bytes", side_effect=lambda *a, **_kw: order.append(a[1])), \
+         patch.object(daemon_module, "upload_file", side_effect=lambda *a, **_kw: order.append(a[1])):
         await daemon.on_message("burglarAlarm", {"zone": "Z", "ftps_upload": _upload(snapshot=True, clip=True)})
         await _drain(daemon)
     # Assert: snapshot then clip, with the fixed names

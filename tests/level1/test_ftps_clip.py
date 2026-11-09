@@ -140,15 +140,15 @@ def test_upload_file_streams_the_file_with_the_same_sequence(tmp_path) -> None:
     path.write_bytes(b"mp4data")
     ftp = MagicMock()
     sent: list[bytes] = []
-    ftp.storbinary.side_effect = lambda _cmd, fobj: sent.append(fobj.read()) or "226 ok"
+    ftp.transfercmd.return_value.sendall.side_effect = sent.append
     with patch.object(ftps_upload.ftplib, "FTP_TLS", return_value=ftp):
         upload_file(_settings(), "a-clip.mp4", str(path))
     names = [c[0] for c in ftp.method_calls if c[0] in
-             {"connect", "auth", "login", "prot_p", "cwd", "storbinary", "close"}]
+             {"connect", "auth", "login", "prot_p", "cwd", "transfercmd", "close"}]
     # Assert: same sequence as upload_bytes
-    assert names == ["connect", "auth", "login", "prot_p", "cwd", "storbinary", "close"]
+    assert names == ["connect", "auth", "login", "prot_p", "cwd", "transfercmd", "close"]
     # Assert: the file content reached STOR under the requested name
-    assert sent == [b"mp4data"] and ftp.storbinary.call_args[0][0] == "STOR a-clip.mp4"
+    assert sent == [b"mp4data"] and ftp.transfercmd.call_args[0][0] == "STOR a-clip.mp4"
 
 
 def test_upload_file_missing_file_is_an_upload_error(tmp_path) -> None:

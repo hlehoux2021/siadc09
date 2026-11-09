@@ -32,6 +32,7 @@ Reference: internal-docs/design/error-handler-design.md T1/T2/T3 error tiers
 import asyncio
 import itertools
 import logging
+import os
 import re
 import time
 from dataclasses import dataclass
@@ -281,8 +282,14 @@ QueueItemType = Literal["EVENT", "SUPERVISION", "RP"]
 MAX_RETRY_DEFAULT: Final[int] = 3
 # Wait for the CSR's answer to one RP frame (story 17-3); a miss is one SM1 strike.
 RP_SEND_TIMEOUT_S: Final[float] = 10.0
+# The FTPS password reaches the daemon by environment, never on the command line (18.6).
+FTPS_PASSWORD_ENV: Final[str] = "SIA_FTPS_PASSWORD"
 # Slack on top of FTPS_TIMEOUT_S for the whole blocking upload (several socket steps).
 FTPS_UPLOAD_DEADLINE_S: Final[float] = FTPS_TIMEOUT_S * 3
+# The blocking upload enforces the deadline itself; wait_for is only the outer bound,
+# at deadline + FTPS_TIMEOUT_S (the longest a socket step can run past it) + this grace,
+# so the inner abort (which names the step) always reports first.
+FTPS_OUTER_GRACE_S: Final[float] = 2.0
 
 
 class OnMessageParams(TypedDict, total=False):
@@ -589,7 +596,8 @@ class SIADaemon(BaseDaemon):
             host=str(getattr(config, "ftps_host", "") or ""),
             port=port,
             user=str(getattr(config, "ftps_user", "") or ""),
-            password=str(getattr(config, "ftps_password", "") or ""),
+            # pop: the secret must not stay in the environment inherited by child processes.
+            password=os.environ.pop(FTPS_PASSWORD_ENV, ""),
             folder=str(getattr(config, "ftps_folder", "") or ""),
             cert_fingerprint=fingerprint,
         )
@@ -647,7 +655,11 @@ class SIADaemon(BaseDaemon):
                 f"in {time.monotonic() - started:.2f}s (upload deadline {deadline:.0f}s)"
             )
             await asyncio.wait_for(
-                asyncio.to_thread(upload_file, self._ftps, name, clip.path), timeout=deadline
+                asyncio.to_thread(
+                    upload_file, self._ftps, name, clip.path,
+                    deadline=time.monotonic() + deadline,
+                ),
+                timeout=deadline + FTPS_TIMEOUT_S + FTPS_OUTER_GRACE_S,
             )
         except FtpsUploadError as e:
             await self._report_ftps_failure(zone, str(e), video=True)
@@ -691,8 +703,11 @@ class SIADaemon(BaseDaemon):
         name = f"{safe_name_part(self._account)}-{safe_name_part(event_id)}-snapshot.jpg"
         try:
             await asyncio.wait_for(
-                asyncio.to_thread(upload_bytes, self._ftps, name, snapshot),
-                timeout=FTPS_UPLOAD_DEADLINE_S,
+                asyncio.to_thread(
+                    upload_bytes, self._ftps, name, snapshot,
+                    deadline=time.monotonic() + FTPS_UPLOAD_DEADLINE_S,
+                ),
+                timeout=FTPS_UPLOAD_DEADLINE_S + FTPS_TIMEOUT_S + FTPS_OUTER_GRACE_S,
             )
         except FtpsUploadError as e:
             await self._report_ftps_failure(zone, str(e))

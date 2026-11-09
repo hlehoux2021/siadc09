@@ -503,7 +503,7 @@ if __name__ == "__main__":
     _config.add_argument("--ftps-host", type=str, default="")
     _config.add_argument("--ftps-port", type=int, default=21)
     _config.add_argument("--ftps-user", type=str, default="")
-    _config.add_argument("--ftps-password", type=str, default="")
+    # The FTPS password is read from SIA_FTPS_PASSWORD (never a command-line argument).
     _config.add_argument("--ftps-folder", type=str, default="")
     _config.add_argument("--ftps-cert-fingerprint", type=str, default="")
     _config.add_argument("--supervision-interval", type=int, default=60)

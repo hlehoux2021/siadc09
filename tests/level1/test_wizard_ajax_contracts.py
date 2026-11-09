@@ -110,10 +110,10 @@ def test_test_connection_strips_encryption_key(ajax_source: str) -> None:
     (passed via environment variable instead for security).
 
     Expected result:
-    - unset($configData['encryption_key']) present
+    - unset($configData['encryption_key'], $configData['ftps_password']) present
     """
     # Assert: encryption key stripped from config
-    assert "unset($configData['encryption_key'])" in ajax_source
+    assert "unset($configData['encryption_key'], $configData['ftps_password'])" in ajax_source
 
 
 def test_test_connection_uses_env_for_key(ajax_source: str) -> None:

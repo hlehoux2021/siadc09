@@ -19,7 +19,7 @@ _PAGE = (_ROOT / "desktop/php/siaDC09.php").read_text(encoding="utf-8")
 _PHP_TIMEOUT_S = 10
 
 _FTPS_ARGS = ["--ftps-enabled", "--ftps-host", "--ftps-port", "--ftps-user",
-              "--ftps-password", "--ftps-folder", "--ftps-cert-fingerprint"]
+              "--ftps-folder", "--ftps-cert-fingerprint"]
 _FTPS_KEYS = ["media_transport", "ftps_host", "ftps_port", "ftps_user",
               "ftps_password", "ftps_folder", "ftps_cert_fingerprint"]
 
@@ -64,30 +64,60 @@ def test_password_is_a_password_input_and_every_key_has_a_field() -> None:
 
 
 @pytest.mark.skipif(shutil.which("php") is None, reason="php CLI not installed")
-def test_log_line_redacts_both_secrets() -> None:
+def test_log_line_redacts_every_secret() -> None:
     """
-    The daemon-start log line hides the AES key and the FTPS password.
+    The daemon-start log line hides the AES key, the apikey and the FTPS password (18.6).
 
     Expected result:
-    - neither secret (even shell-quoted with a space and a quote) appears; the markers do
+    - no secret (even shell-quoted with a space and a quote) appears; the markers do
     """
     match = re.search(r"\$cmdLog = preg_replace\((.*?)\n\s*\);", _CLASS, re.S)
     assert match, "cmdLog redaction not found"
     script = (
-        "$cmd = json_decode(stream_get_contents(STDIN), true);"
+        "$input = json_decode(stream_get_contents(STDIN), true);"
+        "$envPrefix = $input['env']; $cmd = $input['cmd'];"
         f"$cmdLog = preg_replace({match.group(1)}\n);"
         "echo $cmdLog;"
     )
-    command = ("x.py --encryption-key 'AAAA' --ftps-host 'h' --ftps-password 'p w'\\''d!9' "
-               "--ftps-folder 'upload'")
+    command = {
+        "env": "SIA_FTPS_PASSWORD='p w'\\''d!9' ",
+        "cmd": "x.py --apikey KEY123 --encryption-key 'AAAA' --ftps-host 'h' --ftps-folder 'upload'",
+    }
     out = subprocess.run(["php", "-r", script], input=json.dumps(command),
                          capture_output=True, text=True, check=True, timeout=_PHP_TIMEOUT_S)
     # Assert: no secret fragment survives
-    assert "AAAA" not in out.stdout and "d!9" not in out.stdout and "p w" not in out.stdout
-    # Assert: the FTPS password is replaced as a whole and the next argument survives
-    assert "--ftps-password [REDACTED] --ftps-folder 'upload'" in out.stdout
-    # Assert: the AES key is still redacted
-    assert "--encryption-key [REDACTED]" in out.stdout
+    for secret in ("AAAA", "d!9", "p w", "KEY123"):
+        assert secret not in out.stdout
+    # Assert: each marker is present and the next argument survives
+    assert "SIA_FTPS_PASSWORD=[REDACTED] x.py --apikey [REDACTED]" in out.stdout
+    assert "--encryption-key [REDACTED] --ftps-host 'h'" in out.stdout
+
+
+def test_ftps_password_travels_by_environment_only() -> None:
+    """
+    18.6: the FTPS password is never an argument, neither at daemon start nor in the test call.
+
+    Expected result:
+    - deamon_start() sets SIA_FTPS_PASSWORD with putenv() (not in the command string), unsets it
+      after the launch, and has no --ftps-password argument
+    - the daemon CLI declares no --ftps-password and reads the environment
+    - testConnection removes ftps_password from the --config JSON
+    """
+    start = _CLASS.split("function deamon_start")[1]
+    # Assert: the password is put in the environment, not in the command string
+    assert "putenv('SIA_FTPS_PASSWORD=' . $ftpsPassword);" in start
+    assert "exec($cmd . ' >> '" in start
+    # Assert: and removed from the environment right after the launch
+    assert "putenv('SIA_FTPS_PASSWORD');" in start
+    assert "--ftps-password" not in _CLASS
+    cli = (_ROOT / "resources/siadc09d/siadc09d.py").read_text(encoding="utf-8")
+    daemon = (_ROOT / "resources/siadc09d/daemon.py").read_text(encoding="utf-8")
+    ajax = (_ROOT / "core/ajax/siaDC09.ajax.php").read_text(encoding="utf-8")
+    # Assert: the daemon side takes it from the environment
+    assert '"--ftps-password"' not in cli
+    assert 'FTPS_PASSWORD_ENV: Final[str] = "SIA_FTPS_PASSWORD"' in daemon
+    # Assert: the test-connection config JSON drops the password
+    assert "unset($configData['encryption_key'], $configData['ftps_password']);" in ajax
 
 
 def test_burglar_payload_carries_ftps_upload_and_drops_media() -> None:

@@ -332,6 +332,7 @@ class siaDC09 extends eqLogic {
         $path = realpath(dirname(__FILE__) . '/../../resources/siadc09d');
         $socketport = (int) config::byKey('socketport', __CLASS__, 55009);
 
+        $envPrefix = '';
         $cmd = self::getPython3() . $path . '/siadc09d.py';
         $cmd .= ' --loglevel ' . log::convertLogLevel(log::getLogLevel(__CLASS__));
         $cmd .= ' --socketport ' . $socketport;
@@ -372,9 +373,13 @@ class siaDC09 extends eqLogic {
             $cmd .= ' --ftps-host ' . escapeshellarg((string) $eqLogic->getConfiguration('ftps_host', ''));
             $cmd .= ' --ftps-port ' . ((int) $eqLogic->getConfiguration('ftps_port', self::FTPS_PORT_DEFAULT) ?: self::FTPS_PORT_DEFAULT);
             $cmd .= ' --ftps-user ' . escapeshellarg((string) $eqLogic->getConfiguration('ftps_user', ''));
+            // 18.6: the password goes by environment (SIA_FTPS_PASSWORD), never in the arguments.
             $ftpsPassword = (string) $eqLogic->getConfiguration('ftps_password', '');
             if ($ftpsPassword !== '') {
-                $cmd .= ' --ftps-password ' . escapeshellarg($ftpsPassword);
+                // putenv(), not a "VAR=value " prefix in the command string: the shell started by
+                // exec() would otherwise carry the password in its own arguments for a moment.
+                putenv('SIA_FTPS_PASSWORD=' . $ftpsPassword);
+                $envPrefix = 'SIA_FTPS_PASSWORD=<set> ';
             }
             $cmd .= ' --ftps-folder ' . escapeshellarg((string) $eqLogic->getConfiguration('ftps_folder', ''));
             $ftpsFingerprint = trim((string) $eqLogic->getConfiguration('ftps_cert_fingerprint', ''));
@@ -411,12 +416,20 @@ class siaDC09 extends eqLogic {
         // escapeshellarg() wraps in single quotes (and may contain spaces), so match a quoted
         // argument as a whole; the bare \S+ alternative covers an unquoted value.
         $cmdLog = preg_replace(
-            ["/--encryption-key\s+('(?:[^']|'\\\\'')*'|\S+)/", "/--ftps-password\s+('(?:[^']|'\\\\'')*'|\S+)/"],
-            ['--encryption-key [REDACTED]', '--ftps-password [REDACTED]'],
-            $cmd
+            [
+                "/--encryption-key\s+('(?:[^']|'\\\\'')*'|\S+)/",
+                "/--apikey\s+('(?:[^']|'\\\\'')*'|\S+)/",
+                "/SIA_FTPS_PASSWORD=('(?:[^']|'\\\\'')*'|\S+)/",
+            ],
+            ['--encryption-key [REDACTED]', '--apikey [REDACTED]', 'SIA_FTPS_PASSWORD=[REDACTED]'],
+            $envPrefix . $cmd
         );
         log::add(__CLASS__, 'info', __('Lancement démon', __FILE__) . ': ' . $cmdLog);
-        exec($cmd . ' >> ' . log::getPathToLog(__CLASS__ . '_daemon') . ' 2>&1 &');
+        try {
+            exec($cmd . ' >> ' . log::getPathToLog(__CLASS__ . '_daemon') . ' 2>&1 &');
+        } finally {
+            putenv('SIA_FTPS_PASSWORD');  // unset: the daemon already inherited it
+        }
 
         $i = 0;
         while ($i < 10) {

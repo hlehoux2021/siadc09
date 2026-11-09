@@ -61,7 +61,7 @@ try {
 
         $configData = $eqLogic->getConfiguration();
         $encKey = $configData['encryption_key'] ?? '';
-        unset($configData['encryption_key']);
+        unset($configData['encryption_key'], $configData['ftps_password']);
 
         if (method_exists('system', 'getCmdPython3')) {
             $python3 = system::getCmdPython3('siaDC09');

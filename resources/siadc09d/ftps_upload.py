@@ -28,6 +28,8 @@ _logger = logging.getLogger(__name__)
 
 # Fixed per-socket timeout (connect and every transfer step). Hardening is ticket 18.6.
 FTPS_TIMEOUT_S: Final[float] = 10.0
+FTPS_BLOCK_SIZE: Final[int] = 64 * 1024  # deadline is checked between two blocks
+MIN_SOCKET_TIMEOUT_S: Final[float] = 0.1  # never arm a zero/negative (non-blocking) timeout
 FTPS_DEFAULT_PORT: Final[int] = 21
 SHA256_HEX_LENGTH: Final[int] = 64
 _HEX_DIGITS: Final[str] = "0123456789abcdef"
@@ -102,6 +104,7 @@ def safe_name_part(text: str) -> str:
 def _build_context(settings: FtpsSettings) -> ssl.SSLContext:
     """TLS context: full verification, or none when a fingerprint is pinned."""
     context = ssl.create_default_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     if settings.cert_fingerprint:
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
@@ -125,22 +128,26 @@ def _check_fingerprint(ftp: ftplib.FTP_TLS, expected: str) -> None:
         )
 
 
-def upload_bytes(settings: FtpsSettings, name: str, data: bytes) -> None:
+def upload_bytes(
+    settings: FtpsSettings, name: str, data: bytes, deadline: float | None = None
+) -> None:
     """Upload `data` as `name` into the configured folder (blocking).
 
     Args:
         settings: FTPS settings (must be complete).
         name: Remote file name (no path).
         data: File content.
+        deadline: Absolute `time.monotonic()` value after which the upload aborts
+            (None = no overall deadline, only the per-socket timeout).
 
     Raises:
         FtpsUploadError: Any connection, TLS, login or transfer failure. The message names
             the failing exception type and server reply, never the password.
     """
-    _upload_stream(settings, name, io.BytesIO(data), len(data))
+    _upload_stream(settings, name, io.BytesIO(data), len(data), deadline)
 
 
-def upload_file(settings: FtpsSettings, name: str, path: str) -> None:
+def upload_file(settings: FtpsSettings, name: str, path: str, deadline: float | None = None) -> None:
     """Upload the local file at `path` as `name` (blocking, streamed, not read into memory).
 
     Same connection, TLS, fingerprint and error handling as `upload_bytes()`.
@@ -149,6 +156,7 @@ def upload_file(settings: FtpsSettings, name: str, path: str) -> None:
         settings: FTPS settings (must be complete).
         name: Remote file name (no path).
         path: Local file to send.
+        deadline: Absolute `time.monotonic()` abort time (None = none).
 
     Raises:
         FtpsUploadError: Any connection, TLS, login, transfer or local file failure.
@@ -156,17 +164,83 @@ def upload_file(settings: FtpsSettings, name: str, path: str) -> None:
     try:
         with open(path, "rb") as source:
             size = os.fstat(source.fileno()).st_size
-            _upload_stream(settings, name, source, size)
+            _upload_stream(settings, name, source, size, deadline)
     except OSError as err:
         # FtpsUploadError is not an OSError, so only local file problems land here.
         raise FtpsUploadError(f"step read: {type(err).__name__}: {err}") from None
 
 
-def _upload_stream(settings: FtpsSettings, name: str, source: BinaryIO, size: int) -> None:
+def _remaining(deadline: float | None) -> float:
+    """Seconds left before `deadline`, capped by the per-socket timeout.
+
+    Raises:
+        FtpsUploadError: The deadline has passed.
+    """
+    if deadline is None:
+        return FTPS_TIMEOUT_S
+    left = deadline - time.monotonic()
+    if left <= 0:
+        raise FtpsUploadError("upload deadline exceeded")
+    return min(FTPS_TIMEOUT_S, left)
+
+
+def _socket_timeout(deadline: float | None) -> float:
+    """Timeout to arm on a socket: the time left, capped, never below MIN_SOCKET_TIMEOUT_S."""
+    return max(MIN_SOCKET_TIMEOUT_S, _remaining(deadline))
+
+
+def _arm(ftp: ftplib.FTP_TLS, deadline: float | None) -> None:
+    """Shrink the control and future data socket timeouts to the time left."""
+    left = _socket_timeout(deadline)
+    ftp.timeout = left
+    if ftp.sock is not None:
+        ftp.sock.settimeout(left)
+
+
+def _store(
+    ftp: ftplib.FTP_TLS, command: str, source: BinaryIO, deadline: float | None
+) -> str:
+    """Run a STOR transfer, bounding every send and the final reply by `deadline`.
+
+    Replaces `ftplib.storbinary()`, which arms nothing between blocks: the data socket is
+    re-armed before each block, the control socket before the closing reply.
+
+    Args:
+        ftp: Logged-in connection with data protection set.
+        command: Full command, e.g. "STOR name".
+        source: Local data to send.
+        deadline: Absolute `time.monotonic()` abort time, or None.
+
+    Returns:
+        The server's final reply.
+
+    Raises:
+        FtpsUploadError: The deadline passed.
+    """
+    _arm(ftp, deadline)
+    ftp.voidcmd("TYPE I")
+    _arm(ftp, deadline)
+    conn = ftp.transfercmd(command)
+    try:
+        while block := source.read(FTPS_BLOCK_SIZE):
+            conn.settimeout(_socket_timeout(deadline))
+            conn.sendall(block)
+        if isinstance(conn, ssl.SSLSocket):
+            conn.settimeout(_socket_timeout(deadline))
+            conn.unwrap()
+    finally:
+        conn.close()
+    _arm(ftp, deadline)
+    return ftp.voidresp()
+
+
+def _upload_stream(
+    settings: FtpsSettings, name: str, source: BinaryIO, size: int, deadline: float | None = None
+) -> None:
     """Connect, authenticate and STOR `source` as `name` (shared by bytes and file uploads)."""
+    step = "connect"
     ftp = ftplib.FTP_TLS(context=_build_context(settings), timeout=FTPS_TIMEOUT_S)
     target = f"{settings.host}:{settings.port}"
-    step = "connect"
     started = time.monotonic()
     try:
         _logger.debug(
@@ -174,24 +248,30 @@ def _upload_stream(settings: FtpsSettings, name: str, source: BinaryIO, size: in
             f"verify={'fingerprint' if settings.cert_fingerprint else 'CA chain'} "
             f"timeout={FTPS_TIMEOUT_S}s"
         )
+        ftp.timeout = _remaining(deadline)
         ftp.connect(settings.host, settings.port)
         step = "tls"
+        _arm(ftp, deadline)
         ftp.auth()
+        _arm(ftp, deadline)
         tls_version = ftp.sock.version()  # type: ignore[union-attr]
         _logger.debug(f"FTPS {step}: AUTH TLS done ({tls_version})")
         if settings.cert_fingerprint:
             step = "fingerprint"
             _check_fingerprint(ftp, settings.cert_fingerprint)
         step = "login"
+        _arm(ftp, deadline)
         ftp.login(settings.user, settings.password)
         _logger.debug(f"FTPS {step}: logged in as {settings.user!r}")
         step = "data-protection"
+        _arm(ftp, deadline)
         ftp.prot_p()
         if settings.folder:
             step = "cwd"
+            _arm(ftp, deadline)
             ftp.cwd(settings.folder)
         step = "upload"
-        reply = ftp.storbinary(f"STOR {name}", source)
+        reply = _store(ftp, f"STOR {name}", source, deadline)
         _logger.debug(
             f"FTPS {step}: STOR {name} {size} bytes -> {reply!r} "
             f"in {time.monotonic() - started:.2f}s"

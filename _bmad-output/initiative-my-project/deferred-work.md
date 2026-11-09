@@ -269,3 +269,7 @@ level2/level3 tests + golden fixture + harness. This closes the 4-group review o
 - source_plan: `_bmad-output/initiative-my-project/epic-18-ftps-alarm-media-upload/story-18-4-wizard-step-1-media-choice-and-transport-plan.md`
   summary: Photo/Vidéo, the transport choice and the profile lock caption can only be edited inside the wizard; once it is finished (config mode) the user must run "Relancer l'assistant" to change them.
   evidence: The whole media card sits inside `#siaDC09-wizard`, hidden when `sia_wizard_step >= 4`; the old step 2 switches had the same limit, so 18.4 does not worsen it. The user hit it while trying to enable the video (2026-11-09).
+
+- source_plan: `_bmad-output/initiative-my-project/epic-18-ftps-alarm-media-upload/story-18-6-upload-robustness-timeout-certificate-secret-handling-plan.md`
+  summary: `encryption_key` (AES) and `apikey` still travel on the daemon command line (`ps`); the FTPS password now uses `SIA_FTPS_PASSWORD`. Move both the same way (environment) in a follow-up.
+  evidence: 18.6 scoped the change to the FTPS password (Never: moving `encryption_key` or `apikey`); `deamon_start()` still builds `--encryption-key` and `--apikey`, only redacted in the log line. The `SIA_FTPS_PASSWORD=` prefix is also visible for an instant in the `sh -c` wrapper started by `exec()` (the daemon process itself never carries it).
