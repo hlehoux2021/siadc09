@@ -51,8 +51,6 @@ force_local_data_ssl=YES
 ssl_sslv2=NO
 ssl_sslv3=NO
 ssl_tlsv1=NO
-ssl_tlsv1_1=NO
-ssl_tlsv1_2=YES
 ssl_ciphers=HIGH
 # Python's ftplib does not reuse the control-channel TLS session on data connections.
 # Without this line login works and the first transfer fails.
