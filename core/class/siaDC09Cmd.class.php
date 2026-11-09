@@ -154,6 +154,13 @@ class siaDC09Cmd extends cmd {
                 // uploads it. Other alarm types keep the URL behaviour.
                 // E18-R2: the upload follows the same media switches as the URL path (master + snapshot).
                 $snapshotWanted = $mediaOn && $this->_mediaSetting(siaDC09::MEDIA_SNAPSHOT_ENABLED_KEY);
+                if ($logicalId === 'burglarAlarm') {
+                    $eqForLog = $this->getEqLogic();
+                    log::add('siaDC09', 'debug', 'FTPS : media_transport='
+                        . json_encode($eqForLog?->getConfiguration(self::MEDIA_TRANSPORT_KEY, 'url'))
+                        . ' ftps_enabled=' . json_encode((bool) $eqForLog?->getConfiguration(self::FTPS_ENABLED_KEY, 0))
+                        . ' média=' . json_encode((bool) $mediaOn) . ' photo=' . json_encode((bool) $snapshotWanted));
+                }
                 $ftpsUpload = ($logicalId === 'burglarAlarm' && $snapshotWanted)
                     ? $this->_resolveFtpsUpload($zoneEntry, $cacheEntry) : null;
                 if ($logicalId === 'burglarAlarm' && $this->_ftpsTransportActive()) {
