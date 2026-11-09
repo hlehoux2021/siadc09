@@ -71,15 +71,18 @@
 
 /* ---- Dashed group inside a zone (story 18.4): the profile group and the address card.
  * White when editable; grey (same fill as a locked field) while a profile sets it. ---- */
+/* A sub-zone is dashed ONLY when the profile fixes its content (user review of 18.4, 2026-11-09):
+   dashed + grey = not editable here; plain = editable. The border is transparent otherwise so
+   nothing moves when a profile is chosen. */
 #siaDC09-wizard .siaDC09-subzone {
-  background: var(--siaDC09-panel);
-  border: 1px dashed var(--siaDC09-frame);
+  border: 1px solid transparent;
   border-radius: 4px;
   padding: 10px 14px 12px 14px;
   margin-top: 14px;
 }
 #siaDC09-wizard .siaDC09-subzone .siaDC09-zone-title { font-size: 18px; margin-bottom: 10px; }
 #siaDC09-wizard .siaDC09-subzone-locked {
+  border: 1px dashed var(--siaDC09-frame);
   background: rgba(var(--contrast-color), 0.1);
 }
 #siaDC09-wizard .siaDC09-subzone-locked .siaDC09-label,
