@@ -121,3 +121,17 @@ def test_ftps_upload_follows_the_media_switches() -> None:
     assert "($logicalId === 'burglarAlarm' && ($snapshotWanted || $clipWanted))" in _CMD
     assert "$ftpsUpload['snapshot'] = (bool) $snapshotWanted;" in _CMD
     assert "$ftpsUpload['clip'] = (bool) $clipWanted;" in _CMD
+
+
+def test_remote_folder_field_suggests_no_default() -> None:
+    """
+    The remote folder has no default, so the field must not show one.
+
+    Expected result:
+    - the ftps_folder input carries no placeholder (a grey "upload" looked like an applied default)
+    """
+    field = re.search(r'<input[^>]*data-l2key="ftps_folder"[^>]*>', _PAGE)
+    # Assert: the field exists
+    assert field
+    # Assert: and has no placeholder
+    assert "placeholder" not in field.group(0)

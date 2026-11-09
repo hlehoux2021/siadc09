@@ -246,7 +246,7 @@ $scenarios = scenario::all();
 										<div class="siaDC09-row">
 											<div class="siaDC09-field siaDC09-w-input">
 												<label class="siaDC09-label">{{Dossier distant}}</label>
-												<input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="ftps_folder" placeholder="upload">
+												<input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="ftps_folder">
 											</div>
 											<div class="siaDC09-field siaDC09-w-input">
 												<label class="siaDC09-label">{{Empreinte SHA-256 du certificat (optionnel)}}</label>
