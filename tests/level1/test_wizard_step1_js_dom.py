@@ -664,6 +664,33 @@ def test_18_4_profile_locks_media_with_caption() -> None:
     assert free["step1Media"]["lockNote"] is None and free["locked"] == 0
 
 
+def test_18_4_profile_locks_transport_and_custom_unlocks() -> None:
+    """
+    A profile declaring media_transport forces and locks the transport radios; Personnalisé frees them.
+
+    Expected result:
+    - value url forced (even after a stored ftps), both radios locked and aria-disabled, caption shown
+    - FTPS card hidden (locked url); the FTPS field is not locked
+    - a profile without media_transport leaves the radios free; Personnalisé unlocks and removes the caption
+    """
+    profiles = {"p": {"label": "Vesta", "media_transport": "url", **_FULL_ON}, "q": {"label": "Q", **_FULL_ON}}
+    forced = _run({"profiles": profiles, "fields": {"media_enabled": True, "media_transport": "ftps"},
+                   "actions": [{"op": "apply", "profile": "p", "fill": True}]})
+    free_profile = _run({"profiles": profiles, "actions": [{"op": "apply", "profile": "q", "fill": True}]})
+    custom = _run({"profiles": profiles, "actions": [{"op": "apply", "profile": "p", "fill": True},
+                                                      {"op": "apply", "profile": "", "fill": True}]})
+
+    # Assert: forced value, locked radios, caption, no FTPS card
+    assert forced["step1Media"]["transport"] == "url" and forced["step1Media"]["radioChecked"] == "url"
+    assert forced["step1Media"]["radiosLocked"] == 2 and forced["step1Media"]["radiosAria"] == 2
+    assert forced["step1Media"]["lockNote"] == "{{Fixé par le profil}} « Vesta »."
+    assert not forced["step1Media"]["ftpsCardVisible"]
+    # Assert: a profile that does not declare the transport leaves the radios free
+    assert free_profile["step1Media"]["radiosLocked"] == 0
+    # Assert: Personnalisé unlocks
+    assert custom["step1Media"]["radiosLocked"] == 0 and custom["step1Media"]["lockNote"] is None
+
+
 def test_18_4_profile_without_media_hides_everything() -> None:
     """
     Matrix row 'Profile without media': box greyed and unchecked, everything below hidden.

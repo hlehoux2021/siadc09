@@ -205,17 +205,17 @@ $scenarios = scenario::all();
 												<span class="siaDC09-label">{{Que joindre ?}}</span>
 												<label class="siaDC09-check-line"><input type="checkbox" class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l1key="configuration" data-l2key="media_snapshot_enabled">{{Photo}}</label>
 												<label class="siaDC09-check-line"><input type="checkbox" class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l1key="configuration" data-l2key="media_clip_enabled">{{Vidéo}}</label>
-												<p class="siaDC09-help" id="siaDC09-media-lock-note" style="display:none;"><i class="fas fa-lock"></i> <span></span></p>
 											</div>
 											<div class="siaDC09-field siaDC09-w-full" id="siaDC09-media-transport-group" style="margin-top:14px;">
 												<span class="siaDC09-label">{{Comment la centrale reçoit-elle la photo ou la vidéo ?}}</span>
 												<!-- media_transport is the saved field ('url' | 'ftps'); the radios drive it (Jeedom does not save radios as eqLogicAttr) -->
 												<input type="hidden" class="eqLogicAttr siaDC09-media-field" data-l1key="configuration" data-l2key="media_transport">
-												<div class="radio"><label><input type="radio" class="siaDC09-transport-radio" name="siaDC09-media-transport" value="url"> {{Une adresse (URL) dans le message d'alarme}}</label>
+												<div class="radio"><label><input type="radio" class="siaDC09-transport-radio siaDC09-transport-field siaDC09-profile-field" name="siaDC09-media-transport" value="url"> {{Une adresse (URL) dans le message d'alarme}}</label>
 													<p class="siaDC09-help">{{La centrale va chercher le média sur votre serveur Frigate.}}</p></div>
-												<div class="radio"><label><input type="radio" class="siaDC09-transport-radio" name="siaDC09-media-transport" value="ftps"> {{Une copie déposée sur un serveur FTPS}}</label>
+												<div class="radio"><label><input type="radio" class="siaDC09-transport-radio siaDC09-transport-field siaDC09-profile-field" name="siaDC09-media-transport" value="ftps"> {{Une copie déposée sur un serveur FTPS}}</label>
 													<p class="siaDC09-help">{{Le plugin dépose le média sur votre serveur ; le message d'alarme ne contient pas d'adresse.}}</p></div>
 											</div>
+												<p class="siaDC09-help" id="siaDC09-media-lock-note" style="display:none;"><i class="fas fa-lock"></i> <span></span></p>
 											<div class="siaDC09-field siaDC09-w-input" id="siaDC09-media-url-group" style="display:none;margin-top:14px;">
 												<h5 class="siaDC09-zone-title">{{Adresse pour la centrale}}</h5>
 												<label class="siaDC09-label">{{Adresse de votre serveur Frigate *}}</label>

@@ -77,6 +77,8 @@ context:
 
 ## Plan Change Log
 
+- 2026-11-09, user (while testing 18.4): a CSR profile must also lock the transport choice, like Photo/Vidéo. This supersedes the frozen-block sentence that the transport is a user choice outside the profile (ADR-22) and the line "Never ... No FTPS key in a CSR profile": `media_transport` is not an FTPS key. Done: `media_transport: "url"` on the two profiles that declare media, radios locked with the single caption, FTPS reachable in "Personnalisé", FTPS settings never locked; tests and `wizard-design.md` updated. Known gap: nothing on the PHP side rejects a bad `media_transport` value in a preset (the JS ignores it, a test guards the file).
+
 ## Review Triage Log
 
 - medium, patched: under FTPS the note "settings are on the next step" sat above the interim card that holds them -- the note stays hidden while the card exists (18.11 turns it on and removes the card).

@@ -34,7 +34,9 @@ Visual rules: `DESIGN.md`. Mockup: `.working/flow-media-block-2026-11-09.excalid
 
 ### Confirmed by the user, 2026-11-09
 
-**Photo / Vidéo stay locked by the profile** (ADR-22 unchanged), now on step 1: greyed with « Fixé par le profil « {nom} ». » and the profile select just above; free in « Personnalisé » and in a profile that declares no media key. The FTPS settings are never profile fields, so they are never locked.
+**Photo / Vidéo stay locked by the profile** (ADR-22 unchanged), now on step 1: greyed with « Fixé par le profil « {nom} ». » and the profile select just above; free in « Personnalisé » and in a profile that declares no media key.
+
+**The profile also locks the transport choice** (user, while testing 18.4, replacing the earlier "transport is a user choice"): the two radios are greyed with the same single caption and the profile's value (`url` for the profiles that receive the media in the frame). FTPS is therefore reachable in « Personnalisé ». The FTPS settings (server, user, password, folder, certificate) are not profile fields and are never locked (screen A2).
 
 ## Flows
 

@@ -39,8 +39,8 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
   <div id="siaDC09-media-body" style="display:none">
     <p id="siaDC09-media-lock-note" style="display:none"><span></span></p>
     <input type="hidden" class="eqLogicAttr siaDC09-media-field" data-l2key="media_transport">
-    <input type="radio" name="siaDC09-media-transport" class="siaDC09-transport-radio" value="url">
-    <input type="radio" name="siaDC09-media-transport" class="siaDC09-transport-radio" value="ftps">
+    <input type="radio" name="siaDC09-media-transport" class="siaDC09-transport-radio siaDC09-transport-field siaDC09-profile-field" value="url">
+    <input type="radio" name="siaDC09-media-transport" class="siaDC09-transport-radio siaDC09-transport-field siaDC09-profile-field" value="ftps">
     <div id="siaDC09-media-url-group" style="display:none"><input class="eqLogicAttr" data-l2key="frigate_media_url_template"></div>
     <p id="siaDC09-media-ftps-note" style="display:none"></p>
   </div>
@@ -168,6 +168,8 @@ out.selectedProfile = $('#siaDC09-csr-profile').val()
 out.advancedVisible = $('#siaDC09-advanced').css('display') !== 'none'
 const shown = sel => $(sel).css('display') !== 'none'
 out.step1Media = {
+  radiosLocked: $('.siaDC09-transport-radio.siaDC09-locked').length,
+  radiosAria: $('.siaDC09-transport-radio[aria-disabled="true"]').length,
   bodyVisible: shown('#siaDC09-media-body'), ftpsNoteVisible: shown('#siaDC09-media-ftps-note'),
   ftpsCardVisible: shown('#siaDC09-ftps-card'), formatsVisible: shown('#siaDC09-zone-content'),
   transport: field('media_transport').val(),

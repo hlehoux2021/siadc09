@@ -157,10 +157,13 @@ function siaDC09_setWizardStep(step) {
 // skipped by Jeedom's getValues() serialisation, readonly ones are always saved.
 // The media content keys (story 17.10) are locked only by a profile that declares media
 // (lockMedia); a profile without media keys leaves them untouched.
-function siaDC09_lockProfileFields(locked, lockMedia) {
+// The transport radios (story 18.4) are locked only by a profile that declares media_transport (lockTransport).
+function siaDC09_lockProfileFields(locked, lockMedia, lockTransport) {
   $('.siaDC09-profile-field').each(function() {
     var $f = $(this)
-    var lock = locked && (lockMedia || !$f.hasClass('siaDC09-media-field'))
+    var lock = $f.hasClass('siaDC09-transport-field')
+      ? locked && !!lockTransport
+      : locked && (lockMedia || !$f.hasClass('siaDC09-media-field'))
     var isInput = $f.is('input[type="number"], input[type="text"]')
     if (isInput) {
       $f.prop('readonly', lock)
@@ -226,10 +229,16 @@ function siaDC09_setAdvancedOpen(open) {
 // choice: a profile only gives its default, never locks it; the Frigate address is never a profile key.
 var SIADC09_PROFILE_MEDIA_CHECKBOXES = ['media_snapshot_enabled', 'media_clip_enabled', 'media_single_tag']
 var SIADC09_PROFILE_MEDIA_SELECTS = ['media_snapshot_format', 'media_clip_format']
+// Story 18.4: the transport is a profile key too (url | ftps); anything else is ignored.
+var SIADC09_MEDIA_TRANSPORTS = ['url', 'ftps']
+
+function siaDC09_profileDeclaresTransport(preset) {
+  return SIADC09_MEDIA_TRANSPORTS.indexOf(preset.media_transport) !== -1
+}
 
 // A profile declares media when it carries any media key (media_enabled included).
 function siaDC09_profileDeclaresMedia(preset) {
-  return SIADC09_PROFILE_MEDIA_CHECKBOXES.concat(SIADC09_PROFILE_MEDIA_SELECTS, ['media_enabled'])
+  return SIADC09_PROFILE_MEDIA_CHECKBOXES.concat(SIADC09_PROFILE_MEDIA_SELECTS, ['media_enabled', 'media_transport'])
     .some(function(key) { return preset[key] !== undefined })
 }
 
@@ -244,6 +253,9 @@ function siaDC09_applyProfileMedia(preset) {
       $('.eqLogicAttr[data-l2key="' + key + '"]').val(preset[key])
     }
   })
+  if (siaDC09_profileDeclaresTransport(preset)) {
+    $('.eqLogicAttr[data-l2key="media_transport"]').val(preset.media_transport)
+  }
   if (preset.media_enabled !== undefined) {
     $('.eqLogicAttr[data-l2key="media_enabled"]').prop('checked', !!parseInt(preset.media_enabled, 10))
   } else if (siaDC09_profileDeclaresMedia(preset)) {
@@ -291,12 +303,13 @@ function siaDC09_applyProfile(profileId, fill) {
     siaDC09_applyProfileMedia(preset)
   }
   var declaresMedia = siaDC09_profileDeclaresMedia(preset)
-  siaDC09_lockProfileFields(true, declaresMedia)
+  var declaresTransport = siaDC09_profileDeclaresTransport(preset)
+  siaDC09_lockProfileFields(true, declaresMedia, declaresTransport)
   siaDC09_setMediaCardAvailable(declaresMedia)
   // A profile without media keys (Ajax) leaves the content fields editable; the single caption
   // still says why the supervision fields are locked.
   siaDC09_setLockCaption(preset.label || profileId)
-  siaDC09_setMediaLockCaption(declaresMedia ? (preset.label || profileId) : '')
+  siaDC09_setMediaLockCaption(declaresMedia || declaresTransport ? (preset.label || profileId) : '')
 }
 
 // Choosing a profile (step 1) or Personnalisé (step 1 or the Test step) goes through here.
@@ -382,6 +395,10 @@ $(document).on('change', '.siaDC09-ext-radio', function() {
 
 // The transport radios drive the saved hidden field (Jeedom saves a radio as 0/1, not as its value).
 $(document).on('change', '.siaDC09-transport-radio', function() {
+  if ($(this).hasClass('siaDC09-locked')) {
+    siaDC09_updateMediaFields() // a locked radio snaps back to the saved value
+    return
+  }
   $('.eqLogicAttr[data-l2key="media_transport"]').val($(this).val()).trigger('change')
 })
 

@@ -26,6 +26,8 @@ _ALLOWED_PROFILE_KEYS = {
     "media_clip_format", "media_single_tag",
     # Story 17.10: the box default; the user's choice, never locked.
     "media_enabled",
+    # Story 18.4: how the receiver gets the media (url | ftps), locked by the profile.
+    "media_transport",
 }
 
 _MEDIA_PROFILE = {
@@ -40,10 +42,10 @@ _EXPECTED_PROFILES = {
     "ajax": {"label": "Ajax", "supervision_format": "none", "rp_enabled": 1, "rp_interval": 60},
     # Story 17.8: snapshot + clip, one tag; SIA-DCS every 30 s and RP every 120 s (test values).
     "vesta": {"label": "Vesta (Climax)", **_MEDIA_PROFILE,
-              "media_snapshot_format": "U", "media_clip_format": "U"},
+              "media_snapshot_format": "U", "media_clip_format": "U", "media_transport": "url"},
     # FoxBox supervision is the DC-09 NULL frame (not SIA-DCS).
     "foxstream": {"label": "FoxStream (FoxBox)", **_MEDIA_PROFILE, "supervision_format": "null",
-                  "media_snapshot_format": "V", "media_clip_format": "V"},
+                  "media_snapshot_format": "V", "media_clip_format": "V", "media_transport": "url"},
 }
 
 
@@ -173,3 +175,19 @@ def test_daemon_never_reads_profile_file() -> None:
     ]
     # Assert: profile resolution stays PHP-side
     assert not offenders, f"daemon files reference csr_presets: {offenders}"
+
+
+def test_media_transport_values_are_url_or_ftps(profiles_doc: dict) -> None:
+    """
+    Story 18.4: a profile that declares media_transport uses a value the wizard accepts.
+
+    Expected result:
+    - every declared media_transport is "url" or "ftps"; the media profiles declare "url"
+    """
+    for name, profile in profiles_doc["profiles"].items():
+        if "media_transport" in profile:
+            # Assert: only the two known transports
+            assert profile["media_transport"] in ("url", "ftps"), name
+    # Assert: the profiles with media keys lock the address way
+    assert profiles_doc["profiles"]["vesta"]["media_transport"] == "url"
+    assert profiles_doc["profiles"]["foxstream"]["media_transport"] == "url"

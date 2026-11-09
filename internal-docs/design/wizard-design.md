@@ -1171,7 +1171,7 @@ A profile may omit a key (e.g. `supervision_interval`); the wizard then leaves t
 
 A profile may also carry the story 17.7 media keys: `media_snapshot_enabled`, `media_clip_enabled`
 (0/1), `media_snapshot_format`, `media_clip_format` (`U` or `V`) and `media_single_tag` (0/1).
-The wizard fills them **and locks them** (Story 17.10, ADR-22 amendment), and the media URL template is never a profile key.
+The wizard fills them **and locks them** (Story 17.10, ADR-22 amendment), and the media URL template is never a profile key (the transport `media_transport` is one since 18.4).
 A profile may also declare `media_enabled` (0/1), the default of the photo/video box on step 1: Vesta and FoxStream 1
 (the retired Scutum preset used 0, see "Retired profile: Scutum"). The box itself is never
 locked. A profile that declares no media key (Ajax) leaves the box greyed and unchecked, with the caption
@@ -1255,11 +1255,13 @@ The advanced options of step 1 carry the media block: `media_snapshot_enabled` /
 
 Spec source: `_bmad-output/initiative-my-project/epic-18-ftps-alarm-media-upload/ux-18-wizard-media-block/EXPERIENCE.md`.
 
-**Photo / Vidéo moved to step 1.** The card « Levée de doute photo / vidéo » (`#siaDC09-media-card`) holds, once the box `media_enabled` is ticked (`#siaDC09-media-body`): « Que joindre ? » (`media_snapshot_enabled`, `media_clip_enabled`, still profile fields: grey with one caption `#siaDC09-media-lock-note` « Fixé par le profil « {nom} ». », free in Personnalisé), then the transport radios « Une adresse (URL) dans le message d'alarme » / « Une copie déposée sur un serveur FTPS ». The step 2 advanced panel no longer shows the Photo / Vidéo switches; its formats and extension choice (`#siaDC09-zone-content`) show only under the address transport. A profile without media (Ajax) greys and unchecks the box and hides everything below it.
+**Photo / Vidéo moved to step 1.** The card « Levée de doute photo / vidéo » (`#siaDC09-media-card`) holds, once the box `media_enabled` is ticked (`#siaDC09-media-body`): « Que joindre ? » (`media_snapshot_enabled`, `media_clip_enabled`, still profile fields: grey with one caption `#siaDC09-media-lock-note` « Fixé par le profil « {nom} ». », free in Personnalisé), then the transport radios « Une adresse (URL) dans le message d'alarme » / « Une copie déposée sur un serveur FTPS » (locked by a profile that declares `media_transport`, see below). The step 2 advanced panel no longer shows the Photo / Vidéo switches; its formats and extension choice (`#siaDC09-zone-content`) show only under the address transport. A profile without media (Ajax) greys and unchecks the box and hides everything below it.
 
 **Transport.** `media_transport` is a hidden `eqLogicAttr` input holding `url` or `ftps` (Jeedom saves a radio as 0/1, so the radios `.siaDC09-transport-radio` drive the hidden field). Absent or empty means `url` (« adresse »). The Frigate address group `#siaDC09-media-url-group` exists only under `url`; under `ftps` step 1 shows only the note « Les réglages du serveur FTPS se font à l'étape suivante, dans les options avancées. ».
 
 **Validation.** Step 1 « Suivant » (`siaDC09_mediaConfigErrors()`): Photo or Vidéo required (« Photo / vidéo : choisissez au moins l'une des deux. », key `media_snapshot_enabled`); the Frigate address required under `url` only. The step 3 safety net and PHP `deamon_info()` Guard 3f skip the address check under `ftps`.
+
+**The transport is a profile key (user decision 2026-11-09).** `media_transport` (`url` | `ftps`) is carried by a profile like the Photo / Vidéo keys: Vesta and FoxStream declare `"media_transport": "url"`. Choosing such a profile sets the radios and the hidden field to that value and locks the radios (`siaDC09-profile-field`, `aria-disabled`, no click); the single caption `#siaDC09-media-lock-note` (placed under the transport group) covers Photo, Vidéo and the transport. Personnalisé, and a profile that does not declare the key, leave the radios free. Consequence: with a profile declaring `media_transport=url`, FTPS is reachable only in « Personnalisé ». The FTPS settings are never profile fields and are never locked. A value other than `url` / `ftps` in a preset is ignored by the wizard.
 
 **`ftps_enabled` is derived.** It is no longer stored or shown: the FTPS upload is on exactly when `media_transport == ftps`, decided in one place, `siaDC09::isFtpsTransport()`, used by `deamon_start()` and `siaDC09Cmd::_ftpsTransportActive()`.
 

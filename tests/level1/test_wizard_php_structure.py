@@ -622,7 +622,7 @@ def test_18_4_media_card_structure(php_page: str) -> None:
         assert card < php_page.index(f'data-l2key="{key}"') < advanced
     # Assert: transport is a hidden saved field driven by two radios
     assert re.search(r'type="hidden"[^>]*data-l2key="media_transport"', php_page)
-    assert php_page.count('class="siaDC09-transport-radio"') == 2
+    assert php_page.count('siaDC09-transport-radio ') == 2
     # Assert: FTPS card hidden by default, no stored ftps_enabled
     assert re.search(r'id="siaDC09-ftps-card"[^>]*display:none', php_page)
     assert 'data-l2key="ftps_enabled"' not in php_page
