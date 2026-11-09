@@ -24,7 +24,7 @@ components:
 
 # siaDC09 wizard media block - Design Spine
 
-TLDR: step 1 keeps one media card with a common part (what to attach, how it reaches the receiver) and, for the address way only, the Frigate address. Every technical setting lives on step 2, in the Options avancées panel. The FTPS test moves to step 2 as a second framed zone beside the SIA test, with different button texts. The step 2 advanced panel shows only what the chosen way needs. Nothing new in colour, type or shape. The Excalidraw mockup (`.working/`, screens A to G) wins over this text where they differ.
+TLDR: step 1 keeps one media card with a common part (what to attach, how it reaches the receiver) and, for the address way only, the Frigate address. Every technical setting lives on step 2, in the Options avancées panel. The FTPS test moves to step 2 as a second result zone beside the SIA test; one button, « Lancer le test » / « Relancer le test », runs every test and nothing runs by itself. The step 2 advanced panel shows only what the chosen way needs. Nothing new in colour, type or shape. The Excalidraw mockup (`.working/`, screens A to H) wins over this text where they differ.
 
 ## Colors
 
@@ -36,11 +36,12 @@ No new colour. Bootstrap semantic classes as in epic 17: green for success and t
 |---|---|
 | A, step 1, « adresse » | Zone « Levée de doute photo / vidéo »: media checkbox + help, « Que joindre ? » (Photo, Vidéo), transport radios, then the card « Adresse pour la centrale » with the Frigate address. No FTPS field. |
 | B, step 1, FTPS | Same common part, the FTPS radio selected, and nothing else but a note: the FTPS settings are on the next step. No Frigate address, no FTPS field, no test. |
-| C, step 2, FTPS, first arrival | Summary (two lines), zone « Test de la centrale (SIA) » with its button, zone « Test du serveur FTPS » waiting (blue note, disabled button « Tester le serveur FTPS »), the Options avancées bar open, the dashed card « Serveur FTPS » (server + port, user + password, remote folder empty, certificate radios + fingerprint), the locked supervision zone, then Modifier la centrale / Ignorer / Suivant. |
-| C1, step 2, FTPS, after the test | Unknown certificate refusal with the fingerprint box, « Faire confiance à cette empreinte » and « Relancer le test du serveur FTPS »; advanced panel folded. |
-| C2, FTPS test states | Running, success, step failure, identifiers refused, changed certificate. |
+| C, step 2, FTPS, first arrival | Summary (two lines), zone « Test de la centrale (SIA) » and zone « Test du serveur FTPS » both « Pas encore testé. », the Options avancées bar open, the dashed card « Serveur FTPS » (server + port, user + password, remote folder empty, certificate radios + fingerprint), the locked supervision zone, then one button row: Modifier la centrale / Lancer le test / Ignorer. |
+| C1, step 2, FTPS, after the test | Unknown certificate refusal with the fingerprint box and « Faire confiance à cette empreinte » (no button of its own for a test); advanced panel folded; row: Modifier la centrale / Relancer le test / Ignorer. |
+| C2, FTPS test results | Running, success, step failure, identifiers refused, changed certificate. Texts only, no button. |
 | D, step 1 refusal | Red borders and messages under the faulty fields (Photo / Vidéo, Frigate address), one « Impossible de continuer : » banner. |
-| D2, step 2 refusal | FTPS settings incomplete when testing: red fields in the card, red message in the test zone. |
+| D2, step 2 refusal | « Lancer le test » pressed with incomplete FTPS settings: nothing runs, red fields in the card, banner « Impossible de lancer le test : ». |
+| H, step 2 buttons | The five states of the button row (before test, running, all passed, failed, settings edited). One test button, one right-hand slot (Suivant or Ignorer, never both). |
 | E, advanced, « adresse » | Photo / Vidéo address formats, extension choice, supervision. Locked by the profile as in epic 17. |
 | G, « Configuration active » | New « Levée de doute » block, never showing the password. |
 
@@ -55,7 +56,7 @@ See the front matter. Reused unchanged from epic 17: section-card, field-locked 
 | Do | Don't |
 |---|---|
 | Show only the card of the selected way | Show greyed fields of the other way |
-| Give the two tests different titles and different button texts | Reuse « Relancer le test » for both |
+| Keep one test button for every test, and one right-hand button (Suivant after full success, Ignorer otherwise) | Put a relaunch button in each result zone, or show Suivant and Ignorer together |
 | Name the failed step in a test failure | Show a bare « Échec » or an error code |
 | Show the presented certificate fingerprint in monospace | Ask the user to find it with a command-line tool |
 | Say the password was not sent when a certificate is refused | Imply the credentials were tried |
