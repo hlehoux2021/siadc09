@@ -261,3 +261,7 @@ level2/level3 tests + golden fixture + harness. This closes the 4-group review o
 - source_plan: `_bmad-output/initiative-my-project/epic-17-csr-behaviour-profiles/story-17-12-wizard-step-2-without-dead-end-plan.md`
   summary: Modifier la centrale leaves the stored sia_wizard_step at 2, so a reload from step 1 re-enters step 2 and relaunches the connection test.
   evidence: Accepted in the plan, but EXPERIENCE.md says Back resets the wizard step; decide whether a reset save is wanted.
+
+- source_plan: `_bmad-output/initiative-my-project/epic-18-ftps-alarm-media-upload/story-18-2-tracer-per-equipment-ftps-keys-php-to-daemon-snapshot-u-plan.md`
+  summary: The FTPS upload thread keeps running after the asyncio deadline, since `wait_for` cannot cancel a blocking thread.
+  evidence: Each socket step is bounded by FTPS_TIMEOUT_S (10 s) so a stalled server holds a worker for tens of seconds at most; to be settled in 18.6 (upload robustness), e.g. one overall deadline enforced inside the blocking call.

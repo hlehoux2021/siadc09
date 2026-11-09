@@ -3,14 +3,14 @@ title: 'Tracer: per-equipment FTPS keys, PHP to daemon, snapshot upload on BA al
 type: 'feature'
 ticket: '18.2'
 created: '2026-11-09'
-status: 'draft'
+status: 'built'
 baseline_revision: '35119e6'
 route: 'full'
 route_source: 'auto'
 risk: 'medium'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: [quick]
 review_loop_iteration: 0
 context:
   - '{project-root}/internal-docs/ftps-test-server.md'
@@ -74,9 +74,19 @@ context:
 
 ## Implementation Notes
 
+Implemented by a subagent from this plan. Self-review before the quick lens found one defect, patched: the upload ignored the media master and snapshot switches (E18-R2); it now resolves `ftps_upload` only when both are on.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+- medium, patched: `_get_bytes` let `ConnectionResetError`/`IncompleteRead` escape, ending the tracked task with an unhandled exception -- now catches `OSError` and `HTTPException`; two tests added.
+- low, patched: unused `MEDIA_TRANSPORTS`, `MEDIA_TRANSPORT_KEY`, `MEDIA_TRANSPORT_DEFAULT` on `siaDC09` removed (the Cmd keeps its own copies because the PHP test harnesses stub `siaDC09`).
+- low, patched: new level-1 PHP tests lacked the mandatory docstring and assert comments -- added.
+- low, patched: design doc did not say a BA frame loses its U/V tag when ftps is chosen but the upload cannot run -- bullet added.
+- low, rejected: that tag loss is the epic's decision (transports exclusive); each case is logged and the frame is never held back.
+- low, rejected: Google-style Args/Returns on small private helpers; `fr_FR.json` key order (Jeedom reads it as a map, `Port` already exists).
+- medium, deferred to 18.6: the upload thread outlives `FTPS_UPLOAD_DEADLINE_S` because `wait_for` cannot cancel a blocking thread; each socket step is bounded by `FTPS_TIMEOUT_S`.
 
 ## Design Notes
 
