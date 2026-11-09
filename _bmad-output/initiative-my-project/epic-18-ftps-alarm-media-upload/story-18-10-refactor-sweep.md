@@ -3,7 +3,7 @@ id: 10
 type: story
 title: "18.10 — Refactor sweep"
 parent: epic-18-ftps-alarm-media-upload
-after: [1, 2, 3, 4, 5, 6, 7, 8]
+after: [1, 2, 3, 4, 5, 6, 7, 8, 11]
 hitl: false
 risk: low
 ---

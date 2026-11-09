@@ -4,7 +4,7 @@ type: story
 title: "18.9 — Field validation against a real FTPS server"
 parent: epic-18-ftps-alarm-media-upload
 covers: [E18-R1, E18-R2, E18-R3]
-after: [4, 5, 6, 7, 8]
+after: [4, 5, 6, 7, 8, 11]
 hitl: true
 risk: low
 ---

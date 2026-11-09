@@ -63,7 +63,10 @@ The daemon's media upload and the per-equipment settings that drive it. Not the 
 - Decision: the epic is split into 10 entries, with a closing Refactor sweep (user, 2026-11-09).
 - Decision: the two transports are exclusive; with FTPS chosen, the frame carries no U/V media tag (user, 2026-11-09).
 - Decision: the transport choice is a user choice, not a profile field (ADR-22) (user, 2026-11-09).
-- Decision: the Frigate server address is common to both transports and stays one setting; only the transport-specific fields change with the choice (user, 2026-11-09).
+- Decision (supersedes the previous Frigate-address line, user 2026-11-09 after the mockup review): the Frigate address (`frigate_media_url_template`) belongs to the URL transport only, since the daemon reads Frigate's host from the Frigate plugin in FTPS; it is not asked in the common zone.
+- Decision: the approved mockup (`ux-18-wizard-media-block`, 2026-11-09) fixes the wizard: Photo/Vidéo in the common part of step 1 (still profile-locked), the FTPS technical settings in the step 2 advanced options, one test button on step 2 with no automatic test, and one right-hand button, Suivant only after full success, otherwise Ignorer (user, 2026-11-09).
+- Decision: entry 4 is split in two (re-slice, user 2026-11-09): 18.4 is step 1 and the data model, the new 18.11 is step 2; 18.7 becomes the FTPS test action called from step 2 and waits on 18.11 (the wizard work was about 400-500 lines and 25-35 tests, too much for one plan).
+- Decision: the epic now has 11 entries (supersedes the count of 10 above).
 - Decision: the FTPS password follows the precedent of the AES `encryption_key`: a `type="password"` field in the equipment configuration, passed to the daemon the same way, and kept out of logs (user, 2026-11-09). Not a conflict with the `media_url` rule, which only says the URL template carries no real secret.
 - Unknown: FTPS mode (explicit TLS on port 21 vs implicit on 990) and certificate handling (public CA, self-signed with pinned fingerprint); to settle with the first test server.
 - Unknown: remote file layout (folder per account/zone/date, file names) and any retention or cleanup on the server.
