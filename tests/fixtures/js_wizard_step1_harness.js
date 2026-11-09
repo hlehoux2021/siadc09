@@ -37,7 +37,7 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
   <input type="checkbox" class="eqLogicAttr siaDC09-media-field" data-l2key="media_enabled">
   <div id="siaDC09-media-nomedia" style="display:none"></div>
   <div id="siaDC09-media-body" style="display:none">
-    <p id="siaDC09-media-lock-note" style="display:none"><span></span></p>
+    <div id="siaDC09-media-profile-group"><p id="siaDC09-media-lock-note" style="display:none"><span></span></p></div>
     <input type="hidden" class="eqLogicAttr siaDC09-media-field" data-l2key="media_transport">
     <input type="radio" name="siaDC09-media-transport" class="siaDC09-transport-radio siaDC09-transport-field siaDC09-profile-field" value="url">
     <input type="radio" name="siaDC09-media-transport" class="siaDC09-transport-radio siaDC09-transport-field siaDC09-profile-field" value="ftps">
@@ -174,6 +174,7 @@ out.step1Media = {
   ftpsCardVisible: shown('#siaDC09-ftps-card'), formatsVisible: shown('#siaDC09-zone-content'),
   transport: field('media_transport').val(),
   radioChecked: $('.siaDC09-transport-radio:checked').val() || null,
+  groupGrey: $('#siaDC09-media-profile-group').hasClass('siaDC09-subzone-locked'),
   lockNote: shown('#siaDC09-media-lock-note') ? $('#siaDC09-media-lock-note > span').text() : null
 }
 out.mediaUrlVisible = $('#siaDC09-media-url-group').css('display') !== 'none'

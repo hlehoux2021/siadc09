@@ -201,6 +201,8 @@ $scenarios = scenario::all();
 										<p class="siaDC09-help" id="siaDC09-media-help">{{Le télésurveilleur peut ainsi voir ce qui a déclenché l'alarme.}}</p>
 										<p class="siaDC09-help" id="siaDC09-media-nomedia" style="display:none;">{{Cette centrale ne reçoit ni photo ni vidéo.}}</p>
 										<div id="siaDC09-media-body" style="display:none;">
+											<div class="siaDC09-subzone" id="siaDC09-media-profile-group">
+												<h5 class="siaDC09-zone-title">{{Contenu et mode d'envoi}}</h5>
 											<div class="siaDC09-field siaDC09-w-full" id="siaDC09-media-what" style="margin-top:14px;">
 												<span class="siaDC09-label">{{Que joindre ?}}</span>
 												<label class="siaDC09-check-line"><input type="checkbox" class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l1key="configuration" data-l2key="media_snapshot_enabled">{{Photo}}</label>
@@ -216,7 +218,8 @@ $scenarios = scenario::all();
 													<p class="siaDC09-help">{{Le plugin dépose le média sur votre serveur ; le message d'alarme ne contient pas d'adresse.}}</p></div>
 											</div>
 												<p class="siaDC09-help" id="siaDC09-media-lock-note" style="display:none;"><i class="fas fa-lock"></i> <span></span></p>
-											<div class="siaDC09-field siaDC09-w-input" id="siaDC09-media-url-group" style="display:none;margin-top:14px;">
+											</div><!-- /#siaDC09-media-profile-group -->
+											<div class="siaDC09-subzone" id="siaDC09-media-url-group" style="display:none;">
 												<h5 class="siaDC09-zone-title">{{Adresse pour la centrale}}</h5>
 												<label class="siaDC09-label">{{Adresse de votre serveur Frigate *}}</label>
 												<input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="frigate_media_url_template" placeholder="https://frigate.maison.fr">

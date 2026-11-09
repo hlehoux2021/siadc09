@@ -62,3 +62,5 @@ See the front matter. Reused unchanged from epic 17: section-card, field-locked 
 | Say the password was not sent when a certificate is refused | Imply the credentials were tried |
 | Keep Photo / Vidéo on step 1 only | Repeat the switches in the advanced panel |
 | Leave an optional field empty | Put a grey example that the plugin does not apply |
+| **Frame what the profile sets** (Photo, Vidéo, transport) in ONE dashed group « Contenu et mode d'envoi », like the step 2 zones: grey with the single caption inside when the profile fixes it, white when free | Mix locked and editable controls in one undivided zone (user review of 18.4, 2026-11-09) |
+| Keep the always-editable controls outside that frame: the « Joindre… » checkbox above it, the « Adresse pour la centrale » card below it | Put an editable field inside the profile-set group |

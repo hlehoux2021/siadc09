@@ -190,10 +190,11 @@ $(document).on('mousedown keydown', 'select[aria-disabled="true"]', function(eve
 // ONE lock caption for the whole advanced panel (never per section, never per field).
 // Text: « Fixé par le profil « {nom} ». Choisissez « Personnalisé » pour le modifier. »
 // An empty label hides it (Personnalisé: no caption, no locked look).
-// Story 18.4: the same lock, said once on step 1 under « Que joindre ? » (Photo / Vidéo).
+// Story 18.4: the same lock, said once on step 1 at the bottom of the grey group « Contenu et mode d'envoi ».
 function siaDC09_setMediaLockCaption(profileLabel) {
   $('#siaDC09-media-lock-note').toggle(!!profileLabel)
-    .find('> span').text('{{Fixé par le profil}} « ' + profileLabel + ' ».')
+    .find('> span').text('{{Fixé par le profil}} « ' + profileLabel + ' ». {{Choisissez « Personnalisé » pour le modifier.}}')
+  $('#siaDC09-media-profile-group').toggleClass('siaDC09-subzone-locked', !!profileLabel)
 }
 
 function siaDC09_setLockCaption(profileLabel) {

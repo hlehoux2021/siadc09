@@ -69,6 +69,23 @@
   color: var(--siaDC09-strong);
 }
 
+/* ---- Dashed group inside a zone (story 18.4): the profile group and the address card.
+ * White when editable; grey (same fill as a locked field) while a profile sets it. ---- */
+#siaDC09-wizard .siaDC09-subzone {
+  background: var(--siaDC09-panel);
+  border: 1px dashed var(--siaDC09-frame);
+  border-radius: 4px;
+  padding: 10px 14px 12px 14px;
+  margin-top: 14px;
+}
+#siaDC09-wizard .siaDC09-subzone .siaDC09-zone-title { font-size: 18px; margin-bottom: 10px; }
+#siaDC09-wizard .siaDC09-subzone-locked {
+  background: rgba(var(--contrast-color), 0.1);
+}
+#siaDC09-wizard .siaDC09-subzone-locked .siaDC09-label,
+#siaDC09-wizard .siaDC09-subzone-locked .radio label,
+#siaDC09-wizard .siaDC09-subzone-locked .siaDC09-check-line { color: rgba(var(--contrast-color), 0.75); }
+
 /* ---- Rows and fields: label ABOVE its field, related fields on one row ---- */
 #siaDC09-wizard .siaDC09-row {
   display: flex;

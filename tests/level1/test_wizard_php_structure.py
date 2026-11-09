@@ -627,3 +627,27 @@ def test_18_4_media_card_structure(php_page: str) -> None:
     assert re.search(r'id="siaDC09-ftps-card"[^>]*display:none', php_page)
     assert 'data-l2key="ftps_enabled"' not in php_page
     assert not re.search(r'<select[^>]*data-l2key="media_transport"', php_page)
+
+
+def test_18_4_profile_group_holds_caption_not_frigate_card(php_page: str) -> None:
+    """
+    Story 18.4: one dashed group « Contenu et mode d'envoi » holds Photo/Vidéo, the transport and the
+    lock caption; the Frigate address card is a separate dashed card outside it.
+
+    Expected result:
+    - Photo, Vidéo, transport radios and the lock note sit inside #siaDC09-media-profile-group
+    - the Frigate address group and the media checkbox are outside it
+    """
+    start = php_page.index('id="siaDC09-media-profile-group"')
+    end = php_page.index("/#siaDC09-media-profile-group")
+    group = php_page[start:end]
+    # Assert: title and everything the profile sets are inside
+    assert "Contenu et mode d'envoi" in group
+    for token in ('data-l2key="media_snapshot_enabled"', 'data-l2key="media_clip_enabled"',
+                  'siaDC09-transport-radio', 'id="siaDC09-media-lock-note"'):
+        assert token in group, token
+    # Assert: the caption is the last element of the group
+    assert group.index('id="siaDC09-media-lock-note"') > group.rindex('siaDC09-transport-radio')
+    # Assert: the Frigate card and the master checkbox are outside the group
+    assert 'id="siaDC09-media-url-group"' not in group and php_page.index('id="siaDC09-media-url-group"') > end
+    assert 'data-l2key="media_enabled"' not in group

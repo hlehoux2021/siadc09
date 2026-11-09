@@ -659,7 +659,7 @@ def test_18_4_profile_locks_media_with_caption() -> None:
                                                    {"op": "apply", "profile": "", "fill": True}]})
 
     # Assert: caption names the profile
-    assert out["step1Media"]["lockNote"] == "{{Fixé par le profil}} « Vesta »."
+    assert out["step1Media"]["lockNote"] == "{{Fixé par le profil}} « Vesta ». {{Choisissez « Personnalisé » pour le modifier.}}"
     # Assert: custom mode has no caption and no lock
     assert free["step1Media"]["lockNote"] is None and free["locked"] == 0
 
@@ -683,7 +683,7 @@ def test_18_4_profile_locks_transport_and_custom_unlocks() -> None:
     # Assert: forced value, locked radios, caption, no FTPS card
     assert forced["step1Media"]["transport"] == "url" and forced["step1Media"]["radioChecked"] == "url"
     assert forced["step1Media"]["radiosLocked"] == 2 and forced["step1Media"]["radiosAria"] == 2
-    assert forced["step1Media"]["lockNote"] == "{{Fixé par le profil}} « Vesta »."
+    assert forced["step1Media"]["lockNote"] == "{{Fixé par le profil}} « Vesta ». {{Choisissez « Personnalisé » pour le modifier.}}"
     assert not forced["step1Media"]["ftpsCardVisible"]
     # Assert: a profile that does not declare the transport leaves the radios free
     assert free_profile["step1Media"]["radiosLocked"] == 0

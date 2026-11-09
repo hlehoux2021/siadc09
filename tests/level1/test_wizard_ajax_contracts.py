@@ -220,14 +220,31 @@ def test_test_connection_suppresses_stderr(ajax_source: str) -> None:
 def test_test_connection_logs_duh_stderr_at_warning(ajax_source: str) -> None:
     """
     Story 17.12: an expected DUH on the wizard test path is logged at WARNING;
-    any other stderr stays at error.
+    any other failure stays at error, as ONE readable line.
 
     Expected result:
-    - the stderr log level depends on the 'duh' outcome
-    - both 'warning' and 'error' levels are used for the Python stderr line
+    - the failure log level depends on the 'duh' outcome
+    - both 'warning' and 'error' levels are used for the failure line
     """
     # Assert: the DUH outcome selects the level
     assert "'duh'" in ajax_source and "'warning' : 'error'" in ajax_source
+    # Assert: the failure line is readable (no frame, no hex)
+    assert "'Test de connexion échoué : '" in ajax_source
+
+
+def test_test_connection_technical_stderr_stays_out_of_the_message_center(ajax_source: str) -> None:
+    """
+    The plaintext frame and its hex on stderr are technical detail: logged at debug only.
+    An error-level line would be copied into the Jeedom message center (user report, 2026-11-09).
+
+    Expected result:
+    - the stderr text is logged at debug with the "détail technique" label
+    - no log call at error or warning level carries the raw stderr
+    """
+    # Assert: stderr goes to debug with its label
+    assert "log::add('siaDC09', 'debug', 'Test connexion — détail technique : ' . $stderr);" in ajax_source
+    # Assert: the old error-level line is gone
+    assert "erreur Python" not in ajax_source
 
 
 def test_test_connection_uses_get_cmd_python3(ajax_source: str) -> None:
