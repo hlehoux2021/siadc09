@@ -30,9 +30,9 @@ Visual rules: `DESIGN.md`. Mockup: `.working/flow-media-block-2026-11-09.excalid
 | « Faire confiance à cette empreinte » fills the field without a second confirmation | It then relaunches the FTPS test |
 | Password required as soon as FTPS is selected | « Mot de passe FTPS : obligatoire. » |
 
-### Decision taken by the designer, to confirm
+### Confirmed by the user, 2026-11-09
 
-**Photo / Vidéo stay locked by the profile** (ADR-22 unchanged), now on step 1: greyed with « Fixé par le profil « {nom} ». » and the profile select just above; free in « Personnalisé » and in a profile that declares no media key. The FTPS settings are never profile fields, so they are never locked. If Photo / Vidéo should be free under FTPS, say so: it changes only the lock rule.
+**Photo / Vidéo stay locked by the profile** (ADR-22 unchanged), now on step 1: greyed with « Fixé par le profil « {nom} ». » and the profile select just above; free in « Personnalisé » and in a profile that declares no media key. The FTPS settings are never profile fields, so they are never locked.
 
 ## Flows
 
@@ -99,4 +99,4 @@ A disabled button looks disabled (grey, no hover), never only the attribute.
 
 ## Open points
 
-One designer decision awaits confirmation (Photo / Vidéo locked by the profile), and the render itself awaits the user's approval.
+None. Only the user's approval of the render itself is awaited.
