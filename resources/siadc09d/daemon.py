@@ -2936,6 +2936,11 @@ class SIADaemon(BaseDaemon):
                 )
             else:
                 self._logger.warning("on_message: ftps_upload without frigate_host/event_id — no upload")
+        elif sia_code == "BA" and isinstance(raw_ftps, dict):
+            self._logger.warning(
+                "FTPS upload requested by the plugin but the daemon has no active FTPS settings "
+                "(not enabled, or host/user empty, or started without --ftps-* — restart the daemon)"
+            )
 
     # ===== STORY 14-2/14-4 (ADR-17 Amendment 3/4): FRIGATE EVENT PREFETCH =====
 

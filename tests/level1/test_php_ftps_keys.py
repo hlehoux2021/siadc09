@@ -102,7 +102,8 @@ def test_burglar_payload_carries_ftps_upload_and_drops_media() -> None:
     # Assert: media is dropped only for a BA alarm with the ftps transport
     assert "$logicalId === 'burglarAlarm' && $this->_ftpsTransportActive()" in _CMD
     # Assert: media is cleared before it is attached to the payload
-    assert _CMD.index("$media = [];\n                }") < _CMD.index("$payload['media'] = $media;")
+    ftps_block = _CMD.index("$this->_ftpsTransportActive()) {\n                    $media = [];")
+    assert ftps_block < _CMD.index("$payload['media'] = $media;")
 
 
 def test_ftps_upload_follows_the_media_switches() -> None:

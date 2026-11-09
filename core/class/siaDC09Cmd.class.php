@@ -158,6 +158,10 @@ class siaDC09Cmd extends cmd {
                     ? $this->_resolveFtpsUpload($zoneEntry, $cacheEntry) : null;
                 if ($logicalId === 'burglarAlarm' && $this->_ftpsTransportActive()) {
                     $media = [];
+                    if (!$snapshotWanted) {
+                        log::add('siaDC09', 'info',
+                            'FTPS : photo non demandée (médias ou photo désactivés sur l\'équipement) — pas d\'envoi');
+                    }
                 }
                 if ($ftpsUpload !== null) {
                     $payload['ftps_upload'] = $ftpsUpload;

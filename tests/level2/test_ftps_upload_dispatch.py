@@ -202,3 +202,21 @@ def test_enabled_but_incomplete_warns_once_without_password(caplog) -> None:
     assert len(warnings) == 1
     # Assert: secret not logged
     assert _SECRET not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_inactive_daemon_says_so_when_plugin_requests_an_upload(daemon, caplog) -> None:
+    """
+    The plugin asks for an upload but the daemon started without FTPS settings.
+
+    Expected result:
+    - no fetch, frame enqueued, and a warning that points at the daemon settings (not silent)
+    """
+    daemon._ftps = FtpsSettings()
+    with patch.object(daemon_module, "fetch_event_snapshot", AsyncMock(return_value=b"x")) as fetch:
+        await daemon.on_message("burglarAlarm", {"ftps_upload": _UPLOAD})
+        await _drain(daemon)
+    # Assert: nothing fetched
+    fetch.assert_not_awaited()
+    # Assert: the reason is logged
+    assert "no active FTPS settings" in caplog.text
