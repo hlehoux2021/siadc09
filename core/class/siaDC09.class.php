@@ -62,11 +62,12 @@ class siaDC09 extends eqLogic {
     ];
 
     /**
-     * Epic 18 (ticket 18.2): per-equipment FTPS media upload, hand-entered until the wizard
-     * (18.4). `media_transport` 'url' (default) keeps the U/V tag; 'ftps' sends no tag on a BA
-     * frame and has the daemon upload the Frigate snapshot instead (read by siaDC09Cmd).
+     * Epic 18 (tickets 18.2, 18.4): per-equipment media transport. `media_transport` 'url'
+     * (default, also an equipment saved before the key) keeps the U/V tag; 'ftps' sends no tag
+     * on a BA frame and has the daemon upload the Frigate snapshot instead (read by siaDC09Cmd).
+     * The FTPS upload is on exactly when the transport is 'ftps': see isFtpsTransport().
      */
-    const FTPS_ENABLED_KEY = 'ftps_enabled';
+    const MEDIA_TRANSPORT_KEY = 'media_transport';
     const FTPS_PORT_DEFAULT = 21;
 
     /** Sender-side CRC formats: 'bin' removed on 2026-10-17 (Story 17.1, ADR-06 note). */
@@ -253,10 +254,16 @@ class siaDC09 extends eqLogic {
         // Guard 3f — Story 17.10: photo/video verification needs the Frigate address. Applies
         // only when media_enabled is explicitly stored as 1 (user decision 2026-11-06): an
         // equipment saved before the key existed keeps launching; the wizard writes the key.
-        $mediaAddressError = self::mediaConfigError(
-            $eqLogic->getConfiguration(self::MEDIA_ENABLED_KEY, null),
-            (string) $eqLogic->getConfiguration(self::MEDIA_URL_TEMPLATE_KEY, '')
-        );
+        // Story 18.4: the address is only needed by the « adresse » transport, not under FTPS.
+        $mediaAddressError = self::isFtpsTransport(
+            $eqLogic->getConfiguration(self::MEDIA_TRANSPORT_KEY, 'url'),
+            $eqLogic->getConfiguration(self::MEDIA_ENABLED_KEY, null)
+        )
+            ? null
+            : self::mediaConfigError(
+                $eqLogic->getConfiguration(self::MEDIA_ENABLED_KEY, null),
+                (string) $eqLogic->getConfiguration(self::MEDIA_URL_TEMPLATE_KEY, '')
+            );
         if ($mediaAddressError !== null) {
             $return['launchable'] = 'nok';
             $return['launchable_message'] = $mediaAddressError;
@@ -357,7 +364,10 @@ class siaDC09 extends eqLogic {
         }
 
         // Epic 18 (18.2): FTPS media upload keys, same hand-off as the encryption key.
-        if ((bool) $eqLogic->getConfiguration(self::FTPS_ENABLED_KEY, 0)) {
+        if (self::isFtpsTransport(
+            $eqLogic->getConfiguration(self::MEDIA_TRANSPORT_KEY, 'url'),
+            $eqLogic->getConfiguration(self::MEDIA_ENABLED_KEY, null)
+        )) {
             $cmd .= ' --ftps-enabled';
             $cmd .= ' --ftps-host ' . escapeshellarg((string) $eqLogic->getConfiguration('ftps_host', ''));
             $cmd .= ' --ftps-port ' . ((int) $eqLogic->getConfiguration('ftps_port', self::FTPS_PORT_DEFAULT) ?: self::FTPS_PORT_DEFAULT);
@@ -561,6 +571,16 @@ class siaDC09 extends eqLogic {
             );
         }
         return null;
+    }
+
+    /**
+     * Epic 18 (18.4): the one place that decides whether the FTPS upload is on. It is derived
+     * from the stored `media_transport` and `media_enabled` (absent = on); anything but 'ftps' (absent, '' or 'url') is the address way.
+     */
+    public static function isFtpsTransport(mixed $transport, mixed $mediaEnabled = null): bool {
+        // A stale 'ftps' must not keep the upload on when the media box is off; absent = on.
+        $mediaOff = $mediaEnabled !== null && $mediaEnabled !== '' && !(bool) $mediaEnabled;
+        return $transport === 'ftps' && !$mediaOff;
     }
 
     /**

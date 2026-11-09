@@ -36,7 +36,16 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
   <input class="eqLogicAttr" data-l2key="encryption_key">
   <input type="checkbox" class="eqLogicAttr siaDC09-media-field" data-l2key="media_enabled">
   <div id="siaDC09-media-nomedia" style="display:none"></div>
-  <div id="siaDC09-media-url-group" style="display:none"><input class="eqLogicAttr" data-l2key="frigate_media_url_template"></div>
+  <div id="siaDC09-media-body" style="display:none">
+    <p id="siaDC09-media-lock-note" style="display:none"><span></span></p>
+    <input type="hidden" class="eqLogicAttr siaDC09-media-field" data-l2key="media_transport">
+    <input type="radio" name="siaDC09-media-transport" class="siaDC09-transport-radio" value="url">
+    <input type="radio" name="siaDC09-media-transport" class="siaDC09-transport-radio" value="ftps">
+    <div id="siaDC09-media-url-group" style="display:none"><input class="eqLogicAttr" data-l2key="frigate_media_url_template"></div>
+    <p id="siaDC09-media-ftps-note" style="display:none"></p>
+  </div>
+  <div id="siaDC09-ftps-card" style="display:none"><input class="eqLogicAttr" data-l2key="ftps_host"></div>
+  <div id="siaDC09-zone-content"></div>
   <a id="bt_siaDC09_toggleAdvanced"><i id="siaDC09-advbar-icon" class="fas fa-chevron-right"></i><span id="siaDC09-advbar-title-text"></span><span id="siaDC09-advbar-hint"></span></a>
   <div id="siaDC09-aes-row" style="display:none"></div>
   <div id="siaDC09-advanced" style="display:none">
@@ -99,6 +108,11 @@ window.siaDC09_populateConfigSummary = () => {}
 window.eval(source.match(/var SIADC09_WIZARD_DONE = \d+/)[0])
 window.eval(source.slice(peStart, peEnd))
 
+// Step 2 summary helpers live below the slice; load the pure ones.
+const sumStart = source.indexOf('function siaDC09_isOn')
+const sumFn = source.indexOf('function siaDC09_mediaSummaryLine')
+window.eval(source.slice(sumStart, source.indexOf('\n}\n', sumFn) + 3))
+
 for (const id of Object.keys(window.siaDC09_csrProfiles)) {
   $('#siaDC09-csr-profile').append($('<option>').val(id).text(id))
 }
@@ -112,6 +126,7 @@ for (const [key, value] of Object.entries(scenario.fields || {})) {
 const validate = []
 const summaries = []
 const mediaErrors = []
+const mediaErrorLists = []
 for (const action of scenario.actions || []) {
   if (action.op === 'apply') window.siaDC09_applyProfile(action.profile, action.fill)
   else if (action.op === 'validateAdvanced') validate.push(window.siaDC09_validateAdvanced())
@@ -133,9 +148,11 @@ for (const action of scenario.actions || []) {
     $el.trigger('change')
   } else if (action.op === 'validate') validate.push(window.siaDC09_validateStep1())
   else if (action.op === 'mediaError') mediaErrors.push(window.siaDC09_mediaConfigError())
+  else if (action.op === 'mediaErrors') mediaErrorLists.push(window.siaDC09_mediaConfigErrors())
+  else if (action.op === 'mediaSummary') summaries.push(window.siaDC09_mediaSummaryLine(action.cfg))
 }
 
-const out = { fields: {}, validate, summaries, mediaErrors }
+const out = { fields: {}, validate, summaries, mediaErrors, mediaErrorLists }
 for (const key of ['supervision_format', 'supervision_interval', 'rp_interval']) out.fields[key] = field(key).val()
 out.fields.rp_enabled = field('rp_enabled').is(':checked')
 out.media = {}
@@ -149,6 +166,14 @@ out.opacityDimmed = $('.siaDC09-profile-field').filter(function() { return this.
 out.readonlyInputs = $('input[readonly]').length
 out.selectedProfile = $('#siaDC09-csr-profile').val()
 out.advancedVisible = $('#siaDC09-advanced').css('display') !== 'none'
+const shown = sel => $(sel).css('display') !== 'none'
+out.step1Media = {
+  bodyVisible: shown('#siaDC09-media-body'), ftpsNoteVisible: shown('#siaDC09-media-ftps-note'),
+  ftpsCardVisible: shown('#siaDC09-ftps-card'), formatsVisible: shown('#siaDC09-zone-content'),
+  transport: field('media_transport').val(),
+  radioChecked: $('.siaDC09-transport-radio:checked').val() || null,
+  lockNote: shown('#siaDC09-media-lock-note') ? $('#siaDC09-media-lock-note > span').text() : null
+}
 out.mediaUrlVisible = $('#siaDC09-media-url-group').css('display') !== 'none'
 const $box = field('media_enabled')
 out.mediaBox = { greyed: $box.css('pointer-events') === 'none', ariaDisabled: $box.attr('aria-disabled') === 'true' }

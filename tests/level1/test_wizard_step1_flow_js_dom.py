@@ -66,7 +66,8 @@ def test_several_errors_banner_marks_every_field() -> None:
     - focus on the account field, the advanced panel (Test step) untouched, nothing saved
     """
     out = _run({"fields": {"account_number": "zz", "csr_ip": "", "csr_port": "10002",
-                           "media_enabled": True, "frigate_media_url_template": ""},
+                           "media_enabled": True, "media_snapshot_enabled": True,
+                           "frigate_media_url_template": ""},
                 "actions": [{"op": "showStep", "step": 1}, _NEXT, _SNAP]})
 
     snap = out["snapshots"][0]

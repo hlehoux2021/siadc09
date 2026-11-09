@@ -48,6 +48,7 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
         ${group('<input type="checkbox" class="eqLogicAttr" data-l2key="encryption_enabled">')}
         ${group('<input class="eqLogicAttr" data-l2key="encryption_key">')}
         ${group('<input type="checkbox" class="eqLogicAttr siaDC09-media-field" id="siaDC09-media-enabled" data-l2key="media_enabled">')}
+        ${group('<input type="checkbox" class="eqLogicAttr siaDC09-media-field" data-l2key="media_snapshot_enabled">')}
         <div id="siaDC09-media-url-group" style="display:none;">${group('<input class="eqLogicAttr" data-l2key="frigate_media_url_template">')}</div>
         <div id="siaDC09-step1-errors" class="alert alert-danger" role="alert" style="display:none;"></div>
         <a class="btn btn-success" id="bt_step1Next">Suivant</a>

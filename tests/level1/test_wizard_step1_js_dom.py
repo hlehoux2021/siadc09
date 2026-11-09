@@ -563,7 +563,7 @@ def test_media_config_error_on_empty_url() -> None:
     Expected result:
     - error with the box on and no address; none with an address or with the box off
     """
-    on = {"media_enabled": True}
+    on = {"media_enabled": True, "media_snapshot_enabled": True}
     out = _run({"fields": on, "actions": [{"op": "mediaError"}]})
     out_url = _run({"fields": {**on, "frigate_media_url_template": "https://h/"},
                     "actions": [{"op": "mediaError"}]})
@@ -575,6 +575,191 @@ def test_media_config_error_on_empty_url() -> None:
     assert out_url["mediaErrors"] == [""]
     # Assert: no error with the box off
     assert out_off["mediaErrors"] == [""]
+
+
+# ── Story 18.4: media choice and transport (one test per matrix row) ──────────
+
+
+def test_18_4_address_both_media_requires_frigate_address() -> None:
+    """
+    Matrix row 'Address, both media': the Frigate address is shown and required.
+
+    Expected result:
+    - address group visible, FTPS card hidden, no FTPS note
+    - an empty address gives the Frigate error; a filled one gives none
+    """
+    base = {"media_enabled": True, "media_snapshot_enabled": True, "media_clip_enabled": True,
+            "media_transport": "url"}
+    empty = _run({"fields": base, "actions": [{"op": "trigger", "selector": "#siaDC09-media-body input[type=hidden]"},
+                                              {"op": "mediaErrors"}]})
+    filled = _run({"fields": {**base, "frigate_media_url_template": "https://h"},
+                   "actions": [{"op": "trigger", "selector": "#siaDC09-media-body input[type=hidden]"},
+                               {"op": "mediaErrors"}]})
+
+    # Assert: body and address visible, no FTPS UI
+    assert empty["step1Media"]["bodyVisible"] and empty["mediaUrlVisible"]
+    assert not empty["step1Media"]["ftpsCardVisible"] and not empty["step1Media"]["ftpsNoteVisible"]
+    # Assert: missing address refused with the field key
+    assert [e["key"] for e in empty["mediaErrorLists"][0]] == ["frigate_media_url_template"]
+    # Assert: address filled, no error
+    assert filled["mediaErrorLists"][0] == []
+
+
+def test_18_4_ftps_needs_no_frigate_address() -> None:
+    """
+    Matrix row 'FTPS chosen': no Frigate address asked or required.
+
+    Expected result:
+    - address group hidden, interim FTPS card shown (the note stays hidden while the card exists), formats panel hidden
+    - no media error with an empty address; step 1 validates
+    """
+    fields = {"media_enabled": True, "media_snapshot_enabled": True, "media_transport": "ftps",
+              **_VALID_CONNECTION}
+    out = _run({"fields": fields, "actions": [{"op": "trigger", "selector": "#siaDC09-media-body input[type=hidden]"},
+                                              {"op": "mediaErrors"}, {"op": "validate"}]})
+
+    # Assert: only the FTPS parts are shown
+    assert not out["mediaUrlVisible"]
+    assert not out["step1Media"]["ftpsNoteVisible"] and out["step1Media"]["ftpsCardVisible"]
+    assert not out["step1Media"]["formatsVisible"]
+    # Assert: the radio mirrors the stored value
+    assert out["step1Media"]["radioChecked"] == "ftps"
+    # Assert: nothing required about Frigate
+    assert out["mediaErrorLists"][0] == []
+    assert out["validate"] == [True]
+
+
+def test_18_4_nothing_to_attach_is_refused() -> None:
+    """
+    Matrix row 'Nothing to attach': Photo and Vidéo both off is refused.
+
+    Expected result:
+    - the exact French message, on the Photo field, for both transports
+    """
+    msg = "{{Photo / vidéo : choisissez au moins l'une des deux.}}"
+    for transport in ("url", "ftps"):
+        out = _run({"fields": {"media_enabled": True, "media_transport": transport,
+                               "frigate_media_url_template": "https://h"},
+                    "actions": [{"op": "mediaErrors"}]})
+        # Assert: refused with the expected wording
+        assert out["mediaErrorLists"][0] == [{"key": "media_snapshot_enabled", "message": msg}]
+
+
+def test_18_4_profile_locks_media_with_caption() -> None:
+    """
+    Matrix row 'Profile locks media': Photo/Vidéo locked with one caption on step 1.
+
+    Expected result:
+    - the two checkboxes carry the lock; the caption reads « Fixé par le profil « {nom} ». »
+    - Personnalisé removes the lock and the caption
+    """
+    profiles = {"p": {"label": "Vesta", **_FULL_ON}}
+    out = _run({"profiles": profiles, "actions": [{"op": "apply", "profile": "p", "fill": True}]})
+    free = _run({"profiles": profiles, "actions": [{"op": "apply", "profile": "p", "fill": True},
+                                                   {"op": "apply", "profile": "", "fill": True}]})
+
+    # Assert: caption names the profile
+    assert out["step1Media"]["lockNote"] == "{{Fixé par le profil}} « Vesta »."
+    # Assert: custom mode has no caption and no lock
+    assert free["step1Media"]["lockNote"] is None and free["locked"] == 0
+
+
+def test_18_4_profile_without_media_hides_everything() -> None:
+    """
+    Matrix row 'Profile without media': box greyed and unchecked, everything below hidden.
+
+    Expected result:
+    - box unchecked and aria-disabled, body hidden, 'no media' sentence visible
+    """
+    out = _run({"profiles": _PROFILES, "fields": {"media_enabled": True},
+                "actions": [{"op": "apply", "profile": "ajax", "fill": True}]})
+
+    # Assert: box off and greyed
+    assert out["media"]["media_enabled"] is False and out["mediaBox"]["ariaDisabled"]
+    # Assert: block below hidden, sentence shown
+    assert not out["step1Media"]["bodyVisible"] and out["nomediaVisible"]
+
+
+def test_18_4_old_equipment_is_address() -> None:
+    """
+    Matrix row 'Old equipment': no media_transport stored behaves as 'adresse'.
+
+    Expected result:
+    - after printEqLogic the transport is 'url', the radio is on it, the address is shown
+    """
+    out = _run({"actions": [{"op": "printEqLogic", "eqLogic": {"configuration": {"media_enabled": "1"}}}]})
+
+    # Assert: defaulted to the address way
+    assert out["step1Media"]["transport"] == "url" and out["step1Media"]["radioChecked"] == "url"
+    # Assert: address field visible, FTPS card hidden
+    assert out["mediaUrlVisible"] and not out["step1Media"]["ftpsCardVisible"]
+
+
+def test_18_4_radio_drives_the_saved_transport() -> None:
+    """
+    Clicking the FTPS radio writes 'ftps' in the saved field and swaps the cards.
+
+    Expected result:
+    - hidden field value ftps, FTPS card shown, address hidden
+    """
+    out = _run({"fields": {"media_enabled": True},
+                "actions": [{"op": "trigger", "selector": ".siaDC09-transport-radio[value=ftps]", "checked": True}]})
+
+    # Assert: saved value follows the radio
+    assert out["step1Media"]["transport"] == "ftps"
+    # Assert: the swap happened
+    assert out["step1Media"]["ftpsCardVisible"] and not out["mediaUrlVisible"]
+
+
+def test_18_4_media_summary_lines() -> None:
+    """
+    Step 2 line 2 wording for each state (EXPERIENCE.md Summaries).
+
+    Expected result:
+    - the four texts, never the password
+    """
+    base = {"media_snapshot_enabled": "1", "media_clip_enabled": "1", "media_enabled": "1"}
+    out = _run({"actions": [
+        {"op": "mediaSummary", "cfg": {**base, "media_transport": "ftps", "ftps_host": "h", "ftps_port": "990",
+                                       "ftps_folder": "", "ftps_password": "SECRET"}},
+        {"op": "mediaSummary", "cfg": {**base, "media_transport": "ftps"}},
+        {"op": "mediaSummary", "cfg": {**base, "media_transport": "url"}},
+        {"op": "mediaSummary", "cfg": {**base, "media_enabled": "0"}},
+    ]})
+    s = out["summaries"]
+
+    # Assert: FTPS configured, with the root folder wording
+    assert s[0] == "photo + vidéo, sur le serveur FTPS h:990 (dossier racine)"
+    # Assert: FTPS to fill in
+    assert s[1] == "photo + vidéo, sur un serveur FTPS (à renseigner)"
+    # Assert: address and disabled
+    assert s[2] == "photo + vidéo, par une adresse dans le message d'alarme"
+    assert s[3] == "désactivée"
+    # Assert: nothing attached reads as disabled, not as an address
+    nothing = _run({"actions": [{"op": "mediaSummary", "cfg": {"media_enabled": "1", "media_snapshot_enabled": "0",
+                                                                "media_clip_enabled": "0", "media_transport": "url"}}]})
+    assert nothing["summaries"][0] == "désactivée"
+
+
+def test_18_4_formats_panel_only_for_ticked_address() -> None:
+    """
+    The formats/extension panel shows only with the box ticked and the address transport.
+
+    Expected result:
+    - hidden with the box unticked, with a profile without media, and under FTPS; shown for ticked + url
+    """
+    shown = _run({"fields": {"media_enabled": True, "media_transport": "url"},
+                  "actions": [{"op": "trigger", "selector": "#siaDC09-media-body input[type=hidden]"}]})
+    unticked = _run({"fields": {"media_enabled": False, "media_transport": "url"},
+                     "actions": [{"op": "trigger", "selector": "#siaDC09-media-body input[type=hidden]"}]})
+    no_media = _run({"profiles": _PROFILES, "fields": {"media_enabled": True},
+                     "actions": [{"op": "apply", "profile": "ajax", "fill": True}]})
+
+    # Assert: shown for ticked + address
+    assert shown["step1Media"]["formatsVisible"]
+    # Assert: hidden with the box unticked and with a profile without media
+    assert not unticked["step1Media"]["formatsVisible"]
+    assert not no_media["step1Media"]["formatsVisible"]
 
 
 # ── Story 17.10: photo / video verification card and locked media keys ────────

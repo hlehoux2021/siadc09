@@ -27,7 +27,6 @@ class siaDC09Cmd extends cmd {
     private const PREFETCH_CACHE_TTL = 120;
     /** Epic 18 (18.2): equipment keys of the FTPS media transport (own copies: the PHP test harnesses stub siaDC09). */
     private const MEDIA_TRANSPORT_KEY = 'media_transport';
-    private const FTPS_ENABLED_KEY = 'ftps_enabled';
 
     // ADR-17 Amendment 4 (Story 14-4): the placeholder rank written at prefetchEvent time,
     // before the daemon has reported anything back — mirrors
@@ -158,7 +157,6 @@ class siaDC09Cmd extends cmd {
                     $eqForLog = $this->getEqLogic();
                     log::add('siaDC09', 'debug', 'FTPS : media_transport='
                         . json_encode($eqForLog?->getConfiguration(self::MEDIA_TRANSPORT_KEY, 'url'))
-                        . ' ftps_enabled=' . json_encode((bool) $eqForLog?->getConfiguration(self::FTPS_ENABLED_KEY, 0))
                         . ' média=' . json_encode((bool) $mediaOn) . ' photo=' . json_encode((bool) $snapshotWanted));
                 }
                 // Ticket 18.5: the clip follows its own switch (master + clip).
@@ -232,14 +230,16 @@ class siaDC09Cmd extends cmd {
         }
     }
 
-    /** Epic 18 (18.2): true when the equipment chose the ftps media transport and enabled it. */
+    /** Epic 18 (18.2): true when the equipment chose the ftps media transport (18.4: ftps_enabled is derived from it). */
     private function _ftpsTransportActive(): bool {
         $eqLogic = $this->getEqLogic();
         if ($eqLogic === null) {
             return false;
         }
-        return $eqLogic->getConfiguration(self::MEDIA_TRANSPORT_KEY, 'url') === 'ftps'
-            && (bool) $eqLogic->getConfiguration(self::FTPS_ENABLED_KEY, 0);
+        return siaDC09::isFtpsTransport(
+            $eqLogic->getConfiguration(self::MEDIA_TRANSPORT_KEY, 'url'),
+            $eqLogic->getConfiguration(siaDC09::MEDIA_ENABLED_KEY, null)
+        );
     }
 
     /**

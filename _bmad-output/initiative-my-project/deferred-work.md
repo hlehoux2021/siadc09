@@ -265,3 +265,7 @@ level2/level3 tests + golden fixture + harness. This closes the 4-group review o
 - source_plan: `_bmad-output/initiative-my-project/epic-18-ftps-alarm-media-upload/story-18-2-tracer-per-equipment-ftps-keys-php-to-daemon-snapshot-u-plan.md`
   summary: The FTPS upload thread keeps running after the asyncio deadline, since `wait_for` cannot cancel a blocking thread.
   evidence: Each socket step is bounded by FTPS_TIMEOUT_S (10 s) so a stalled server holds a worker for tens of seconds at most; to be settled in 18.6 (upload robustness), e.g. one overall deadline enforced inside the blocking call.
+
+- source_plan: `_bmad-output/initiative-my-project/epic-18-ftps-alarm-media-upload/story-18-4-wizard-step-1-media-choice-and-transport-plan.md`
+  summary: Photo/Vidéo, the transport choice and the profile lock caption can only be edited inside the wizard; once it is finished (config mode) the user must run "Relancer l'assistant" to change them.
+  evidence: The whole media card sits inside `#siaDC09-wizard`, hidden when `sia_wizard_step >= 4`; the old step 2 switches had the same limit, so 18.4 does not worsen it. The user hit it while trying to enable the video (2026-11-09).

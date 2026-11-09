@@ -192,7 +192,7 @@ $scenarios = scenario::all();
 										</div>
 									</div>
 
-									<!-- Levée de doute photo / vidéo (story 17.10) : choix utilisateur, jamais verrouillé -->
+									<!-- Levée de doute photo / vidéo (stories 17.10, 18.4) : média et transport au choix de l'utilisateur ; photo/vidéo suivent le profil -->
 									<div class="siaDC09-zone" id="siaDC09-media-card">
 										<h4 class="siaDC09-zone-title">{{Levée de doute photo / vidéo}}</h4>
 										<label class="siaDC09-check-line">
@@ -200,32 +200,39 @@ $scenarios = scenario::all();
 										</label>
 										<p class="siaDC09-help" id="siaDC09-media-help">{{Le télésurveilleur peut ainsi voir ce qui a déclenché l'alarme.}}</p>
 										<p class="siaDC09-help" id="siaDC09-media-nomedia" style="display:none;">{{Cette centrale ne reçoit ni photo ni vidéo.}}</p>
-										<div class="siaDC09-field siaDC09-w-input" id="siaDC09-media-url-group" style="display:none;margin-top:14px;">
-											<label class="siaDC09-label">{{Adresse de votre serveur Frigate *}}</label>
-											<input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="frigate_media_url_template" placeholder="https://frigate.maison.fr">
-											<p class="siaDC09-help">{{Exemple : https://frigate.maison.fr}} — <a href="https://hlehoux2021.github.io/siadc09/fr_FR/#photos-et-vidéos-frigate-optionnel" target="_blank" rel="noopener">{{la documentation Frigate}}</a>.</p>
+										<div id="siaDC09-media-body" style="display:none;">
+											<div class="siaDC09-field siaDC09-w-full" id="siaDC09-media-what" style="margin-top:14px;">
+												<span class="siaDC09-label">{{Que joindre ?}}</span>
+												<label class="siaDC09-check-line"><input type="checkbox" class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l1key="configuration" data-l2key="media_snapshot_enabled">{{Photo}}</label>
+												<label class="siaDC09-check-line"><input type="checkbox" class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l1key="configuration" data-l2key="media_clip_enabled">{{Vidéo}}</label>
+												<p class="siaDC09-help" id="siaDC09-media-lock-note" style="display:none;"><i class="fas fa-lock"></i> <span></span></p>
+											</div>
+											<div class="siaDC09-field siaDC09-w-full" id="siaDC09-media-transport-group" style="margin-top:14px;">
+												<span class="siaDC09-label">{{Comment la centrale reçoit-elle la photo ou la vidéo ?}}</span>
+												<!-- media_transport is the saved field ('url' | 'ftps'); the radios drive it (Jeedom does not save radios as eqLogicAttr) -->
+												<input type="hidden" class="eqLogicAttr siaDC09-media-field" data-l1key="configuration" data-l2key="media_transport">
+												<div class="radio"><label><input type="radio" class="siaDC09-transport-radio" name="siaDC09-media-transport" value="url"> {{Une adresse (URL) dans le message d'alarme}}</label>
+													<p class="siaDC09-help">{{La centrale va chercher le média sur votre serveur Frigate.}}</p></div>
+												<div class="radio"><label><input type="radio" class="siaDC09-transport-radio" name="siaDC09-media-transport" value="ftps"> {{Une copie déposée sur un serveur FTPS}}</label>
+													<p class="siaDC09-help">{{Le plugin dépose le média sur votre serveur ; le message d'alarme ne contient pas d'adresse.}}</p></div>
+											</div>
+											<div class="siaDC09-field siaDC09-w-input" id="siaDC09-media-url-group" style="display:none;margin-top:14px;">
+												<h5 class="siaDC09-zone-title">{{Adresse pour la centrale}}</h5>
+												<label class="siaDC09-label">{{Adresse de votre serveur Frigate *}}</label>
+												<input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="frigate_media_url_template" placeholder="https://frigate.maison.fr">
+												<p class="siaDC09-help">{{Exemple : https://frigate.maison.fr}} — <a href="https://hlehoux2021.github.io/siadc09/fr_FR/#photos-et-vidéos-frigate-optionnel" target="_blank" rel="noopener">{{la documentation Frigate}}</a>.</p>
+											</div>
+											<!-- Hidden on purpose while the interim FTPS card below exists; 18.11 shows it and removes the card -->
+											<p class="siaDC09-help" id="siaDC09-media-ftps-note" style="display:none;margin-top:14px;">{{Les réglages du serveur FTPS se font à l'étape suivante, dans les options avancées.}}</p>
 										</div>
-										<p class="siaDC09-help siaDC09-hint" style="margin-top:12px;">{{Ce qui est envoyé (photo, vidéo, format) est fixé par le profil : voir les options avancées de l'étape Test.}}</p>
 									</div>
-
-									<!-- Envoi FTPS des photos (epic 18, ticket 18.2) : saisie manuelle, l'assistant viendra en 18.4 -->
-									<div class="siaDC09-zone" id="siaDC09-ftps-card">
-										<h4 class="siaDC09-zone-title">{{Envoi des photos par FTPS (avancé)}}</h4>
-										<div class="siaDC09-row">
-											<div class="siaDC09-field siaDC09-w-wide">
-												<label class="siaDC09-label">{{Transport des médias}}</label>
-												<select class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="media_transport">
-													<option value="url">{{Adresse (URL) dans la trame}}</option>
-													<option value="ftps">{{Envoi FTPS de la photo}}</option>
-												</select>
-											</div>
-											<div class="siaDC09-field siaDC09-w-wide">
-												<label class="siaDC09-check-line"><input type="checkbox" class="eqLogicAttr" data-l1key="configuration" data-l2key="ftps_enabled">{{Activer l'envoi FTPS}}</label>
-											</div>
-										</div>
+									
+									<!-- INTERIM (18.4) : saisie manuelle du serveur FTPS, affichée seulement sous FTPS ; déplacée à l'étape 2 par 18.11 -->
+									<div class="siaDC09-zone" id="siaDC09-ftps-card" style="display:none;">
+										<h4 class="siaDC09-zone-title">{{Serveur FTPS}}</h4>
 										<div class="siaDC09-row">
 											<div class="siaDC09-field siaDC09-w-input">
-												<label class="siaDC09-label">{{Serveur FTPS}}</label>
+												<label class="siaDC09-label">{{Serveur}}</label>
 												<input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="ftps_host" placeholder="ftp.exemple.fr">
 											</div>
 											<div class="siaDC09-field siaDC09-w-narrow">
@@ -291,16 +298,6 @@ $scenarios = scenario::all();
 										<!-- Contenu envoyé avec l'alarme (stories 17.7, 17.10, 17.11) -->
 										<div class="siaDC09-zone" id="siaDC09-zone-content">
 											<h4 class="siaDC09-zone-title">{{Contenu envoyé avec l'alarme (photo / vidéo)}}</h4>
-											<div class="siaDC09-row">
-												<div class="siaDC09-field">
-													<label class="siaDC09-label">{{Photo}}</label>
-													<label class="siaDC09-checkbox-box"><input type="checkbox" class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l1key="configuration" data-l2key="media_snapshot_enabled">{{Envoyée}}</label>
-												</div>
-												<div class="siaDC09-field">
-													<label class="siaDC09-label">{{Vidéo}}</label>
-													<label class="siaDC09-checkbox-box"><input type="checkbox" class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l1key="configuration" data-l2key="media_clip_enabled">{{Envoyée}}</label>
-												</div>
-											</div>
 											<div class="siaDC09-row">
 												<div class="siaDC09-field">
 													<label class="siaDC09-label">{{Format du lien de la photo}}</label>
@@ -516,6 +513,8 @@ $scenarios = scenario::all();
 								<div class="well well-sm" style="margin-top:10px;">
 									<strong>{{Connexion}}</strong>
 									<div id="siaDC09-summary-connection" style="margin:8px 0 12px 10px;"></div>
+									<strong>{{Levée de doute}}</strong>
+									<div id="siaDC09-summary-media" style="margin:8px 0 12px 10px;"></div>
 									<strong>{{Zones mappées}}</strong>
 									<div id="siaDC09-summary-zones" style="margin:8px 0 12px 10px;"></div>
 									<strong>{{Notification critique}}</strong>

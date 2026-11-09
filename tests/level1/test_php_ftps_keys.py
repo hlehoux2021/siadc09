@@ -20,7 +20,7 @@ _PHP_TIMEOUT_S = 10
 
 _FTPS_ARGS = ["--ftps-enabled", "--ftps-host", "--ftps-port", "--ftps-user",
               "--ftps-password", "--ftps-folder", "--ftps-cert-fingerprint"]
-_FTPS_KEYS = ["media_transport", "ftps_enabled", "ftps_host", "ftps_port", "ftps_user",
+_FTPS_KEYS = ["media_transport", "ftps_host", "ftps_port", "ftps_user",
               "ftps_password", "ftps_folder", "ftps_cert_fingerprint"]
 
 
@@ -135,3 +135,44 @@ def test_remote_folder_field_suggests_no_default() -> None:
     assert field
     # Assert: and has no placeholder
     assert "placeholder" not in field.group(0)
+
+
+def test_ftps_enabled_is_derived_from_the_transport_in_one_place() -> None:
+    """
+    Story 18.4: ftps_enabled is no longer a stored choice; the transport decides.
+
+    Expected result:
+    - no ftps_enabled form field and no ftps_enabled configuration read in PHP
+    - the daemon start and the Cmd payload both call siaDC09::isFtpsTransport()
+    """
+    # Assert: the page has no ftps_enabled field
+    assert 'data-l2key="ftps_enabled"' not in _PAGE
+    # Assert: PHP no longer reads the key
+    assert "ftps_enabled" not in _CLASS.replace("--ftps-enabled", "")
+    assert "FTPS_ENABLED_KEY" not in _CLASS + _CMD
+    # Assert: both consumers use the one helper
+    assert "isFtpsTransport(" in _CLASS.split("function deamon_start")[1]
+    assert "siaDC09::isFtpsTransport(" in _CMD
+
+
+@pytest.mark.skipif(shutil.which("php") is None, reason="php CLI not installed")
+@pytest.mark.parametrize("value,media,expected", [
+    ("ftps", None, True), ("ftps", 1, True), ("ftps", "1", True), ("ftps", "", True),
+    ("ftps", 0, False), ("ftps", "0", False),
+    ("url", 1, False), ("", 1, False), (None, 1, False),
+])
+def test_is_ftps_transport_values(value: object, media: object, expected: bool) -> None:
+    """
+    isFtpsTransport() is true for 'ftps' with media on (or absent) only; an old equipment (no key) is the address way.
+
+    Expected result:
+    - ftps with media on or absent -> true; ftps with media off, url, empty and absent -> false
+    """
+    body = re.search(r"function isFtpsTransport\(mixed \$transport, mixed \$mediaEnabled = null\): bool \{(.*?)\n    \}", _CLASS, re.S)
+    assert body, "isFtpsTransport not found"
+    php = ("function f(mixed $transport, mixed $mediaEnabled = null): bool {" + body.group(1)
+           + "} echo json_encode(f(" + json.dumps(value) + ", " + json.dumps(media) + "));")
+    result = subprocess.run(["php", "-r", php], capture_output=True, text=True,
+                            timeout=_PHP_TIMEOUT_S, check=True)
+    # Assert: derived value
+    assert json.loads(result.stdout) is expected

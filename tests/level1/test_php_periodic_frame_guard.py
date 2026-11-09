@@ -178,6 +178,9 @@ _DEAMON_INFO_CASES: list[tuple[dict, str]] = [
     ({"media_enabled": 0}, "ok"),
     ({"media_enabled": "0"}, "ok"),
     ({"media_enabled": ""}, "ok"),
+    # Story 18.4: the Frigate address is checked for the address way only, never under FTPS.
+    ({"media_enabled": 1, "media_transport": "ftps"}, "ok"),
+    ({"media_enabled": 1, "media_transport": "url"}, "nok"),
     ({"frigate_media_url_template": ""}, "ok"),                          # legacy: key absent, still launches
 ]
 
@@ -193,9 +196,10 @@ def _php_deamon_info_guard_results(cases: list[tuple[dict, str]]) -> list[str]:
     consts = _class_constants(source, [
         "SENDER_CRC_FORMATS", "SUPERVISION_FORMATS", "SUPERVISION_FORMAT_DEFAULT",
         "RP_INTERVAL_DEFAULT_S", "RP_INTERVAL_MIN_S", "RP_INTERVAL_MAX_S",
-        "MEDIA_ENABLED_KEY", "MEDIA_URL_TEMPLATE_KEY",
+        "MEDIA_ENABLED_KEY", "MEDIA_URL_TEMPLATE_KEY", "MEDIA_TRANSPORT_KEY",
     ])
     media_body = _extract_method_body(source, "mediaConfigError")
+    ftps_body = _extract_method_body(source, "isFtpsTransport")
     script = (
         _PHP_STUBS
         + " class StubEq { public function __construct(private array $c) {}"
@@ -206,6 +210,7 @@ def _php_deamon_info_guard_results(cases: list[tuple[dict, str]]) -> list[str]:
         " int $rpInterval): ?string {" + guard_body + "}"
         " public static function mediaConfigError(mixed $mediaEnabled, string $frigateAddress):"
         " ?string {" + media_body + "}"
+        " public static function isFtpsTransport(mixed $transport, mixed $mediaEnabled = null): bool {" + ftps_body + "}"
         " public static function run($eqLogic) { $return = ['launchable' => 'ok'];"
         + guards + " return $return; } }"
         " $cases = json_decode(stream_get_contents(STDIN), true);"

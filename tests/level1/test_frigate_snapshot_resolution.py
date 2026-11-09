@@ -651,6 +651,7 @@ class cmd {
 
 class siaDC09 {
     const MEDIA_FORMATS = ['U', 'V'];
+    public static function isFtpsTransport(mixed $t): bool { return $t === 'ftps'; }
     const MEDIA_ENABLED_KEY = 'media_enabled';
     const MEDIA_SNAPSHOT_ENABLED_KEY = 'media_snapshot_enabled';
     const MEDIA_CLIP_ENABLED_KEY = 'media_clip_enabled';

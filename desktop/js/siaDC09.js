@@ -29,7 +29,7 @@ function printEqLogic(_eqLogic) {
   if (!cfgSaved.rp_interval) $('.eqLogicAttr[data-l2key="rp_interval"]').val(60)
   siaDC09_applyProfile(savedProfile, false)
   // Story 17.7: absent media keys = pre-17.7 behaviour (snapshot + clip, V, V, one tag).
-  var mediaDefaults = { media_enabled: 1, media_snapshot_enabled: 1, media_clip_enabled: 1, media_snapshot_format: 'V', media_clip_format: 'V', media_single_tag: 1 }
+  var mediaDefaults = { media_enabled: 1, media_snapshot_enabled: 1, media_clip_enabled: 1, media_snapshot_format: 'V', media_clip_format: 'V', media_single_tag: 1, media_transport: 'url' }
   Object.keys(mediaDefaults).forEach(function(key) {
     if (cfgSaved[key] !== undefined && cfgSaved[key] !== '') return
     var $f = $('.eqLogicAttr[data-l2key="' + key + '"]')
@@ -187,6 +187,12 @@ $(document).on('mousedown keydown', 'select[aria-disabled="true"]', function(eve
 // ONE lock caption for the whole advanced panel (never per section, never per field).
 // Text: « Fixé par le profil « {nom} ». Choisissez « Personnalisé » pour le modifier. »
 // An empty label hides it (Personnalisé: no caption, no locked look).
+// Story 18.4: the same lock, said once on step 1 under « Que joindre ? » (Photo / Vidéo).
+function siaDC09_setMediaLockCaption(profileLabel) {
+  $('#siaDC09-media-lock-note').toggle(!!profileLabel)
+    .find('> span').text('{{Fixé par le profil}} « ' + profileLabel + ' ».')
+}
+
 function siaDC09_setLockCaption(profileLabel) {
   var text = '{{Fixé par le profil}} « ' + profileLabel + ' ». {{Choisissez « Personnalisé » pour le modifier.}}'
   $('#siaDC09-lock-caption').toggle(!!profileLabel).find('> span').text(text)
@@ -266,6 +272,7 @@ function siaDC09_applyProfile(profileId, fill) {
     siaDC09_lockProfileFields(false)
     siaDC09_setMediaCardAvailable(true)
     siaDC09_setLockCaption('')
+    siaDC09_setMediaLockCaption('')
     return
   }
   if (fill) {
@@ -289,6 +296,7 @@ function siaDC09_applyProfile(profileId, fill) {
   // A profile without media keys (Ajax) leaves the content fields editable; the single caption
   // still says why the supervision fields are locked.
   siaDC09_setLockCaption(preset.label || profileId)
+  siaDC09_setMediaLockCaption(declaresMedia ? (preset.label || profileId) : '')
 }
 
 // Choosing a profile (step 1) or Personnalisé (step 1 or the Test step) goes through here.
@@ -309,7 +317,9 @@ function siaDC09_mediaState() {
     snapshotOn: $('.eqLogicAttr[data-l2key="media_snapshot_enabled"]').is(':checked'),
     clipOn: $('.eqLogicAttr[data-l2key="media_clip_enabled"]').is(':checked'),
     snapshotFormat: $('.eqLogicAttr[data-l2key="media_snapshot_format"]').val() || 'V',
-    clipFormat: $('.eqLogicAttr[data-l2key="media_clip_format"]').val() || 'V'
+    clipFormat: $('.eqLogicAttr[data-l2key="media_clip_format"]').val() || 'V',
+    // Story 18.4: anything but 'ftps' (absent, '' or 'url') is the address way.
+    transport: $('.eqLogicAttr[data-l2key="media_transport"]').val() === 'ftps' ? 'ftps' : 'url'
   }
 }
 
@@ -332,7 +342,17 @@ function siaDC09_mediaExamples(format) {
 // key media_single_tag is only reset for mixed formats (a single tag holds one format only).
 function siaDC09_updateMediaFields() {
   var m = siaDC09_mediaState()
-  $('#siaDC09-media-url-group').toggle(m.enabled)
+  var ftps = m.transport === 'ftps'
+  // Story 18.4: everything below the box exists only while it is ticked; the Frigate address
+  // only under « adresse »; the interim hand-entry FTPS card (18.11 moves it) only under FTPS.
+  $('#siaDC09-media-body').toggle(m.enabled)
+  $('#siaDC09-media-url-group').toggle(m.enabled && !ftps)
+  // The note stays hidden while the interim FTPS card is on this page; 18.11 moves the settings
+  // to step 2, removes the card and turns the note on (toggle(m.enabled && ftps)).
+  $('#siaDC09-media-ftps-note').hide()
+  $('#siaDC09-ftps-card').toggle(m.enabled && ftps)
+  $('#siaDC09-zone-content').toggle(m.enabled && !ftps)
+  $('.siaDC09-transport-radio').each(function() { $(this).prop('checked', $(this).val() === m.transport) })
   var available = m.snapshotOn && m.clipOn && m.snapshotFormat === m.clipFormat
   var mixed = m.snapshotOn && m.clipOn && !available
   var $single = $('.eqLogicAttr[data-l2key="media_single_tag"]')
@@ -360,14 +380,31 @@ $(document).on('change', '.siaDC09-ext-radio', function() {
   $('.eqLogicAttr[data-l2key="media_single_tag"]').prop('checked', $(this).val() === '1').trigger('change')
 })
 
-// Returns the error message, or '' when the media settings are consistent.
-function siaDC09_mediaConfigError() {
+// The transport radios drive the saved hidden field (Jeedom saves a radio as 0/1, not as its value).
+$(document).on('change', '.siaDC09-transport-radio', function() {
+  $('.eqLogicAttr[data-l2key="media_transport"]').val($(this).val()).trigger('change')
+})
+
+// Story 18.4: the media errors as [{key, message}], [] when consistent. Photo or Vidéo is
+// required; the Frigate address only under the « adresse » transport (never under FTPS).
+function siaDC09_mediaConfigErrors() {
   var m = siaDC09_mediaState()
-  var url = ($('.eqLogicAttr[data-l2key="frigate_media_url_template"]').val() || '').trim()
-  if (m.enabled && !url) {
-    return "{{Adresse du serveur Frigate : obligatoire quand la levée de doute est activée.}}"
+  var errors = []
+  if (!m.enabled) return errors
+  if (!m.snapshotOn && !m.clipOn) {
+    errors.push({ key: 'media_snapshot_enabled', message: "{{Photo / vidéo : choisissez au moins l'une des deux.}}" })
   }
-  return ''
+  var url = ($('.eqLogicAttr[data-l2key="frigate_media_url_template"]').val() || '').trim()
+  if (m.transport !== 'ftps' && !url) {
+    errors.push({ key: 'frigate_media_url_template', message: "{{Adresse du serveur Frigate : obligatoire quand la levée de doute est activée.}}" })
+  }
+  return errors
+}
+
+// Returns the first error message, or '' when the media settings are consistent.
+function siaDC09_mediaConfigError() {
+  var errors = siaDC09_mediaConfigErrors()
+  return errors.length ? errors[0].message : ''
 }
 
 $(document).on('change', '.siaDC09-media-field', siaDC09_updateMediaFields)
@@ -431,10 +468,7 @@ function siaDC09_validateStep1() {
     errors.push({ key: 'encryption_key', message: "{{Clé AES requise quand le chiffrement est activé}}" })
   }
 
-  var mediaError = siaDC09_mediaConfigError()
-  if (mediaError) {
-    errors.push({ key: 'frigate_media_url_template', message: mediaError })
-  }
+  siaDC09_mediaConfigErrors().forEach(function(err) { errors.push(err) })
 
   siaDC09_renderStep1Errors(errors)
   return errors.length === 0
@@ -580,6 +614,49 @@ function siaDC09_populateStep2Summary() {
   $('<strong>').text('{{Compte :}}').appendTo($summary)
   $summary.append(' ')
   $('<span>').text(account).appendTo($summary)
+  $summary.append('<br>')
+  $('<strong>').text('{{Levée de doute :}}').appendTo($summary)
+  $summary.append(' ')
+  $('<span>').text(siaDC09_mediaSummaryLine(siaDC09_formMediaConfig())).appendTo($summary)
+}
+
+// Media settings as a plain config object, read from the form (step 2 summary).
+function siaDC09_formMediaConfig() {
+  var cfg = {}
+  ;['media_enabled', 'media_snapshot_enabled', 'media_clip_enabled'].forEach(function(key) {
+    cfg[key] = $('.eqLogicAttr[data-l2key="' + key + '"]').is(':checked') ? '1' : '0'
+  })
+  ;['media_transport', 'ftps_host', 'ftps_port', 'ftps_folder', 'frigate_media_url_template'].forEach(function(key) {
+    cfg[key] = $('.eqLogicAttr[data-l2key="' + key + '"]').val() || ''
+  })
+  return cfg
+}
+
+function siaDC09_isOn(value) {
+  return value === true || value === '1' || value === 1
+}
+
+// What is attached: « photo + vidéo », « photo » or « vidéo ».
+function siaDC09_mediaWhat(cfg) {
+  var parts = []
+  if (cfg.media_snapshot_enabled === undefined || siaDC09_isOn(cfg.media_snapshot_enabled)) parts.push('photo')
+  if (cfg.media_clip_enabled === undefined || siaDC09_isOn(cfg.media_clip_enabled)) parts.push('vidéo')
+  return parts.join(' + ')
+}
+
+// Step 2 line 2 (EXPERIENCE.md « Summaries »). Never the password.
+function siaDC09_mediaSummaryLine(cfg) {
+  if (cfg.media_enabled !== undefined && cfg.media_enabled !== '' && !siaDC09_isOn(cfg.media_enabled)) {
+    return 'désactivée'
+  }
+  var what = siaDC09_mediaWhat(cfg)
+  if (what === '') return 'désactivée'
+  if (cfg.media_transport === 'ftps') {
+    if (!cfg.ftps_host) return what + ', sur un serveur FTPS (à renseigner)'
+    return what + ', sur le serveur FTPS ' + cfg.ftps_host + ':' + (cfg.ftps_port || 21) +
+      ' (' + (cfg.ftps_folder || 'dossier racine') + ')'
+  }
+  return what + ', par une adresse dans le message d\'alarme'
 }
 
 // Story 17.12: identifies the current test run. Leaving step 2 (or relaunching the test) bumps it,
@@ -1041,13 +1118,31 @@ function siaDC09_populateConfigSummary(eqLogic) {
   ).append(
     $('<span>').text(encryptionOn ? 'activé' : 'désactivé')
   ).appendTo($conn)
-  $('<div>').append(
-    $('<strong>').text('URL media Frigate : ')
-  ).append(
-    cfg.frigate_media_url_template
-      ? $('<span>').text(cfg.frigate_media_url_template)
-      : $('<em class="text-muted">').text('non configurée')
-  ).appendTo($conn)
+
+  // Levée de doute block (story 18.4), between Connexion and Zones. Never the password.
+  var $media = $('#siaDC09-summary-media').empty()
+  var mediaOff = cfg.media_enabled !== undefined && cfg.media_enabled !== '' && !siaDC09_isOn(cfg.media_enabled)
+  if (mediaOff) {
+    $('<em class="text-muted">').text('désactivée').appendTo($media)
+  } else {
+    var ftps = cfg.media_transport === 'ftps'
+    var addLine = function(label, $value) {
+      $('<div>').append($('<strong>').text(label)).append($value).appendTo($media)
+    }
+    addLine('Joint à l\'alarme : ', $('<span>').text(siaDC09_mediaWhat(cfg)))
+    addLine('Réception : ', $('<span>').text(ftps ? 'copie déposée sur un serveur FTPS' : 'adresse (URL) dans le message d\'alarme'))
+    if (ftps) {
+      addLine('Serveur FTPS : ', $('<span>').text((cfg.ftps_host || '') + ':' + (cfg.ftps_port || 21)))
+      addLine('Utilisateur : ', $('<span>').text(cfg.ftps_user || ''))
+      addLine('Dossier : ', $('<span>').text(cfg.ftps_folder || 'dossier racine'))
+      var fp = (cfg.ftps_cert_fingerprint || '').trim()
+      addLine('Certificat : ', $('<span>').text(fp ? 'auto-signé (' + fp.substring(0, 11) + '...)' : 'reconnu'))
+    } else {
+      addLine('Serveur Frigate : ', cfg.frigate_media_url_template
+        ? $('<span>').text(cfg.frigate_media_url_template)
+        : $('<em class="text-muted">').text('non configurée'))
+    }
+  }
 
   // Zones summary (labels denormalized in sia_zone_mappings at save time)
   var $zones = $('#siaDC09-summary-zones').empty()

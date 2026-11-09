@@ -603,3 +603,27 @@ def test_plugin_css_is_included_and_has_the_mockup_rules() -> None:
     assert re.search(r"#siaDC09-wizard[^{]*:hover[^{]*\{[^}]*color:[^;]*!important", css), (
         "link hover must be overridden with an id selector plus !important"
     )
+
+
+def test_18_4_media_card_structure(php_page: str) -> None:
+    """
+    Story 18.4: the step 1 media card holds the media choice and the transport; step 2 lost Photo/Vidéo.
+
+    Expected result:
+    - the card has Photo, Vidéo (profile fields), the saved hidden media_transport and two radios
+    - the FTPS card is hidden by default and has no transport select nor ftps_enabled field
+    - the advanced panel has no snapshot/clip switch
+    """
+    card = php_page.index('id="siaDC09-media-card"')
+    advanced = php_page.index('id="siaDC09-advanced"')
+    # Assert: media switches sit in the card, before the advanced panel, as profile fields
+    for key in ("media_snapshot_enabled", "media_clip_enabled"):
+        assert php_page.count(f'data-l2key="{key}"') == 1
+        assert card < php_page.index(f'data-l2key="{key}"') < advanced
+    # Assert: transport is a hidden saved field driven by two radios
+    assert re.search(r'type="hidden"[^>]*data-l2key="media_transport"', php_page)
+    assert php_page.count('class="siaDC09-transport-radio"') == 2
+    # Assert: FTPS card hidden by default, no stored ftps_enabled
+    assert re.search(r'id="siaDC09-ftps-card"[^>]*display:none', php_page)
+    assert 'data-l2key="ftps_enabled"' not in php_page
+    assert not re.search(r'<select[^>]*data-l2key="media_transport"', php_page)
