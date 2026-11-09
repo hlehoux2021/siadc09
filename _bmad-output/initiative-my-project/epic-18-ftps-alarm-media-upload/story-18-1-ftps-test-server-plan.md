@@ -1,9 +1,9 @@
 ---
 title: 'FTPS test server on Synology'
 type: 'chore'
-ticket: '18.1'
+ticket: '1'
 created: '2026-11-09'
-status: 'built'
+status: done
 baseline_revision: 'bca9d302c08c51d252906d3c2a5cedf21b6cfb1f'
 route: 'oneshot'
 route_source: 'auto'

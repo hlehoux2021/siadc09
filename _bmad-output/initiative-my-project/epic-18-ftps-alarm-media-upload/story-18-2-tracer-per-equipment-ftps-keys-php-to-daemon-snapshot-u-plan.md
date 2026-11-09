@@ -1,9 +1,9 @@
 ---
 title: 'Tracer: per-equipment FTPS keys, PHP to daemon, snapshot upload on BA alarm'
 type: 'feature'
-ticket: '18.2'
+ticket: '2'
 created: '2026-11-09'
-status: 'built'
+status: done
 baseline_revision: '35119e6'
 route: 'full'
 route_source: 'auto'

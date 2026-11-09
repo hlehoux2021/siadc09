@@ -1,7 +1,7 @@
 ---
 title: '18.5 - Clip upload'
 type: 'feature'
-ticket: '18.5'
+ticket: '5'
 created: '2026-11-09'
 status: 'built'
 baseline_revision: '8cb69b00f6938a755f177b30b407186bb6e5e6e1'
