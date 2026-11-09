@@ -1,6 +1,6 @@
 ---
 name: siaDC09 wizard media block (FTPS)
-status: draft
+status: approved
 sources:
   - ../../epic-17-csr-behaviour-profiles/ux-17-wizard-step-1/EXPERIENCE.md
   - ../../../../internal-docs/design/wizard-design.md

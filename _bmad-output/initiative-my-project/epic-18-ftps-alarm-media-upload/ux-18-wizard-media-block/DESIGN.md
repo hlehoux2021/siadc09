@@ -1,7 +1,7 @@
 ---
 name: siaDC09 wizard media block (FTPS)
 description: Visual delta on the epic 17 wizard for the verification-media block when the way the media reaches the receiver is a choice (address in the frame, or FTPS upload). Same Jeedom Bootstrap theme, no new palette.
-status: draft
+status: approved
 sources:
   - ../../epic-17-csr-behaviour-profiles/ux-17-wizard-step-1/DESIGN.md
   - ../../../../internal-docs/design/wizard-design.md
