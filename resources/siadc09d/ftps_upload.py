@@ -16,10 +16,14 @@ from __future__ import annotations
 import ftplib
 import hashlib
 import io
+import logging
 import re
 import ssl
+import time
 from dataclasses import dataclass, field
 from typing import Final
+
+_logger = logging.getLogger(__name__)
 
 # Fixed per-socket timeout (connect and every transfer step). Hardening is ticket 18.6.
 FTPS_TIMEOUT_S: Final[float] = 10.0
@@ -110,8 +114,14 @@ def _check_fingerprint(ftp: ftplib.FTP_TLS, expected: str) -> None:
         FtpsUploadError: The certificate is missing or does not match.
     """
     der = ftp.sock.getpeercert(binary_form=True)  # type: ignore[union-attr]
-    if not der or hashlib.sha256(der).hexdigest() != expected:
-        raise FtpsUploadError("server certificate does not match the configured fingerprint")
+    seen = hashlib.sha256(der).hexdigest() if der else ""
+    _logger.debug(f"FTPS server certificate sha256={seen or 'none'} (expected {expected})")
+    if not seen or seen != expected:
+        # A certificate fingerprint is public: showing it lets the user fix the setting.
+        raise FtpsUploadError(
+            "server certificate does not match the configured fingerprint "
+            f"(server presents {seen or 'none'})"
+        )
 
 
 def upload_bytes(settings: FtpsSettings, name: str, data: bytes) -> None:
@@ -127,20 +137,41 @@ def upload_bytes(settings: FtpsSettings, name: str, data: bytes) -> None:
             the failing exception type and server reply, never the password.
     """
     ftp = ftplib.FTP_TLS(context=_build_context(settings), timeout=FTPS_TIMEOUT_S)
+    target = f"{settings.host}:{settings.port}"
+    step = "connect"
+    started = time.monotonic()
     try:
+        _logger.debug(
+            f"FTPS {step}: {target} user={settings.user!r} folder={settings.folder!r} "
+            f"verify={'fingerprint' if settings.cert_fingerprint else 'CA chain'} "
+            f"timeout={FTPS_TIMEOUT_S}s"
+        )
         ftp.connect(settings.host, settings.port)
+        step = "tls"
         ftp.auth()
+        tls_version = ftp.sock.version()  # type: ignore[union-attr]
+        _logger.debug(f"FTPS {step}: AUTH TLS done ({tls_version})")
         if settings.cert_fingerprint:
+            step = "fingerprint"
             _check_fingerprint(ftp, settings.cert_fingerprint)
+        step = "login"
         ftp.login(settings.user, settings.password)
+        _logger.debug(f"FTPS {step}: logged in as {settings.user!r}")
+        step = "data-protection"
         ftp.prot_p()
         if settings.folder:
+            step = "cwd"
             ftp.cwd(settings.folder)
-        ftp.storbinary(f"STOR {name}", io.BytesIO(data))
-    except FtpsUploadError:
-        raise
+        step = "upload"
+        reply = ftp.storbinary(f"STOR {name}", io.BytesIO(data))
+        _logger.debug(
+            f"FTPS {step}: STOR {name} {len(data)} bytes -> {reply!r} "
+            f"in {time.monotonic() - started:.2f}s"
+        )
+    except FtpsUploadError as err:
+        raise FtpsUploadError(f"step {step}: {err}") from None
     except _FTP_ERRORS as err:
-        reason = f"{type(err).__name__}: {err}"
+        reason = f"step {step}: {type(err).__name__}: {err}"
         if settings.password:
             reason = reason.replace(settings.password, "***")
         raise FtpsUploadError(reason) from None

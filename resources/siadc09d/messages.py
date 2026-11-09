@@ -101,6 +101,15 @@ ENCRYPTION_KEY_INVALID: Final[str] = (
     "Chiffrement activé mais la clé AES est absente ou invalide "
     "(attendu : 32, 48 ou 64 caractères hexadécimaux). Aucune trame n'est envoyée."
 )
+# Epic 18 (18.2): the SIA alarm went out but its verification photo did not reach the
+# FTPS server, so the monitoring station has no way to check it. Same direct path as
+# above (message_center + notify); the password never appears, the reason is the
+# step and server reply only.
+FTPS_UPLOAD_FAILED_TITLE: Final[str] = "SIA DC-09 : photo de levée de doute non transmise (FTPS)"
+FTPS_UPLOAD_FAILED: Final[str] = (
+    "Alarme transmise à la centrale, mais la photo de levée de doute n'a pas été envoyée "
+    "au serveur FTPS {host}:{port} (zone: {zone}) — {reason}"
+)
 SM2_FAILED_CONFIG: Final[str] = (
     "Alarme {type} non transmise — clé de chiffrement invalide (zone: {zone})"
 )

@@ -59,6 +59,8 @@ from .messages import (
     DAEMON_VERSION_INFO,
     ENCRYPTION_KEY_INVALID,
     ENCRYPTION_KEY_INVALID_TITLE,
+    FTPS_UPLOAD_FAILED,
+    FTPS_UPLOAD_FAILED_TITLE,
     SM1_DEGRADED_1_2_FR,
     SM1_DEGRADED_3_FR,
     SM1_DEGRADED_DUH_FR,
@@ -224,6 +226,7 @@ SUPERVISION_NAK_RESENDS: Final[int] = 2
 NAK_TIMESTAMP_SANITY: Final[timedelta] = timedelta(hours=24)
 # message_center logical_id of the invalid-key notification (story 1-5 AC3).
 ENCRYPTION_KEY_LOGICAL_ID: Final[str] = "encryption_key"
+FTPS_UPLOAD_LOGICAL_ID: Final[str] = "ftps_upload"
 
 
 def _reconnect_backoff_delay_s(base_delay_s: float, attempt_index: int) -> float:
@@ -587,22 +590,35 @@ class SIADaemon(BaseDaemon):
             self._logger.warning("FTPS upload enabled but host or user is empty — no upload will run")
         return settings
 
-    async def _run_ftps_upload(self, frigate_host: str, event_id: str) -> None:
+    async def _run_ftps_upload(
+        self, frigate_host: str, event_id: str, zone: str | None = None
+    ) -> None:
         """Fetch the event snapshot from Frigate and upload it by FTPS (best effort).
 
-        Runs as a tracked background task, so the SIA frame never waits for it. Every
-        failure is logged with host and reason (never the password) and swallowed.
+        Runs as a tracked background task, so the SIA frame never waits for it. A failure
+        means the verification photo is missing at the receiver: it is logged at ERROR and
+        reported to the user (message center + notification); the password never appears.
 
         Args:
             frigate_host: Frigate "host:port".
             event_id: Frigate event id (also part of the remote file name).
+            zone: Zone label of the alarm, for the user-facing message.
         """
+        target = f"{self._ftps.host}:{self._ftps.port}"
+        started = time.monotonic()
+        self._logger.debug(
+            f"FTPS upload task: event={event_id!r} zone={zone!r} frigate={frigate_host} -> {target}"
+        )
         snapshot = await fetch_event_snapshot(frigate_host, event_id)
         if snapshot is None:
-            self._logger.warning(
-                f"FTPS upload skipped: no snapshot from Frigate {frigate_host} for event {event_id!r}"
+            await self._report_ftps_failure(
+                zone, f"aucune photo reçue de Frigate {frigate_host} pour l'évènement {event_id}"
             )
             return
+        self._logger.debug(
+            f"FTPS upload task: snapshot {len(snapshot)} bytes from Frigate "
+            f"in {time.monotonic() - started:.2f}s"
+        )
         name = f"{safe_name_part(self._account)}-{safe_name_part(event_id)}-snapshot.jpg"
         try:
             await asyncio.wait_for(
@@ -610,13 +626,43 @@ class SIADaemon(BaseDaemon):
                 timeout=FTPS_UPLOAD_DEADLINE_S,
             )
         except FtpsUploadError as e:
-            self._logger.warning(f"FTPS upload to {self._ftps.host}:{self._ftps.port} failed: {e}")
+            await self._report_ftps_failure(zone, str(e))
         except (asyncio.TimeoutError, TimeoutError):
-            self._logger.warning(
-                f"FTPS upload to {self._ftps.host}:{self._ftps.port} failed: timeout"
+            await self._report_ftps_failure(
+                zone, f"délai dépassé ({FTPS_UPLOAD_DEADLINE_S:.0f} s)"
             )
         else:
-            self._logger.info(f"FTPS upload to {self._ftps.host}:{self._ftps.port} done: {name}")
+            self._logger.info(
+                f"FTPS upload to {target} done: {name} ({len(snapshot)} bytes, "
+                f"{time.monotonic() - started:.2f}s)"
+            )
+
+    async def _report_ftps_failure(self, zone: str | None, reason: str) -> None:
+        """Log an FTPS upload failure at ERROR and tell the user (message center + notify).
+
+        Same direct path as the encryption-key error: ErrorCode admits no new code without
+        design review. The reason is a step and a server reply, never the password.
+
+        Args:
+            zone: Zone label of the alarm (None when unknown).
+            reason: Why the photo did not reach the server.
+        """
+        message = FTPS_UPLOAD_FAILED.format(
+            host=self._ftps.host, port=self._ftps.port, zone=zone or "?", reason=reason
+        )
+        self._logger.error(f"FTPS upload failed: {message}")
+        self._ring_buffer.push_supervision_entry(
+            level="error", message=message, context={"account": self._account}, is_routine=False,
+        )
+        try:
+            await self._send_callback({
+                "type": "message_center", "message": message, "logical_id": FTPS_UPLOAD_LOGICAL_ID,
+            })
+            await self._send_callback({
+                "type": "notify", "title": FTPS_UPLOAD_FAILED_TITLE, "message": message,
+            })
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            self._logger.error(f"FTPS failure notification failed: {e!r}")
 
     def _notify(self, error_code: ErrorCode, context: NotificationContext) -> None:
         """Dispatch error notification as a non-blocking background task.
@@ -2932,7 +2978,7 @@ class SIADaemon(BaseDaemon):
             ftps_event_id = str(raw_ftps.get("event_id") or "")
             if ftps_host and ftps_event_id:
                 self._track_task(
-                    self._run_ftps_upload(ftps_host, ftps_event_id), name="ftps-upload"
+                    self._run_ftps_upload(ftps_host, ftps_event_id, zone), name="ftps-upload"
                 )
             else:
                 self._logger.warning("on_message: ftps_upload without frigate_host/event_id — no upload")

@@ -36,6 +36,7 @@ def daemon(caplog: pytest.LogCaptureFixture):
     with patch("sys.argv", ["test"]):
         d = SIADaemon(preset=make_daemon_preset())
     d._enqueue_event = AsyncMock()
+    d._send_callback = AsyncMock()
     d._ftps = _settings()
     return d
 
@@ -148,19 +149,28 @@ async def test_slow_upload_does_not_delay_the_frame(daemon) -> None:
 @pytest.mark.asyncio
 async def test_upload_failure_is_logged_without_password(daemon, caplog) -> None:
     """
-    Server down: failure logged with host and reason, never the password.
+    Server down: failure logged at ERROR and reported to the user, never the password.
 
     Expected result:
-    - warning names host:port and reason; secret absent; no ERROR (task did not crash)
+    - an ERROR record names host:port, zone and reason; message center and notification sent
+    - the password appears nowhere (log, callbacks)
     """
     with patch.object(daemon_module, "fetch_event_snapshot", AsyncMock(return_value=b"x")), \
-         patch.object(daemon_module, "upload_bytes", side_effect=FtpsUploadError("OSError: refused")):
-        await daemon.on_message("burglarAlarm", {"ftps_upload": _UPLOAD})
+         patch.object(daemon_module, "upload_bytes",
+                      side_effect=FtpsUploadError("step connect: ConnectionRefusedError: refused")):
+        await daemon.on_message("burglarAlarm", {"zone": "Zone2", "ftps_upload": _UPLOAD})
         await _drain(daemon)
-    # Assert: host and reason logged
-    assert "ftp.example:21" in caplog.text and "refused" in caplog.text
-    # Assert: password never logged
-    assert _SECRET not in caplog.text
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    # Assert: one ERROR with host, zone and reason
+    assert len(errors) == 1
+    assert "ftp.example:21" in errors[0].getMessage() and "Zone2" in errors[0].getMessage()
+    assert "step connect" in errors[0].getMessage()
+    # Assert: the user is told twice (message center + notification), frame untouched
+    sent = [call.args[0] for call in daemon._send_callback.await_args_list]
+    assert [p["type"] for p in sent] == ["message_center", "notify"]
+    assert "photo de levée de doute" in sent[1]["title"]
+    # Assert: password never in the log nor in what is sent to Jeedom
+    assert _SECRET not in caplog.text and _SECRET not in repr(sent)
     # Assert: handled, not an unhandled task exception
     assert "Unhandled exception" not in caplog.text
 
@@ -171,7 +181,7 @@ async def test_snapshot_fetch_failure_skips_upload(daemon, caplog) -> None:
     Frigate unreachable or no snapshot: no upload, frame unaffected.
 
     Expected result:
-    - upload_bytes not called, frame enqueued, reason logged
+    - upload_bytes not called, frame enqueued, reason logged at ERROR and reported
     """
     with patch.object(daemon_module, "fetch_event_snapshot", AsyncMock(return_value=None)), \
          patch.object(daemon_module, "upload_bytes") as upload:
@@ -181,8 +191,11 @@ async def test_snapshot_fetch_failure_skips_upload(daemon, caplog) -> None:
     upload.assert_not_called()
     # Assert: frame enqueued regardless
     daemon._enqueue_event.assert_awaited_once()
-    # Assert: failure logged
-    assert "no snapshot" in caplog.text
+    # Assert: failure logged at ERROR with the Frigate reason
+    assert any(r.levelno == logging.ERROR and "aucune photo reçue" in r.getMessage()
+               for r in caplog.records)
+    # Assert: the user is notified
+    assert daemon._send_callback.await_count == 2
 
 
 def test_enabled_but_incomplete_warns_once_without_password(caplog) -> None:

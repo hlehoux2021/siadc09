@@ -203,3 +203,47 @@ def test_snapshot_download_never_raises_on_a_broken_body(error: Exception) -> No
     with patch("resources.siadc09d.frigate_prefetch.urllib.request.urlopen", return_value=response):
         # Assert: no exception, no data
         assert frigate_prefetch._get_bytes("http://frigate:5000/x", 1.0) is None
+
+
+def test_debug_trace_follows_every_step_without_the_password(caplog: pytest.LogCaptureFixture) -> None:
+    """
+    A successful upload leaves a debug trail of each step.
+
+    Expected result:
+    - connect, certificate, login and upload lines are logged; the password is not
+    """
+    caplog.set_level("DEBUG", logger=ftps_upload.__name__)
+    ftp = _fake_ftp()
+    ftp.storbinary.return_value = "226 Transfer complete"
+    with patch.object(ftps_upload.ftplib, "FTP_TLS", return_value=ftp):
+        upload_bytes(_settings(cert_fingerprint=_CERT_SHA), "a.jpg", b"jpeg")
+    # Assert: each step is traced
+    for expected in ("FTPS connect", "FTPS server certificate", "FTPS login", "FTPS upload"):
+        assert expected in caplog.text
+    # Assert: the server reply is traced, the password never is
+    assert "226 Transfer complete" in caplog.text
+    assert _SECRET not in caplog.text
+
+
+def test_failure_names_the_step_and_the_presented_fingerprint() -> None:
+    """
+    A refused connection and a wrong pinned certificate both say where they failed.
+
+    Expected result:
+    - the error starts with the failing step; a mismatch shows the fingerprint the server presents
+    """
+    refused = _fake_ftp()
+    refused.connect.side_effect = ConnectionRefusedError(111, "Connection refused")
+    with patch.object(ftps_upload.ftplib, "FTP_TLS", return_value=refused), \
+         pytest.raises(FtpsUploadError) as excinfo:
+        upload_bytes(_settings(), "a.jpg", b"x")
+    # Assert: the step is named
+    assert str(excinfo.value).startswith("step connect:")
+
+    wrong = _fake_ftp()
+    with patch.object(ftps_upload.ftplib, "FTP_TLS", return_value=wrong), \
+         pytest.raises(FtpsUploadError) as excinfo:
+        upload_bytes(_settings(cert_fingerprint="0" * 64), "a.jpg", b"x")
+    # Assert: the mismatch names its step and shows the certificate the server presents
+    assert str(excinfo.value).startswith("step fingerprint:")
+    assert _CERT_SHA in str(excinfo.value)
