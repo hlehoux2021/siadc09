@@ -3,7 +3,7 @@ title: '18.11 - Wizard step 2: FTPS settings in the advanced options'
 type: 'feature'
 ticket: '11'
 created: '2026-11-09'
-status: built
+status: done
 baseline_revision: '815b84ddd878811669cf24f29ec30372bd240dbb'
 route: 'full'
 route_source: 'auto'

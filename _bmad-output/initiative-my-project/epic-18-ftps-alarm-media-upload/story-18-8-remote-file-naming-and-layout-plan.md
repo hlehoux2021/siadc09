@@ -3,7 +3,7 @@ title: '18.8 - Remote file naming and layout'
 type: 'feature'
 ticket: '8'
 created: '2026-11-10'
-status: 'built'
+status: done
 baseline_revision: 'a18f619d37ee6d81a9bba7c1507cffd86d669ef3'
 route: 'full'
 route_source: 'auto'

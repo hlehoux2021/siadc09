@@ -3,7 +3,7 @@ title: '18.4 - Wizard step 1: media choice and transport'
 type: 'feature'
 ticket: '4'
 created: '2026-11-09'
-status: 'built'
+status: done
 baseline_revision: 'f2a5b89d60108f7d547a310d071b7e0ff8e68775'
 route: 'full'
 route_source: 'auto'

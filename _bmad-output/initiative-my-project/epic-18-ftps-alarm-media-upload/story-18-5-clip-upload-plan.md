@@ -3,7 +3,7 @@ title: '18.5 - Clip upload'
 type: 'feature'
 ticket: '5'
 created: '2026-11-09'
-status: 'built'
+status: done
 baseline_revision: '8cb69b00f6938a755f177b30b407186bb6e5e6e1'
 route: 'full'
 route_source: 'auto'

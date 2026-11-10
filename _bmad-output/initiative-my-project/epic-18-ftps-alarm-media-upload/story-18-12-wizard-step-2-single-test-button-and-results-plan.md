@@ -3,7 +3,7 @@ title: '18.12 - Wizard step 2: single test button and results'
 type: 'feature'
 ticket: '12'
 created: '2026-11-10'
-status: built
+status: done
 baseline_revision: 'a18f619d37ee6d81a9bba7c1507cffd86d669ef3'
 route: 'full'
 route_source: 'auto'

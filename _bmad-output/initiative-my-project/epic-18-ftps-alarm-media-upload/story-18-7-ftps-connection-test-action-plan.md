@@ -3,7 +3,7 @@ title: '18.7 - FTPS connection test action'
 type: 'feature'
 ticket: '7'
 created: '2026-11-10'
-status: built
+status: done
 baseline_revision: '256f2f9cce6c8f6f8eefb2355007f0a6af9d6250'
 route: 'full'
 route_source: 'auto'

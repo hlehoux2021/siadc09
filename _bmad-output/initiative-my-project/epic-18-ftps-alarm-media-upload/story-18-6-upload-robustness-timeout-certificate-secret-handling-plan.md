@@ -3,7 +3,7 @@ title: '18.6 - Upload robustness: timeout, certificate, secret handling'
 type: 'feature'
 ticket: '6'
 created: '2026-11-09'
-status: 'built'
+status: done
 baseline_revision: 'd74c378375b458ed5b21defb24b337b1f6746467'
 route: 'full'
 route_source: 'auto'
