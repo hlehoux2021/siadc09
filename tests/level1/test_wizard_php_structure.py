@@ -666,22 +666,31 @@ def test_18_4_profile_group_holds_caption_not_frigate_card(php_page: str) -> Non
     assert 'data-l2key="media_enabled"' not in group
 
 
-def test_ajax_test_ftps_stub_answers_unavailable_without_reading_the_password() -> None:
+def test_ajax_test_ftps_runs_the_probe_with_the_password_by_environment() -> None:
     """
-    Story 18.12: the testFtps action is a stub until 18.7; it answers `unavailable` in the
-    {status, detail} contract and never reads the FTPS password.
+    Story 18.7: testFtps runs the read-only probe in a subprocess; the saved password goes by
+    SIA_FTPS_PASSWORD only and is never in the command, the config JSON or a log line.
 
     Expected result:
-    - the action block exists after admin check and ajax::init
-    - it returns status 'unavailable' and does not mention ftps_password
+    - the action block exists after the admin check and no longer answers 'unavailable'
+    - it launches `--test-ftps`, sets then clears SIA_FTPS_PASSWORD with putenv
+    - the password key is not among the keys put in the config JSON, and no log line uses it
     """
     source = (Path(__file__).parent.parent.parent / "core" / "ajax" / "siaDC09.ajax.php").read_text(encoding="utf-8")
-    block = re.search(r"init\('action'\) == 'testFtps'\) \{(.*?)\n    \}", source, re.DOTALL)
+    block = re.search(r"init\('action'\) == 'testFtps'\) \{(.*?)\n    \}\n\n    if \(init", source, re.DOTALL)
     # Assert: action present
     assert block, "testFtps action not found"
-    # Assert: stub answer
-    assert "'status' => 'unavailable'" in block.group(1)
-    # Assert: no password read
-    assert "ftps_password" not in block.group(1)
+    body = block.group(1)
+    # Assert: no stub answer left
+    assert "'unavailable'" not in body
+    # Assert: subprocess entry
+    assert "--test-ftps" in body
+    # Assert: password by environment, set then cleared
+    assert "putenv('SIA_FTPS_PASSWORD=' " in body and "putenv('SIA_FTPS_PASSWORD');" in body
+    # Assert: the config JSON carries only the non-secret keys
+    keys = re.search(r"foreach \(\[(.*?)\] as \$ftpsKey\)", body, re.DOTALL)
+    assert keys and "ftps_password" not in keys.group(1)
+    # Assert: no log line mentions the password
+    assert not [line for line in body.splitlines() if "log::add" in line and "assword" in line.replace("mot de passe", "")]
     # Assert: placed after the admin gate
     assert source.index("isConnect('admin')") < source.index("'testFtps'")

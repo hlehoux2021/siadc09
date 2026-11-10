@@ -3,7 +3,7 @@ title: '18.7 - FTPS connection test action'
 type: 'feature'
 ticket: '7'
 created: '2026-11-10'
-status: ready-for-dev
+status: built
 baseline_revision: '256f2f9cce6c8f6f8eefb2355007f0a6af9d6250'
 route: 'full'
 route_source: 'auto'
@@ -71,6 +71,13 @@ context:
 - Given a correct setup with the trusted fingerprint, when the test runs, then the FTPS zone reports success and Suivant shows.
 
 ## Implementation Notes
+
+- The worktree branch predated the plan and 18.12; it was fast-forwarded to master (113a29b) before starting.
+- `ftps_upload.probe_connection(settings, deadline)` (appended after `_upload_stream`, naming helpers untouched): connect, AUTH TLS, pinned fingerprint compare or CA verification, login. An `ssl.SSLCertVerificationError` in CA mode triggers `_read_presented_fingerprint()` (unverified second `FTP_TLS`, hello only) and answers `untrusted`; a pinned mismatch answers `changed`. Both never reach `login`. Step mapping by the step being run when the exception hits; timeouts and the deadline override to « délai dépassé ». `detail` is French user text built in Python; server messages are password-masked.
+- `siadc09d.py --test-ftps --config <json>`: `run_ftps_probe()`, password from `SIA_FTPS_PASSWORD`, one JSON line; invalid saved port/fingerprint gives an `error` answer. 15 s deadline (`PROBE_DEADLINE_S`).
+- `testFtps` (PHP): config JSON holds only host, port, user, fingerprint; password set with `putenv` around `exec` and cleared; only the contract keys are returned; verdict logged without any secret. Incomplete settings answer before any subprocess.
+- Tests: `tests/level1/test_ftps_probe.py` (one per matrix row plus CLI subprocess against a closed local port); the 18.12 stub PHP structure test was replaced.
+- Verification: new/affected tests pass. Full run: 107 failures, none from this change: 101 are the JS DOM harness (node module missing in this worktree), 1 is `test_plugin_css_is_included_and_has_the_mockup_rules` (hard-coded `#e9ecef` from 18.12 CSS, untouched here), 5 are the known level2. Pylint: no new warning in the new code. Field check on test-jeedom not run.
 
 ## Plan Change Log
 

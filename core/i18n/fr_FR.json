@@ -65,7 +65,7 @@
         "Script de test non trouvé — réinstallez le plugin": "Script de test non trouvé — réinstallez le plugin",
         "Trame trop longue (max 4096 caractères)": "Trame trop longue (max 4096 caractères)",
         "Équipement introuvable — activez le plugin.": "Équipement introuvable — activez le plugin.",
-        "Le test du serveur FTPS n'est pas encore disponible.": "Le test du serveur FTPS n'est pas encore disponible."
+        "Réglages FTPS incomplets : renseignez le serveur et l'utilisateur dans les options avancées.": "Réglages FTPS incomplets : renseignez le serveur et l'utilisateur dans les options avancées."
     },
     "plugins/siaDC09/core/php/jeesiaDC09.php": {
         "Vous n'êtes pas autorisé à effectuer cette action": "Vous n'êtes pas autorisé à effectuer cette action"

@@ -285,3 +285,150 @@ def _upload_stream(
         raise FtpsUploadError(reason) from None
     finally:
         ftp.close()
+
+
+# ===== Connection probe (ticket 18.7): read-only, nothing is written or listed =====
+
+PROBE_DEADLINE_S: Final[float] = 15.0  # overall deadline of one probe
+PROBE_STEP_CONNECT: Final[str] = "connexion"
+PROBE_STEP_TLS: Final[str] = "sécurité TLS"
+PROBE_STEP_LOGIN: Final[str] = "identifiants"
+PROBE_STEP_TIMEOUT: Final[str] = "délai dépassé"
+_ProbeResult = dict[str, str]
+
+
+def _probe_error(step: str, detail: str) -> _ProbeResult:
+    """Error answer naming the failed step."""
+    return {"status": "error", "step": step, "detail": detail}
+
+
+def _read_presented_fingerprint(settings: FtpsSettings, deadline: float) -> str:
+    """Handshake once more with no verification, only to read the certificate SHA-256.
+
+    Nothing but the TLS hello is sent: no login. Safe because the result is only displayed
+    for the user to compare.
+
+    Args:
+        settings: FTPS settings (only host and port are used).
+        deadline: Absolute `time.monotonic()` abort time.
+
+    Returns:
+        The presented certificate SHA-256 (64 lowercase hex), or "" if none was presented.
+
+    Raises:
+        FtpsUploadError: The deadline passed.
+        OSError: Connection or handshake failure.
+        ftplib.Error: The server refused AUTH TLS.
+    """
+    context = ssl.create_default_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    ftp = ftplib.FTP_TLS(context=context, timeout=FTPS_TIMEOUT_S)
+    try:
+        ftp.timeout = _remaining(deadline)
+        ftp.connect(settings.host, settings.port)
+        _arm(ftp, deadline)
+        ftp.auth()
+        der = ftp.sock.getpeercert(binary_form=True)  # type: ignore[union-attr]
+        return hashlib.sha256(der).hexdigest() if der else ""
+    finally:
+        ftp.close()
+
+
+def _mask(text: str, settings: FtpsSettings) -> str:
+    """Hide the password in a server or library message."""
+    return text.replace(settings.password, "***") if settings.password else text
+
+
+def _probe_failure(step: str, err: BaseException, settings: FtpsSettings) -> _ProbeResult:
+    """Map an exception raised during `step` to the wizard's error answer."""
+    target = f"{settings.host}:{settings.port}"
+    if isinstance(err, (TimeoutError, FtpsUploadError)):
+        return _probe_error(
+            PROBE_STEP_TIMEOUT,
+            f"{target} n'a pas répondu à temps. Vérifiez l'adresse, le port et le pare-feu.",
+        )
+    reason = _mask(f"{type(err).__name__}: {err}", settings)
+    if step == PROBE_STEP_LOGIN:
+        return _probe_error(
+            PROBE_STEP_LOGIN,
+            "Identifiant ou mot de passe refusé par le serveur. Corrigez-les dans les options "
+            f"avancées ci-dessous, puis relancez le test. ({reason})",
+        )
+    if step == PROBE_STEP_TLS:
+        return _probe_error(
+            PROBE_STEP_TLS,
+            f"Le serveur {target} n'accepte pas une connexion TLS sécurisée (TLS 1.2 minimum, "
+            f"AUTH TLS requis). ({reason})",
+        )
+    return _probe_error(
+        PROBE_STEP_CONNECT,
+        f"Impossible de joindre {target} (connexion refusée). Vérifiez : l'adresse et le "
+        f"port ; que le service FTPS est démarré ; le pare-feu. ({reason})",
+    )
+
+
+def _probe_certificate_refusal(
+    settings: FtpsSettings, status: str, deadline: float
+) -> _ProbeResult:
+    """Answer for a refused certificate: the fingerprint the server presents, no login."""
+    try:
+        seen = _read_presented_fingerprint(settings, deadline)
+    except (*_FTP_ERRORS, FtpsUploadError) as err:
+        return _probe_failure(PROBE_STEP_TLS, err, settings)
+    if not seen:
+        return _probe_error(PROBE_STEP_TLS, "Le serveur ne présente aucun certificat.")
+    return {
+        "status": status,
+        "detail": "Le mot de passe n'a pas été envoyé.",
+        "fingerprint": seen,
+    }
+
+
+def probe_connection(settings: FtpsSettings, deadline: float) -> _ProbeResult:
+    """Connect, negotiate TLS, check the certificate, log in (blocking). Writes nothing.
+
+    No STOR, no listing, no change of folder: the folder is checked at the first alarm.
+    A certificate problem stops before the password is sent.
+
+    Args:
+        settings: FTPS settings as saved (host and user required).
+        deadline: Absolute `time.monotonic()` abort time for the whole probe.
+
+    Returns:
+        `{status: ok|untrusted|changed|error, step?, detail?, fingerprint?}`. Never raises
+        for a network problem; no field ever contains the password.
+    """
+    if not settings.complete:
+        return _probe_error(
+            PROBE_STEP_CONNECT, "Réglages FTPS incomplets : serveur et utilisateur requis."
+        )
+    step = PROBE_STEP_CONNECT
+    ftp = ftplib.FTP_TLS(context=_build_context(settings), timeout=FTPS_TIMEOUT_S)
+    try:
+        ftp.timeout = _remaining(deadline)
+        ftp.connect(settings.host, settings.port)
+        step = PROBE_STEP_TLS
+        _arm(ftp, deadline)
+        ftp.auth()
+        if settings.cert_fingerprint:
+            der = ftp.sock.getpeercert(binary_form=True)  # type: ignore[union-attr]
+            seen = hashlib.sha256(der).hexdigest() if der else ""
+            if seen != settings.cert_fingerprint:
+                return {
+                    "status": "changed",
+                    "detail": "Le mot de passe n'a pas été envoyé.",
+                    "fingerprint": seen,
+                }
+        step = PROBE_STEP_LOGIN
+        _arm(ftp, deadline)
+        ftp.login(settings.user, settings.password)
+        return {"status": "ok", "detail": ""}
+    except ssl.SSLCertVerificationError:
+        # CA mode only: the pinned mode accepts any chain and compares fingerprints above.
+        return _probe_certificate_refusal(settings, "untrusted", deadline)
+    except (*_FTP_ERRORS, FtpsUploadError) as err:
+        return _probe_failure(step, err, settings)
+    finally:
+        ftp.close()

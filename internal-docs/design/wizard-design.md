@@ -258,16 +258,18 @@ and shows « Empreinte enregistrée. Relancez le test. »; it starts no test.
 ### `testFtps` contract
 
 `core/ajax/siaDC09.ajax.php` action `testFtps` (admin only). The browser sends no password: 18.7 reads the saved
-configuration server-side, which is why the form is saved before every test. Answer:
+configuration server-side, which is why the form is saved before every test. The action runs a read-only probe in a
+short-lived Python subprocess (`siadc09d.py --test-ftps`, password by `SIA_FTPS_PASSWORD` only, one 15 s deadline):
+connect, TLS, certificate check, then login; nothing is written, listed or changed. Answer:
 
 ```
-{status: ok|untrusted|changed|error|unavailable, step?, detail, fingerprint?}
+{status: ok|untrusted|changed|error, step?, detail, fingerprint?}
 ```
 
 `untrusted` / `changed` carry the presented `fingerprint` and mean the password was NOT sent; `error` names the
-failed `step` (connexion, sécurité TLS, identifiants, délai dépassé). Until story 18.7 lands the action is a stub
-answering `unavailable`; `unavailable` counts as not passed (only « Ignorer » shows, step 3 warns « Serveur FTPS
-non testé »).
+failed `step` (connexion, sécurité TLS, identifiants, délai dépassé). Without a pinned fingerprint the chain and host
+name are verified; when that fails, a second unverified handshake (TLS hello only, no login) reads the presented
+SHA-256. The JS still treats `unavailable` as not passed, but the action no longer returns it.
 
 ### testConnection flow (Option A — standalone subprocess)
 

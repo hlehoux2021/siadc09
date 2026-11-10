@@ -439,6 +439,64 @@ async def run_connection_test(config: dict, timeout: int) -> None:
     print(json.dumps(verdict), flush=True)
 
 
+# ===== --test-ftps ENTRY POINT (story 18.7) =====
+# Read-only FTPS probe: one JSON line on stdout, traceback on stderr. The password comes
+# from SIA_FTPS_PASSWORD only (never an argument, never printed).
+
+def run_ftps_probe(config: dict[str, object], password: str) -> dict[str, str]:
+    """Run the FTPS probe for the saved configuration (blocking).
+
+    Args:
+        config: Saved `ftps_*` configuration keys.
+        password: FTPS password (from the environment).
+
+    Returns:
+        The probe answer; a configuration error is an `error` answer, never an exception.
+    """
+    from siadc09d import ftps_upload  # pylint: disable=import-outside-toplevel
+    try:
+        settings = ftps_upload.FtpsSettings(
+            enabled=True,
+            host=str(config.get("ftps_host") or "").strip(),
+            port=int(str(config.get("ftps_port") or ftps_upload.FTPS_DEFAULT_PORT)),
+            user=str(config.get("ftps_user") or "").strip(),
+            password=password,
+            cert_fingerprint=ftps_upload.normalize_fingerprint(
+                str(config.get("ftps_cert_fingerprint") or "")
+            ),
+        )
+    except ValueError as err:
+        return {"status": _UI_ERROR, "step": ftps_upload.PROBE_STEP_CONNECT,
+                "detail": f"Réglages FTPS invalides : {err}"}
+    return ftps_upload.probe_connection(
+        settings, time.monotonic() + ftps_upload.PROBE_DEADLINE_S
+    )
+
+
+if "--test-ftps" in sys.argv:
+    import argparse
+
+    _fp = argparse.ArgumentParser()
+    _fp.add_argument("--test-ftps", action="store_true")
+    _fp.add_argument("--config", type=str, default="{}")
+    _fargs = _fp.parse_args()
+
+    try:
+        _fconfig = json.loads(_fargs.config)
+        _fresult = run_ftps_probe(_fconfig, os.environ.get("SIA_FTPS_PASSWORD", ""))
+    except Exception:  # pylint: disable=broad-except
+        # Process boundary: PHP parses stdout as JSON; the traceback goes to stderr.
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        print(json.dumps({
+            "status": _UI_ERROR,
+            "detail": "Erreur interne du test FTPS — voir le log siaDC09",
+        }), flush=True)
+        sys.exit(1)
+    print(json.dumps(_fresult), flush=True)
+    sys.exit(0)
+
+
 # ===== --test-only ENTRY POINT =====
 # Must come BEFORE the normal daemon start to short-circuit when called by PHP
 # for connection testing. Never initializes Jeedom socket or supervision loop.

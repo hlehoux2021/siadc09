@@ -51,14 +51,86 @@ try {
 
     ajax::init();
 
-    // Story 18.12 stub: the FTPS test arrives with 18.7. Contract of the answer:
-    // {status: ok|untrusted|changed|error|unavailable, step?, detail, fingerprint?}.
-    // The password is never read here: 18.7 reads the saved configuration server-side.
+    // Story 18.7: read-only FTPS probe (connect, TLS, certificate, login; nothing written).
+    // Answer: {status: ok|untrusted|changed|error, step?, detail, fingerprint?}. The browser sends
+    // no password: the saved configuration is read here and handed to a short-lived Python
+    // subprocess, the password by environment only.
     if (init('action') == 'testFtps') {
-        ajax::success([
-            'status' => 'unavailable',
-            'detail' => __("Le test du serveur FTPS n'est pas encore disponible.", __FILE__),
-        ]);
+        $eqLogics = eqLogic::byType('siaDC09');
+        if (!is_array($eqLogics) || count($eqLogics) === 0) {
+            ajax::success(['status' => 'error', 'step' => 'connexion', 'detail' => __("Équipement introuvable — activez le plugin.", __FILE__)]);
+            return;
+        }
+        $eqLogic = $eqLogics[0];
+
+        $ftpsConfig = [];
+        foreach (['ftps_host', 'ftps_port', 'ftps_user', 'ftps_cert_fingerprint'] as $ftpsKey) {
+            $ftpsConfig[$ftpsKey] = (string) $eqLogic->getConfiguration($ftpsKey, '');
+        }
+        if (trim($ftpsConfig['ftps_host']) === '' || trim($ftpsConfig['ftps_user']) === '') {
+            // Nothing is contacted.
+            ajax::success([
+                'status' => 'error',
+                'step' => 'connexion',
+                'detail' => __("Réglages FTPS incomplets : renseignez le serveur et l'utilisateur dans les options avancées.", __FILE__),
+            ]);
+            return;
+        }
+
+        if (method_exists('system', 'getCmdPython3')) {
+            $python3 = system::getCmdPython3('siaDC09');
+        } else {
+            $python3 = 'python3 ';
+        }
+        $script = realpath(__DIR__ . '/../../resources/siadc09d/siadc09d.py');
+        if (!$script) {
+            ajax::success(['status' => 'error', 'step' => 'connexion', 'detail' => __('Script de test non trouvé — réinstallez le plugin', __FILE__)]);
+            return;
+        }
+        $encoded = json_encode($ftpsConfig);
+        if ($encoded === false) {
+            ajax::success(['status' => 'error', 'step' => 'connexion', 'detail' => __('Erreur lors du codage de la configuration', __FILE__)]);
+            return;
+        }
+
+        $cmd = $python3 . escapeshellarg($script) . ' --test-ftps --config ' . escapeshellarg($encoded);
+        log::add('siaDC09', 'debug', 'Test FTPS — commande : ' . $cmd);
+
+        $stderrFile = tempnam(sys_get_temp_dir(), 'siaDC09_ftps_');
+        $redirect = $stderrFile ? ' 2>' . escapeshellarg($stderrFile) : ' 2>/dev/null';
+
+        // putenv(), not a "VAR=value " prefix: the password must not appear in a command line.
+        putenv('SIA_FTPS_PASSWORD=' . (string) $eqLogic->getConfiguration('ftps_password', ''));
+        set_time_limit(30);
+        try {
+            exec($cmd . $redirect, $output, $retCode);
+        } finally {
+            putenv('SIA_FTPS_PASSWORD');
+        }
+
+        $stderr = $stderrFile ? trim((string) @file_get_contents($stderrFile)) : '';
+        if ($stderrFile) {
+            @unlink($stderrFile);
+        }
+        if ($stderr !== '') {
+            log::add('siaDC09', 'debug', 'Test FTPS — détail technique : ' . $stderr);
+        }
+
+        $result = json_decode(implode('', $output), true);
+        if (!is_array($result) || !in_array($result['status'] ?? '', ['ok', 'untrusted', 'changed', 'error'], true)) {
+            log::add('siaDC09', 'error', 'Test FTPS — sortie illisible (code retour ' . $retCode . ')');
+            ajax::success([
+                'status' => 'error',
+                'step' => 'connexion',
+                'detail' => __('Impossible de lancer le test — vérifiez que Python 3 et les dépendances sont installés', __FILE__),
+            ]);
+            return;
+        }
+        // Only the contract keys go back; the verdict is logged without any secret.
+        $answer = array_intersect_key($result, array_flip(['status', 'step', 'detail', 'fingerprint']));
+        log::add('siaDC09', 'info', 'Test FTPS — résultat : ' . $answer['status']
+            . (isset($answer['step']) ? ' (étape ' . $answer['step'] . ')' : ''));
+        ajax::success($answer);
         return;
     }
 
