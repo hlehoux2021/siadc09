@@ -44,7 +44,6 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
     <div id="siaDC09-media-url-group" style="display:none"><input class="eqLogicAttr" data-l2key="frigate_media_url_template"></div>
     <p id="siaDC09-media-ftps-note" style="display:none"></p>
   </div>
-  <div id="siaDC09-ftps-card" style="display:none"><input class="eqLogicAttr" data-l2key="ftps_host"></div>
   <div id="siaDC09-zone-content"></div>
   <a id="bt_siaDC09_toggleAdvanced"><i id="siaDC09-advbar-icon" class="fas fa-chevron-right"></i><span id="siaDC09-advbar-title-text"></span><span id="siaDC09-advbar-hint"></span></a>
   <div id="siaDC09-aes-row" style="display:none"></div>
@@ -76,6 +75,16 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
     <input type="radio" name="siaDC09-ext-mode" class="siaDC09-ext-radio siaDC09-media-field siaDC09-profile-field" value="0">
     <code id="siaDC09-ext-example-multi"></code>
   </div>
+  <div id="siaDC09-ftps-card" style="display:none">
+    <div class="siaDC09-field"><input class="eqLogicAttr" data-l2key="ftps_host"></div>
+    <div class="siaDC09-field"><input type="number" class="eqLogicAttr" data-l2key="ftps_port"></div>
+    <div class="siaDC09-field"><input class="eqLogicAttr" data-l2key="ftps_user"></div>
+    <div class="siaDC09-field"><input type="password" class="eqLogicAttr" data-l2key="ftps_password"></div>
+    <div class="siaDC09-field"><input class="eqLogicAttr" data-l2key="ftps_folder"></div>
+    <input type="radio" name="siaDC09-ftps-cert" class="siaDC09-ftps-cert-radio" value="public">
+    <input type="radio" name="siaDC09-ftps-cert" class="siaDC09-ftps-cert-radio" value="selfsigned">
+    <div id="siaDC09-ftps-fingerprint-group" class="siaDC09-field" style="display:none"><input class="eqLogicAttr" data-l2key="ftps_cert_fingerprint"></div>
+  </div>
   <p id="siaDC09-lock-caption" style="display:none"><span></span><a id="bt_siaDC09_goCustom"></a></p>
   </div>
   <div id="siaDC09-step2-errors" style="display:none"></div>
@@ -98,12 +107,13 @@ window.eval(source.slice(start, end))
 
 // printEqLogic lives above the slice; load it with stubs for the wizard plumbing it calls.
 const peStart = source.indexOf('function printEqLogic')
-const peEnd = source.indexOf('function saveEqLogic')
+const peEnd = source.indexOf('// ===== WIZARD NAVIGATION =====')
 if (peStart === -1 || peEnd === -1 || peEnd < peStart) {
   throw new Error('printEqLogic not found in desktop/js/siaDC09.js')
 }
 window.siaDC09_initDiagnosticTab = () => {}
 window.siaDC09_showStep = () => {}
+window.siaDC09_currentStep = () => 0 // config mode: saveEqLogic keeps the zone mappings alone
 window.siaDC09_populateConfigSummary = () => {}
 window.eval(source.match(/var SIADC09_WIZARD_DONE = \d+/)[0])
 window.eval(source.slice(peStart, peEnd))
@@ -127,6 +137,9 @@ const validate = []
 const summaries = []
 const mediaErrors = []
 const mediaErrorLists = []
+const ftpsErrorLists = []
+const finishErrors = []
+const saved = []
 for (const action of scenario.actions || []) {
   if (action.op === 'apply') window.siaDC09_applyProfile(action.profile, action.fill)
   else if (action.op === 'validateAdvanced') validate.push(window.siaDC09_validateAdvanced())
@@ -150,9 +163,13 @@ for (const action of scenario.actions || []) {
   else if (action.op === 'mediaError') mediaErrors.push(window.siaDC09_mediaConfigError())
   else if (action.op === 'mediaErrors') mediaErrorLists.push(window.siaDC09_mediaConfigErrors())
   else if (action.op === 'mediaSummary') summaries.push(window.siaDC09_mediaSummaryLine(action.cfg))
+  else if (action.op === 'ftpsErrors') ftpsErrorLists.push(window.siaDC09_ftpsConfigErrors())
+  else if (action.op === 'finishError') finishErrors.push(window.siaDC09_finishConfigError())
+  else if (action.op === 'openIfIncomplete') window.siaDC09_openAdvancedIfFtpsIncomplete()
+  else if (action.op === 'save') saved.push(window.saveEqLogic({ configuration: Object.assign({}, action.configuration || {}) }))
 }
 
-const out = { fields: {}, validate, summaries, mediaErrors, mediaErrorLists }
+const out = { fields: {}, validate, summaries, mediaErrors, mediaErrorLists, ftpsErrorLists, finishErrors, saved }
 for (const key of ['supervision_format', 'supervision_interval', 'rp_interval']) out.fields[key] = field(key).val()
 out.fields.rp_enabled = field('rp_enabled').is(':checked')
 out.media = {}
@@ -177,7 +194,15 @@ out.step1Media = {
   groupGrey: $('#siaDC09-media-profile-group').hasClass('siaDC09-subzone-locked'),
   lockNote: shown('#siaDC09-media-lock-note') ? $('#siaDC09-media-lock-note > span').text() : null
 }
-out.mediaUrlVisible = $('#siaDC09-media-url-group').css('display') !== 'none'
+out.ftps = {
+  fingerprintVisible: shown('#siaDC09-ftps-fingerprint-group'),
+  certChecked: $('.siaDC09-ftps-cert-radio:checked').val() || null,
+  port: field('ftps_port').val(), fingerprint: field('ftps_cert_fingerprint').val(),
+  lockedOrReadonly: $('#siaDC09-ftps-card .siaDC09-locked, #siaDC09-ftps-card [readonly], #siaDC09-ftps-card .siaDC09-profile-field, #siaDC09-ftps-card .siaDC09-field-locked, #siaDC09-ftps-card [aria-disabled]').length,
+  invalid: $('#siaDC09-ftps-card .siaDC09-field-invalid').map(function() { return $(this).attr('data-l2key') }).get(),
+  values: { host: field('ftps_host').val(), user: field('ftps_user').val(), password: field('ftps_password').val(), folder: field('ftps_folder').val() }
+}
+out.mediaUrlVisible =$('#siaDC09-media-url-group').css('display') !== 'none'
 const $box = field('media_enabled')
 out.mediaBox = { greyed: $box.css('pointer-events') === 'none', ariaDisabled: $box.attr('aria-disabled') === 'true' }
 out.nomediaVisible = $('#siaDC09-media-nomedia').css('display') !== 'none'

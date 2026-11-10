@@ -36,6 +36,7 @@ function printEqLogic(_eqLogic) {
     if ($f.is(':checkbox')) $f.prop('checked', !!mediaDefaults[key])
     else $f.val(mediaDefaults[key])
   })
+  siaDC09_syncFtpsCertRadios()
   siaDC09_updateMediaFields()
   siaDC09_updateAesRow()
   siaDC09_setAdvancedOpen(false)
@@ -56,6 +57,10 @@ function printEqLogic(_eqLogic) {
 }
 
 function saveEqLogic(_eqLogic) {
+  // « Certificat reconnu » means no pinned fingerprint: empty it (story 18.11).
+  if ($('.siaDC09-ftps-cert-radio[value="public"]').is(':checked')) {
+    _eqLogic.configuration.ftps_cert_fingerprint = ''
+  }
   var step = siaDC09_currentStep()
   if (step === 3) {
     var mappings = []
@@ -122,6 +127,7 @@ function siaDC09_showStep(step) {
   }
   if (step === 2) {
     siaDC09_populateStep2Summary()
+    siaDC09_openAdvancedIfFtpsIncomplete()
     siaDC09_runConnectionTest()
   }
   if (step === 3) {
@@ -358,14 +364,12 @@ function siaDC09_updateMediaFields() {
   var m = siaDC09_mediaState()
   var ftps = m.transport === 'ftps'
   // Story 18.4: everything below the box exists only while it is ticked; the Frigate address
-  // only under « adresse »; the interim hand-entry FTPS card (18.11 moves it) only under FTPS.
+  // only under « adresse »; under FTPS the step 1 note points to the step 2 « Serveur FTPS » card.
   $('#siaDC09-media-body').toggle(m.enabled)
   $('#siaDC09-media-url-group').toggle(m.enabled && !ftps)
-  // The note stays hidden while the interim FTPS card is on this page; 18.11 moves the settings
-  // to step 2, removes the card and turns the note on (toggle(m.enabled && ftps)).
-  $('#siaDC09-media-ftps-note').hide()
-  $('#siaDC09-ftps-card').toggle(m.enabled && ftps)
+  $('#siaDC09-media-ftps-note').toggle(m.enabled && ftps)
   $('#siaDC09-zone-content').toggle(m.enabled && !ftps)
+  siaDC09_updateFtpsCard(m.enabled && ftps)
   $('.siaDC09-transport-radio').each(function() { $(this).prop('checked', $(this).val() === m.transport) })
   var available = m.snapshotOn && m.clipOn && m.snapshotFormat === m.clipFormat
   var mixed = m.snapshotOn && m.clipOn && !available
@@ -423,6 +427,92 @@ function siaDC09_mediaConfigErrors() {
 function siaDC09_mediaConfigError() {
   var errors = siaDC09_mediaConfigErrors()
   return errors.length ? errors[0].message : ''
+}
+
+// ===== FTPS SETTINGS CARD (story 18.11) =====
+
+// The « Serveur FTPS » card of the step 2 advanced panel exists only under FTPS with the media box
+// ticked. The certificate radios add no config key: an empty fingerprint is « certificat reconnu »,
+// a filled one « auto-signé ». The FTPS inputs are never profile fields, so never locked.
+var _siaDC09_ftpsRadioDriven = false
+
+function siaDC09_ftpsFieldValue(key) {
+  return $('.eqLogicAttr[data-l2key="' + key + '"]').val() || ''
+}
+
+function siaDC09_ftpsCertIsSelfSigned() {
+  return $('.siaDC09-ftps-cert-radio[value="selfsigned"]').is(':checked')
+}
+
+function siaDC09_updateFtpsCard(show) {
+  $('#siaDC09-ftps-card').toggle(show)
+  if (!show) return
+  if ($('.siaDC09-ftps-cert-radio:checked').length === 0) {
+    $('.siaDC09-ftps-cert-radio[value="public"]').prop('checked', true)
+  }
+  $('#siaDC09-ftps-fingerprint-group').toggle(siaDC09_ftpsCertIsSelfSigned())
+  var $port = $('.eqLogicAttr[data-l2key="ftps_port"]')
+  if (($port.val() || '').toString().trim() === '') $port.val(21)
+}
+
+// A saved fingerprint means « auto-signé » (loading an equipment, « Faire confiance » filling the field).
+function siaDC09_syncFtpsCertRadios() {
+  var selfSigned = siaDC09_ftpsFieldValue('ftps_cert_fingerprint').trim() !== ''
+  $('.siaDC09-ftps-cert-radio[value="selfsigned"]').prop('checked', selfSigned)
+  $('.siaDC09-ftps-cert-radio[value="public"]').prop('checked', !selfSigned)
+  $('#siaDC09-ftps-fingerprint-group').toggle(selfSigned)
+}
+
+$(document).on('change', '.eqLogicAttr[data-l2key="ftps_cert_fingerprint"]', function() {
+  if (!_siaDC09_ftpsRadioDriven) siaDC09_syncFtpsCertRadios()
+})
+
+// The radios only drive what is shown; « reconnu » empties the fingerprint at save (saveEqLogic).
+$(document).on('change', '.siaDC09-ftps-cert-radio', function() {
+  $('#siaDC09-ftps-fingerprint-group').toggle(siaDC09_ftpsCertIsSelfSigned())
+  // Radios are not eqLogicAttr: trigger the field so Jeedom sees the form as modified.
+  _siaDC09_ftpsRadioDriven = true
+  $('.eqLogicAttr[data-l2key="ftps_cert_fingerprint"]').trigger('change')
+  _siaDC09_ftpsRadioDriven = false
+})
+
+// FTPS settings errors as [{key, message}], [] when complete or when FTPS is not the chosen way.
+function siaDC09_ftpsConfigErrors() {
+  var m = siaDC09_mediaState()
+  var errors = []
+  if (!m.enabled || m.transport !== 'ftps') return errors
+  if (!siaDC09_ftpsFieldValue('ftps_host').trim()) {
+    errors.push({ key: 'ftps_host', message: '{{Serveur FTPS : obligatoire.}}' })
+  }
+  var port = siaDC09_ftpsFieldValue('ftps_port').toString().trim()
+  var portNumber = parseInt(port, 10)
+  if (!/^[0-9]+$/.test(port) || portNumber < 1 || portNumber > 65535) {
+    errors.push({ key: 'ftps_port', message: '{{Port : nombre entre 1 et 65535 requis}}' })
+  }
+  if (!siaDC09_ftpsFieldValue('ftps_user').trim()) {
+    errors.push({ key: 'ftps_user', message: '{{Utilisateur FTPS : obligatoire.}}' })
+  }
+  if (!siaDC09_ftpsFieldValue('ftps_password')) {
+    errors.push({ key: 'ftps_password', message: '{{Mot de passe FTPS : obligatoire.}}' })
+  }
+  // A fingerprint only counts under « auto-signé »; separators (: space -) are allowed.
+  var fingerprint = siaDC09_ftpsFieldValue('ftps_cert_fingerprint').replace(/[\s:-]/g, '')
+  if (siaDC09_ftpsCertIsSelfSigned() && fingerprint !== '' && !/^[0-9a-fA-F]{64}$/.test(fingerprint)) {
+    errors.push({ key: 'ftps_cert_fingerprint', message: '{{Empreinte SHA-256 : 64 caractères hexadécimaux requis}}' })
+  }
+  return errors
+}
+
+// « Terminer » safety net: the first media error, else the FTPS messages (all of them, one line).
+function siaDC09_finishConfigError() {
+  var mediaError = siaDC09_mediaConfigError()
+  if (mediaError) return mediaError
+  return siaDC09_ftpsConfigErrors().map(function(err) { return err.message }).join(' ')
+}
+
+// Step 2 arrival: the advanced panel opens by itself while the FTPS settings are incomplete.
+function siaDC09_openAdvancedIfFtpsIncomplete() {
+  if (siaDC09_ftpsConfigErrors().length > 0) siaDC09_setAdvancedOpen(true)
 }
 
 $(document).on('change', '.siaDC09-media-field', siaDC09_updateMediaFields)
@@ -495,7 +585,7 @@ function siaDC09_validateStep1() {
 // Advanced options (Test step, story 17.14), run before a test starts. A profile always gives
 // valid values; only Personnalisé can be wrong. PHP twin: siaDC09::periodicFrameConfigError().
 function siaDC09_validateAdvanced() {
-  var errors = []
+  var errors = siaDC09_ftpsConfigErrors()
   var supFormat = $('.eqLogicAttr[data-l2key="supervision_format"]').val() || 'sia-dcs'
   var rpOn = $('.eqLogicAttr[data-l2key="rp_enabled"]').is(':checked')
   var rpInterval = parseInt($('.eqLogicAttr[data-l2key="rp_interval"]').val(), 10)
@@ -507,7 +597,7 @@ function siaDC09_validateAdvanced() {
   if (badRpInterval) {
     errors.push({ key: 'rp_interval', message: '{{Intervalle RP : nombre entre 60 et 86400 secondes requis}}' })
   }
-  siaDC09_renderFieldErrors(errors, $('#siaDC09-step2-errors'))
+  siaDC09_renderFieldErrors(errors, $('#siaDC09-step2-errors'), '{{Impossible de lancer le test :}}')
   return errors.length === 0
 }
 
@@ -516,7 +606,8 @@ function siaDC09_renderStep1Errors(errors) {
 }
 
 // Banner listing every error + a message under each faulty field. An empty list clears both.
-function siaDC09_renderFieldErrors(errors, $banner) {
+// The banner title defaults to « Impossible de continuer : »; step 2 passes its own.
+function siaDC09_renderFieldErrors(errors, $banner, title) {
   $('.siaDC09-field-error').remove()
   $('.siaDC09-field-invalid').removeAttr('aria-describedby').removeAttr('aria-invalid')
     .removeClass('siaDC09-field-invalid').closest('.siaDC09-field').removeClass('has-error')
@@ -543,7 +634,7 @@ function siaDC09_renderFieldErrors(errors, $banner) {
     if (!$first) $first = $field
   })
   $banner.empty()
-    .append($('<strong>').text('{{Impossible de continuer :}}'))
+    .append($('<strong>').text(title || '{{Impossible de continuer :}}'))
     .append($list)
     .show()
   // Open the folded panel before focusing: a hidden field cannot take the focus.
@@ -1075,7 +1166,7 @@ $('#siaDC09_searchNotifyCmd').on('click', function() {
 $('#bt_step3Finish').on('click', function() {
   if ($(this).hasClass('disabled')) return
 
-  var mediaError = siaDC09_mediaConfigError()
+  var mediaError = siaDC09_finishConfigError()
   if (mediaError) {
     $('#siaDC09-step3-errors').text(mediaError).show()
     return

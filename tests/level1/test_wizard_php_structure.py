@@ -611,7 +611,8 @@ def test_18_4_media_card_structure(php_page: str) -> None:
 
     Expected result:
     - the card has Photo, Vidéo (profile fields), the saved hidden media_transport and two radios
-    - the FTPS card is hidden by default and has no transport select nor ftps_enabled field
+    - the FTPS card (story 18.11) is hidden by default, sits inside the step 2 advanced panel before the
+      supervision zone, and there is no transport select nor ftps_enabled field
     - the advanced panel has no snapshot/clip switch
     """
     card = php_page.index('id="siaDC09-media-card"')
@@ -623,8 +624,12 @@ def test_18_4_media_card_structure(php_page: str) -> None:
     # Assert: transport is a hidden saved field driven by two radios
     assert re.search(r'type="hidden"[^>]*data-l2key="media_transport"', php_page)
     assert php_page.count('siaDC09-transport-radio ') == 2
-    # Assert: FTPS card hidden by default, no stored ftps_enabled
+    # Assert: FTPS card hidden by default, in the advanced panel before supervision (not on step 1)
     assert re.search(r'id="siaDC09-ftps-card"[^>]*display:none', php_page)
+    assert advanced < php_page.index('id="siaDC09-ftps-card"') < php_page.index('id="siaDC09-zone-supervision"')
+    # Assert: the certificate radios exist and the interim comment is gone
+    assert php_page.count('siaDC09-ftps-cert-radio') == 2 and 'INTERIM' not in php_page
+    # Assert: no stored ftps_enabled
     assert 'data-l2key="ftps_enabled"' not in php_page
     assert not re.search(r'<select[^>]*data-l2key="media_transport"', php_page)
 

@@ -6,6 +6,7 @@ a jsdom+jQuery environment and asserts on the resulting DOM, not on keyword pres
 """
 
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -610,8 +611,8 @@ def test_18_4_ftps_needs_no_frigate_address() -> None:
     Matrix row 'FTPS chosen': no Frigate address asked or required.
 
     Expected result:
-    - address group hidden, interim FTPS card shown (the note stays hidden while the card exists), formats panel hidden
-    - no media error with an empty address; step 1 validates
+    - address group hidden, step 1 note shown, FTPS card (step 2 panel) shown, formats panel hidden
+    - no media error with an empty address; step 1 validates even with empty FTPS settings
     """
     fields = {"media_enabled": True, "media_snapshot_enabled": True, "media_transport": "ftps",
               **_VALID_CONNECTION}
@@ -620,7 +621,7 @@ def test_18_4_ftps_needs_no_frigate_address() -> None:
 
     # Assert: only the FTPS parts are shown
     assert not out["mediaUrlVisible"]
-    assert not out["step1Media"]["ftpsNoteVisible"] and out["step1Media"]["ftpsCardVisible"]
+    assert out["step1Media"]["ftpsNoteVisible"] and out["step1Media"]["ftpsCardVisible"]
     assert not out["step1Media"]["formatsVisible"]
     # Assert: the radio mirrors the stored value
     assert out["step1Media"]["radioChecked"] == "ftps"
@@ -787,6 +788,255 @@ def test_18_4_formats_panel_only_for_ticked_address() -> None:
     # Assert: hidden with the box unticked and with a profile without media
     assert not unticked["step1Media"]["formatsVisible"]
     assert not no_media["step1Media"]["formatsVisible"]
+
+
+# ── Story 18.11: FTPS settings in the step 2 advanced options (one test per matrix row) ──
+
+_FTPS_ON = {"media_enabled": True, "media_snapshot_enabled": True, "media_transport": "ftps"}
+_FTPS_REFRESH = {"op": "trigger", "selector": "#siaDC09-media-body input[type=hidden]"}
+_FTPS_COMPLETE = {"ftps_host": "ftp.example.fr", "ftps_port": "21", "ftps_user": "u", "ftps_password": "p"}
+_FINGERPRINT = "AB" * 32
+
+
+def _cert_pick(value: str) -> dict[str, Any]:
+    """Harness action choosing one certificate radio ('public' or 'selfsigned')."""
+    return {"op": "trigger", "selector": f".siaDC09-ftps-cert-radio[value={value}]", "checked": True}
+
+
+def test_18_11_fresh_ftps_opens_panel_with_port_21() -> None:
+    """
+    Matrix row 'FTPS, fresh': nothing typed, arrival on step 2.
+
+    Expected result:
+    - the card is shown, the port is pre-filled with 21, the fingerprint field is hidden
+    - the advanced panel opens by itself because the settings are incomplete
+    """
+    out = _run({"fields": _FTPS_ON, "actions": [_FTPS_REFRESH, {"op": "openIfIncomplete"}]})
+
+    # Assert: the card exists under FTPS
+    assert out["step1Media"]["ftpsCardVisible"]
+    # Assert: port pre-filled with 21
+    assert out["ftps"]["port"] == "21"
+    # Assert: "reconnu" by default, no fingerprint field
+    assert out["ftps"]["certChecked"] == "public" and not out["ftps"]["fingerprintVisible"]
+    # Assert: the panel opened by itself
+    assert out["advancedVisible"]
+
+
+def test_18_11_complete_settings_do_not_open_the_panel() -> None:
+    """
+    Complete FTPS settings leave the advanced panel folded on arrival.
+
+    Expected result:
+    - the panel stays folded
+    """
+    out = _run({"fields": {**_FTPS_ON, **_FTPS_COMPLETE}, "actions": [_FTPS_REFRESH, {"op": "openIfIncomplete"}]})
+
+    # Assert: folded, nothing to fix
+    assert not out["advancedVisible"]
+
+
+def test_18_11_address_transport_has_no_ftps_card() -> None:
+    """
+    Matrix row 'Transport adresse': no FTPS card, no FTPS rule, Frigate card as before.
+
+    Expected result:
+    - card hidden, note hidden, address group visible
+    - no FTPS error even with empty FTPS fields; the panel does not open
+    """
+    fields = {**_FTPS_ON, "media_transport": "url"}
+    out = _run({"fields": fields, "actions": [_FTPS_REFRESH, {"op": "ftpsErrors"}, {"op": "openIfIncomplete"},
+                                              {"op": "validateAdvanced"}]})
+
+    # Assert: no FTPS UI under the address way
+    assert not out["step1Media"]["ftpsCardVisible"] and not out["step1Media"]["ftpsNoteVisible"]
+    # Assert: Frigate card as before
+    assert out["mediaUrlVisible"]
+    # Assert: nothing validated about FTPS and the panel stays folded
+    assert out["ftpsErrorLists"][0] == [] and out["validate"] == [True] and not out["advancedVisible"]
+
+
+def test_18_11_incomplete_settings_refused_with_banner() -> None:
+    """
+    Matrix row 'Incomplete settings': server, user and password empty, test relaunched.
+
+    Expected result:
+    - validation fails; the banner is titled « Impossible de lancer le test : » and lists the 3 messages
+    - the three fields are marked invalid and the panel is open
+    """
+    out = _run({"fields": {**_FTPS_ON, "ftps_port": "21"}, "actions": [_FTPS_REFRESH, {"op": "validateAdvanced"}]})
+
+    # Assert: nothing runs
+    assert out["validate"] == [False]
+    # Assert: banner title of step 2
+    assert "<strong>{{Impossible de lancer le test :}}</strong>" in out["step2Errors"]
+    # Assert: the three sibling messages
+    for message in ("Serveur FTPS : obligatoire.", "Utilisateur FTPS : obligatoire.", "Mot de passe FTPS : obligatoire."):
+        assert f"{{{{{message}}}}}" in out["step2Errors"]
+    # Assert: red fields under the inputs
+    assert sorted(out["ftps"]["invalid"]) == ["ftps_host", "ftps_password", "ftps_user"]
+    # Assert: the panel opened for the errors
+    assert out["advancedVisible"]
+
+
+@pytest.mark.parametrize("port", ["0", "70000", "-5"])
+def test_18_11_bad_port_refused(port: str) -> None:
+    """
+    Matrix row 'Bad port': 0, 70000 or a negative number is refused.
+
+    Expected result:
+    - one error on ftps_port with the exact wording
+    """
+    out = _run({"fields": {**_FTPS_ON, **_FTPS_COMPLETE, "ftps_port": port}, "actions": [_FTPS_REFRESH, {"op": "ftpsErrors"}]})
+
+    # Assert: only the port is wrong, with its message
+    assert out["ftpsErrorLists"][0] == [{"key": "ftps_port", "message": "{{Port : nombre entre 1 et 65535 requis}}"}]
+
+
+@pytest.mark.parametrize("fingerprint, valid", [
+    (_FINGERPRINT, True),
+    (":".join(["AB"] * 32), True),
+    (" ".join(["ab"] * 32), True),
+    ("ABCD", False),
+    ("ZZ" * 32, False),
+])
+def test_18_11_fingerprint_needs_64_hex_with_separators_allowed(fingerprint: str, valid: bool) -> None:
+    """
+    Matrix row 'Bad fingerprint': SHA-256 as 64 hex characters, ':' and spaces allowed.
+
+    Expected result:
+    - a valid value gives no error; a short or non-hex value gives the exact message on the fingerprint field
+    """
+    fields = {**_FTPS_ON, **_FTPS_COMPLETE, "ftps_cert_fingerprint": fingerprint}
+    out = _run({"fields": fields, "actions": [{"op": "printEqLogic", "eqLogic": {"configuration": fields}}, {"op": "ftpsErrors"}]})
+    expected = [] if valid else [{"key": "ftps_cert_fingerprint",
+                                  "message": "{{Empreinte SHA-256 : 64 caractères hexadécimaux requis}}"}]
+
+    # Assert: a filled fingerprint selects "auto-signé" and shows its field
+    assert out["ftps"]["certChecked"] == "selfsigned" and out["ftps"]["fingerprintVisible"]
+    # Assert: validity as expected
+    assert out["ftpsErrorLists"][0] == expected
+
+
+def test_18_11_certificate_choice_shows_then_hides_and_empties_at_save() -> None:
+    """
+    Matrix row 'Certificate choice': 'Auto-signé' then 'Reconnu'.
+
+    Expected result:
+    - choosing auto-signé shows the fingerprint field; choosing reconnu hides it again
+    - the typed value is kept until save, where the saved fingerprint is emptied
+    - with auto-signé kept, the fingerprint is saved untouched
+    """
+    fields = {**_FTPS_ON, **_FTPS_COMPLETE}
+    pick = _cert_pick
+    shown = _run({"fields": fields, "actions": [_FTPS_REFRESH, pick("selfsigned")]})
+    hidden = _run({"fields": {**fields, "ftps_cert_fingerprint": _FINGERPRINT},
+                   "actions": [{"op": "printEqLogic", "eqLogic": {"configuration": {**fields, "ftps_cert_fingerprint": _FINGERPRINT}}},
+                               pick("public"), {"op": "save", "configuration": {"ftps_cert_fingerprint": _FINGERPRINT}}]})
+    kept = _run({"fields": {**fields, "ftps_cert_fingerprint": _FINGERPRINT},
+                 "actions": [{"op": "printEqLogic", "eqLogic": {"configuration": {**fields, "ftps_cert_fingerprint": _FINGERPRINT}}},
+                             {"op": "save", "configuration": {"ftps_cert_fingerprint": _FINGERPRINT}}]})
+
+    # Assert: auto-signé shows the field (a radio change alone does not jump back to reconnu)
+    assert shown["ftps"]["certChecked"] == "selfsigned" and shown["ftps"]["fingerprintVisible"]
+    # Assert: reconnu hides the field, and the typed value is not lost before save
+    assert hidden["ftps"]["certChecked"] == "public" and not hidden["ftps"]["fingerprintVisible"]
+    assert hidden["ftps"]["fingerprint"] == _FINGERPRINT
+    # Assert: the saved fingerprint is emptied under reconnu
+    assert hidden["saved"][0]["configuration"]["ftps_cert_fingerprint"] == ""
+    # Assert: kept under auto-signé
+    assert kept["saved"][0]["configuration"]["ftps_cert_fingerprint"] == _FINGERPRINT
+
+
+def test_18_11_profile_never_locks_ftps_fields() -> None:
+    """
+    Matrix row 'Profile locks media': Personnalisé with FTPS, then a locking profile applied.
+
+    Expected result:
+    - the FTPS inputs carry no profile class, no readonly, no aria-disabled, no lock look
+    """
+    profiles = {"p": {"label": "Vesta", "supervision_format": "none", "rp_enabled": 1, "rp_interval": 60}}
+    out = _run({"profiles": profiles, "fields": {**_FTPS_ON, **_FTPS_COMPLETE},
+                "actions": [_FTPS_REFRESH, {"op": "apply", "profile": "p", "fill": True}]})
+
+    # Assert: profile locked something elsewhere, but nothing inside the FTPS card
+    assert out["locked"] > 0
+    assert out["ftps"]["lockedOrReadonly"] == 0
+
+
+def test_18_11_php_ftps_inputs_carry_no_profile_class() -> None:
+    """
+    FTPS inputs are never profile fields (rendered page, not the harness).
+
+    Expected result:
+    - none of the FTPS inputs of the PHP page has the siaDC09-profile-field class
+    """
+    page = (_PROJECT_ROOT / "desktop" / "php" / "siaDC09.php").read_text(encoding="utf-8")
+    inputs = [tag for tag in re.findall(r"<input[^>]*>", page) if 'data-l2key="ftps_' in tag]
+
+    # Assert: the six FTPS settings exist
+    assert len(inputs) == 6
+    # Assert: none of them is a profile field
+    assert all("siaDC09-profile-field" not in tag for tag in inputs)
+
+
+def test_18_11_terminer_refuses_incomplete_ftps() -> None:
+    """
+    Matrix row 'Terminer': FTPS chosen, settings incomplete.
+
+    Expected result:
+    - the safety net returns the three messages; complete settings and the address way return nothing
+    """
+    incomplete = _run({"fields": {**_FTPS_ON, "ftps_port": "21"}, "actions": [_FTPS_REFRESH, {"op": "finishError"}]})
+    complete = _run({"fields": {**_FTPS_ON, **_FTPS_COMPLETE}, "actions": [_FTPS_REFRESH, {"op": "finishError"}]})
+    address = _run({"fields": {**_FTPS_ON, "media_transport": "url", "frigate_media_url_template": "https://h"},
+                    "actions": [_FTPS_REFRESH, {"op": "finishError"}]})
+
+    # Assert: same messages as step 2
+    assert incomplete["finishErrors"][0] == ("{{Serveur FTPS : obligatoire.}} {{Utilisateur FTPS : obligatoire.}} "
+                                             "{{Mot de passe FTPS : obligatoire.}}")
+    # Assert: nothing to report otherwise
+    assert complete["finishErrors"] == [""] and address["finishErrors"] == [""]
+
+
+def test_18_11_existing_ftps_equipment_values_appear_in_the_card() -> None:
+    """
+    Matrix row 'Existing FTPS equipment': values saved by hand in 18.2/18.4.
+
+    Expected result:
+    - after printEqLogic the card is shown with every saved value, auto-signé when a fingerprint was saved
+    - the saved port is not replaced by 21
+    """
+    cfg = {"media_enabled": "1", "media_snapshot_enabled": "1", "media_transport": "ftps", "ftps_host": "h.example",
+           "ftps_port": "990", "ftps_user": "bob", "ftps_password": "pw", "ftps_folder": "/alarm",
+           "ftps_cert_fingerprint": _FINGERPRINT}
+    out = _run({"actions": [{"op": "printEqLogic", "eqLogic": {"configuration": cfg}}]})
+
+    # Assert: card shown
+    assert out["step1Media"]["ftpsCardVisible"]
+    # Assert: nothing lost
+    assert out["ftps"]["values"] == {"host": "h.example", "user": "bob", "password": "pw", "folder": "/alarm"}
+    assert out["ftps"]["port"] == "990" and out["ftps"]["fingerprint"] == _FINGERPRINT
+    # Assert: the fingerprint implies auto-signé
+    assert out["ftps"]["certChecked"] == "selfsigned" and out["ftps"]["fingerprintVisible"]
+
+
+def test_18_11_summary_says_to_fill_in_while_incomplete() -> None:
+    """
+    Step 2 summary wording while the FTPS host is empty.
+
+    Expected result:
+    - '(à renseigner)' without a host; the host, port and folder once filled
+    """
+    out = _run({"actions": [
+        {"op": "mediaSummary", "cfg": {"media_enabled": "1", "media_transport": "ftps"}},
+        {"op": "mediaSummary", "cfg": {"media_enabled": "1", "media_transport": "ftps", "ftps_host": "h", "ftps_folder": "d"}},
+    ]})
+
+    # Assert: incomplete wording
+    assert out["summaries"][0].endswith("sur un serveur FTPS (à renseigner)")
+    # Assert: complete wording with the default port
+    assert out["summaries"][1].endswith("sur le serveur FTPS h:21 (d)")
 
 
 # ── Story 17.10: photo / video verification card and locked media keys ────────

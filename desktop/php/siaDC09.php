@@ -225,43 +225,8 @@ $scenarios = scenario::all();
 												<input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="frigate_media_url_template" placeholder="https://frigate.maison.fr">
 												<p class="siaDC09-help">{{Exemple : https://frigate.maison.fr}} — <a href="https://hlehoux2021.github.io/siadc09/fr_FR/#photos-et-vidéos-frigate-optionnel" target="_blank" rel="noopener">{{la documentation Frigate}}</a>.</p>
 											</div>
-											<!-- Hidden on purpose while the interim FTPS card below exists; 18.11 shows it and removes the card -->
+											<!-- Shown under FTPS (story 18.11): the settings are on step 2, in the advanced options -->
 											<p class="siaDC09-help" id="siaDC09-media-ftps-note" style="display:none;margin-top:14px;">{{Les réglages du serveur FTPS se font à l'étape suivante, dans les options avancées.}}</p>
-										</div>
-									</div>
-									
-									<!-- INTERIM (18.4) : saisie manuelle du serveur FTPS, affichée seulement sous FTPS ; déplacée à l'étape 2 par 18.11 -->
-									<div class="siaDC09-zone" id="siaDC09-ftps-card" style="display:none;">
-										<h4 class="siaDC09-zone-title">{{Serveur FTPS}}</h4>
-										<div class="siaDC09-row">
-											<div class="siaDC09-field siaDC09-w-input">
-												<label class="siaDC09-label">{{Serveur}}</label>
-												<input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="ftps_host" placeholder="ftp.exemple.fr">
-											</div>
-											<div class="siaDC09-field siaDC09-w-narrow">
-												<label class="siaDC09-label">{{Port}}</label>
-												<input type="number" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="ftps_port" placeholder="21">
-											</div>
-										</div>
-										<div class="siaDC09-row">
-											<div class="siaDC09-field siaDC09-w-input">
-												<label class="siaDC09-label">{{Utilisateur}}</label>
-												<input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="ftps_user" autocomplete="off">
-											</div>
-											<div class="siaDC09-field siaDC09-w-input">
-												<label class="siaDC09-label">{{Mot de passe}}</label>
-												<input type="password" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="ftps_password" autocomplete="new-password">
-											</div>
-										</div>
-										<div class="siaDC09-row">
-											<div class="siaDC09-field siaDC09-w-input">
-												<label class="siaDC09-label">{{Dossier distant}}</label>
-												<input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="ftps_folder">
-											</div>
-											<div class="siaDC09-field siaDC09-w-input">
-												<label class="siaDC09-label">{{Empreinte SHA-256 du certificat (optionnel)}}</label>
-												<input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="ftps_cert_fingerprint" placeholder="serveur à certificat auto-signé">
-											</div>
 										</div>
 									</div>
 
@@ -329,6 +294,48 @@ $scenarios = scenario::all();
 														<br><code id="siaDC09-ext-example-multi"></code></div>
 												</div>
 												<p class="siaDC09-help" id="siaDC09-media-single-tag-help" style="display:none;">{{Disponible seulement si photo et vidéo sont envoyées avec le même format.}}</p>
+											</div>
+										</div>
+
+										<!-- Serveur FTPS (story 18.11) : only under FTPS with the media box ticked; never a profile field, never locked -->
+										<div class="siaDC09-zone" id="siaDC09-ftps-card" style="display:none;">
+											<h4 class="siaDC09-zone-title">{{Serveur FTPS}}</h4>
+											<p class="siaDC09-summary">{{Réglages propres à votre installation : jamais fixés par le profil.}}</p>
+											<div class="siaDC09-row">
+												<div class="siaDC09-field siaDC09-w-input">
+													<label class="siaDC09-label" for="siaDC09-ftps-host">{{Serveur *}}</label>
+													<input type="text" id="siaDC09-ftps-host" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="ftps_host" placeholder="ftp.exemple.fr">
+												</div>
+												<div class="siaDC09-field siaDC09-w-narrow">
+													<label class="siaDC09-label" for="siaDC09-ftps-port">{{Port *}}</label>
+													<input type="number" id="siaDC09-ftps-port" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="ftps_port" placeholder="21">
+												</div>
+											</div>
+											<div class="siaDC09-row">
+												<div class="siaDC09-field siaDC09-w-input">
+													<label class="siaDC09-label" for="siaDC09-ftps-user">{{Utilisateur *}}</label>
+													<input type="text" id="siaDC09-ftps-user" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="ftps_user" autocomplete="off">
+												</div>
+												<div class="siaDC09-field siaDC09-w-input">
+													<label class="siaDC09-label" for="siaDC09-ftps-password">{{Mot de passe *}}</label>
+													<input type="password" id="siaDC09-ftps-password" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="ftps_password" autocomplete="new-password">
+												</div>
+											</div>
+											<div class="siaDC09-field siaDC09-w-input" style="margin-top:14px;">
+												<label class="siaDC09-label" for="siaDC09-ftps-folder">{{Dossier distant}}</label>
+												<input type="text" id="siaDC09-ftps-folder" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="ftps_folder">
+												<p class="siaDC09-help">{{Laissez vide pour déposer à la racine du compte. Le dossier doit exister.}}</p>
+											</div>
+											<div class="siaDC09-field siaDC09-w-full" style="margin-top:14px;">
+												<span class="siaDC09-label">{{Certificat du serveur}}</span>
+												<!-- The radios add no config key: an empty fingerprint is « reconnu », a filled one « auto-signé » -->
+												<div class="radio"><label><input type="radio" class="siaDC09-ftps-cert-radio" name="siaDC09-ftps-cert" value="public"> {{Certificat reconnu}}</label>
+													<p class="siaDC09-help">{{Serveur avec un certificat d'une autorité publique (Let's Encrypt...).}}</p></div>
+												<div class="radio"><label><input type="radio" class="siaDC09-ftps-cert-radio" name="siaDC09-ftps-cert" value="selfsigned"> {{Certificat auto-signé}}</label></div>
+												<div class="siaDC09-field siaDC09-w-input" id="siaDC09-ftps-fingerprint-group" style="display:none;">
+													<label class="siaDC09-label" for="siaDC09-ftps-fingerprint">{{Empreinte SHA-256 du certificat}}</label>
+													<input type="text" id="siaDC09-ftps-fingerprint" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="ftps_cert_fingerprint">
+												</div>
 											</div>
 										</div>
 

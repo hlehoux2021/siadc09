@@ -3,7 +3,7 @@ title: '18.11 - Wizard step 2: FTPS settings in the advanced options'
 type: 'feature'
 ticket: '11'
 created: '2026-11-09'
-status: 'draft'
+status: built
 baseline_revision: '815b84ddd878811669cf24f29ec30372bd240dbb'
 route: 'full'
 route_source: 'auto'
@@ -73,6 +73,14 @@ context:
 - Given an equipment with FTPS saved before this story, when step 2 opens, then its values are in the new card.
 
 ## Implementation Notes
+
+- Card moved to `#siaDC09-advanced` before the supervision zone; step 1 note now shown under FTPS; interim card deleted. Visibility is `siaDC09_updateFtpsCard()`, called from `siaDC09_updateMediaFields()`.
+- Certificate radios: no new key. Radios are synced from the fingerprint field on load and on a field change; a radio change only shows/hides the field (guard flag so the radio's own change trigger does not snap it back); `saveEqLogic()` empties the fingerprint when "reconnu" is selected.
+- Validation: `siaDC09_ftpsConfigErrors()` is joined into `siaDC09_validateAdvanced()` (banner "Impossible de lancer le test :", new title parameter on `siaDC09_renderFieldErrors`) and into the Terminer net via `siaDC09_finishConfigError()`. Fingerprint is only checked under "auto-signé" with a value (empty self-signed is the trust-on-first-use flow of 18.12). Port is checked as an integer 1..65535; an emptied port field is refused (it is pre-filled with 21 only when the card is shown).
+- The banner title change also applies to the existing periodic-frame errors of step 2 (EXPERIENCE.md gives one title for the step 2 banner).
+- Summary wording unchanged: "(à renseigner)" already shows while the host is empty; user/password are not part of the summary line (password must never appear).
+- Not done (outside scope): obfuscated password placeholder (EXPERIENCE contract, 18.7/18.12), test button and zones.
+- Tests: harness gets the card, `ftpsErrors`/`finishError`/`openIfIncomplete`/`save` ops; harness slice now extends to `// ===== WIZARD NAVIGATION =====` so `saveEqLogic` is loaded.
 
 ## Plan Change Log
 
