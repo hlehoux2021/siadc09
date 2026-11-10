@@ -45,16 +45,18 @@ $('.eqLogicAttr').each(function() {
 printEqLogic({ configuration: cfg })
 if (screen === 'A') { siaDC09_showStep(1); siaDC09_validateStep1() }
 if (screen === 'B' || screen === 'C') {
-  siaDC09_runConnectionTest = function() {}
   siaDC09_showStep(2)
-  var $r = $('#siaDC09-step2-result').show().empty()
+  var $r = $('#siaDC09-step2-sia-body').empty()
+  _siaDC09_hasTested = true
   if (screen === 'B') {
     $r.append('<div class="alert alert-success siaDC09-test-success"><i class="fas fa-check-circle"></i> <span>Connexion établie - ACK reçu</span></div>')
-    siaDC09_setButtonEnabled($('#bt_step2Next'), true)
+    _siaDC09_tests.sia = 'ok'
     siaDC09_setAdvancedOpen(true)
   } else {
     $r.append(siaDC09_renderStep2Failure({ outcome: 'duh', sent: { type: 'trame de supervision SIA-DCS', account: '4596', transport: 'TCP' } }))
+    _siaDC09_tests.sia = 'fail'
   }
+  siaDC09_refreshStep2Buttons()
 }
 if (screen === 'D') {
   siaDC09_showStep = function() {}

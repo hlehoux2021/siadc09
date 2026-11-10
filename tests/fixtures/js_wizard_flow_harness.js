@@ -49,14 +49,15 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
         ${group('<input class="eqLogicAttr" data-l2key="encryption_key">')}
         ${group('<input type="checkbox" class="eqLogicAttr siaDC09-media-field" id="siaDC09-media-enabled" data-l2key="media_enabled">')}
         ${group('<input type="checkbox" class="eqLogicAttr siaDC09-media-field" data-l2key="media_snapshot_enabled">')}
+        ${group('<input class="eqLogicAttr" data-l2key="media_transport">')}
         <div id="siaDC09-media-url-group" style="display:none;">${group('<input class="eqLogicAttr" data-l2key="frigate_media_url_template">')}</div>
         <div id="siaDC09-step1-errors" class="alert alert-danger" role="alert" style="display:none;"></div>
         <a class="btn btn-success" id="bt_step1Next">Suivant</a>
       </div>
       <div id="siaDC09-step2" class="siaDC09-step" style="display:none;">
         <div id="siaDC09-step2-summary"></div>
-        <div id="siaDC09-step2-spinner" style="display:none;"></div>
-        <div id="siaDC09-step2-result" style="display:none;"></div>
+        <div id="siaDC09-step2-sia"><div id="siaDC09-step2-sia-body"></div></div>
+        <div id="siaDC09-step2-ftps" style="display:none;"><div id="siaDC09-step2-ftps-body"></div></div>
         <a id="bt_siaDC09_toggleAdvanced" aria-expanded="false"><i id="siaDC09-advbar-icon"></i><span id="siaDC09-advbar-title-text"></span><span id="siaDC09-advbar-hint"></span></a>
         <div id="siaDC09-advanced" style="display:none;">
           <p id="siaDC09-lock-caption" style="display:none;"><span></span><a id="bt_siaDC09_goCustom">Personnalisé</a></p>
@@ -64,15 +65,23 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
           ${group('<input type="number" class="eqLogicAttr siaDC09-profile-field" data-l2key="supervision_interval">')}
           ${group('<input type="checkbox" class="eqLogicAttr siaDC09-profile-field" data-l2key="rp_enabled">')}
           ${group('<input type="number" class="eqLogicAttr siaDC09-profile-field" data-l2key="rp_interval">')}
+          ${group('<input class="eqLogicAttr" data-l2key="ftps_host">')}
+          ${group('<input class="eqLogicAttr" data-l2key="ftps_port">')}
+          ${group('<input class="eqLogicAttr" data-l2key="ftps_user">')}
+          ${group('<input type="password" class="eqLogicAttr" data-l2key="ftps_password">')}
+          ${group('<input class="eqLogicAttr" data-l2key="ftps_cert_fingerprint">')}
+          <input type="radio" class="siaDC09-ftps-cert-radio" name="siaDC09-ftps-cert" value="public">
+          <input type="radio" class="siaDC09-ftps-cert-radio" name="siaDC09-ftps-cert" value="selfsigned">
+          <div id="siaDC09-ftps-fingerprint-group" style="display:none;"></div>
         </div>
         <div id="siaDC09-step2-errors" style="display:none;"></div>
         <a class="btn btn-default" id="bt_step2Back">Modifier</a>
-        <a class="btn btn-default" id="bt_step2Retest">Relancer le test</a>
-        <a class="btn btn-warning" id="bt_step2Skip">Ignorer</a>
-        <a class="btn btn-success disabled" id="bt_step2Next" disabled aria-disabled="true" tabindex="-1">Suivant</a>
+        <a class="btn btn-success" id="bt_step2Retest"><span id="bt_step2Retest-label">Lancer le test</span></a>
+        <a class="btn btn-default" id="bt_step2Skip">Ignorer</a>
+        <a class="btn btn-success" id="bt_step2Next" style="display:none;">Suivant</a>
       </div>
       <div id="siaDC09-step3" class="siaDC09-step" style="display:none;">
-        <div id="siaDC09-step3-warning" style="display:none;"></div>
+        <div id="siaDC09-step3-warning" style="display:none;"><p id="siaDC09-step3-warning-sia" style="display:none;"><span></span></p><p id="siaDC09-step3-warning-ftps" style="display:none;"><span></span></p></div>
         <div id="siaDC09-step3-errors" style="display:none;"></div>
         <table><tbody id="siaDC09-zone-tbody"></tbody></table>
         <select id="siaDC09_notifyKind" class="eqLogicAttr" data-l2key="sia_notify_kind"><option value="cmd">cmd</option><option value="internal">internal</option></select>
@@ -134,6 +143,13 @@ window.jeedom = {
 $.ajax = function(opts) {
   const action = opts && opts.data && opts.data.action
   record('ajax:' + action)
+  if (action === 'testFtps') {
+    const ftps = scenario.ftps || 'unavailable'
+    if (ftps === 'pending') { heldTests.push(opts); return }
+    if (ftps === 'error') opts.error({}, 'error', 'boom')
+    else opts.success({ state: 'ok', result: Object.assign({ status: ftps === 'fail' ? 'error' : ftps, detail: ftps }, scenario.ftpsExtra || {}) })
+    return
+  }
   if (action !== 'testConnection') return
   const test = scenario.test || 'pending'
   // Story 17.12: "pending" keeps the callbacks so an "answer" action can deliver them late.
@@ -192,10 +208,16 @@ function snapshot() {
     helpBlocks: $('.siaDC09-field-error').length,
     focused: active && active.getAttribute ? active.getAttribute('data-l2key') : null,
     advancedVisible: $('#siaDC09-advanced').css('display') !== 'none',
-    step2ResultVisible: $('#siaDC09-step2-result').css('display') !== 'none',
-    step2ResultText: $('#siaDC09-step2-result').text(),
-    step2ChecksCount: $('#siaDC09-step2-result .siaDC09-step2-checks li').length,
-    spinnerVisible: $('#siaDC09-step2-spinner').css('display') !== 'none',
+    step2ResultText: $('#siaDC09-step2-sia-body').text(),
+    step2ChecksCount: $('#siaDC09-step2-sia-body .siaDC09-step2-checks li').length,
+    ftpsZoneVisible: $('#siaDC09-step2-ftps').css('display') !== 'none',
+    ftpsText: $('#siaDC09-step2-ftps-body').text(),
+    testLabel: $('#bt_step2Retest-label').text(),
+    nextVisible: $('#bt_step2Next').css('display') !== 'none',
+    skipVisible: $('#bt_step2Skip').css('display') !== 'none',
+    warnSia: $('#siaDC09-step3-warning-sia').css('display') !== 'none' ? $('#siaDC09-step3-warning-sia').text() : null,
+    warnFtps: $('#siaDC09-step3-warning-ftps').css('display') !== 'none' ? $('#siaDC09-step3-warning-ftps').text() : null,
+    fingerprintField: field('ftps_cert_fingerprint').val(),
     activeTab: $('#siaDC09-stepper li.active').attr('data-step') || null,
     step2ErrorsVisible: $('#siaDC09-step2-errors').css('display') !== 'none',
     captionVisible: $('#siaDC09-lock-caption').css('display') !== 'none',
@@ -210,6 +232,7 @@ for (const action of scenario.actions || []) {
   if (action.op === 'showStep') window.siaDC09_showStep(action.step)
   else if (action.op === 'click') $(action.selector).trigger('click')
   else if (action.op === 'fields') setFields(action.fields)
+  else if (action.op === 'edit') { setFields(action.fields); for (const key of Object.keys(action.fields)) field(key).trigger('change') }
   else if (action.op === 'snapshot') snapshots.push(snapshot())
   else if (action.op === 'answer') heldTests.forEach(function(o) { deliver(o, action.status || 'ok') })
   else if (action.op === 'mark') record('--' + action.label)

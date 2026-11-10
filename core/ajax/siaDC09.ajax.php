@@ -51,6 +51,17 @@ try {
 
     ajax::init();
 
+    // Story 18.12 stub: the FTPS test arrives with 18.7. Contract of the answer:
+    // {status: ok|untrusted|changed|error|unavailable, step?, detail, fingerprint?}.
+    // The password is never read here: 18.7 reads the saved configuration server-side.
+    if (init('action') == 'testFtps') {
+        ajax::success([
+            'status' => 'unavailable',
+            'detail' => __("Le test du serveur FTPS n'est pas encore disponible.", __FILE__),
+        ]);
+        return;
+    }
+
     if (init('action') == 'testConnection') {
         $eqLogics = eqLogic::byType('siaDC09');
         if (!is_array($eqLogics) || count($eqLogics) === 0) {

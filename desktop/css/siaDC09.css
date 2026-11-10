@@ -221,6 +221,18 @@
 }
 #siaDC09-wizard .siaDC09-test-failure p { margin: 8px 0 0 0; }
 #siaDC09-wizard .siaDC09-test-failure ul { margin: 4px 0 0 0; padding-left: 20px; }
+/* Story 18.12 (DESIGN.md « fingerprint-box »): monospace, grey fill, selectable, inside the danger alert. */
+#siaDC09-wizard .siaDC09-fingerprint-box {
+  display: block;
+  margin: 8px 0;
+  padding: 8px 12px;
+  background: #e9ecef;
+  color: #212529;
+  font-family: monospace;
+  word-break: break-all;
+  user-select: all;
+}
+#siaDC09-wizard .siaDC09-testzone-body .alert:last-child { margin-bottom: 0; }
 #siaDC09-wizard .siaDC09-test-success {
   background: color-mix(in srgb, var(--al-success-color) 28%, var(--siaDC09-panel));
   border: 1px solid var(--al-success-color);

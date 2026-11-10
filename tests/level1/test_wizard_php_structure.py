@@ -163,26 +163,30 @@ def test_step1_config_field_binding(php_page: str, field: str) -> None:
 # ── Step 2: Connection test UI elements ─────────────────────────────────────
 
 
-def test_step2_spinner_div_exists(php_page: str) -> None:
+@pytest.mark.parametrize("zone_id", ["siaDC09-step2-sia", "siaDC09-step2-sia-body", "siaDC09-step2-ftps", "siaDC09-step2-ftps-body"])
+def test_step2_has_one_result_zone_per_test(php_page: str, zone_id: str) -> None:
     """
-    Step 2 must have a spinner div shown during connection test.
+    Story 18.12: step 2 has a SIA zone and an FTPS zone, each with a body for its result.
 
     Expected result:
-    - id="siaDC09-step2-spinner" present
+    - each zone id is present, titled with the EXPERIENCE.md wording
     """
-    # Assert: spinner div present
-    assert 'id="siaDC09-step2-spinner"' in php_page
+    # Assert: zone present
+    assert f'id="{zone_id}"' in php_page
+    # Assert: both titles present
+    assert "{{Test de la centrale (SIA)}}" in php_page and "{{Test du serveur FTPS}}" in php_page
 
 
-def test_step2_result_div_exists(php_page: str) -> None:
+def test_step2_has_no_old_spinner_nor_single_result(php_page: str) -> None:
     """
-    Step 2 must have a result area for displaying test outcome.
+    The single spinner and the single result area are gone.
 
     Expected result:
-    - id="siaDC09-step2-result" present
+    - neither id is in the page
     """
-    # Assert: result area present
-    assert 'id="siaDC09-step2-result"' in php_page
+    # Assert: removed ids
+    assert 'id="siaDC09-step2-spinner"' not in php_page
+    assert 'id="siaDC09-step2-result"' not in php_page
 
 
 @pytest.mark.parametrize("btn_id", ["bt_step2Retest", "bt_step2Skip", "bt_step2Next"])
@@ -199,21 +203,25 @@ def test_step2_buttons_exist(php_page: str, btn_id: str) -> None:
     )
 
 
-def test_step2_next_starts_visibly_disabled(php_page: str) -> None:
+def test_step2_next_starts_hidden(php_page: str) -> None:
     """
-    Step 2 « Suivant » is rendered disabled until a test answers (story 17.9).
-    A bare `disabled` attribute on an <a class="btn"> neither greys nor blocks it.
+    Story 18.12: « Suivant » and « Ignorer » share one slot; Suivant is hidden until every
+    test passed, so the two are never visible together.
 
     Expected result:
-    - the bt_step2Next tag carries class `disabled` and aria-disabled="true"
+    - the bt_step2Next tag is display:none and bt_step2Skip is not
+    - the test button starts as « Lancer le test »
     """
     tag = re.search(r'<a [^>]*id="bt_step2Next"[^>]*>', php_page)
     # Assert: tag found
     assert tag, "bt_step2Next tag not found"
-    # Assert: Bootstrap disabled class present
-    assert re.search(r'class="[^"]*\bdisabled\b', tag.group(0))
-    # Assert: state exposed to assistive tech
-    assert 'aria-disabled="true"' in tag.group(0)
+    # Assert: hidden at start
+    assert "display:none" in tag.group(0)
+    skip = re.search(r'<a [^>]*id="bt_step2Skip"[^>]*>', php_page)
+    # Assert: Ignorer visible at start
+    assert skip and "display:none" not in skip.group(0)
+    # Assert: test button wording
+    assert "{{Lancer le test}}" in php_page
 
 
 def test_step1_error_banner_is_an_alert(php_page: str) -> None:
@@ -656,3 +664,24 @@ def test_18_4_profile_group_holds_caption_not_frigate_card(php_page: str) -> Non
     # Assert: the Frigate card and the master checkbox are outside the group
     assert 'id="siaDC09-media-url-group"' not in group and php_page.index('id="siaDC09-media-url-group"') > end
     assert 'data-l2key="media_enabled"' not in group
+
+
+def test_ajax_test_ftps_stub_answers_unavailable_without_reading_the_password() -> None:
+    """
+    Story 18.12: the testFtps action is a stub until 18.7; it answers `unavailable` in the
+    {status, detail} contract and never reads the FTPS password.
+
+    Expected result:
+    - the action block exists after admin check and ajax::init
+    - it returns status 'unavailable' and does not mention ftps_password
+    """
+    source = (Path(__file__).parent.parent.parent / "core" / "ajax" / "siaDC09.ajax.php").read_text(encoding="utf-8")
+    block = re.search(r"init\('action'\) == 'testFtps'\) \{(.*?)\n    \}", source, re.DOTALL)
+    # Assert: action present
+    assert block, "testFtps action not found"
+    # Assert: stub answer
+    assert "'status' => 'unavailable'" in block.group(1)
+    # Assert: no password read
+    assert "ftps_password" not in block.group(1)
+    # Assert: placed after the admin gate
+    assert source.index("isConnect('admin')") < source.index("'testFtps'")

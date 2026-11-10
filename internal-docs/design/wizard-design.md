@@ -186,24 +186,26 @@ Validation, then `sia_wizard_step = 2` and a save, then the wizard advances to s
 |  CSR : xxx.xxx.xxx.xxx:5000  (UDP)  Chiffrement : activé  |
 +-----------------------------------------------------------+
 |                                                           |
-|   [spinner]  Test en cours...                             |
-|                                                           |
+|  Test de la centrale (SIA)      Pas encore testé.         |
+|  Test du serveur FTPS (FTPS)    Pas encore testé.         |
 +-----------------------------------------------------------+
 |  [> Options avancées : contenu envoyé, supervision]       |
 +-----------------------------------------------------------+
-|  [← Modifier la centrale] [Relancer le test] [Ignorer] [Suivant →] |
+|  [← Modifier la centrale]  [Lancer le test]  [Ignorer | Suivant →] |
 +-----------------------------------------------------------+
 ```
 
-Order on the page: summary, result, Options avancées bar (and panel), buttons. Screen C of the mockup is
-the failed state; screen B the unfolded panel. « Suivant » is `btn-success`; when inert it is grey and dashed.
+Order on the page: summary, one result zone per test (`siaDC09-step2-sia`, and `siaDC09-step2-ftps` only under
+FTPS), Options avancées bar (and panel), buttons. Screen C of the mockup is the arrival state; screen B the
+unfolded panel. The zones live outside the advanced panel.
 
 The CSR summary is computed from the saved config (read-only display, not input fields).
 
-### Auto-trigger
+### No automatic test (story 18.12)
 
-The test fires **automatically** on arriving at step 2, without any user action. The spinner
-and "Test en cours..." message appear immediately.
+Arriving on step 2 runs **nothing**. Each zone reads « Pas encore testé. »; the FTPS zone reads « Réglages à
+compléter dans les options avancées ci-dessous. » while the FTPS settings are incomplete (the advanced panel
+then opens by itself). The user presses the single test button.
 
 ### `test_connection.py` exit contract
 
@@ -239,12 +241,33 @@ to switch to « Personnalisé » (a profile locks those settings).
 
 ### Button behavior
 
+One test button, one right-hand slot. The run token (`_siaDC09_testRun`) abandons a run on « Modifier la
+centrale » or on an edit of an advanced setting; late answers are ignored.
+
 | Button | Behavior |
 |---|---|
-| "← Modifier la centrale" | Returns to step 1 with every value kept, saves nothing, and resets step 1 buttons (`showStep(1)`). Live in every step 2 state, including while the test runs: the run is abandoned and its late answer is ignored (run token). Replaces "stepper non-clickable, no way back". |
-| "Relancer le test" | Validates the advanced options, saves the form, then re-triggers the auto-test flow. The only way to start a new test after the first (switching to Personnalisé never reruns it). |
-| "Ignorer" | Advances to step 3 WITHOUT testing; shows an inline warning: "Connexion non testée — le plugin ne pourra pas transmettre d'alarmes si la connexion échoue." |
-| "Suivant →" | Only available after exit 0 (`"success"` or `"failure"`/NAK). Blocked (greyed) if test is pending or timed out (exit 1 `"timeout"`). Advances to step 3. If the last result was `"failure"` (NAK), a confirmation dialog is shown before advancing. |
+| "← Modifier la centrale" | Returns to step 1 with every value kept, saves nothing. Live in every state, including while a test runs. |
+| "Lancer le test" / "Relancer le test" | Label « Lancer » before any test, « Relancer » after (and after an edit); « Test en cours... » and disabled while running. Validates the advanced options (nothing runs if invalid: errors under the fields and banner « Impossible de lancer le test : »), saves the form, then runs the SIA test (`testConnection`) and, under FTPS, the FTPS test (`testFtps`), one after the other; both run even if the first fails. |
+| Right-hand slot | « Suivant → » (green) only when every test passed (SIA ok or NAK; under FTPS also `testFtps` = `ok`); « Ignorer » in every other state, inert while running. Never both. After a NAK, Suivant keeps its confirmation dialog. |
+| "Ignorer" | Advances to step 3 and shows one warning line per test not passed: « Connexion non testée » / « Test échoué » (centrale), « Serveur FTPS non testé » / « Test du serveur FTPS échoué » (server), each followed by « : le plugin ne pourra peut-être pas transmettre d'alarmes ni déposer la photo ou la vidéo. » |
+
+Editing any setting of the advanced panel clears the results (zones back to « Pas encore testé. », slot back to
+« Ignorer »). « Faire confiance à cette empreinte » only fills `ftps_cert_fingerprint` (selecting « auto-signé »)
+and shows « Empreinte enregistrée. Relancez le test. »; it starts no test.
+
+### `testFtps` contract
+
+`core/ajax/siaDC09.ajax.php` action `testFtps` (admin only). The browser sends no password: 18.7 reads the saved
+configuration server-side, which is why the form is saved before every test. Answer:
+
+```
+{status: ok|untrusted|changed|error|unavailable, step?, detail, fingerprint?}
+```
+
+`untrusted` / `changed` carry the presented `fingerprint` and mean the password was NOT sent; `error` names the
+failed `step` (connexion, sécurité TLS, identifiants, délai dépassé). Until story 18.7 lands the action is a stub
+answering `unavailable`; `unavailable` counts as not passed (only « Ignorer » shows, step 3 warns « Serveur FTPS
+non testé »).
 
 ### testConnection flow (Option A — standalone subprocess)
 

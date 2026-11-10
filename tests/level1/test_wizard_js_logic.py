@@ -118,17 +118,19 @@ def test_show_step_hides_all_first(js_source: str) -> None:
     assert re.search(r"\$\(['\"]\.siaDC09-step['\"]\)\.hide\(\)", js_source)
 
 
-def test_show_step_triggers_connection_test_on_step2(js_source: str) -> None:
+def test_show_step_does_not_start_a_test_on_step2(js_source: str) -> None:
     """
-    Entering step 2 must auto-trigger the connection test.
-    siaDC09_showStep(2) calls siaDC09_runConnectionTest().
+    Story 18.12: entering step 2 runs nothing; the zones reset to "Pas encore testé.".
 
     Expected result:
-    - siaDC09_runConnectionTest() call inside step==2 branch
+    - the step 2 branch of siaDC09_showStep calls siaDC09_resetStep2Tests, not a test runner
     """
-    pattern = r'step\s*===?\s*2.*?siaDC09_runConnectionTest'
-    # Assert: step 2 triggers connection test
-    assert re.search(pattern, js_source, re.DOTALL)
+    branch = re.search(r"if \(step === 2\) \{(.*?)\n  \}", js_source, re.DOTALL)
+    # Assert: step 2 branch found
+    assert branch
+    # Assert: reset only, no test call
+    assert "siaDC09_resetStep2Tests(true)" in branch.group(1)
+    assert "siaDC09_runTests" not in branch.group(1) and "siaDC09_runSiaTest" not in branch.group(1)
 
 
 def test_show_step_loads_zone_data_on_step3(js_source: str) -> None:
@@ -199,27 +201,26 @@ def test_set_wizard_step_updates_hidden_field(js_source: str) -> None:
 # ── Step 2: Connection Test Flow ──────────────────────────────────────────────
 
 
-def test_connection_test_shows_spinner(js_source: str) -> None:
+def test_connection_test_shows_running_state_in_its_zone(js_source: str) -> None:
     """
-    siaDC09_runConnectionTest must show spinner and hide result area at start.
+    The SIA test shows a spinner in its own result zone while it runs.
 
     Expected result:
-    - siaDC09-step2-spinner show() call present
+    - the SIA zone body receives a fa-spin spinner
     """
-    # Assert: spinner shown during test
-    assert re.search(r"siaDC09-step2-spinner.*?\.show\(\)", js_source, re.DOTALL)
+    # Assert: spinner written into the SIA zone
+    assert re.search(r"siaDC09-step2-sia-body.*?fa-spin", js_source, re.DOTALL)
 
 
 def test_connection_test_disables_buttons_during_test(js_source: str) -> None:
     """
-    All step 2 buttons must be disabled during the AJAX call to prevent
-    double-submission.
+    The test button is disabled during the AJAX calls to prevent double-submission.
 
     Expected result:
-    - bt_step2Next disabled attribute set during test
+    - the refresh routine disables the test button while running
     """
-    # Assert: next button disabled during test
-    assert re.search(r"bt_step2Next.*?disabled", js_source, re.DOTALL)
+    # Assert: test button disabled while running
+    assert re.search(r"siaDC09_setButtonEnabled\(\$test, !running\)", js_source)
 
 
 def test_connection_test_handles_nak_status(js_source: str) -> None:

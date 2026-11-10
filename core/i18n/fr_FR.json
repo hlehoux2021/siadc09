@@ -64,7 +64,8 @@
         "Script de décodage non trouvé — réinstallez le plugin": "Script de décodage non trouvé — réinstallez le plugin",
         "Script de test non trouvé — réinstallez le plugin": "Script de test non trouvé — réinstallez le plugin",
         "Trame trop longue (max 4096 caractères)": "Trame trop longue (max 4096 caractères)",
-        "Équipement introuvable — activez le plugin.": "Équipement introuvable — activez le plugin."
+        "Équipement introuvable — activez le plugin.": "Équipement introuvable — activez le plugin.",
+        "Le test du serveur FTPS n'est pas encore disponible.": "Le test du serveur FTPS n'est pas encore disponible."
     },
     "plugins/siaDC09/core/php/jeesiaDC09.php": {
         "Vous n'êtes pas autorisé à effectuer cette action": "Vous n'êtes pas autorisé à effectuer cette action"
@@ -141,7 +142,6 @@
         "Le plugin dépose le média sur votre serveur ; le message d'alarme ne contient pas d'adresse.": "Le plugin dépose le média sur votre serveur ; le message d'alarme ne contient pas d'adresse.",
         "Le profil règle pour vous les options de votre centrale. « Personnalisé » = mode expert : vous réglez tout.": "Le profil règle pour vous les options de votre centrale. « Personnalisé » = mode expert : vous réglez tout.",
         "Le scénario est lancé avec « siaDC09 » comme déclencheur ; le texte de l'alerte est inscrit dans son historique.": "Le scénario est lancé avec « siaDC09 » comme déclencheur ; le texte de l'alerte est inscrit dans son historique.",
-        "Le test de connexion a été ignoré. La connexion à la centrale n'a pas été vérifiée.": "Le test de connexion a été ignoré. La connexion à la centrale n'a pas été vérifiée.",
         "Le télésurveilleur peut ainsi voir ce qui a déclenché l'alarme.": "Le télésurveilleur peut ainsi voir ce qui a déclenché l'alarme.",
         "Les réglages du serveur FTPS se font à l'étape suivante, dans les options avancées.": "Les réglages du serveur FTPS se font à l'étape suivante, dans les options avancées.",
         "Levée de doute": "Levée de doute",
@@ -174,7 +174,6 @@
         "Que joindre ?": "Que joindre ?",
         "Rechercher": "Rechercher",
         "Relancer l'assistant": "Relancer l'assistant",
-        "Relancer le test": "Relancer le test",
         "Sauvegarder": "Sauvegarder",
         "Scénario à lancer": "Scénario à lancer",
         "Serveur FTPS": "Serveur FTPS",
@@ -186,7 +185,6 @@
         "Terminer": "Terminer",
         "Test": "Test",
         "Test cyclique (RP)": "Test cyclique (RP)",
-        "Test en cours...": "Test en cours...",
         "Toutes les (secondes)": "Toutes les (secondes)",
         "Transport": "Transport",
         "Trois commandes à câbler dans le plugin Alarme —": "Trois commandes à câbler dans le plugin Alarme —",
@@ -212,7 +210,11 @@
         "une extension par lien": "une extension par lien",
         "une seule extension pour les deux liens": "une seule extension pour les deux liens",
         "voir la documentation de câblage": "voir la documentation de câblage",
-        "Étapes de l'assistant": "Étapes de l'assistant"
+        "Étapes de l'assistant": "Étapes de l'assistant",
+        "Ce test vérifie : la connexion, le certificat, l'identifiant (aucun fichier n'est écrit).": "Ce test vérifie : la connexion, le certificat, l'identifiant (aucun fichier n'est écrit).",
+        "Lancer le test": "Lancer le test",
+        "Test de la centrale (SIA)": "Test de la centrale (SIA)",
+        "Test du serveur FTPS": "Test du serveur FTPS"
     },
     "plugins/siaDC09/desktop/js/siaDC09.js": {
         "Adresse IP de la centrale requise": "Adresse IP de la centrale requise",
@@ -267,6 +269,28 @@
         "que le profil choisi correspond bien à votre centre de télésurveillance ;": "que le profil choisi correspond bien à votre centre de télésurveillance ;",
         "retry": "retry",
         "routine": "routine",
-        "événement": "événement"
+        "événement": "événement",
+        "Certificat conforme à l'empreinte, identifiant accepté. Le dossier n'est vérifié qu'à la première alarme.": "Certificat conforme à l'empreinte, identifiant accepté. Le dossier n'est vérifié qu'à la première alarme.",
+        "Certificat non reconnu": "Certificat non reconnu",
+        "Certificat reconnu, identifiant accepté. Le dossier n'est vérifié qu'à la première alarme.": "Certificat reconnu, identifiant accepté. Le dossier n'est vérifié qu'à la première alarme.",
+        "Connexion non testée": "Connexion non testée",
+        "Empreinte enregistrée. Relancez le test.": "Empreinte enregistrée. Relancez le test.",
+        "Faire confiance à cette empreinte": "Faire confiance à cette empreinte",
+        "Lancer le test": "Lancer le test",
+        "Le certificat a changé": "Le certificat a changé",
+        "Le mot de passe n'a pas été envoyé.": "Le mot de passe n'a pas été envoyé.",
+        "Le serveur ne présente pas l'empreinte enregistrée. Le mot de passe n'a PAS été envoyé. Si vous avez renouvelé le certificat, faites confiance à la nouvelle empreinte :": "Le serveur ne présente pas l'empreinte enregistrée. Le mot de passe n'a PAS été envoyé. Si vous avez renouvelé le certificat, faites confiance à la nouvelle empreinte :",
+        "Le serveur présente un certificat qui n'est pas signé par une autorité publique. Comparez l'empreinte ci-dessous avec celle de votre serveur :": "Le serveur présente un certificat qui n'est pas signé par une autorité publique. Comparez l'empreinte ci-dessous avec celle de votre serveur :",
+        "Pas encore testé.": "Pas encore testé.",
+        "Relancer le test": "Relancer le test",
+        "Réglages à compléter dans les options avancées ci-dessous.": "Réglages à compléter dans les options avancées ci-dessous.",
+        "Serveur FTPS joignable": "Serveur FTPS joignable",
+        "Serveur FTPS non testé": "Serveur FTPS non testé",
+        "Test du serveur FTPS en cours...": "Test du serveur FTPS en cours...",
+        "Test du serveur FTPS échoué": "Test du serveur FTPS échoué",
+        "Test en cours...": "Test en cours...",
+        "Test échoué": "Test échoué",
+        "le plugin ne pourra peut-être pas transmettre d'alarmes ni déposer la photo ou la vidéo.": "le plugin ne pourra peut-être pas transmettre d'alarmes ni déposer la photo ou la vidéo.",
+        "Échec à l'étape": "Échec à l'étape"
     }
 }

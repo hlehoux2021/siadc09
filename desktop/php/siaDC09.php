@@ -244,14 +244,16 @@ $scenarios = scenario::all();
 									<!-- CSR summary -->
 									<div id="siaDC09-step2-summary" class="siaDC09-summary"></div>
 
-									<!-- Spinner -->
-									<div id="siaDC09-step2-spinner" style="display:none;text-align:center;margin:20px 0;">
-										<i class="fas fa-spinner fa-spin fa-2x"></i>
-										<p>{{Test en cours...}}</p>
+									<!-- One result zone per test (story 18.12); nothing runs on arrival, the zones are filled by JS -->
+									<div class="siaDC09-zone siaDC09-testzone" id="siaDC09-step2-sia">
+										<h4 class="siaDC09-zone-title">{{Test de la centrale (SIA)}}</h4>
+										<div class="siaDC09-testzone-body" id="siaDC09-step2-sia-body"></div>
 									</div>
-
-									<!-- Result area -->
-									<div id="siaDC09-step2-result" style="display:none;"></div>
+									<div class="siaDC09-zone siaDC09-testzone" id="siaDC09-step2-ftps" style="display:none;">
+										<h4 class="siaDC09-zone-title">{{Test du serveur FTPS}}</h4>
+										<p class="siaDC09-help">{{Ce test vérifie : la connexion, le certificat, l'identifiant (aucun fichier n'est écrit).}}</p>
+										<div class="siaDC09-testzone-body" id="siaDC09-step2-ftps-body"></div>
+									</div>
 
 									<!-- Options avancées (ADR-22): dashed bar, content BELOW it -->
 									<a class="siaDC09-advbar" id="bt_siaDC09_toggleAdvanced" role="button" tabindex="0" aria-expanded="false" aria-controls="siaDC09-advanced">
@@ -386,9 +388,11 @@ $scenarios = scenario::all();
 									<!-- Buttons -->
 									<div class="siaDC09-actions">
 										<a class="btn btn-default siaDC09-actions-left" id="bt_step2Back"><i class="fas fa-arrow-left"></i> {{Modifier la centrale}}</a>
-										<a class="btn btn-default" id="bt_step2Retest"><i class="fas fa-redo"></i> {{Relancer le test}}</a>
+										<!-- The single test button; its label and look are set by JS (Lancer / Relancer / en cours) -->
+										<a class="btn btn-success" id="bt_step2Retest"><i class="fas fa-play"></i> <span id="bt_step2Retest-label">{{Lancer le test}}</span></a>
+										<!-- One right-hand slot: Suivant only when every test passed, otherwise Ignorer (never both) -->
 										<a class="btn btn-default" id="bt_step2Skip"><i class="fas fa-forward"></i> {{Ignorer}}</a>
-										<a class="btn btn-success disabled" id="bt_step2Next" disabled aria-disabled="true" tabindex="-1"><i class="fas fa-arrow-right"></i> {{Suivant}}</a>
+										<a class="btn btn-success" id="bt_step2Next" style="display:none;"><i class="fas fa-arrow-right"></i> {{Suivant}}</a>
 									</div>
 								</div><!-- /#siaDC09-step2 -->
 
@@ -397,7 +401,9 @@ $scenarios = scenario::all();
 									<div class="siaDC09-zone" id="siaDC09-zone-zones">
 										<h4 class="siaDC09-zone-title">{{Vos zones d'alarme}}</h4>
 										<div id="siaDC09-step3-warning" class="alert alert-warning siaDC09-test-warning" style="display:none;">
-											<i class="fas fa-exclamation-triangle"></i> {{Le test de connexion a été ignoré. La connexion à la centrale n'a pas été vérifiée.}}
+											<!-- One line per test not passed, filled by JS when « Ignorer » is pressed (story 18.12) -->
+											<p id="siaDC09-step3-warning-sia" style="display:none;margin:0;"><i class="fas fa-exclamation-triangle"></i> <span></span></p>
+											<p id="siaDC09-step3-warning-ftps" style="display:none;margin:0;"><i class="fas fa-exclamation-triangle"></i> <span></span></p>
 										</div>
 										<div id="siaDC09-step3-nozone" class="alert alert-warning siaDC09-test-warning" style="display:none;">
 											<i class="fas fa-exclamation-triangle"></i> {{Aucune zone détectée — configurez d'abord votre plugin alarme.}}

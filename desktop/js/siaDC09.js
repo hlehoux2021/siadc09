@@ -121,14 +121,16 @@ function siaDC09_showStep(step) {
   $('#siaDC09-stepper li[data-step="' + step + '"]').addClass('active').attr('aria-current', 'step')
 
   // A view shown again resets its own buttons (bug B1: Suivant stayed disabled after
-  // « Relancer l'assistant »). Step 2 buttons are reset by siaDC09_runConnectionTest().
+  // « Relancer l'assistant »). Step 2 buttons and zones are reset by siaDC09_resetStep2Tests().
   if (step === 1) {
     siaDC09_setButtonEnabled($('#bt_step1Next'), true)
   }
   if (step === 2) {
     siaDC09_populateStep2Summary()
     siaDC09_openAdvancedIfFtpsIncomplete()
-    siaDC09_runConnectionTest()
+    // Story 18.12: nothing runs on arrival; the user presses the single test button.
+    $('#siaDC09-step2-errors').empty().hide()
+    siaDC09_resetStep2Tests(true)
   }
   if (step === 3) {
     // Zones and critical alerts share this step (former steps 3 and 4).
@@ -801,117 +803,257 @@ function siaDC09_renderStep2Failure(result) {
   return $box
 }
 
-function siaDC09_runConnectionTest() {
-  var run = ++_siaDC09_testRun
-  _siaDC09_testNakConfirmed = false
-  siaDC09_setButtonEnabled($('#bt_step2Next'), false)
-  siaDC09_setButtonEnabled($('#bt_step2Retest'), false)
-  siaDC09_setButtonEnabled($('#bt_step2Skip'), false)
-  // « Modifier la centrale » stays live during the test.
-  siaDC09_setButtonEnabled($('#bt_step2Back'), true)
-  $('#siaDC09-step2-result').hide()
+// ===== STEP 2: TEST ORCHESTRATION (story 18.12) =====
+//
+// Nothing runs on arrival. The single button validates the advanced options, saves the form, then
+// runs the SIA test and, under FTPS, the FTPS test. Result per test: _siaDC09_tests.sia is
+// 'ok' | 'nak' | 'fail'; .ftps is the testFtps status (ok|untrusted|changed|error|unavailable).
+// null means « not tested ». Only ok (and nak, behind its confirmation) count as passed.
+var _siaDC09_tests = { sia: null, ftps: null }
+var _siaDC09_hasTested = false
+var _siaDC09_running = false
+var SIADC09_AJAX_URL = 'plugins/siaDC09/core/ajax/siaDC09.ajax.php'
 
-  // Invalid advanced options (Personnalisé only): errors under the fields, panel open, no test.
-  if (!siaDC09_validateAdvanced()) {
-    $('#siaDC09-step2-spinner').hide()
-    siaDC09_setButtonEnabled($('#bt_step2Retest'), true)
+function siaDC09_ftpsTestActive() {
+  var m = siaDC09_mediaState()
+  return m.enabled && m.transport === 'ftps'
+}
+
+function siaDC09_allTestsPassed() {
+  var s = _siaDC09_tests
+  if (s.sia !== 'ok' && s.sia !== 'nak') return false
+  return !siaDC09_ftpsTestActive() || s.ftps === 'ok'
+}
+
+function siaDC09_notTestedZones() {
+  $('#siaDC09-step2-sia-body').empty().append($('<p class="siaDC09-help">').text('{{Pas encore testé.}}'))
+  var ftps = siaDC09_ftpsTestActive()
+  $('#siaDC09-step2-ftps').toggle(ftps)
+  if (!ftps) {
+    $('#siaDC09-step2-ftps-body').empty()
     return
   }
-  $('#siaDC09-step2-spinner').show()
+  var message = siaDC09_ftpsConfigErrors().length > 0
+    ? '{{Réglages à compléter dans les options avancées ci-dessous.}}'
+    : '{{Pas encore testé.}}'
+  $('#siaDC09-step2-ftps-body').empty().append($('<p class="siaDC09-help">').text(message))
+}
 
+// The test button reads « Lancer » before the first test, « Relancer » after; the right-hand slot is
+// Suivant only when every test passed, Ignorer otherwise (never both). Running: Ignorer is inert.
+function siaDC09_refreshStep2Buttons() {
+  var running = _siaDC09_running
+  var $test = $('#bt_step2Retest')
+  var label = running ? '{{Test en cours...}}' : (_siaDC09_hasTested ? '{{Relancer le test}}' : '{{Lancer le test}}')
+  $('#bt_step2Retest-label').text(label)
+  $test.toggleClass('btn-success', !_siaDC09_hasTested && !running).toggleClass('btn-default', _siaDC09_hasTested || running)
+  siaDC09_setButtonEnabled($test, !running)
+  // « Modifier la centrale » stays live in every state.
+  siaDC09_setButtonEnabled($('#bt_step2Back'), true)
+  var passed = !running && siaDC09_allTestsPassed()
+  $('#bt_step2Next').toggle(passed)
+  siaDC09_setButtonEnabled($('#bt_step2Next'), passed)
+  $('#bt_step2Skip').toggle(!passed)
+  siaDC09_setButtonEnabled($('#bt_step2Skip'), !running)
+}
+
+// Back to « Pas encore testé. ». `arrival` also forgets that a test ever ran (label « Lancer »).
+function siaDC09_resetStep2Tests(arrival) {
+  _siaDC09_tests = { sia: null, ftps: null }
+  _siaDC09_testNakConfirmed = false
+  _siaDC09_running = false
+  if (arrival) _siaDC09_hasTested = false
+  siaDC09_notTestedZones()
+  siaDC09_refreshStep2Buttons()
+}
+
+// Editing a setting on step 2 invalidates the results (an answer still in flight is abandoned).
+$(document).on('change input', '#siaDC09-advanced input, #siaDC09-advanced select', function() {
+  if ($('#siaDC09-step2').css('display') === 'none') return
+  _siaDC09_testRun++
+  siaDC09_resetStep2Tests(false)
+})
+
+function siaDC09_runSiaTest(run, done) {
+  var $body = $('#siaDC09-step2-sia-body')
+  $body.empty().append($('<p><i class="fas fa-spinner fa-spin"></i> </p>').append($('<span>').text('{{Test en cours...}}')))
   $.ajax({
     type: 'POST',
-    url: 'plugins/siaDC09/core/ajax/siaDC09.ajax.php',
-    data: {
-      action: 'testConnection',
-      ajax: 1
-    },
+    url: SIADC09_AJAX_URL,
+    data: { action: 'testConnection', ajax: 1 },
     dataType: 'json',
     global: false,
     timeout: 35000,
     success: function(data) {
       if (run !== _siaDC09_testRun) return
-      $('#siaDC09-step2-spinner').hide()
-      siaDC09_setButtonEnabled($('#bt_step2Retest'), true)
-      siaDC09_setButtonEnabled($('#bt_step2Skip'), true)
-
       var result = data.result || {}
       var status = result.status || 'error'
-      var detail = result.detail || ''
-      var cssClass = ''
-      var icon = ''
-
-      if (status === 'ok') {
-        cssClass = 'alert-success siaDC09-test-success'
-        icon = 'fa-check-circle'
-        siaDC09_setButtonEnabled($('#bt_step2Next'), true)
-      } else if (status === 'nak') {
-        cssClass = 'alert-warning siaDC09-test-warning'
-        icon = 'fa-exclamation-triangle'
-        siaDC09_setButtonEnabled($('#bt_step2Next'), true)
-      } else {
-        cssClass = 'alert-danger'
-        icon = 'fa-times-circle'
-        siaDC09_setButtonEnabled($('#bt_step2Next'), false)
-      }
-
       var $resultDiv
-      if (cssClass === 'alert-danger') {
-        $resultDiv = siaDC09_renderStep2Failure(result)
+      if (status === 'ok') {
+        _siaDC09_tests.sia = 'ok'
+        $resultDiv = $('<div class="alert alert-success siaDC09-test-success"><i class="fas fa-check-circle"></i> </div>')
+        $resultDiv.append($('<span>').text(result.detail || ''))
+      } else if (status === 'nak') {
+        _siaDC09_tests.sia = 'nak'
+        $resultDiv = $('<div class="alert alert-warning siaDC09-test-warning"><i class="fas fa-exclamation-triangle"></i> </div>')
+        $resultDiv.append($('<span>').text(result.detail || ''))
       } else {
-        $resultDiv = $('<div class="alert ' + cssClass + '"><i class="fas ' + icon + '"></i> </div>')
-        $resultDiv.append($('<span>').text(detail))
+        _siaDC09_tests.sia = 'fail'
+        $resultDiv = siaDC09_renderStep2Failure(result)
       }
-      $('#siaDC09-step2-result').empty().append($resultDiv).show()
+      $body.empty().append($resultDiv)
+      done()
     },
-    error: function(xhr, status, error) {
+    error: function() {
       if (run !== _siaDC09_testRun) return
-      $('#siaDC09-step2-spinner').hide()
-      siaDC09_setButtonEnabled($('#bt_step2Retest'), true)
-      siaDC09_setButtonEnabled($('#bt_step2Skip'), true)
-      $('#siaDC09-step2-result')
-        .html('<div class="alert alert-danger siaDC09-test-failure"><i class="fas fa-times-circle"></i> {{Erreur de communication avec le serveur}}</div>')
-        .show()
+      _siaDC09_tests.sia = 'fail'
+      $body.empty().append('<div class="alert alert-danger siaDC09-test-failure"><i class="fas fa-times-circle"></i> {{Erreur de communication avec le serveur}}</div>')
+      done()
     }
   })
 }
+
+// FTPS result views (EXPERIENCE.md « Wording »). The browser never holds a password result:
+// the answer carries a status, a detail and, for a certificate refusal, the presented fingerprint.
+function siaDC09_renderFtpsResult(result) {
+  var status = result.status || 'error'
+  var detail = result.detail || ''
+  var $box
+  if (status === 'ok') {
+    $box = $('<div class="alert alert-success siaDC09-test-success"><i class="fas fa-check-circle"></i> </div>')
+    $('<strong>').text('{{Serveur FTPS joignable}}').appendTo($box)
+    var pinned = siaDC09_ftpsFieldValue('ftps_cert_fingerprint').trim() !== ''
+    $box.append($('<p>').text(pinned
+      ? "{{Certificat conforme à l'empreinte, identifiant accepté. Le dossier n'est vérifié qu'à la première alarme.}}"
+      : "{{Certificat reconnu, identifiant accepté. Le dossier n'est vérifié qu'à la première alarme.}}"))
+  } else if (status === 'untrusted' || status === 'changed') {
+    $box = $('<div class="alert alert-danger siaDC09-test-failure"><i class="fas fa-times-circle"></i> </div>')
+    $('<strong>').text(status === 'changed' ? '{{Le certificat a changé}}' : '{{Certificat non reconnu}}').appendTo($box)
+    $box.append($('<p>').text(status === 'changed'
+      ? "{{Le serveur ne présente pas l'empreinte enregistrée. Le mot de passe n'a PAS été envoyé. Si vous avez renouvelé le certificat, faites confiance à la nouvelle empreinte :}}"
+      : "{{Le serveur présente un certificat qui n'est pas signé par une autorité publique. Comparez l'empreinte ci-dessous avec celle de votre serveur :}}"))
+    var fingerprint = result.fingerprint || ''
+    $('<code class="siaDC09-fingerprint-box">').text(fingerprint).appendTo($box)
+    if (status === 'untrusted') $box.append($('<p>').text("{{Le mot de passe n'a pas été envoyé.}}"))
+    $('<a class="btn btn-default siaDC09-ftps-trust">').attr('data-fingerprint', fingerprint)
+      .text('{{Faire confiance à cette empreinte}}').appendTo($('<p>').appendTo($box))
+  } else if (status === 'unavailable') {
+    $box = $('<div class="alert alert-info"><i class="fas fa-info-circle"></i> </div>')
+    $box.append($('<span>').text(detail))
+  } else {
+    $box = $('<div class="alert alert-danger siaDC09-test-failure"><i class="fas fa-times-circle"></i> </div>')
+    var step = result.step ? " « " + result.step + " »" : ''
+    $('<strong>').text("{{Échec à l'étape}}" + step).appendTo($box)
+    $box.append($('<p>').text(detail))
+  }
+  return $box
+}
+
+function siaDC09_runFtpsTest(run, done) {
+  var $body = $('#siaDC09-step2-ftps-body')
+  $body.empty().append($('<p><i class="fas fa-spinner fa-spin"></i> </p>').append($('<span>').text('{{Test du serveur FTPS en cours...}}')))
+  // No password in the request: the saved configuration is read server-side.
+  $.ajax({
+    type: 'POST',
+    url: SIADC09_AJAX_URL,
+    data: { action: 'testFtps', ajax: 1 },
+    dataType: 'json',
+    global: false,
+    timeout: 35000,
+    success: function(data) {
+      if (run !== _siaDC09_testRun) return
+      var result = data.result || {}
+      _siaDC09_tests.ftps = result.status || 'error'
+      $body.empty().append(siaDC09_renderFtpsResult(result))
+      done()
+    },
+    error: function() {
+      if (run !== _siaDC09_testRun) return
+      _siaDC09_tests.ftps = 'error'
+      $body.empty().append('<div class="alert alert-danger siaDC09-test-failure"><i class="fas fa-times-circle"></i> {{Erreur de communication avec le serveur}}</div>')
+      done()
+    }
+  })
+}
+
+// SIA first, then FTPS under FTPS (both run even when the first fails: each zone tells its own story).
+function siaDC09_runTests(run) {
+  var finish = function() {
+    _siaDC09_running = false
+    siaDC09_refreshStep2Buttons()
+  }
+  siaDC09_runSiaTest(run, function() {
+    if (!siaDC09_ftpsTestActive()) { finish(); return }
+    siaDC09_runFtpsTest(run, finish)
+  })
+}
+
+// « Faire confiance à cette empreinte »: fills the fingerprint (and so selects « auto-signé ») and
+// starts nothing. The change clears the results, so the message is written after it.
+$(document).on('click', '.siaDC09-ftps-trust', function() {
+  var fingerprint = $(this).attr('data-fingerprint') || ''
+  if (!fingerprint) return
+  $('.eqLogicAttr[data-l2key="ftps_cert_fingerprint"]').val(fingerprint).trigger('change')
+  siaDC09_syncFtpsCertRadios()
+  $('#siaDC09-step2-ftps-body').empty().append($('<div class="alert alert-info">').text('{{Empreinte enregistrée. Relancez le test.}}'))
+})
 
 // « Modifier la centrale » — back to step 1, every value kept, nothing saved. Available while a
 // test runs: the run is abandoned and its late answer ignored. showStep(1) revives step 1 buttons.
 $('#bt_step2Back').on('click', function() {
   if ($(this).hasClass('disabled')) return
   _siaDC09_testRun++
-  $('#siaDC09-step2-spinner').hide()
-  $('#siaDC09-step2-result').hide()
+  _siaDC09_running = false
   $('#siaDC09-step2-errors').empty().hide()
   siaDC09_showStep(1)
 })
 
-// Retest button
-// « Relancer le test » is the ONLY thing that starts a new test after the first one (changing the
-// profile to Personnalisé or editing an advanced field never reruns it). The test reads the SAVED
-// configuration (core/ajax/siaDC09.ajax.php), so the form is validated and saved first.
+// The single test button. The tests read the SAVED configuration (core/ajax/siaDC09.ajax.php),
+// so the advanced options are validated and the form saved first; invalid options run nothing.
 $('#bt_step2Retest').on('click', function() {
-  var $btn = $(this)
-  if ($btn.hasClass('disabled')) return
+  if ($(this).hasClass('disabled')) return
   if (!siaDC09_validateAdvanced()) return
 
-  siaDC09_setButtonEnabled($btn, false)
+  var run = ++_siaDC09_testRun
+  _siaDC09_tests = { sia: null, ftps: null }
+  _siaDC09_testNakConfirmed = false
+  _siaDC09_hasTested = true
+  _siaDC09_running = true
+  siaDC09_refreshStep2Buttons()
   siaDC09_setWizardStep(2)
   jeedom.eqLogic.save({
     type: 'siaDC09',
     eqLogics: [$('.eqLogic').getValues('.eqLogicAttr')[0]],
     error: function(error) {
-      siaDC09_setButtonEnabled($btn, true)
+      if (run !== _siaDC09_testRun) return
+      siaDC09_resetStep2Tests(false)
       $('#div_alert').showAlert({ message: (error && error.message) || '{{Erreur}}', level: 'danger' })
     },
     success: function() {
-      siaDC09_runConnectionTest()
+      if (run !== _siaDC09_testRun) return
+      siaDC09_runTests(run)
     }
   })
 })
 
-// Ignorer button — advance to step 3 with warning
+// Step 3 warning: one line per test not passed (EXPERIENCE.md « Buttons of step 2 »).
+function siaDC09_showStep3Warnings() {
+  var tail = "{{le plugin ne pourra peut-être pas transmettre d'alarmes ni déposer la photo ou la vidéo.}}"
+  var sia = _siaDC09_tests.sia
+  var ftps = _siaDC09_tests.ftps
+  var siaLabel = ''
+  if (sia === null) siaLabel = '{{Connexion non testée}}'
+  else if (sia === 'fail') siaLabel = '{{Test échoué}}'
+  var ftpsLabel = ''
+  if (siaDC09_ftpsTestActive() && ftps !== 'ok') {
+    ftpsLabel = (ftps === null || ftps === 'unavailable') ? '{{Serveur FTPS non testé}}' : '{{Test du serveur FTPS échoué}}'
+  }
+  $('#siaDC09-step3-warning-sia').toggle(siaLabel !== '').find('span').text(siaLabel + ' : ' + tail)
+  $('#siaDC09-step3-warning-ftps').toggle(ftpsLabel !== '').find('span').text(ftpsLabel + ' : ' + tail)
+  $('#siaDC09-step3-warning').toggle(siaLabel !== '' || ftpsLabel !== '')
+}
+
+// Ignorer — advance to step 3 with one warning per test not passed
 $('#bt_step2Skip').on('click', function() {
   if ($(this).hasClass('disabled')) return
   siaDC09_setWizardStep(3)
@@ -922,17 +1064,16 @@ $('#bt_step2Skip').on('click', function() {
       $('#div_alert').showAlert({ message: error.message, level: 'danger' })
     },
     success: function() {
-      $('#siaDC09-step3-warning').show()
+      siaDC09_showStep3Warnings()
       siaDC09_showStep(3)
     }
   })
 })
 
-// Suivant on Step 2
+// Suivant on Step 2 (visible only after a full success); a NAK keeps its confirmation dialog.
 $('#bt_step2Next').on('click', function() {
   if ($(this).hasClass('disabled')) return
-  var result = $('#siaDC09-step2-result .alert-warning')
-  if (result.length > 0 && !_siaDC09_testNakConfirmed) {
+  if (_siaDC09_tests.sia === 'nak' && !_siaDC09_testNakConfirmed) {
     jeeDialog.confirm('{{La centrale a répondu NAK. Continuer malgré tout ?}}', function(ok) {
       if (ok) {
         _siaDC09_testNakConfirmed = true
@@ -953,6 +1094,7 @@ function siaDC09_advanceToStep3() {
       $('#div_alert').showAlert({ message: error.message, level: 'danger' })
     },
     success: function() {
+      $('#siaDC09-step3-warning').hide()
       siaDC09_showStep(3)
     }
   })
