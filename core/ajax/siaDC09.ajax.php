@@ -100,7 +100,8 @@ try {
         $redirect = $stderrFile ? ' 2>' . escapeshellarg($stderrFile) : ' 2>/dev/null';
 
         // putenv(), not a "VAR=value " prefix: the password must not appear in a command line.
-        putenv('SIA_FTPS_PASSWORD=' . (string) $eqLogic->getConfiguration('ftps_password', ''));
+        $ftpsPassword = (string) $eqLogic->getConfiguration('ftps_password', '');
+        putenv('SIA_FTPS_PASSWORD=' . $ftpsPassword);
         set_time_limit(30);
         try {
             exec($cmd . $redirect, $output, $retCode);
@@ -113,6 +114,10 @@ try {
             @unlink($stderrFile);
         }
         if ($stderr !== '') {
+            // A traceback can echo a server reply: the password never reaches the log.
+            if ($ftpsPassword !== '') {
+                $stderr = str_replace($ftpsPassword, '***', $stderr);
+            }
             log::add('siaDC09', 'debug', 'Test FTPS — détail technique : ' . $stderr);
         }
 

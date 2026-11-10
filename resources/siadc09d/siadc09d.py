@@ -74,6 +74,8 @@ _UI_OK = "ok"
 _UI_NAK = "nak"
 _UI_FAIL = "fail"
 _UI_ERROR = "error"
+MIN_TCP_PORT = 1
+MAX_TCP_PORT = 65535
 
 # _send_raw_once() status → (UI verdict, French detail template). Templates may
 # only use the placeholders built in run_connection_test()'s `context`.
@@ -455,10 +457,13 @@ def run_ftps_probe(config: dict[str, object], password: str) -> dict[str, str]:
     """
     from siadc09d import ftps_upload  # pylint: disable=import-outside-toplevel
     try:
+        port = int(str(config.get("ftps_port") or ftps_upload.FTPS_DEFAULT_PORT))
+        if not MIN_TCP_PORT <= port <= MAX_TCP_PORT:
+            raise ValueError(f"port {port} hors de {MIN_TCP_PORT}-{MAX_TCP_PORT}")
         settings = ftps_upload.FtpsSettings(
             enabled=True,
             host=str(config.get("ftps_host") or "").strip(),
-            port=int(str(config.get("ftps_port") or ftps_upload.FTPS_DEFAULT_PORT)),
+            port=port,
             user=str(config.get("ftps_user") or "").strip(),
             password=password,
             cert_fingerprint=ftps_upload.normalize_fingerprint(

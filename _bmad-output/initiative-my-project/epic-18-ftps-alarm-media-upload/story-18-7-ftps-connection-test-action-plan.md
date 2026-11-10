@@ -8,9 +8,9 @@ baseline_revision: '256f2f9cce6c8f6f8eefb2355007f0a6af9d6250'
 route: 'full'
 route_source: 'auto'
 risk: 'medium'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: [quick]
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/initiative-my-project/epic-18-ftps-alarm-media-upload/ux-18-wizard-media-block/EXPERIENCE.md'
@@ -82,6 +82,21 @@ context:
 ## Plan Change Log
 
 ## Review Triage Log
+
+Pass 1 (quick): 0 high, 3 medium, 5 low, 1 false/none. Patches applied; the field check stays open.
+
+| Verdict | Route | Finding and evidence |
+|---|---|---|
+| medium | patch | Port "0" or "70000" raised `OverflowError` in `connect()`, escaping to the generic "Erreur interne" with no step. `run_ftps_probe` now validates 1-65535 and answers an `error`, step "connexion"; test added. |
+| medium | patch | A reset or EOF during login was reported as "Identifiant ou mot de passe refusé". Only an `ftplib.Error` (server reply) now maps to "identifiants"; test added. |
+| medium | patch | stderr (traceback) was logged unmasked while the plan says the password is never logged. `siaDC09.ajax.php` masks it before `log::add`. |
+| low | patch | The probe re-implemented the fingerprint hash and the password mask. Both come from `_peer_fingerprint()` and `_mask()` now, shared with `_check_fingerprint` and `_upload_stream`. |
+| low | patch | Plain `dict[str, str]` for the answer: `_ProbeResult` is now a `TypedDict` with a `Literal` status. |
+| low | patch | Missing assert comments in `test_ftps_probe.py`; added. |
+| low | rejected | "connexion" detail says "connexion refusée" for DNS failures too. The exception type and message follow in parentheses; a per-cause wording needs new texts. |
+| low | rejected | The two CLI tests spawn a subprocess in level 1. Closed local port, no external dependency, same pattern as the other probe tests. |
+| false | rejected | Plan says "reuses `_check_fingerprint`" while the probe compares inline: it cannot raise there, since `changed` needs the fingerprint; fixed by sharing `_peer_fingerprint()` instead (see above). |
+| n/a | open | Acceptance criteria need the field check on test-jeedom (wrong host, self-signed, wrong password, trusted setup). That is the human's step, noted in the plan. |
 
 ## Design Notes
 

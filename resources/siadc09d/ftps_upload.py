@@ -23,7 +23,7 @@ import ssl
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import BinaryIO, Final
+from typing import BinaryIO, Final, Literal, TypedDict
 
 _logger = logging.getLogger(__name__)
 
@@ -168,14 +168,24 @@ def _build_context(settings: FtpsSettings) -> ssl.SSLContext:
     return context
 
 
+def _peer_fingerprint(ftp: ftplib.FTP_TLS) -> str:
+    """SHA-256 (64 lowercase hex) of the certificate the server presented, "" if none."""
+    der = ftp.sock.getpeercert(binary_form=True)  # type: ignore[union-attr]
+    return hashlib.sha256(der).hexdigest() if der else ""
+
+
+def _mask(text: str, settings: FtpsSettings) -> str:
+    """Hide the password in a server or library message."""
+    return text.replace(settings.password, "***") if settings.password else text
+
+
 def _check_fingerprint(ftp: ftplib.FTP_TLS, expected: str) -> None:
     """Compare the server certificate SHA-256 with the pinned one.
 
     Raises:
         FtpsUploadError: The certificate is missing or does not match.
     """
-    der = ftp.sock.getpeercert(binary_form=True)  # type: ignore[union-attr]
-    seen = hashlib.sha256(der).hexdigest() if der else ""
+    seen = _peer_fingerprint(ftp)
     _logger.debug(f"FTPS server certificate sha256={seen or 'none'} (expected {expected})")
     if not seen or seen != expected:
         # A certificate fingerprint is public: showing it lets the user fix the setting.
@@ -347,10 +357,7 @@ def _upload_stream(  # pylint: disable=too-many-arguments,too-many-positional-ar
     except FtpsUploadError as err:
         raise FtpsUploadError(f"step {step}: {err}") from None
     except _FTP_ERRORS as err:
-        reason = f"step {step}: {type(err).__name__}: {err}"
-        if settings.password:
-            reason = reason.replace(settings.password, "***")
-        raise FtpsUploadError(reason) from None
+        raise FtpsUploadError(_mask(f"step {step}: {type(err).__name__}: {err}", settings)) from None
     finally:
         ftp.close()
 
@@ -362,7 +369,15 @@ PROBE_STEP_CONNECT: Final[str] = "connexion"
 PROBE_STEP_TLS: Final[str] = "sécurité TLS"
 PROBE_STEP_LOGIN: Final[str] = "identifiants"
 PROBE_STEP_TIMEOUT: Final[str] = "délai dépassé"
-_ProbeResult = dict[str, str]
+
+
+class _ProbeResult(TypedDict, total=False):
+    """Answer of `probe_connection()`; never contains the password."""
+
+    status: Literal["ok", "untrusted", "changed", "error"]
+    step: str
+    detail: str
+    fingerprint: str
 
 
 def _probe_error(step: str, detail: str) -> _ProbeResult:
@@ -398,15 +413,9 @@ def _read_presented_fingerprint(settings: FtpsSettings, deadline: float) -> str:
         ftp.connect(settings.host, settings.port)
         _arm(ftp, deadline)
         ftp.auth()
-        der = ftp.sock.getpeercert(binary_form=True)  # type: ignore[union-attr]
-        return hashlib.sha256(der).hexdigest() if der else ""
+        return _peer_fingerprint(ftp)
     finally:
         ftp.close()
-
-
-def _mask(text: str, settings: FtpsSettings) -> str:
-    """Hide the password in a server or library message."""
-    return text.replace(settings.password, "***") if settings.password else text
 
 
 def _probe_failure(step: str, err: BaseException, settings: FtpsSettings) -> _ProbeResult:
@@ -418,7 +427,8 @@ def _probe_failure(step: str, err: BaseException, settings: FtpsSettings) -> _Pr
             f"{target} n'a pas répondu à temps. Vérifiez l'adresse, le port et le pare-feu.",
         )
     reason = _mask(f"{type(err).__name__}: {err}", settings)
-    if step == PROBE_STEP_LOGIN:
+    # Only a server reply (ftplib.Error) refuses credentials; a reset or EOF during login is a connection fault.
+    if step == PROBE_STEP_LOGIN and isinstance(err, ftplib.Error):
         return _probe_error(
             PROBE_STEP_LOGIN,
             "Identifiant ou mot de passe refusé par le serveur. Corrigez-les dans les options "
@@ -481,8 +491,7 @@ def probe_connection(settings: FtpsSettings, deadline: float) -> _ProbeResult:
         _arm(ftp, deadline)
         ftp.auth()
         if settings.cert_fingerprint:
-            der = ftp.sock.getpeercert(binary_form=True)  # type: ignore[union-attr]
-            seen = hashlib.sha256(der).hexdigest() if der else ""
+            seen = _peer_fingerprint(ftp)
             if seen != settings.cert_fingerprint:
                 return {
                     "status": "changed",

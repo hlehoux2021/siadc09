@@ -101,7 +101,46 @@ def test_every_part_is_filename_safe(account: str, zone: str | None, event_id: s
     assert _SAFE_PATH.fullmatch(f"{directory}/{name}")
     # Assert: no traversal or empty component, exactly two levels
     parts = directory.split("/")
-    assert len(parts) == 2 and all(p.strip(".") for p in [parts[0], name.split("_")[1]])
+    assert len(parts) == 2 and all(p.strip(".") for p in parts)
+
+
+def test_empty_or_dots_only_parts_get_a_placeholder() -> None:
+    """
+    Account, zone and event id that are empty or only dots.
+
+    Expected result:
+    - each part is replaced by its placeholder, so no component is empty or dots-only
+    """
+    directory, name = remote_location("..", None, "", _WHEN, "jpg")
+    # Assert: placeholders in the account folder and in the file name
+    assert (directory, name) == ("noaccount/2026-11-10", "140509_nozone_noevent.jpg")
+    # Assert: dots-only zone and event id get theirs too
+    assert remote_location("001234", "..", ".", _WHEN, "jpg")[1] == "140509_nozone_noevent.jpg"
+
+
+def test_mkdir_failure_names_the_step() -> None:
+    """
+    The server refuses both the cwd and the mkd of a level (no write permission).
+
+    Expected result:
+    - FtpsUploadError whose message starts with "step mkdir:", nothing stored
+    """
+    ftp = MagicMock()
+    ftp.sock.getpeercert.return_value = b"x"
+
+    def cwd(path: str) -> None:
+        if path != "upload":
+            raise ftplib.error_perm("550 no such directory")
+
+    ftp.cwd.side_effect = cwd
+    ftp.mkd.side_effect = ftplib.error_perm("550 permission denied")
+    with patch.object(ftps_upload.ftplib, "FTP_TLS", return_value=ftp):
+        with pytest.raises(ftps_upload.FtpsUploadError) as err:
+            upload_bytes(_settings(), "n.jpg", b"x", directory="001234/2026-11-10")
+    # Assert: the failing step is named
+    assert str(err.value).startswith("step mkdir:")
+    # Assert: no transfer was started
+    ftp.transfercmd.assert_not_called()
 
 
 def test_snapshot_and_clip_share_prefix_and_differ_by_extension() -> None:

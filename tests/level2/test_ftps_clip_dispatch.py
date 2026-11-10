@@ -7,6 +7,7 @@ temporary clip file remains.
 import asyncio
 import logging
 import os
+import re
 import time
 from unittest.mock import AsyncMock, patch
 
@@ -191,10 +192,11 @@ async def test_both_switches_upload_snapshot_then_clip(daemon, tmp_path) -> None
     """
     clip = _clip_file(tmp_path)
     order: list[str] = []
+    folders: list[str] = []
     with patch.object(daemon_module, "fetch_event_snapshot", AsyncMock(return_value=b"jpeg")), \
          patch.object(daemon_module, "fetch_event_clip", AsyncMock(return_value=clip)), \
-         patch.object(daemon_module, "upload_bytes", side_effect=lambda *a, **_kw: order.append(a[1])), \
-         patch.object(daemon_module, "upload_file", side_effect=lambda *a, **_kw: order.append(a[1])):
+         patch.object(daemon_module, "upload_bytes", side_effect=lambda *a, **kw: (order.append(a[1]), folders.append(kw["directory"]))), \
+         patch.object(daemon_module, "upload_file", side_effect=lambda *a, **kw: (order.append(a[1]), folders.append(kw["directory"]))):
         await daemon.on_message("burglarAlarm", {"zone": "Z", "ftps_upload": _upload(snapshot=True, clip=True)})
         await _drain(daemon)
     # Assert: snapshot then clip, with the fixed names
@@ -202,6 +204,8 @@ async def test_both_switches_upload_snapshot_then_clip(daemon, tmp_path) -> None
     assert order[0].endswith("_Z_1700000.1-abc.jpg") and order[1].endswith("_Z_1700000.1-abc.mp4")
     # Assert: both media of one alarm share the same time prefix
     assert order[0][:6] == order[1][:6]
+    # Assert: both go into the same <account>/<date> folder
+    assert folders[0] == folders[1] and re.fullmatch(r"001234/\d{4}-\d{2}-\d{2}", folders[0])
     # Assert: frame enqueued once, no media tag
     daemon._enqueue_event.assert_awaited_once()
     assert daemon._enqueue_event.await_args.kwargs["media"] is None

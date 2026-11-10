@@ -87,6 +87,7 @@ def test_correct_setup_with_a_matching_pinned_fingerprint_is_ok() -> None:
     ftp = _fake_ftp()
     # Assert: success
     assert _probe(ftp, _settings(cert_fingerprint=_CERT_SHA))["status"] == "ok"
+    # Assert: login was reached once the fingerprint matched
     ftp.login.assert_called_once()
 
 
@@ -104,6 +105,7 @@ def test_unreachable_host_names_the_connection_step_and_the_endpoint() -> None:
     assert (result["status"], result["step"]) == ("error", "connexion")
     # Assert: endpoint named
     assert "ftp.example:2121" in result["detail"]
+    # Assert: no login attempt on an unreachable host
     ftp.login.assert_not_called()
 
 
@@ -147,6 +149,7 @@ def test_an_already_passed_deadline_is_a_timeout() -> None:
         result = probe_connection(_settings(), time.monotonic() - 1)
     # Assert: timeout step
     assert result["step"] == "délai dépassé"
+    # Assert: nothing contacted
     ftp.connect.assert_not_called()
 
 
@@ -295,3 +298,31 @@ def test_cli_entry_reports_an_invalid_fingerprint_as_an_error_answer() -> None:
     )
     # Assert: an error verdict
     assert json.loads(done.stdout)["status"] == "error"
+
+
+@pytest.mark.parametrize("port", ["0", "70000", "-5", "abc"])
+def test_cli_entry_reports_an_out_of_range_port_as_an_error_answer(port: str) -> None:
+    """
+    A saved port outside 1-65535 (or not a number) must not crash the probe.
+
+    Expected result:
+    - status error, step "connexion", exit 0 (no "Erreur interne")
+    """
+    done = _run_cli({"ftps_host": "127.0.0.1", "ftps_port": port, "ftps_user": "u"}, _SECRET)
+    result = json.loads(done.stdout)
+    # Assert: a configuration error verdict, not the generic internal error
+    assert (done.returncode, result["status"], result.get("step")) == (0, "error", "connexion")
+
+
+def test_connection_reset_during_login_is_not_reported_as_bad_credentials() -> None:
+    """
+    The link drops while logging in (no server reply).
+
+    Expected result:
+    - error, step "connexion" rather than "identifiants"
+    """
+    ftp = _fake_ftp()
+    ftp.login.side_effect = ConnectionResetError(54, "Connection reset by peer")
+    result = _probe(ftp)
+    # Assert: a connection fault, not a credentials refusal
+    assert (result["status"], result["step"]) == ("error", "connexion")

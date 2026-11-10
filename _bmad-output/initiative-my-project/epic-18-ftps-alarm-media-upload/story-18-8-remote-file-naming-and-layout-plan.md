@@ -8,9 +8,9 @@ baseline_revision: 'a18f619d37ee6d81a9bba7c1507cffd86d669ef3'
 route: 'full'
 route_source: 'auto'
 risk: 'low'
-review: 'none'
+review: 'quick'
 review_source: 'pinned'
-lenses_ran: []
+lenses_ran: [quick]
 review_loop_iteration: 0
 context:
   - '{project-root}/.claude/rules/python-style.md'
@@ -74,6 +74,23 @@ context:
 - Non-ASCII zone labels become `_` (e.g. `Salon é` gives `Salon__`); the event id keeps names unique.
 - Existing level2 name assertions were relaxed to regexes (time-dependent). Field check on test-jeedom left to the human.
 - Retention/cleanup on the server: deferred, stated in the doc.
+
+## Plan Change Log
+
+## Review Triage Log
+
+Pass 1 (quick): 0 high, 3 medium, 3 low, 1 maybe-false, 1 false/none.
+
+| Verdict | Route | Finding and evidence |
+|---|---|---|
+| medium | patch | No test for the `mkdir` error row: nothing made `MKD` and `CWD` fail. Added `test_mkdir_failure_names_the_step`. |
+| medium | patch | Dots-only assertion read `name.split("_")[1]`, a fragment of the zone, and never the event id. Replaced by `test_empty_or_dots_only_parts_get_a_placeholder` with explicit placeholders. |
+| medium | patch | The clip dispatch test never asserted `directory`. Both uploads now checked against one `<account>/<date>` folder. |
+| low | rejected | No level 2 test for `zone=None`. Covered at `remote_location()`; the daemon passes the zone through unchanged. |
+| low | rejected | `_upload_stream` has 6 parameters behind a pylint disable. `_run_ftps_upload` already does the same; a value object is a refactor for the sweep (18.10). |
+| low | rejected | The refused `MKD` text is dropped when the next `CWD` fails. The step name is right; keeping both texts needs new wording. |
+| maybe-false | rejected | The time is taken when the upload starts, so near midnight date and `HHMMSS` can differ from the alarm. A documented decision in Implementation Notes; at worst a one-folder shift. |
+| false | rejected | Doc example `Salon é` gives `Salon__`: correct. |
 
 ## Verification
 
