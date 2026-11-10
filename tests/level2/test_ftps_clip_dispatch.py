@@ -198,7 +198,10 @@ async def test_both_switches_upload_snapshot_then_clip(daemon, tmp_path) -> None
         await daemon.on_message("burglarAlarm", {"zone": "Z", "ftps_upload": _upload(snapshot=True, clip=True)})
         await _drain(daemon)
     # Assert: snapshot then clip, with the fixed names
-    assert order == ["001234-1700000.1-abc-snapshot.jpg", "001234-1700000.1-abc-clip.mp4"]
+    assert len(order) == 2
+    assert order[0].endswith("_Z_1700000.1-abc.jpg") and order[1].endswith("_Z_1700000.1-abc.mp4")
+    # Assert: both media of one alarm share the same time prefix
+    assert order[0][:6] == order[1][:6]
     # Assert: frame enqueued once, no media tag
     daemon._enqueue_event.assert_awaited_once()
     assert daemon._enqueue_event.await_args.kwargs["media"] is None

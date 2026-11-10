@@ -22,6 +22,7 @@ import re
 import ssl
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import BinaryIO, Final
 
 _logger = logging.getLogger(__name__)
@@ -37,6 +38,9 @@ _HEX_DIGITS: Final[str] = "0123456789abcdef"
 _FTP_ERRORS: Final[tuple[type[BaseException], ...]] = (*ftplib.all_errors, ValueError)
 # Remote names are built from external ids: keep only filename-safe characters.
 _UNSAFE_NAME_CHARS: Final[re.Pattern[str]] = re.compile(r"[^A-Za-z0-9._-]")
+NO_ACCOUNT: Final[str] = "noaccount"
+NO_ZONE: Final[str] = "nozone"
+NO_EVENT: Final[str] = "noevent"
 
 
 class FtpsUploadError(Exception):
@@ -101,6 +105,59 @@ def safe_name_part(text: str) -> str:
     return _UNSAFE_NAME_CHARS.sub("_", text)
 
 
+def _path_part(text: str, fallback: str) -> str:
+    """Return `text` as one safe path component (never empty, never made only of dots)."""
+    part = safe_name_part(text)
+    if not part.strip("."):
+        return fallback
+    return part
+
+
+def remote_location(
+    account: str, zone: str | None, event_id: str, when: datetime, extension: str
+) -> tuple[str, str]:
+    """Return the remote (directory, file name) of one alarm media (ticket 18.8).
+
+    Layout, relative to the configured FTPS folder: `<account>/<YYYY-MM-DD>/` and
+    `<HHMMSS>_<zone>_<event_id>.<extension>`. The date and time are `when` as given (the
+    daemon passes local time), so a snapshot and a clip of one alarm share their prefix.
+
+    Args:
+        account: SIA account.
+        zone: Zone label (None or empty becomes "nozone").
+        event_id: Frigate event id (unique per event, so it separates two alarms of the
+            same zone in the same second).
+        when: Alarm time.
+        extension: File extension without the dot ("jpg" or "mp4").
+
+    Returns:
+        (directory, name); every variable part went through `safe_name_part()`.
+    """
+    directory = f"{_path_part(account, NO_ACCOUNT)}/{when:%Y-%m-%d}"
+    name = (
+        f"{when:%H%M%S}_{_path_part(zone or '', NO_ZONE)}_"
+        f"{_path_part(event_id, NO_EVENT)}.{safe_name_part(extension)}"
+    )
+    return directory, name
+
+
+def _enter_directory(ftp: ftplib.FTP_TLS, directory: str, deadline: float | None) -> None:
+    """Change into `directory` (slash-separated, relative), creating each missing level."""
+    for level in directory.split("/"):
+        _arm(ftp, deadline)
+        try:
+            ftp.cwd(level)
+        except ftplib.error_perm:
+            # Missing level (or a race with another upload that just created it).
+            _arm(ftp, deadline)
+            try:
+                ftp.mkd(level)
+            except ftplib.error_perm:
+                pass  # "already exists": the cwd below tells whether the level is usable
+            _arm(ftp, deadline)
+            ftp.cwd(level)
+
+
 def _build_context(settings: FtpsSettings) -> ssl.SSLContext:
     """TLS context: full verification, or none when a fingerprint is pinned."""
     context = ssl.create_default_context()
@@ -129,7 +186,8 @@ def _check_fingerprint(ftp: ftplib.FTP_TLS, expected: str) -> None:
 
 
 def upload_bytes(
-    settings: FtpsSettings, name: str, data: bytes, deadline: float | None = None
+    settings: FtpsSettings, name: str, data: bytes, deadline: float | None = None,
+    directory: str = "",
 ) -> None:
     """Upload `data` as `name` into the configured folder (blocking).
 
@@ -139,15 +197,20 @@ def upload_bytes(
         data: File content.
         deadline: Absolute `time.monotonic()` value after which the upload aborts
             (None = no overall deadline, only the per-socket timeout).
+        directory: Slash-separated subfolders below the configured folder, created when
+            missing ("" = none).
 
     Raises:
         FtpsUploadError: Any connection, TLS, login or transfer failure. The message names
             the failing exception type and server reply, never the password.
     """
-    _upload_stream(settings, name, io.BytesIO(data), len(data), deadline)
+    _upload_stream(settings, name, io.BytesIO(data), len(data), deadline, directory)
 
 
-def upload_file(settings: FtpsSettings, name: str, path: str, deadline: float | None = None) -> None:
+def upload_file(
+    settings: FtpsSettings, name: str, path: str, deadline: float | None = None,
+    directory: str = "",
+) -> None:
     """Upload the local file at `path` as `name` (blocking, streamed, not read into memory).
 
     Same connection, TLS, fingerprint and error handling as `upload_bytes()`.
@@ -157,6 +220,7 @@ def upload_file(settings: FtpsSettings, name: str, path: str, deadline: float | 
         name: Remote file name (no path).
         path: Local file to send.
         deadline: Absolute `time.monotonic()` abort time (None = none).
+        directory: Subfolders below the configured folder, created when missing.
 
     Raises:
         FtpsUploadError: Any connection, TLS, login, transfer or local file failure.
@@ -164,7 +228,7 @@ def upload_file(settings: FtpsSettings, name: str, path: str, deadline: float | 
     try:
         with open(path, "rb") as source:
             size = os.fstat(source.fileno()).st_size
-            _upload_stream(settings, name, source, size, deadline)
+            _upload_stream(settings, name, source, size, deadline, directory)
     except OSError as err:
         # FtpsUploadError is not an OSError, so only local file problems land here.
         raise FtpsUploadError(f"step read: {type(err).__name__}: {err}") from None
@@ -234,8 +298,9 @@ def _store(
     return ftp.voidresp()
 
 
-def _upload_stream(
-    settings: FtpsSettings, name: str, source: BinaryIO, size: int, deadline: float | None = None
+def _upload_stream(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    settings: FtpsSettings, name: str, source: BinaryIO, size: int, deadline: float | None = None,
+    directory: str = "",
 ) -> None:
     """Connect, authenticate and STOR `source` as `name` (shared by bytes and file uploads)."""
     step = "connect"
@@ -270,6 +335,9 @@ def _upload_stream(
             step = "cwd"
             _arm(ftp, deadline)
             ftp.cwd(settings.folder)
+        if directory:
+            step = "mkdir"
+            _enter_directory(ftp, directory, deadline)
         step = "upload"
         reply = _store(ftp, f"STOR {name}", source, deadline)
         _logger.debug(

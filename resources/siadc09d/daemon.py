@@ -88,7 +88,7 @@ from .ftps_upload import (
     FtpsSettings,
     FtpsUploadError,
     normalize_fingerprint,
-    safe_name_part,
+    remote_location,
     upload_bytes,
     upload_file,
 )
@@ -624,12 +624,16 @@ class SIADaemon(BaseDaemon):
             snapshot: Upload the snapshot.
             clip: Upload the clip.
         """
+        # One alarm time for both media, so they sit side by side on the server (18.8).
+        when = datetime.now().astimezone()
         if snapshot:
-            await self._upload_snapshot(frigate_host, event_id, zone)
+            await self._upload_snapshot(frigate_host, event_id, zone, when)
         if clip:
-            await self._upload_clip(frigate_host, event_id, zone)
+            await self._upload_clip(frigate_host, event_id, zone, when)
 
-    async def _upload_clip(self, frigate_host: str, event_id: str, zone: str | None) -> None:
+    async def _upload_clip(
+        self, frigate_host: str, event_id: str, zone: str | None, when: datetime
+    ) -> None:
         """Download the event clip into a temporary file and upload it by FTPS (best effort).
 
         The temporary file is always deleted. A failure is logged at ERROR and reported to
@@ -648,7 +652,7 @@ class SIADaemon(BaseDaemon):
             await self._report_ftps_failure(zone, str(e), video=True)
             return
         deadline = FTPS_UPLOAD_DEADLINE_S + clip.duration_s
-        name = f"{safe_name_part(self._account)}-{safe_name_part(event_id)}-clip.mp4"
+        directory, name = remote_location(self._account, zone, event_id, when, "mp4")
         try:
             self._logger.debug(
                 f"FTPS upload task: clip {clip.size} bytes from Frigate "
@@ -657,7 +661,7 @@ class SIADaemon(BaseDaemon):
             await asyncio.wait_for(
                 asyncio.to_thread(
                     upload_file, self._ftps, name, clip.path,
-                    deadline=time.monotonic() + deadline,
+                    deadline=time.monotonic() + deadline, directory=directory,
                 ),
                 timeout=deadline + FTPS_TIMEOUT_S + FTPS_OUTER_GRACE_S,
             )
@@ -673,7 +677,9 @@ class SIADaemon(BaseDaemon):
         finally:
             remove_clip_file(clip.path)
 
-    async def _upload_snapshot(self, frigate_host: str, event_id: str, zone: str | None) -> None:
+    async def _upload_snapshot(
+        self, frigate_host: str, event_id: str, zone: str | None, when: datetime
+    ) -> None:
         """Fetch the event snapshot from Frigate and upload it by FTPS (best effort).
 
         A failure means the verification photo is missing at the receiver: it is logged at
@@ -700,12 +706,12 @@ class SIADaemon(BaseDaemon):
             f"FTPS upload task: snapshot {len(snapshot)} bytes from Frigate "
             f"in {time.monotonic() - started:.2f}s"
         )
-        name = f"{safe_name_part(self._account)}-{safe_name_part(event_id)}-snapshot.jpg"
+        directory, name = remote_location(self._account, zone, event_id, when, "jpg")
         try:
             await asyncio.wait_for(
                 asyncio.to_thread(
                     upload_bytes, self._ftps, name, snapshot,
-                    deadline=time.monotonic() + FTPS_UPLOAD_DEADLINE_S,
+                    deadline=time.monotonic() + FTPS_UPLOAD_DEADLINE_S, directory=directory,
                 ),
                 timeout=FTPS_UPLOAD_DEADLINE_S + FTPS_TIMEOUT_S + FTPS_OUTER_GRACE_S,
             )

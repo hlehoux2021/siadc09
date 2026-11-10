@@ -83,6 +83,22 @@ Expected: a PASS line per step (connect, tls, login, data-protection, cwd, uploa
 
 The password is read from `FTPS_PASSWORD` only and is never printed.
 
+## Remote file layout (ticket 18.8, first version)
+
+Below the configured FTPS folder (`upload/` on the test server), the daemon creates one folder per account and per day, and names each file after the alarm time, the zone and the Frigate event:
+
+| Part | Rule | Example |
+|------|------|---------|
+| Folder | `<ftps_folder>/<account>/<YYYY-MM-DD>/` | `upload/001234/2026-11-10/` |
+| File | `<HHMMSS>_<zone>_<event_id>.<jpg or mp4>` | `140509_Salon_1700000.1-abc.jpg` |
+
+- Full path example: `upload/001234/2026-11-10/140509_Salon_1700000.1-abc.jpg`, and the clip of the same alarm beside it as `...abc.mp4`.
+- Date and time are the daemon's local time when the alarm is handled (one value shared by the snapshot and the clip).
+- Every variable part goes through `safe_name_part()` (anything outside `A-Za-z0-9._-` becomes `_`, so `Salon é` gives `Salon__`); an empty or dots-only part becomes `noaccount`, `nozone` or `noevent`, so a path can never contain `..`.
+- Missing folders are created level by level when the file is uploaded (`CWD`, then `MKD` and `CWD` if refused; an "already exists" race is tolerated). The login account needs write permission in the configured folder.
+- Two zones, two times or two events never collide; the event id separates two events of one zone in the same second.
+- Deferred, not in this version: retention, cleanup or quota on the server (files are never deleted by the plugin), and a configurable layout.
+
 ## Not covered
 
 A loopback server proves the protocol and the code, not the network. Timeouts and unreachable servers (18.6) are simulated by stopping or throttling vsftpd; the field run against a separate FTPS server is 18.9.
