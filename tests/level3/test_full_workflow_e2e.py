@@ -9,6 +9,7 @@ Reference: internal-docs/design/daemon-design.md — SM1/SM2 state machines
 Reference: internal-docs/design/supervision-design.md — SM1 lifecycle
 """
 import asyncio
+import re
 import resource
 from contextlib import suppress
 from math import ceil
@@ -1090,8 +1091,9 @@ async def test_happy_path_encrypted(csr_sim):
         ]
         # Assert: at least one frame really is the supervision (NULL code 0000)
         assert any("|0000]" in d for d in decrypted), decrypted
-        # Assert: at least one frame really is the alarm event (BA)
-        assert any("|BA" in d for d in decrypted), decrypted
+        # Assert: at least one frame really is the alarm event (BA); since the
+        # Annex B data block (ee74db6, d35ec5a) it reads |N<ri1>/BA, e.g. |Nri1/BA
+        assert any(re.search(r"\|N?(ri\d+/)?BA", d) for d in decrypted), decrypted
 
     finally:
         with suppress(Exception):
