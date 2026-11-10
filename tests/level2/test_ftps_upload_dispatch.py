@@ -7,6 +7,7 @@ delays it, runs for BA only, and never logs the password.
 import asyncio
 import logging
 import os
+import re
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -72,7 +73,9 @@ async def test_ba_uploads_snapshot_and_enqueues_frame(daemon) -> None:
     settings, name, data = upload.call_args[0]
     # Assert: uploaded to the configured host with the downloaded bytes and fixed name
     assert settings.host == "ftp.example" and data == b"jpeg"
-    assert name == "001234-1700000.1-abc-snapshot.jpg"
+    assert re.fullmatch(r"\d{6}_Z_1700000\.1-abc\.jpg", name)
+    # Assert: sent into <account>/<date> (ticket 18.8)
+    assert re.fullmatch(r"001234/\d{4}-\d{2}-\d{2}", upload.call_args.kwargs["directory"])
 
 
 @pytest.mark.asyncio
