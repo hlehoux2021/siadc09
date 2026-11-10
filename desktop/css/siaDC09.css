@@ -226,8 +226,8 @@
   display: block;
   margin: 8px 0;
   padding: 8px 12px;
-  background: #e9ecef;
-  color: #212529;
+  background: rgba(var(--contrast-color), 0.1);
+  color: rgb(var(--contrast-color));
   font-family: monospace;
   word-break: break-all;
   user-select: all;
