@@ -3,7 +3,7 @@ title: '6.7 - Use the first active equipment'
 type: 'feature'
 ticket: '7'
 created: '2026-11-11'
-status: built
+status: done
 baseline_revision: 'b691d17878a09968e58a687247c19e3422eca264'
 route: 'oneshot'
 route_source: 'auto'
