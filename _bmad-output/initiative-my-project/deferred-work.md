@@ -273,3 +273,7 @@ level2/level3 tests + golden fixture + harness. This closes the 4-group review o
 - source_plan: `_bmad-output/initiative-my-project/epic-18-ftps-alarm-media-upload/story-18-6-upload-robustness-timeout-certificate-secret-handling-plan.md`
   summary: `encryption_key` (AES) and `apikey` still travel on the daemon command line (`ps`); the FTPS password now uses `SIA_FTPS_PASSWORD`. Move both the same way (environment) in a follow-up.
   evidence: 18.6 scoped the change to the FTPS password (Never: moving `encryption_key` or `apikey`); `deamon_start()` still builds `--encryption-key` and `--apikey`, only redacted in the log line. The `SIA_FTPS_PASSWORD=` prefix is also visible for an instant in the `sh -c` wrapper started by `exec()` (the daemon process itself never carries it).
+
+- source_plan: `_bmad-output/initiative-my-project/epic-13-alarm-event-vocabulary/story-13-5-automatic-wiring-of-the-siadc09-commands-into-the-alarm-plan.md`
+  summary: Re-linking does not drop Alarm entries that point at siaDC09 commands deleted and recreated with new ids (only current command ids are recognised).
+  evidence: `_applyAlarmWiring` collects `$this->getCmd()` ids only; ids are stable per logicalId in postSave, so only a manual command deletion triggers it, and the Alarm plugin would then flag the dead cmd. Unverified on a live host.

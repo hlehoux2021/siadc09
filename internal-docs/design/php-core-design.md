@@ -437,7 +437,7 @@ moot for Story 13.1's `disarm`/`alarmReset` commands and Story 13-4's `arm` comm
 DC-03 addresses `BC`/`OP`/`CL` by **user number**, not zone; see "Disarm During an Alarm" at
 the end of this document. `BR` has no source event and is out of scope (story 13-2, parked).
 
-**User configuration required:** In the alarm plugin's zone action settings, the user must manually configure the ACTION command with `title` = `#zone#` (or any text containing `#zone#`). This is NOT automatic — the user must set this up once during configuration.
+**Wiring (story 13.5):** the wizard's step 3 « Lier au plugin Alarme » button calls `linkAlarm`, which writes siaDC09's commands into the chosen Alarm equipment (`alarm_eqlogic_id`, validated server-side as an `alarm` eqLogic) via the pure `siaDC09::buildAlarmWiring()`: hooks `activationImmediateOk` (arm), `release` (disarm), `raz` (alarmReset), and per zone `actions` (burglarAlarm, title `#zone#`) and `actionsImmediate` (prefetchEvent, title `#zone#`, only for a zone with a mapped camera while `media_enabled` is on). Entries are recognised by their cmd id; first all of this equipment's entries are dropped, then the wanted ones appended, so foreign entries are untouched and re-linking never duplicates. `unlinkAlarm` only drops them. Intrusion only (no fire/panic wiring). The installer no longer has to set `title` = `#zone#` by hand.
 
 The PHP `execute()` extracts `$options['title']` which receives the resolved tag value (e.g. `"Salon"` when `#zone#` was configured).
 

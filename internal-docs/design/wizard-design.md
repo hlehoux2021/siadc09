@@ -625,12 +625,21 @@ unrelated and unchanged.
 
 PHP implementation (see Task 3.6 for full code). No caching, no polling endpoint.
 
+### `linkAlarm` / `unlinkAlarm` (story 13.5)
+
+Step 3 carries an Alarm equipment selector and a « Lier au plugin Alarme » button (clickable
+again; not run on « Terminer »). It saves the zone table, then `linkAlarm(alarm_id)` validates
+the id server-side (`ajax::error` + nothing written if not an `alarm` eqLogic), stores
+`alarm_eqlogic_id` and writes the five hooks. `unlinkAlarm` (button next to « Relancer
+l'assistant », not in the wizard) removes only siaDC09's entries; the id stays selected.
+
 ### `getZones`
 
 **Direction:** JS → PHP → alarm plugin eqLogic
 
 ```
-Request:  GET action=getZones
+Request:  GET action=getZones[&alarm_id=N]   (story 13.5: the Alarm equipment picked in the
+          step 3 selector, else the stored alarm_eqlogic_id; validated as an `alarm` eqLogic)
 Response: {zones: ["Salon", "Chambre parents", "Entrée", "Garage"]}
           or {error: "alarm_plugin_not_found"}
           or {error: "no_zones_configured"}

@@ -214,12 +214,19 @@ try {
     }
 
     if (init('action') == 'getZones') {
-        $alarmEqLogics = eqLogic::byType('alarm');
-        if (empty($alarmEqLogics)) {
+        // Story 13.5: the chosen Alarm equipment — the id picked in the selector (not yet
+        // linked) or, failing that, the stored one. Validated: must exist and be an alarm one.
+        $requestedId = init('alarm_id');
+        if ($requestedId === '' || $requestedId === null) {
+            $active = siaDC09::getActiveEquipment();
+            $requestedId = $active !== null ? $active->getConfiguration(siaDC09::ALARM_EQLOGIC_KEY, null) : null;
+        }
+        $alarmEqLogic = siaDC09::getAlarmEquipment($requestedId);
+        if ($alarmEqLogic === null) {
             ajax::success(['error' => 'alarm_plugin_not_found']);
             return;
         }
-        $zones = $alarmEqLogics[0]->getConfiguration('zones', []);
+        $zones = $alarmEqLogic->getConfiguration('zones', []);
         if (!is_array($zones)) {
             $zones = [];
         }
@@ -228,6 +235,32 @@ try {
             return;
         }
         ajax::success(['zones' => array_column($zones, 'name')]);
+    }
+
+    // Story 13.5: writes this equipment's commands into the chosen Alarm equipment's hooks.
+    if (init('action') == 'linkAlarm') {
+        $eqLogic = siaDC09::getActiveEquipment();
+        if ($eqLogic === null) {
+            ajax::error(__('Aucun équipement siaDC09 actif trouvé', __FILE__));
+            return;
+        }
+        if (siaDC09::getAlarmEquipment(init('alarm_id')) === null) {
+            ajax::error(__('Équipement Alarme introuvable', __FILE__));
+            return;
+        }
+        $eqLogic->linkAlarm(init('alarm_id'));
+        ajax::success(['linked' => true]);
+    }
+
+    // Story 13.5: removes only this equipment's entries; the stored Alarm id stays.
+    if (init('action') == 'unlinkAlarm') {
+        $eqLogic = siaDC09::getActiveEquipment();
+        if ($eqLogic === null) {
+            ajax::error(__('Aucun équipement siaDC09 actif trouvé', __FILE__));
+            return;
+        }
+        $eqLogic->unlinkAlarm();
+        ajax::success(['unlinked' => true]);
     }
 
     if (init('action') == 'getFrigateCameras') {

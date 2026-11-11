@@ -102,7 +102,11 @@ Cliquez sur **Terminer**. La page affiche alors le panneau **Configuration activ
 
 ## Câbler le plugin Alarme
 
-siaDC09 ne surveille pas vos capteurs : c'est le **plugin Alarme** qui décide, et qui appelle les commandes de l'équipement « Télésurveillance ». Dans la configuration de votre équipement Alarme :
+siaDC09 ne surveille pas vos capteurs : c'est le **plugin Alarme** qui décide, et qui appelle les commandes de l'équipement « Télésurveillance ».
+
+**Câblage automatique.** À l'étape 3 de l'assistant, choisissez votre équipement Alarme puis cliquez sur **« Lier au plugin Alarme »** : siaDC09 écrit lui-même ses commandes dans les actions de cet équipement (Armement, Désarmement, Réinitialisation alarme, et par zone Alarme intrusion et, si la zone a une caméra et que les médias sont activés, Prefetch). Le bouton peut être recliqué après tout changement de zones : les entrées sont rafraîchies, jamais dupliquées, et vos autres actions ne sont pas touchées. **Fermez la page de l'équipement Alarme avant de lier** : un enregistrement depuis cette page écraserait le résultat. Le bouton **« Délier du plugin Alarme »**, à côté de « Relancer l'assistant », retire uniquement les entrées de siaDC09. Le plugin gère uniquement l'intrusion : incendie et panique ne sont pas câblés.
+
+Le tableau suivant décrit ce que la liaison écrit (utile pour vérifier, ou pour câbler à la main) :
 
 | Où, dans le plugin Alarme | Commande siaDC09 à ajouter | Ce qui est envoyé à la centrale |
 |---------------------------|----------------------------|----------------------------------|
@@ -146,7 +150,7 @@ Si une zone est reliée à une caméra Frigate, la trame d'alarme peut contenir 
 1. Installez et configurez le **plugin Frigate**. siaDC09 lit l'adresse du serveur Frigate dans la configuration de ce plugin.
 2. À l'étape 3, choisissez la caméra de chaque zone.
 3. Renseignez l'**URL media Frigate** : c'est l'adresse publique par laquelle la centrale joindra votre Frigate, **avec des marqueurs littéraux à la place des identifiants**, par exemple `https://<user>:<pass>@frigate.example.org/` ou `https://frigate.example.org/?accesstoken=<token>`. **N'y mettez jamais un vrai mot de passe** : c'est la centrale qui remplace les marqueurs par vos identifiants, qu'elle détient par ailleurs.
-4. Ajoutez la commande **Prefetch événement Frigate** aux **actions immédiates de déclenchement** (globales, de préférence), avec le Titre `#zone#` (voir [le tableau de câblage](#câbler-le-plugin-alarme)).
+4. Le bouton **« Lier au plugin Alarme »** (étape 3) câble la commande **Prefetch événement Frigate** dans les actions immédiates de chaque zone qui a une caméra, avec le Titre `#zone#` (voir [le câblage](#câbler-le-plugin-alarme)).
 
 Pour bien régler Frigate (exposition à la centrale, enregistrements, objets suivis), lisez les [conseils Frigate](frigate.md).
 

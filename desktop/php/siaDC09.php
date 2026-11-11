@@ -118,6 +118,7 @@ $scenarios = scenario::all();
 							<div class="form-group">
 								<div class="col-sm-offset-4 col-sm-6">
 									<a class="btn btn-warning btn-sm" id="bt_restartWizard"><i class="fas fa-redo"></i> {{Relancer l'assistant}}</a>
+									<a class="btn btn-default btn-sm" id="bt_unlinkAlarm" style="display:none;"><i class="fas fa-unlink"></i> {{Délier du plugin Alarme}}</a>
 								</div>
 							</div>
 						</div>
@@ -412,6 +413,22 @@ $scenarios = scenario::all();
 											<i class="fas fa-exclamation-triangle"></i> {{Aucune caméra Frigate détectée — installez et configurez le plugin Frigate NVR pour rattacher un aperçu aux alarmes.}}
 										</div>
 										<div id="siaDC09-step3-errors" class="alert alert-danger siaDC09-banner-error" role="alert" style="display:none;"></div>
+											<div class="siaDC09-row" style="margin-bottom:10px;">
+												<div class="siaDC09-field siaDC09-w-wide">
+													<label class="siaDC09-label" for="siaDC09-alarm-select">{{Équipement Alarme}}</label>
+													<select id="siaDC09-alarm-select" class="form-control">
+														<option value="">{{(choisir)}}</option>
+<?php
+foreach ((eqLogic::byType('alarm') ?: []) as $siaDC09AlarmEq) {
+	echo '<option value="' . (int) $siaDC09AlarmEq->getId() . '">' . htmlspecialchars($siaDC09AlarmEq->getHumanName(true)) . '</option>';
+}
+?>
+													</select>
+													<a class="btn btn-primary btn-sm" id="bt_linkAlarm" style="margin-top:6px;"><i class="fas fa-link"></i> {{Lier au plugin Alarme}}</a>
+													<p class="siaDC09-help">{{Écrit les commandes siaDC09 dans les actions de l'équipement Alarme choisi (armement, désarmement, remise à zéro, alarme intrusion, prefetch). Vous pouvez relier à nouveau après un changement de zones.}}</p>
+													<p class="siaDC09-help"><i class="fas fa-exclamation-triangle"></i> {{Fermez la page de cet équipement Alarme avant de lier : un enregistrement depuis cette page écraserait le résultat.}}</p>
+												</div>
+											</div>
 										<div class="table-responsive">
 											<table id="siaDC09-zone-table" class="table table-bordered table-condensed">
 												<thead>
@@ -426,7 +443,7 @@ $scenarios = scenario::all();
 											</table>
 										</div>
 										<p class="siaDC09-help">
-											<i class="fas fa-info-circle"></i> {{Prefetch événement Frigate : à câbler aux actions immédiates de déclenchement (globales, recommandé), Titre =}} <code>#zone#</code> — <a href="https://hlehoux2021.github.io/siadc09/fr_FR/#câbler-le-plugin-alarme" target="_blank" rel="noopener">{{voir la documentation de câblage}}</a>.
+											<i class="fas fa-info-circle"></i> {{Le prefetch Frigate est câblé automatiquement pour les zones qui ont une caméra, à la liaison avec le plugin Alarme.}}
 										</p>
 										<div class="siaDC09-row" style="margin-top:14px;">
 											<div class="siaDC09-field siaDC09-w-wide">
@@ -436,7 +453,7 @@ $scenarios = scenario::all();
 											</div>
 										</div>
 										<p class="siaDC09-help">
-											<i class="fas fa-info-circle"></i> {{Trois commandes à câbler dans le plugin Alarme —}} <a href="https://hlehoux2021.github.io/siadc09/fr_FR/#câbler-le-plugin-alarme" target="_blank" rel="noopener">{{voir la documentation de câblage}}</a>.
+											<i class="fas fa-info-circle"></i> {{Le bouton « Lier au plugin Alarme » câble les commandes à votre place —}} <a href="https://hlehoux2021.github.io/siadc09/fr_FR/#câbler-le-plugin-alarme" target="_blank" rel="noopener">{{voir la documentation de câblage}}</a>.
 										</p>
 									</div>
 

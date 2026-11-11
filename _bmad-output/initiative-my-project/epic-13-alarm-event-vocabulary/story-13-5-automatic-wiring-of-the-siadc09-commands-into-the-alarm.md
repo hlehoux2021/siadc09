@@ -23,7 +23,7 @@ What gets wired:
 | Activation OK, immediate | Armement | none |
 | Désactivation OK | Désarmement | none |
 | Réinitialisation | Réinitialisation alarme | none |
-| Each zone, standard actions | Alarme intrusion, Alarme incendie or Alarme panique, as chosen for that zone | `#zone#` |
+| Each zone, standard actions | Alarme intrusion for that zone | `#zone#` |
 | Each zone, immediate actions | Prefetch événement Frigate, for zones with a mapped camera while photo/video verification is on | `#zone#` |
 
 Linking again, after a zone is added or renamed, brings the wiring up to date. Unlinking removes what siaDC09 added and nothing else.
@@ -46,7 +46,7 @@ Decisions (2026-11-11, Herve, after a read-only study of the Alarm plugin source
 
 - Decision: write into the Alarm equipment's configuration ("plan A"). The alternative, listening to the Alarm plugin's state commands, was studied and rejected. It loses a second intrusion when the Alarm option « Réarmement automatique » or « Séparer les zones » is on, it can send false arm/disarm reports after a restore or a re-save, it can reorder messages, and it can only guess the zone and the triggering sensor. Wiring is exact because the Alarm plugin itself calls our commands and fills in `#zone#`.
 - Decision: the whole plan stays one story. The builder may propose a split at plan time (pure wiring function with tests; AJAX action and wizard; resync and docs).
-- Decision: the entry point is the wizard's step 3, which already lists the zones read from the Alarm plugin. It gains an Alarm equipment selector and a column for the alarm kind per zone (Intrusion, Incendie, Panique, none).
+- Decision: the entry point is the wizard's step 3, which already lists the zones read from the Alarm plugin. There is no an Alarm equipment selector because only Intrusion is supported by  the plugin.
 - Decision: the Alarm equipment identifier is stored on the siaDC09 equipment and validated server-side (it exists and is an Alarm equipment). The zone list then reads that equipment, not the first one found.
 - Decision: wiring is idempotent. Entries that point at a command of this siaDC09 equipment are removed, then the wanted ones are added. The installer's existing hand-made wiring is replaced, never duplicated. Entries of other commands are never touched.
 - Decision: each added entry is enabled and set to run in all modes (`options.enable` set, `onMode` = `all`).

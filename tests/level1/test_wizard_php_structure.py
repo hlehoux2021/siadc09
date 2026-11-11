@@ -293,35 +293,29 @@ def test_step3_media_url_template_field_is_plain_text(php_page: str) -> None:
     assert 'type="password"' not in match.group(0)
 
 
-def test_step3_prefetch_event_wiring_guidance_present(php_page: str) -> None:
+def test_step3_alarm_link_replaces_manual_prefetch_wiring(php_page: str) -> None:
     """
-    Story 14-2 (ADR-17 Amendment 3 / Option D): siaDC09 cannot register the
-    prefetchEvent command into the alarm plugin's zone action buckets
-    programmatically — the alarm plugin owns that wiring. Step 3 must carry a
-    non-blocking help note telling the installer to add it manually to each
-    mapped zone's immediate actions.
+    Story 13.5 supersedes story 14-2's manual prefetchEvent wiring note: siaDC09
+    now writes its own commands (prefetch included, Titre = #zone#) into the
+    chosen Alarm equipment, so step 3 offers a selector and a link button
+    instead of asking the installer to paste the command by hand.
 
     Expected result:
-    - Step 3 markup mentions the "Prefetch événement Frigate" command name
-    - the note explicitly says "immédiates", not "temporisées"
-    - the note tells the installer to set the Titre field to #zone# — confirmed as a real
-      requirement on the live host (2026-09-24): prefetchEvent's subType is 'message', and
-      the alarm plugin only substitutes #zone# into a 'message'-subtype command's Titre
-      field, never automatically
+    - Step 3 markup holds the Alarm equipment selector and the link button
+    - Step 3 warns to close the Alarm equipment page before linking
+    - the manual "Prefetch événement Frigate ... Titre =" instruction is gone
     """
     step3_start = php_page.index('id="siaDC09-step3"')
     step3_end = php_page.index('<!-- /#siaDC09-step3 -->')
     step3_markup = php_page[step3_start:step3_end]
-    # Assert: the command's display name is referenced so the installer can find it
-    assert "Prefetch événement Frigate" in step3_markup, (
-        "prefetchEvent wiring guidance not found in Step 3"
-    )
-    # Assert: guidance names the immediate-actions bucket, not the standard one
-    assert "immédiates" in step3_markup
-    # Assert: guidance tells the installer to set Titre to #zone# — without this, the zone
-    # never reaches execute() and the prefetch can never resolve a camera
-    assert "#zone#" in step3_markup
-    assert "Titre" in step3_markup
+    # Assert: the Alarm equipment selector is offered in step 3
+    assert 'id="siaDC09-alarm-select"' in step3_markup
+    # Assert: the link button is offered in step 3
+    assert 'id="bt_linkAlarm"' in step3_markup
+    # Assert: the installer is warned about an open Alarm page overwriting the result
+    assert "Fermez la page de cet équipement Alarme" in step3_markup
+    # Assert: the old manual instruction (paste the command, set Titre by hand) is gone
+    assert "Prefetch événement Frigate" not in step3_markup
 
 
 # ── Step 4: Notification command picker ─────────────────────────────────────

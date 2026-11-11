@@ -46,6 +46,8 @@ class siaDC09 extends eqLogic {
     const MEDIA_FORMATS = ['U', 'V'];
     /** Story 17.10: master switch of the "Levée de doute photo / vidéo" card; absent = on. */
     const MEDIA_ENABLED_KEY = 'media_enabled';
+    /** Story 13.5: id of the Alarm equipment this equipment writes its commands into. */
+    const ALARM_EQLOGIC_KEY = 'alarm_eqlogic_id';
     const MEDIA_URL_TEMPLATE_KEY = 'frigate_media_url_template';
     const MEDIA_SNAPSHOT_ENABLED_KEY = 'media_snapshot_enabled';
     const MEDIA_CLIP_ENABLED_KEY = 'media_clip_enabled';
@@ -124,6 +126,164 @@ class siaDC09 extends eqLogic {
             log::add(__CLASS__, 'error', __('Plusieurs équipements actifs détectés — le premier est utilisé', __FILE__));
         }
         return $active[0];
+    }
+
+    /**
+     * Story 13.5 — one list entry of the Alarm plugin, in the shape its UI saves.
+     */
+    private static function _alarmEntry(int $cmdId, string $title): array {
+        return [
+            'cmd'    => '#' . $cmdId . '#',
+            'onMode' => 'all',
+            'options' => ['enable' => 1, 'background' => 0, 'title' => $title, 'message' => ''],
+        ];
+    }
+
+    /**
+     * Drops every entry whose cmd is one of $ownCmdIds; foreign entries stay, same order.
+     * Entries are recognised by their cmd id only (the Alarm UI save rebuilds lists from
+     * its form fields, so a marker key would not survive).
+     */
+    private static function _dropOwnEntries(mixed $list, array $ownCmdIds): array {
+        if (!is_array($list)) {
+            return [];
+        }
+        $own = array_map('intval', $ownCmdIds);
+        $kept = [];
+        foreach ($list as $entry) {
+            $cmd = is_array($entry) ? trim((string) ($entry['cmd'] ?? ''), "# \t") : '';
+            if ($cmd !== '' && ctype_digit($cmd) && in_array((int) $cmd, $own, true)) {
+                continue;
+            }
+            $kept[] = $entry;
+        }
+        return $kept;
+    }
+
+    /**
+     * Story 13.5 — pure: the Alarm equipment's five hooks with siaDC09's entries rewritten.
+     *
+     * @param array $hooks         ['activationImmediateOk'=>list, 'release'=>list, 'raz'=>list] currently stored.
+     * @param array $zones         The Alarm equipment's `zones` configuration.
+     * @param array $ownCmdIds     Every command id of this siaDC09 equipment (entries to drop first).
+     * @param array $logicalCmdIds logicalId => id for arm, disarm, alarmReset, burglarAlarm, prefetchEvent.
+     * @param array $cameraZones   Names of the zones with a mapped camera.
+     * @param bool  $mediaEnabled  media_enabled resolved (absent = on); gates the prefetch entries.
+     * @param bool  $link         false = unlink: only drop our entries.
+     * @return array ['hooks' => ..., 'zones' => ...] same keys as the input.
+     */
+    public static function buildAlarmWiring(array $hooks, array $zones, array $ownCmdIds, array $logicalCmdIds, array $cameraZones, bool $mediaEnabled, bool $link = true): array {
+        $hookMap = ['activationImmediateOk' => 'arm', 'release' => 'disarm', 'raz' => 'alarmReset'];
+        $outHooks = [];
+        foreach ($hookMap as $hook => $logicalId) {
+            $list = self::_dropOwnEntries($hooks[$hook] ?? [], $ownCmdIds);
+            if ($link && isset($logicalCmdIds[$logicalId])) {
+                $list[] = self::_alarmEntry((int) $logicalCmdIds[$logicalId], '');
+            }
+            $outHooks[$hook] = $list;
+        }
+        $camera = array_map(static fn($n) => mb_strtolower(trim((string) $n)), $cameraZones);
+        $outZones = [];
+        foreach ($zones as $zone) {
+            if (!is_array($zone)) {
+                $outZones[] = $zone;
+                continue;
+            }
+            $actions = self::_dropOwnEntries($zone['actions'] ?? [], $ownCmdIds);
+            $immediate = self::_dropOwnEntries($zone['actionsImmediate'] ?? [], $ownCmdIds);
+            if ($link) {
+                $name = (string) ($zone['name'] ?? '');
+                if (isset($logicalCmdIds['burglarAlarm'])) {
+                    $actions[] = self::_alarmEntry((int) $logicalCmdIds['burglarAlarm'], '#zone#');
+                }
+                if ($mediaEnabled && isset($logicalCmdIds['prefetchEvent'])
+                    && in_array(mb_strtolower(trim($name)), $camera, true)) {
+                    $immediate[] = self::_alarmEntry((int) $logicalCmdIds['prefetchEvent'], '#zone#');
+                }
+            }
+            $zone['actions'] = $actions;
+            $zone['actionsImmediate'] = $immediate;
+            $outZones[] = $zone;
+        }
+        return ['hooks' => $outHooks, 'zones' => $outZones];
+    }
+
+    /**
+     * Story 13.5 — the Alarm equipment `$alarmId` when it exists and is an alarm one, else null.
+     */
+    public static function getAlarmEquipment(mixed $alarmId): ?eqLogic {
+        if (!is_numeric($alarmId) || (int) $alarmId <= 0) {
+            return null;
+        }
+        $alarm = eqLogic::byId((int) $alarmId);
+        if (!is_object($alarm) || $alarm->getEqType_name() !== 'alarm') {
+            return null;
+        }
+        return $alarm;
+    }
+
+    /**
+     * Story 13.5 — writes (or, with $link=false, removes) this equipment's entries in the
+     * Alarm equipment's hooks. Only the five hooks of the story are touched.
+     */
+    private function _applyAlarmWiring(eqLogic $alarm, bool $link): void {
+        $ownIds = [];
+        $logicalIds = [];
+        foreach ($this->getCmd() as $cmd) {
+            $ownIds[] = (int) $cmd->getId();
+            if ($cmd->getType() === 'action') {
+                $logicalIds[$cmd->getLogicalId()] = (int) $cmd->getId();
+            }
+        }
+        $hooks = [];
+        foreach (['activationImmediateOk', 'release', 'raz'] as $hook) {
+            $hooks[$hook] = $alarm->getConfiguration($hook, []);
+        }
+        $zones = $alarm->getConfiguration('zones', []);
+        $mapping = $this->getConfiguration('sia_zone_mappings', []);
+        if (is_string($mapping)) {
+            $mapping = json_decode($mapping, true);
+        }
+        $cameraZones = [];
+        foreach (is_array($mapping) ? $mapping : [] as $entry) {
+            if (is_array($entry) && !empty($entry['frigate_camera_eqlogic_id'])) {
+                $cameraZones[] = (string) ($entry['zone_name'] ?? '');
+            }
+        }
+        $media = $this->getConfiguration(self::MEDIA_ENABLED_KEY, null);
+        $mediaOn = $media === null || $media === '' || (bool) $media;
+        $built = self::buildAlarmWiring($hooks, is_array($zones) ? $zones : [], $ownIds, $logicalIds, $cameraZones, $mediaOn, $link);
+        foreach ($built['hooks'] as $hook => $list) {
+            $alarm->setConfiguration($hook, $list);
+        }
+        $alarm->setConfiguration('zones', $built['zones']);
+        $alarm->save();
+    }
+
+    /**
+     * Story 13.5 — links this equipment to the Alarm equipment `$alarmId`: stores the id,
+     * then writes the entries. Nothing is stored or written when the id is not an alarm one.
+     */
+    public function linkAlarm(mixed $alarmId): void {
+        $alarm = self::getAlarmEquipment($alarmId);
+        if ($alarm === null) {
+            throw new Exception(__('Équipement Alarme introuvable', __FILE__));
+        }
+        // Store the id first: if writing the hooks fails midway, unlinkAlarm() can still find them.
+        $this->setConfiguration(self::ALARM_EQLOGIC_KEY, (int) $alarm->getId());
+        $this->save();
+        $this->_applyAlarmWiring($alarm, true);
+    }
+
+    /**
+     * Story 13.5 — removes only this equipment's entries; the stored Alarm id stays.
+     */
+    public function unlinkAlarm(): void {
+        $alarm = self::getAlarmEquipment($this->getConfiguration(self::ALARM_EQLOGIC_KEY, null));
+        if ($alarm === null) {
+            throw new Exception(__('Équipement Alarme introuvable', __FILE__));
+        }
+        $this->_applyAlarmWiring($alarm, false);
     }
 
     private static function _getAutoEquipmentSafe(): ?self {

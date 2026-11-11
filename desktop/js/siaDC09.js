@@ -36,6 +36,9 @@ function printEqLogic(_eqLogic) {
     if ($f.is(':checkbox')) $f.prop('checked', !!mediaDefaults[key])
     else $f.val(mediaDefaults[key])
   })
+  // Story 13.5: the stored Alarm equipment stays selected; unlinking only removes our entries.
+  $('#siaDC09-alarm-select').val(cfgSaved.alarm_eqlogic_id ? String(cfgSaved.alarm_eqlogic_id) : '')
+  $('#bt_unlinkAlarm').toggle(!!cfgSaved.alarm_eqlogic_id)
   siaDC09_syncFtpsCertRadios()
   siaDC09_updateMediaFields()
   siaDC09_updateAesRow()
@@ -1132,6 +1135,70 @@ $('#bt_restartWizard').on('click', function() {
   }, reEnable)
 })
 
+// ===== STEP 3: ALARM LINK (story 13.5) =====
+
+$('#siaDC09-alarm-select').on('change', function() {
+  jeedom.eqLogic.byId({
+    id: $('.eqLogic').getValues('.eqLogicAttr')[0].id,
+    error: function(error) { $('#div_alert').showAlert({ message: error.message, level: 'danger' }) },
+    success: function(fullEqLogic) { siaDC09_loadZoneData(fullEqLogic) }
+  })
+})
+
+function siaDC09_alarmAjax(action, alarmId, okMessage, done) {
+  var $btn = $('#bt_linkAlarm, #bt_unlinkAlarm')
+  $btn.addClass('disabled')
+  $.ajax({
+    type: 'POST',
+    url: 'plugins/siaDC09/core/ajax/siaDC09.ajax.php',
+    data: { action: action, alarm_id: alarmId, ajax: 1 },
+    dataType: 'json',
+    global: false,
+    error: function() {
+      $btn.removeClass('disabled')
+      $('#div_alert').showAlert({ message: '{{Erreur}}', level: 'danger' })
+    },
+    success: function(data) {
+      $btn.removeClass('disabled')
+      if (data.state !== 'ok') {
+        $('#div_alert').showAlert({ message: data.result || '{{Erreur}}', level: 'danger' })
+        return
+      }
+      $('#div_alert').showAlert({ message: okMessage, level: 'success' })
+      done()
+    }
+  })
+}
+
+$('#bt_linkAlarm').on('click', function() {
+  var alarmId = $('#siaDC09-alarm-select').val()
+  if (!alarmId) {
+    $('#div_alert').showAlert({ message: '{{Choisissez un équipement Alarme}}', level: 'warning' })
+    return
+  }
+  if ($(this).hasClass('disabled')) return
+  // The zone/camera table is only persisted on « Terminer »: save it first so the link sees it.
+  var eq = saveEqLogic($('.eqLogic').getValues('.eqLogicAttr')[0])
+  jeedom.eqLogic.save({
+    type: 'siaDC09',
+    eqLogics: [eq],
+    error: function(error) { $('#div_alert').showAlert({ message: (error && error.message) || '{{Erreur}}', level: 'danger' }) },
+    success: function() {
+      // The direct save does not clear Jeedom's dirty flag: reset it so no needless prompt appears.
+      window.modifyWithoutSave = false
+      jeeFrontEnd.modifyWithoutSave = false
+      siaDC09_alarmAjax('linkAlarm', alarmId, '{{Commandes liées au plugin Alarme}}', function() {
+        $('#bt_unlinkAlarm').show()
+      })
+    }
+  })
+})
+
+$('#bt_unlinkAlarm').on('click', function() {
+  if ($(this).hasClass('disabled')) return
+  siaDC09_alarmAjax('unlinkAlarm', '', '{{Commandes retirées du plugin Alarme}}', function() {})
+})
+
 // ===== STEP 3: ZONE TABLE =====
 
 function siaDC09_loadZoneData(eqLogic) {
@@ -1151,7 +1218,7 @@ function siaDC09_loadZoneData(eqLogic) {
       $.ajax({
         type: 'POST',
         url: 'plugins/siaDC09/core/ajax/siaDC09.ajax.php',
-        data: { action: 'getZones', ajax: 1 },
+        data: { action: 'getZones', alarm_id: $('#siaDC09-alarm-select').val() || '', ajax: 1 },
         dataType: 'json',
         global: false,
         success: function(data2) {
@@ -1175,7 +1242,7 @@ function siaDC09_loadZoneData(eqLogic) {
       $.ajax({
         type: 'POST',
         url: 'plugins/siaDC09/core/ajax/siaDC09.ajax.php',
-        data: { action: 'getZones', ajax: 1 },
+        data: { action: 'getZones', alarm_id: $('#siaDC09-alarm-select').val() || '', ajax: 1 },
         dataType: 'json',
         global: false,
         success: function(data2) {

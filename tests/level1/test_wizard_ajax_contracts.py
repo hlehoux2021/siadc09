@@ -291,10 +291,14 @@ def test_get_zones_loads_alarm_plugin(ajax_source: str) -> None:
     getZones must load the alarm plugin's eqLogic to read zone configuration.
 
     Expected result:
-    - eqLogic::byType('alarm') call present
+    - the chosen Alarm equipment (story 13.5) is resolved by id, validated as an alarm one
+    - no longer the first equipment of the type
     """
-    # Assert: alarm plugin loaded
-    assert "eqLogic::byType('alarm')" in ajax_source
+    # Assert: alarm equipment resolved by stored/selected id
+    assert "siaDC09::getAlarmEquipment(" in ajax_source
+    assert "ALARM_EQLOGIC_KEY" in ajax_source
+    # Assert: the byType()[0] shortcut is gone
+    assert "eqLogic::byType('alarm')" not in ajax_source
 
 
 def test_get_zones_handles_no_alarm_plugin(ajax_source: str) -> None:

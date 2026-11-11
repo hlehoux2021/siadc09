@@ -5,6 +5,7 @@
         "Aucun équipement configuré": "No equipment configured",
         "Plusieurs équipements actifs détectés — le premier est utilisé": "Multiple active equipments detected — the first one is used",
         "Lancement démon": "Starting daemon",
+        "Équipement Alarme introuvable": "Alarm equipment not found",
         "Alarme intrusion": "Burglary alarm",
         "Alarme incendie": "Fire alarm",
         "Alarme panique": "Panic alarm",
@@ -28,6 +29,8 @@
     },
     "plugins\/siaDC09\/core\/ajax\/siaDC09.ajax.php": {
         "401 - Accès non autorisé": "401 - Unauthorized access",
+        "Équipement Alarme introuvable": "Alarm equipment not found",
+        "Aucun équipement siaDC09 actif trouvé": "No active siaDC09 equipment found",
         "Aucune méthode correspondante à": "No matching method for"
     }
 }

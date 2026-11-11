@@ -733,9 +733,10 @@ def test_ajax_actions_use_the_active_equipment() -> None:
     assert "$eqLogics" not in ajax_source, (
         "a leftover $eqLogics[0] would overwrite the resolved equipment with null"
     )
-    # Assert: four actions use the shared resolver
-    assert ajax_source.count("siaDC09::getActiveEquipment()") == 4, (
-        "testFtps, testConnection, getDiagnosticData and the frame decoder must call getActiveEquipment()"
+    # Assert: seven actions use the shared resolver (story 13.5 added getZones, linkAlarm, unlinkAlarm)
+    assert ajax_source.count("siaDC09::getActiveEquipment()") == 7, (
+        "testFtps, testConnection, getZones, linkAlarm, unlinkAlarm, getDiagnosticData and the frame decoder "
+        "must call getActiveEquipment()"
     )
 
 
