@@ -263,6 +263,7 @@ try {
         ajax::success([
             'alarm_id' => siaDC09::getAlarmEquipment($alarmId) !== null ? (int) $alarmId : null,
             'linked'   => $eqLogic->isLinkedToAlarm(),
+            'hooks'    => $eqLogic->alarmHooksWithOwnEntries(),
         ]);
     }
 

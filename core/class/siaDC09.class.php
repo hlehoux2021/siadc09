@@ -283,21 +283,32 @@ class siaDC09 extends eqLogic {
      * equipment in its five hooks. The stored id alone says nothing: it stays after an unlink.
      */
     public function isLinkedToAlarm(): bool {
+        return count($this->alarmHooksWithOwnEntries()) > 0;
+    }
+
+    /**
+     * Story 13.5 — names of the Alarm hooks that still hold an entry of this equipment, each
+     * with the cmd ids found there (for diagnosis).
+     *
+     * @return array<string, array> hook => ids of our commands present
+     */
+    public function alarmHooksWithOwnEntries(): array {
         $alarm = self::getAlarmEquipment($this->getConfiguration(self::ALARM_EQLOGIC_KEY, null));
         if ($alarm === null) {
-            return false;
+            return [];
         }
         $ownIds = [];
         foreach ($this->getCmd() as $cmd) {
             $ownIds[] = (int) $cmd->getId();
         }
+        $found = [];
         foreach (['activationImmediateOk', 'release', 'raz', 'outbreak', 'outbreakImmediate'] as $hook) {
             $list = $alarm->getConfiguration($hook, []);
             if (is_array($list) && count(self::_dropOwnEntries($list, $ownIds)) !== count($list)) {
-                return true;
+                $found[$hook] = array_values(array_map(static fn($e) => is_array($e) ? ($e['cmd'] ?? '') : '', $list));
             }
         }
-        return false;
+        return $found;
     }
 
     private static function _getAutoEquipmentSafe(): ?self {
