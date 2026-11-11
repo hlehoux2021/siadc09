@@ -1138,8 +1138,12 @@ $('#bt_restartWizard').on('click', function() {
 // ===== STEP 3: ALARM LINK (story 13.5) =====
 
 $('#siaDC09-alarm-select').on('change', function() {
+  // Jeedom fills the form on page load and may fire « change » here before the equipment id is
+  // set: byId() with no id answers « EqLogic inconnu ». Do nothing until the id is known.
+  var eqLogicId = $('.eqLogic').getValues('.eqLogicAttr')[0].id
+  if (!eqLogicId) return
   jeedom.eqLogic.byId({
-    id: $('.eqLogic').getValues('.eqLogicAttr')[0].id,
+    id: eqLogicId,
     error: function(error) { $('#div_alert').showAlert({ message: error.message, level: 'danger' }) },
     success: function(fullEqLogic) { siaDC09_loadZoneData(fullEqLogic) }
   })
