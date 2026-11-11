@@ -71,3 +71,15 @@ after = []
 hitl = false
 risk = "low"
 v6_key = "6-6-php-core-integration-ipc-tests"
+
+[[entry]]
+id = 7
+type = "story"
+title = "6.7 — Use the first active equipment"
+description = "The plugin works on the first enabled siaDC09 equipment instead of the first one found, so a user can keep disabled equipments in reserve. Auto-creation happens only when no enabled equipment exists. Applies everywhere the plugin picks its equipment: auto-equipment resolution, and the test-connection, test-FTPS, diagnostic-data and key-generation actions."
+verify = "With one disabled and one enabled equipment, every action uses the enabled one; with only disabled equipments, a new enabled equipment is created and the disabled ones are left untouched."
+covers = []
+after = []
+hitl = false
+risk = "medium"
+notes = ["Assumption: the choice among several enabled equipments stays as today (first returned, error logged), only the filter changes.", "Assumption: the existing log 'Plusieurs équipements détectés' now counts enabled equipments only.", "Source conflict: internal-docs/design/php-core-design.md (plugin-centric, 'only one equipment exists', auto-recreate if deleted), supervision-design.md (_getAutoEquipmentSafe) and the architecture document state one equipment; the story must review those docs and the ADRs (architecture-my-project) and amend every statement that contradicts 'first active equipment' (supersede an ADR with a new one, never edit its body).", "Assumption: the equipment list page (desktop/php/siaDC09.php) keeps listing every equipment, disabled ones greyed; the user picks which to open, so it is out of scope."]
