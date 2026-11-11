@@ -60,9 +60,10 @@ def test_link_three_zones() -> None:
     Matrix row "Link": an Alarm equipment with 3 zones, 2 of them with a camera.
 
     Expected result:
-    - the three hooks each get our command
-    - every zone gets « Alarme intrusion » with title #zone#
-    - only camera zones get the prefetch entry (case/space insensitive)
+    - arm, disarm and reset hooks each get our command
+    - the global Déclenchement hooks get « Alarme intrusion » (outbreak) and the
+      prefetch (outbreakImmediate), both with title #zone#
+    - zones receive nothing
     """
     zones = [{"name": n} for n in ("Salon", "Cuisine", "Garage")]
     res = _run({}, zones, ["Salon", "garage "])
@@ -70,11 +71,12 @@ def test_link_three_zones() -> None:
     assert res["hooks"]["activationImmediateOk"] == [_e(10)]
     assert res["hooks"]["release"] == [_e(11)]
     assert res["hooks"]["raz"] == [_e(12)]
-    # Assert: every zone has the intrusion action with #zone#
+    # Assert: the global trigger tab carries intrusion and prefetch with #zone#
+    assert res["hooks"]["outbreak"] == [_e(13, "#zone#")]
+    assert res["hooks"]["outbreakImmediate"] == [_e(14, "#zone#")]
+    # Assert: no zone gets an entry of ours (would send the event twice)
     for z in res["zones"]:
-        assert z["actions"] == [_e(13, "#zone#")]
-    # Assert: prefetch only on the two camera zones
-    assert [z["actionsImmediate"] for z in res["zones"]] == [[_e(14, "#zone#")], [], [_e(14, "#zone#")]]
+        assert z["actions"] == [] and z["actionsImmediate"] == []
 
 
 @_requires_php
@@ -83,8 +85,8 @@ def test_relink_is_idempotent_and_refreshes_zones() -> None:
     Matrix row "Re-link": a zone is added after a first link.
 
     Expected result:
-    - linking again produces identical hooks and existing zones (no duplicate)
-    - the new zone gets its entries
+    - linking again produces identical hooks (no duplicate)
+    - the new zone is carried along untouched
     """
     zones = [{"name": "Salon"}, {"name": "Cuisine"}]
     first = _run({}, zones, ["Salon"])
@@ -92,11 +94,10 @@ def test_relink_is_idempotent_and_refreshes_zones() -> None:
     again = _run(first["hooks"], zones2, ["Salon", "Garage"])
     # Assert: hooks unchanged on re-link
     assert again["hooks"] == first["hooks"]
-    # Assert: an existing zone is unchanged, not duplicated
+    # Assert: an existing zone is unchanged
     assert again["zones"][0] == first["zones"][0]
-    # Assert: the new zone is wired
-    assert again["zones"][2]["actions"] == [_e(13, "#zone#")]
-    assert again["zones"][2]["actionsImmediate"] == [_e(14, "#zone#")]
+    # Assert: the new zone is present and gets nothing of ours
+    assert again["zones"][2]["actions"] == [] and again["zones"][2]["actionsImmediate"] == []
 
 
 @_requires_php
@@ -107,14 +108,21 @@ def test_hand_wiring_is_replaced_not_duplicated() -> None:
     Expected result:
     - each pasted entry of ours is replaced by the canonical one, once
     """
-    hooks = {"release": [{"cmd": "#11#", "onMode": "all", "options": {"title": "manual"}}]}
+    hooks = {
+        "release": [{"cmd": "#11#", "onMode": "all", "options": {"title": "manual"}}],
+        "outbreak": [{"cmd": "#13#", "onMode": "all", "options": {"title": "#zone#"}}],
+        "outbreakImmediate": [{"cmd": "#14#"}],
+    }
+    # Zones still hold the entries of an earlier per-zone link
     zones = [{"name": "Salon", "actions": [{"cmd": "#13#"}], "actionsImmediate": [{"cmd": "#14#"}]}]
     res = _run(hooks, zones, ["Salon"])
     # Assert: the hand-pasted hook entry is replaced, not doubled
     assert res["hooks"]["release"] == [_e(11)]
-    # Assert: the hand-pasted zone entries are replaced, not doubled
-    assert res["zones"][0]["actions"] == [_e(13, "#zone#")]
-    assert res["zones"][0]["actionsImmediate"] == [_e(14, "#zone#")]
+    # Assert: the pasted trigger entries are replaced, not doubled
+    assert res["hooks"]["outbreak"] == [_e(13, "#zone#")]
+    assert res["hooks"]["outbreakImmediate"] == [_e(14, "#zone#")]
+    # Assert: leftovers of the earlier per-zone link are removed
+    assert res["zones"][0]["actions"] == [] and res["zones"][0]["actionsImmediate"] == []
 
 
 @_requires_php
@@ -124,15 +132,17 @@ def test_foreign_entries_untouched_same_order() -> None:
 
     Expected result:
     - foreign entries stay, in the same relative order, ours go last
-    - other zone keys are preserved
+    - foreign zone entries and other zone keys are preserved
     """
-    hooks = {"raz": [_FOREIGN, _e(12), {"cmd": "#998#"}]}
+    hooks = {"raz": [_FOREIGN, _e(12), {"cmd": "#998#"}], "outbreak": [_FOREIGN]}
     zones = [{"name": "Salon", "actions": [_FOREIGN], "actionsImmediate": [_FOREIGN], "other": 1}]
     res = _run(hooks, zones, [])
     # Assert: foreign hook entries keep their order, ours is re-appended
     assert res["hooks"]["raz"] == [_FOREIGN, {"cmd": "#998#"}, _e(12)]
-    # Assert: foreign zone entries are kept in front of ours
-    assert res["zones"][0]["actions"] == [_FOREIGN, _e(13, "#zone#")]
+    # Assert: a foreign trigger action stays in front of ours
+    assert res["hooks"]["outbreak"] == [_FOREIGN, _e(13, "#zone#")]
+    # Assert: foreign zone entries are untouched
+    assert res["zones"][0]["actions"] == [_FOREIGN]
     assert res["zones"][0]["actionsImmediate"] == [_FOREIGN]
     # Assert: unrelated zone keys survive
     assert res["zones"][0]["other"] == 1
@@ -144,14 +154,16 @@ def test_prefetch_off_when_media_disabled() -> None:
     Boundary: media_enabled off.
 
     Expected result:
-    - no prefetch entry even for a camera zone
+    - no prefetch entry even for a camera zone, nor when no zone has a camera
     - the intrusion action is still written
     """
     res = _run({}, [{"name": "Salon"}], ["Salon"], media=False)
     # Assert: prefetch absent when media is disabled
-    assert res["zones"][0]["actionsImmediate"] == []
+    assert res["hooks"]["outbreakImmediate"] == []
     # Assert: intrusion action unaffected
-    assert res["zones"][0]["actions"] == [_e(13, "#zone#")]
+    assert res["hooks"]["outbreak"] == [_e(13, "#zone#")]
+    # Assert: prefetch absent when media is on but no zone has a camera
+    assert _run({}, [{"name": "Salon"}], [])["hooks"]["outbreakImmediate"] == []
 
 
 @_requires_php
@@ -162,11 +174,13 @@ def test_unlink_removes_only_our_entries() -> None:
     Expected result:
     - only siaDC09 entries disappear, foreign ones remain
     """
-    hooks = {"activationImmediateOk": [_e(10), _FOREIGN], "release": [_e(11)], "raz": [_e(12)]}
+    hooks = {"activationImmediateOk": [_e(10), _FOREIGN], "release": [_e(11)], "raz": [_e(12)],
+             "outbreak": [_e(13, "#zone#"), _FOREIGN], "outbreakImmediate": [_e(14, "#zone#")]}
     zones = [{"name": "Salon", "actions": [_FOREIGN, _e(13, "#zone#")], "actionsImmediate": [_e(14, "#zone#")]}]
     res = _run(hooks, zones, ["Salon"], link=False)
-    # Assert: hooks keep only the foreign entry
-    assert res["hooks"] == {"activationImmediateOk": [_FOREIGN], "release": [], "raz": []}
+    # Assert: hooks keep only the foreign entries, trigger tab included
+    assert res["hooks"] == {"activationImmediateOk": [_FOREIGN], "release": [], "raz": [],
+                            "outbreak": [_FOREIGN], "outbreakImmediate": []}
     # Assert: zone lists keep only foreign entries
     assert res["zones"][0]["actions"] == [_FOREIGN]
     assert res["zones"][0]["actionsImmediate"] == []
@@ -178,11 +192,11 @@ def test_only_the_five_hooks_are_returned() -> None:
     Boundary: the Alarm equipment has other hooks (activationOk).
 
     Expected result:
-    - the result only holds activationImmediateOk, release and raz
+    - the result only holds activationImmediateOk, release, raz, outbreak and outbreakImmediate
     """
     res = _run({"activationOk": [_FOREIGN]}, [], [])
     # Assert: no other hook is written
-    assert set(res["hooks"]) == {"activationImmediateOk", "release", "raz"}
+    assert set(res["hooks"]) == {"activationImmediateOk", "release", "raz", "outbreak", "outbreakImmediate"}
 
 
 def test_ajax_validates_alarm_id_server_side() -> None:

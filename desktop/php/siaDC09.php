@@ -416,7 +416,7 @@ $scenarios = scenario::all();
 											<div class="siaDC09-row" style="margin-bottom:10px;">
 												<div class="siaDC09-field siaDC09-w-wide">
 													<label class="siaDC09-label" for="siaDC09-alarm-select">{{Équipement Alarme}}</label>
-													<select id="siaDC09-alarm-select" class="form-control">
+													<select id="siaDC09-alarm-select" class="form-control eqLogicAttr" data-l1key="configuration" data-l2key="alarm_eqlogic_id">
 														<option value="">{{(choisir)}}</option>
 <?php
 foreach ((eqLogic::byType('alarm') ?: []) as $siaDC09AlarmEq) {

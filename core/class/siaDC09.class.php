@@ -161,9 +161,10 @@ class siaDC09 extends eqLogic {
     }
 
     /**
-     * Story 13.5 — pure: the Alarm equipment's five hooks with siaDC09's entries rewritten.
+     * Story 13.5 — pure: the Alarm equipment's five hooks (arm, disarm, reset, and the global
+     * « Déclenchement » outbreak / outbreakImmediate) with siaDC09's entries rewritten.
      *
-     * @param array $hooks         ['activationImmediateOk'=>list, 'release'=>list, 'raz'=>list] currently stored.
+     * @param array $hooks         hook name => list, as currently stored.
      * @param array $zones         The Alarm equipment's `zones` configuration.
      * @param array $ownCmdIds     Every command id of this siaDC09 equipment (entries to drop first).
      * @param array $logicalCmdIds logicalId => id for arm, disarm, alarmReset, burglarAlarm, prefetchEvent.
@@ -173,36 +174,27 @@ class siaDC09 extends eqLogic {
      * @return array ['hooks' => ..., 'zones' => ...] same keys as the input.
      */
     public static function buildAlarmWiring(array $hooks, array $zones, array $ownCmdIds, array $logicalCmdIds, array $cameraZones, bool $mediaEnabled, bool $link = true): array {
-        $hookMap = ['activationImmediateOk' => 'arm', 'release' => 'disarm', 'raz' => 'alarmReset'];
+        $hookMap = ['activationImmediateOk' => 'arm', 'release' => 'disarm', 'raz' => 'alarmReset', 'outbreak' => 'burglarAlarm', 'outbreakImmediate' => 'prefetchEvent'];
         $outHooks = [];
         foreach ($hookMap as $hook => $logicalId) {
             $list = self::_dropOwnEntries($hooks[$hook] ?? [], $ownCmdIds);
-            if ($link && isset($logicalCmdIds[$logicalId])) {
-                $list[] = self::_alarmEntry((int) $logicalCmdIds[$logicalId], '');
+            // The trigger hooks carry the zone name (#zone#); the others have no title.
+            $title = in_array($hook, ['outbreak', 'outbreakImmediate'], true) ? '#zone#' : '';
+            // Prefetch only when media is on and at least one zone has a camera.
+            $wanted = $hook !== 'outbreakImmediate' || ($mediaEnabled && count($cameraZones) > 0);
+            if ($link && $wanted && isset($logicalCmdIds[$logicalId])) {
+                $list[] = self::_alarmEntry((int) $logicalCmdIds[$logicalId], $title);
             }
             $outHooks[$hook] = $list;
         }
-        $camera = array_map(static fn($n) => mb_strtolower(trim((string) $n)), $cameraZones);
+        // Per-zone lists are only cleaned: an earlier link wrote there, and a second copy would
+        // send the event twice. Nothing is added to a zone any more.
         $outZones = [];
         foreach ($zones as $zone) {
-            if (!is_array($zone)) {
-                $outZones[] = $zone;
-                continue;
+            if (is_array($zone)) {
+                $zone['actions'] = self::_dropOwnEntries($zone['actions'] ?? [], $ownCmdIds);
+                $zone['actionsImmediate'] = self::_dropOwnEntries($zone['actionsImmediate'] ?? [], $ownCmdIds);
             }
-            $actions = self::_dropOwnEntries($zone['actions'] ?? [], $ownCmdIds);
-            $immediate = self::_dropOwnEntries($zone['actionsImmediate'] ?? [], $ownCmdIds);
-            if ($link) {
-                $name = (string) ($zone['name'] ?? '');
-                if (isset($logicalCmdIds['burglarAlarm'])) {
-                    $actions[] = self::_alarmEntry((int) $logicalCmdIds['burglarAlarm'], '#zone#');
-                }
-                if ($mediaEnabled && isset($logicalCmdIds['prefetchEvent'])
-                    && in_array(mb_strtolower(trim($name)), $camera, true)) {
-                    $immediate[] = self::_alarmEntry((int) $logicalCmdIds['prefetchEvent'], '#zone#');
-                }
-            }
-            $zone['actions'] = $actions;
-            $zone['actionsImmediate'] = $immediate;
             $outZones[] = $zone;
         }
         return ['hooks' => $outHooks, 'zones' => $outZones];
@@ -236,7 +228,7 @@ class siaDC09 extends eqLogic {
             }
         }
         $hooks = [];
-        foreach (['activationImmediateOk', 'release', 'raz'] as $hook) {
+        foreach (['activationImmediateOk', 'release', 'raz', 'outbreak', 'outbreakImmediate'] as $hook) {
             $hooks[$hook] = $alarm->getConfiguration($hook, []);
         }
         $zones = $alarm->getConfiguration('zones', []);

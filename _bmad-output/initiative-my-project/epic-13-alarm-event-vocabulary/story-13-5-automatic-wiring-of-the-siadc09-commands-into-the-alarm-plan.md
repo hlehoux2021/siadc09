@@ -26,10 +26,10 @@ context: []
 ## Boundaries & Constraints
 
 **Always:**
-- Hooks written, nothing else: `activationImmediateOk` (arm), `release` (disarm), `raz` (alarm reset), and per zone `actions` (« Alarme intrusion » only, title `#zone#`) and `actionsImmediate` (prefetch, title `#zone#`).
+- Hooks written, nothing else: `activationImmediateOk` (arm), `release` (disarm), `raz` (alarm reset), and the global « Déclenchement » tab: `outbreak` (« Alarme intrusion », title `#zone#`) and `outbreakImmediate` (prefetch, title `#zone#`). Renegotiated 2026-11-11 by Herve after the first live test: per-zone `actions`/`actionsImmediate` are no longer written, but entries of ours already there are removed on link and unlink (no double send).
 - Entry shape: `{cmd:'#id#', onMode:'all', options:{enable:1, background:0, title, message}}`.
 - Idempotent: first drop every entry whose cmd is a command of this siaDC09 equipment, then add the wanted ones. Entries of other commands are never touched.
-- Prefetch entry only for a zone with a mapped camera while `media_enabled` is on (absent = on). No other rule.
+- Prefetch entry only when at least one zone has a mapped camera and `media_enabled` is on (absent = on). No other rule.
 - The Alarm equipment id is stored on the siaDC09 equipment and validated server-side (exists, eqType `alarm`). `getZones` reads that equipment.
 - Unlink button sits next to « relancer assistant ». The wizard has no unlink.
 - Decision (2026-11-11, Herve): the plugin handles intrusion only. Every zone gets « Alarme intrusion »; there is no alarm-kind column. Fire and panic are postponed to a later story.
@@ -37,7 +37,7 @@ context: []
 - Decision (2026-11-11, Herve): unlink only removes siaDC09's entries. The chosen Alarm equipment stays stored and selected.
 
 **Never:**
-- Write into `activationOk`, `activationKo`, `razImmediate`, `outbreak*`, `reenableTrigger`.
+- Write into `activationOk`, `activationKo`, `razImmediate`, `reenableTrigger`.
 - Change the Alarm plugin's code, or listen to its state commands.
 
 ## I/O & Edge-Case Matrix
@@ -82,6 +82,8 @@ context: []
 ## Implementation Notes
 
 ## Plan Change Log
+
+- 2026-11-11, live test KO: « Alarme intrusion » and prefetch were written per zone, but Herve looks in the global « Déclenchement » tab (where the old doc made him paste them). Intent renegotiated: write `outbreak` / `outbreakImmediate`; per-zone entries only cleaned up. KEEP: idempotent drop by cmd id, foreign entries untouched, arm/disarm/raz hooks working (confirmed live).
 
 ## Review Triage Log
 
