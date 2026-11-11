@@ -195,6 +195,25 @@ def _check_fingerprint(ftp: ftplib.FTP_TLS, expected: str) -> None:
         )
 
 
+@dataclass(frozen=True)
+class _Transfer:
+    """What one upload sends and where (shared by the bytes and file uploads, ticket 18.10).
+
+    Attributes:
+        name: Remote file name (no path).
+        source: Open binary stream to send.
+        size: Number of bytes in `source`, for the log line.
+        deadline: Absolute `time.monotonic()` abort time (None = only the per-socket timeout).
+        directory: Subfolders below the configured folder, created when missing ("" = none).
+    """
+
+    name: str
+    source: BinaryIO
+    size: int
+    deadline: float | None = None
+    directory: str = ""
+
+
 def upload_bytes(
     settings: FtpsSettings, name: str, data: bytes, deadline: float | None = None,
     directory: str = "",
@@ -214,7 +233,7 @@ def upload_bytes(
         FtpsUploadError: Any connection, TLS, login or transfer failure. The message names
             the failing exception type and server reply, never the password.
     """
-    _upload_stream(settings, name, io.BytesIO(data), len(data), deadline, directory)
+    _upload_stream(settings, _Transfer(name, io.BytesIO(data), len(data), deadline, directory))
 
 
 def upload_file(
@@ -238,7 +257,7 @@ def upload_file(
     try:
         with open(path, "rb") as source:
             size = os.fstat(source.fileno()).st_size
-            _upload_stream(settings, name, source, size, deadline, directory)
+            _upload_stream(settings, _Transfer(name, source, size, deadline, directory))
     except OSError as err:
         # FtpsUploadError is not an OSError, so only local file problems land here.
         raise FtpsUploadError(f"step read: {type(err).__name__}: {err}") from None
@@ -308,11 +327,18 @@ def _store(
     return ftp.voidresp()
 
 
-def _upload_stream(  # pylint: disable=too-many-arguments,too-many-positional-arguments
-    settings: FtpsSettings, name: str, source: BinaryIO, size: int, deadline: float | None = None,
-    directory: str = "",
-) -> None:
-    """Connect, authenticate and STOR `source` as `name` (shared by bytes and file uploads)."""
+def _upload_stream(settings: FtpsSettings, transfer: _Transfer) -> None:
+    """Connect, authenticate and STOR the transfer's source (shared by bytes and file uploads).
+
+    Args:
+        settings: FTPS settings (must be complete).
+        transfer: What to send (remote name, source, size) and the deadline and subfolders.
+
+    Raises:
+        FtpsUploadError: Any connection, TLS, login or transfer failure, naming the failed step.
+    """
+    name, source, size = transfer.name, transfer.source, transfer.size
+    deadline, directory = transfer.deadline, transfer.directory
     step = "connect"
     ftp = ftplib.FTP_TLS(context=_build_context(settings), timeout=FTPS_TIMEOUT_S)
     target = f"{settings.host}:{settings.port}"

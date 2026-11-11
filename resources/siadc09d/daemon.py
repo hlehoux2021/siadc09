@@ -195,6 +195,25 @@ class SM2LogCtx(TypedDict):
     state_change: bool  # True if this is a transition, False if retried state
 
 
+@dataclass(frozen=True)
+class FtpsAlarmMedia:
+    """The media of one BA alarm to upload by FTPS (ticket 18.5, grouped by 18.10).
+
+    Attributes:
+        frigate_host: Frigate "host:port".
+        event_id: Frigate event id (also part of the remote file names).
+        zone: Zone label of the alarm, for the user-facing message (None when unknown).
+        snapshot: Upload the snapshot.
+        clip: Upload the clip.
+    """
+
+    frigate_host: str
+    event_id: str
+    zone: str | None = None
+    snapshot: bool = True
+    clip: bool = False
+
+
 @dataclass
 class EventItem:
     """Queue item for alarm event delivery (SM2 processing).
@@ -608,42 +627,33 @@ class SIADaemon(BaseDaemon):
             self._logger.warning("FTPS upload enabled but host or user is empty — no upload will run")
         return settings
 
-    async def _run_ftps_upload(  # pylint: disable=too-many-arguments,too-many-positional-arguments
-        self, frigate_host: str, event_id: str, zone: str | None = None,
-        snapshot: bool = True, clip: bool = False,
-    ) -> None:
+    async def _run_ftps_upload(self, media: FtpsAlarmMedia) -> None:
         """Upload the wanted media of a BA alarm by FTPS: snapshot first, then the clip.
 
         Runs as a tracked background task, so the SIA frame never waits for it. The two
         media are independent: one failing does not skip the other (ticket 18.5).
 
         Args:
-            frigate_host: Frigate "host:port".
-            event_id: Frigate event id (also part of the remote file names).
-            zone: Zone label of the alarm, for the user-facing message.
-            snapshot: Upload the snapshot.
-            clip: Upload the clip.
+            media: Which media of which Frigate event to upload.
         """
         # One alarm time for both media, so they sit side by side on the server (18.8).
         when = datetime.now().astimezone()
-        if snapshot:
-            await self._upload_snapshot(frigate_host, event_id, zone, when)
-        if clip:
-            await self._upload_clip(frigate_host, event_id, zone, when)
+        if media.snapshot:
+            await self._upload_snapshot(media, when)
+        if media.clip:
+            await self._upload_clip(media, when)
 
-    async def _upload_clip(
-        self, frigate_host: str, event_id: str, zone: str | None, when: datetime
-    ) -> None:
+    async def _upload_clip(self, media: FtpsAlarmMedia, when: datetime) -> None:
         """Download the event clip into a temporary file and upload it by FTPS (best effort).
 
         The temporary file is always deleted. A failure is logged at ERROR and reported to
         the user with the video wording; the password never appears.
 
         Args:
-            frigate_host: Frigate "host:port".
-            event_id: Frigate event id.
-            zone: Zone label of the alarm.
+            media: Which Frigate event to fetch the clip from.
+            when: Alarm time, shared with the snapshot for the remote file names.
         """
+        frigate_host, event_id, zone = media.frigate_host, media.event_id, media.zone
         target = f"{self._ftps.host}:{self._ftps.port}"
         started = time.monotonic()
         try:
@@ -677,9 +687,7 @@ class SIADaemon(BaseDaemon):
         finally:
             remove_clip_file(clip.path)
 
-    async def _upload_snapshot(
-        self, frigate_host: str, event_id: str, zone: str | None, when: datetime
-    ) -> None:
+    async def _upload_snapshot(self, media: FtpsAlarmMedia, when: datetime) -> None:
         """Fetch the event snapshot from Frigate and upload it by FTPS (best effort).
 
         A failure means the verification photo is missing at the receiver: it is logged at
@@ -687,10 +695,10 @@ class SIADaemon(BaseDaemon):
         appears.
 
         Args:
-            frigate_host: Frigate "host:port".
-            event_id: Frigate event id (also part of the remote file name).
-            zone: Zone label of the alarm, for the user-facing message.
+            media: Which Frigate event to fetch the snapshot from.
+            when: Alarm time, shared with the clip for the remote file names.
         """
+        frigate_host, event_id, zone = media.frigate_host, media.event_id, media.zone
         target = f"{self._ftps.host}:{self._ftps.port}"
         started = time.monotonic()
         self._logger.debug(
@@ -3078,7 +3086,9 @@ class SIADaemon(BaseDaemon):
             if ftps_host and ftps_event_id and (want_snapshot or want_clip):
                 self._track_task(
                     self._run_ftps_upload(
-                        ftps_host, ftps_event_id, zone, snapshot=want_snapshot, clip=want_clip
+                        FtpsAlarmMedia(
+                            ftps_host, ftps_event_id, zone, snapshot=want_snapshot, clip=want_clip
+                        )
                     ),
                     name="ftps-upload",
                 )
