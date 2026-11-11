@@ -252,6 +252,20 @@ try {
         ajax::success(['linked' => true]);
     }
 
+    // Story 13.5: is this equipment really wired into its stored Alarm equipment right now?
+    if (init('action') == 'getAlarmLinkState') {
+        $eqLogic = siaDC09::getActiveEquipment();
+        if ($eqLogic === null) {
+            ajax::error(__('Aucun équipement siaDC09 actif trouvé', __FILE__));
+            return;
+        }
+        $alarmId = $eqLogic->getConfiguration(siaDC09::ALARM_EQLOGIC_KEY, null);
+        ajax::success([
+            'alarm_id' => siaDC09::getAlarmEquipment($alarmId) !== null ? (int) $alarmId : null,
+            'linked'   => $eqLogic->isLinkedToAlarm(),
+        ]);
+    }
+
     // Story 13.5: removes only this equipment's entries; the stored Alarm id stays.
     if (init('action') == 'unlinkAlarm') {
         $eqLogic = siaDC09::getActiveEquipment();

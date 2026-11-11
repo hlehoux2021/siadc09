@@ -38,7 +38,7 @@ function printEqLogic(_eqLogic) {
   })
   // Story 13.5: the stored Alarm equipment stays selected; unlinking only removes our entries.
   $('#siaDC09-alarm-select').val(cfgSaved.alarm_eqlogic_id ? String(cfgSaved.alarm_eqlogic_id) : '')
-  $('#bt_unlinkAlarm').toggle(!!cfgSaved.alarm_eqlogic_id)
+  if (cfgSaved.alarm_eqlogic_id) siaDC09_refreshAlarmLinkState()
   siaDC09_syncFtpsCertRadios()
   siaDC09_updateMediaFields()
   siaDC09_updateAesRow()
@@ -1150,7 +1150,7 @@ $('#siaDC09-alarm-select').on('change', function() {
 })
 
 function siaDC09_alarmAjax(action, alarmId, okMessage, done) {
-  var $btn = $('#bt_linkAlarm, #bt_unlinkAlarm')
+  var $btn = $('#bt_linkAlarm, #bt_linkAlarmPage, #bt_unlinkAlarm')
   $btn.addClass('disabled')
   $.ajax({
     type: 'POST',
@@ -1191,17 +1191,43 @@ $('#bt_linkAlarm').on('click', function() {
       // The direct save does not clear Jeedom's dirty flag: reset it so no needless prompt appears.
       window.modifyWithoutSave = false
       jeeFrontEnd.modifyWithoutSave = false
-      siaDC09_alarmAjax('linkAlarm', alarmId, '{{Commandes liées au plugin Alarme}}', function() {
-        $('#bt_unlinkAlarm').show()
-      })
+      siaDC09_alarmAjax('linkAlarm', alarmId, '{{Commandes liées au plugin Alarme}}', siaDC09_refreshAlarmLinkState)
     }
   })
 })
 
 $('#bt_unlinkAlarm').on('click', function() {
   if ($(this).hasClass('disabled')) return
-  siaDC09_alarmAjax('unlinkAlarm', '', '{{Commandes retirées du plugin Alarme}}', function() {})
+  siaDC09_alarmAjax('unlinkAlarm', '', '{{Commandes retirées du plugin Alarme}}', siaDC09_refreshAlarmLinkState)
 })
+
+// Equipment page: re-link to the Alarm equipment already stored (no selector needed here).
+$('#bt_linkAlarmPage').on('click', function() {
+  if ($(this).hasClass('disabled')) return
+  var alarmId = $('#siaDC09-alarm-select').val()
+  if (!alarmId) {
+    $('#div_alert').showAlert({ message: '{{Choisissez un équipement Alarme}}', level: 'warning' })
+    return
+  }
+  siaDC09_alarmAjax('linkAlarm', alarmId, '{{Commandes liées au plugin Alarme}}', siaDC09_refreshAlarmLinkState)
+})
+
+// The real state, read from the Alarm equipment's hooks: the stored id stays after an unlink, so
+// it cannot tell. Shows « Lier » when our entries are absent, « Délier » when they are present.
+function siaDC09_refreshAlarmLinkState() {
+  $.ajax({
+    type: 'POST',
+    url: 'plugins/siaDC09/core/ajax/siaDC09.ajax.php',
+    data: { action: 'getAlarmLinkState', ajax: 1 },
+    dataType: 'json',
+    global: false,
+    success: function(data) {
+      var res = (data.state === 'ok' && data.result) || {}
+      $('#bt_unlinkAlarm').toggle(!!res.linked)
+      $('#bt_linkAlarmPage').toggle(!!res.alarm_id && !res.linked)
+    }
+  })
+}
 
 // ===== STEP 3: ZONE TABLE =====
 

@@ -118,6 +118,7 @@ $scenarios = scenario::all();
 							<div class="form-group">
 								<div class="col-sm-offset-4 col-sm-6">
 									<a class="btn btn-warning btn-sm" id="bt_restartWizard"><i class="fas fa-redo"></i> {{Relancer l'assistant}}</a>
+									<a class="btn btn-primary btn-sm" id="bt_linkAlarmPage" style="display:none;"><i class="fas fa-link"></i> {{Lier au plugin Alarme}}</a>
 									<a class="btn btn-default btn-sm" id="bt_unlinkAlarm" style="display:none;"><i class="fas fa-unlink"></i> {{Délier du plugin Alarme}}</a>
 								</div>
 							</div>
