@@ -3,7 +3,7 @@ title: '13.5 — Automatic wiring of the siaDC09 commands into the Alarm plugin'
 type: 'feature'
 ticket: '5'
 created: '2026-11-11'
-status: 'built'
+status: done
 baseline_revision: 'd26ff4c1c5aebb579576e7f1b7f15f8ac3bb8740'
 route: 'full'
 route_source: 'auto'
