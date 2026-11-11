@@ -29,7 +29,7 @@ No functional requirement is assigned to this epic in epics.md.
 
 ## Boundaries
 
-Scope as written in epics.md for this epic; the other epics and the Jeedom alarm plugin are outside it.
+Scope as written in epics.md for this epic; the other epics and the Jeedom alarm plugin's code are outside it. Decision (2026-11-11, Herve): writing siaDC09's own action commands into an Alarm equipment's configuration data is inside the epic (story 13.5). Changing the Alarm plugin's code is not.
 
 ## References
 

@@ -48,3 +48,14 @@ after = []
 hitl = false
 risk = "low"
 v6_key = "13-4-arm-disarm-closing-opening-reports"
+
+[[entry]]
+id = 5
+type = "story"
+title = "13.5 — Automatic wiring of the siaDC09 commands into the Alarm plugin"
+description = "From the identifier of one Alarm plugin equipment, the plugin inserts its own action commands into that equipment's action lists, so the installer no longer pastes them by hand."
+verify = "On test-jeedom, link the alarm, then arm it, trigger a zone and disarm while the alarm is sounding: the CSR receives CL, the zone alarm with the right zone number, then BC and OP. Disarming with no alarm open sends OP alone, which is correct. Unlink removes only the entries siaDC09 added."
+covers = []
+after = [1, 4]
+hitl = true
+risk = "high"
