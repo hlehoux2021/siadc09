@@ -3,7 +3,7 @@
         "Impossible de lancer le démon": "Unable to start daemon",
         "Veuillez vérifier la configuration": "Please check configuration",
         "Aucun équipement configuré": "No equipment configured",
-        "Plusieurs équipements détectés — un seul attendu": "Multiple equipments detected — only one expected",
+        "Plusieurs équipements actifs détectés — le premier est utilisé": "Multiple active equipments detected — the first one is used",
         "Lancement démon": "Starting daemon",
         "Alarme intrusion": "Burglary alarm",
         "Alarme incendie": "Fire alarm",
@@ -15,7 +15,7 @@
         "Supervision": "Supervision",
         "État alarme": "Alarm state",
         "Alarme": "Alarm",
-        "Équipement absent — création automatique": "Equipment missing — auto-creating",
+        "Aucun équipement actif — création automatique": "No active equipment — auto-creating",
         "Message daemon reçu mais équipement absent — ignoré jusqu'à réactivation du plugin.": "Daemon message received but equipment missing — ignored until plugin reactivation.",
         "Commande notification non configurée — alerte ignorée": "Notification command not configured — alert ignored",
         "Impossible d'envoyer la notification : ": "Unable to send notification: "

@@ -105,26 +105,37 @@ class siaDC09 extends eqLogic {
         return 'python3 ';
     }
 
-    private static function _getAutoEquipmentSafe(): ?self {
+    /**
+     * The equipment the plugin works on: the first ENABLED one (story 6.7). Disabled
+     * equipments are kept in reserve and never picked. Read-only, null when none is enabled.
+     */
+    public static function getActiveEquipment(): ?self {
         $eqLogics = eqLogic::byType(__CLASS__);
-        if (!is_array($eqLogics) || count($eqLogics) === 0) {
+        if (!is_array($eqLogics)) {
             return null;
         }
-        if (count($eqLogics) > 1) {
-            log::add(__CLASS__, 'error', __('Plusieurs équipements détectés — un seul attendu', __FILE__));
+        $active = array_values(array_filter($eqLogics, static function ($eq) {
+            return $eq->getIsEnable();
+        }));
+        if (count($active) === 0) {
+            return null;
         }
-        return $eqLogics[0];
+        if (count($active) > 1) {
+            log::add(__CLASS__, 'error', __('Plusieurs équipements actifs détectés — le premier est utilisé', __FILE__));
+        }
+        return $active[0];
+    }
+
+    private static function _getAutoEquipmentSafe(): ?self {
+        return self::getActiveEquipment();
     }
 
     private static function _getAutoEquipment(): self {
-        $eqLogics = eqLogic::byType(__CLASS__);
-        if (is_array($eqLogics) && count($eqLogics) > 0) {
-            if (count($eqLogics) > 1) {
-                log::add(__CLASS__, 'error', __('Plusieurs équipements détectés — un seul attendu', __FILE__));
-            }
-            return $eqLogics[0];
+        $active = self::getActiveEquipment();
+        if ($active !== null) {
+            return $active;
         }
-        log::add(__CLASS__, 'warning', __('Équipement absent — création automatique', __FILE__));
+        log::add(__CLASS__, 'warning', __('Aucun équipement actif — création automatique', __FILE__));
         $eq = new self();
         $eq->setName('Télésurveillance');
         $eq->setEqType_name(__CLASS__);
@@ -163,11 +174,11 @@ class siaDC09 extends eqLogic {
             }
         }
 
-        // Guard 1 — equipment exists
+        // Guard 1 — an active equipment exists
         $eqLogic = self::_getAutoEquipmentSafe();
         if (!$eqLogic) {
             $return['launchable'] = 'nok';
-            $return['launchable_message'] = __("L'équipement n'existe pas — activez le plugin.", __FILE__);
+            $return['launchable_message'] = __("Aucun équipement actif — activez un équipement.", __FILE__);
             return $return;
         }
 

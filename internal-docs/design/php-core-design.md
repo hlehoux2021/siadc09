@@ -60,9 +60,9 @@ resources/
 
 ## Configuration Storage
 
-**All configuration is stored in `eqLogic->getConfiguration()`** on the single auto-created equipment.
+**All configuration is stored in `eqLogic->getConfiguration()`** on the active equipment (the first enabled siaDC09 equipment; story 6.7).
 
-Rationale: Only one equipment exists (plugin-centric). The wizard IS the equipment configuration page. Fragmenting between `config::byKey` (plugin-level) and `getConfiguration` (equipment-level) would complicate access patterns for no benefit.
+Rationale: Only one equipment is active at a time (plugin-centric); disabled equipments may be kept in reserve and are never used (story 6.7). The wizard IS the equipment configuration page. Fragmenting between `config::byKey` (plugin-level) and `getConfiguration` (equipment-level) would complicate access patterns for no benefit.
 
 ### Configuration keys
 
@@ -112,7 +112,7 @@ See `wizard-design.md` §"CSR Presets Configuration File" for the full preset fo
 | Market category | `security` | Correct category for alarm-related plugin |
 | INFO command type for scenario triggers | **Numeric** | Standard Jeedom practice |
 | INFO update mechanism | **`checkAndUpdateCmd()`** | Standard Jeedom — always updates `collectDate`, updates `valueDate` only on change, fires scenario events automatically |
-| Config storage | **All in `getConfiguration`** on auto-equipment | Single equipment, wizard = equipment config page, no fragmentation needed |
+| Config storage | **All in `getConfiguration`** on the active equipment | Single active equipment, wizard = equipment config page, no fragmentation needed |
 | Zone mapping storage | `getConfiguration('sia_zone_mappings', [])` | JSON array, consistent with all other config keys |
 | `jeedom-daemon-py` distribution | **pip3 via `packages.json`** | Confirmed by examining the reference plugin in this repo — `jeedomdaemon` is in pip3 deps, not bundled |
 | `pycryptodome` in packages.json | **Declared from phase 1** | Avoids migration issues when AES is enabled later |
@@ -121,8 +121,8 @@ See `wizard-design.md` §"CSR Presets Configuration File" for the full preset fo
 | Daemon restart on save | **None** — `postSave()` only manages commands. Config changes take effect on next daemon start (watchdog or manual). | Matches z2m/zwavejs pattern. Jeedom watchdog handles crashed→restart; config changes require manual restart or wizard re-run. |
 | Daemon start guard | `launchable: false` if config incomplete | Standard Jeedom pattern — shown as NOK in plugin manager |
 | `preRemove` config cleanup | **Required** — `sia_last_errors`/`sia_last_messages` are plugin-level (`config::save`), not eqLogic config, so Jeedom's auto-delete does not clean them up | |
-| Multiple equipments | Log error + return null | Should never happen in plugin-centric design |
-| Auto-recreate if deleted | **Yes** + log warning | Plugin-centric: equipment must always exist |
+| Multiple active equipments | Log error + use the first active one (disabled equipments are ignored, story 6.7) | Should not happen in plugin-centric design; spare equipments are kept disabled |
+| Auto-recreate if none active | **Yes** + log warning (when no equipment is enabled, deleted or all disabled) | Plugin-centric: an active equipment must always exist |
 | Zone not in mapping | **Send alarm anyway** + log warning | Never block an alarm for a config issue |
 | media_url null at alarm time | **Send alarm with empty media_url** + log warning | Same principle |
 
@@ -1010,13 +1010,13 @@ The core's caching + our sentinel file = zero subprocess cost at steady state.
 
 ### Task 2.9 — `siaDC09::_getAutoEquipment()`
 
-**What:** Private helper that returns the single auto-created equipment. Used throughout the class to avoid repeating the lookup.
+**What:** Private helper that returns the first active (enabled) equipment, via the public `getActiveEquipment()` (story 6.7), and creates one only when none is enabled. Used throughout the class to avoid repeating the lookup.
 
 ```php
 private static function _getAutoEquipment() {
-    $eqLogics = self::byType('siaDC09');
-    if (empty($eqLogics)) {
-        // Auto-create on first access
+    $active = self::getActiveEquipment(); // first enabled equipment, null if none
+    if ($active === null) {
+        // Auto-create on first access (no ACTIVE equipment; disabled ones are left untouched)
         $eq = new siaDC09();
         $eq->setName('Télésurveillance');
         $eq->setIsEnable(1);
@@ -1025,13 +1025,13 @@ private static function _getAutoEquipment() {
         $eq->save(); // triggers postSave() which creates commands
         return $eq;
     }
-    return $eqLogics[0];
+    return $active;
 }
 ```
 
 **Why auto-create here and not only in postSave:** The first call to `message()` or `deamon_start()` may happen before the user has explicitly saved the equipment. Auto-creation on first access ensures the equipment always exists when the daemon tries to report back.
 
-✅ **Decision:** Auto-recreate on access + log a warning. Plugin-centric design requires the equipment to always exist. If a user deletes it, it means they may be trying to reset — recreating silently (with warning in log) is the least surprising behavior.
+✅ **Decision:** Auto-recreate on access + log a warning. Plugin-centric design requires an active equipment to always exist (amended by story 6.7: a disabled equipment does not count). If a user deletes it, it means they may be trying to reset — recreating silently (with warning in log) is the least surprising behavior.
 
 ---
 

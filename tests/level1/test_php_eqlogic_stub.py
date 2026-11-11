@@ -663,28 +663,79 @@ def test_auto_create_sets_canonical_equipment_name(get_auto_equipment_body: str)
 
 def test_auto_equipment_idempotent_guard(get_auto_equipment_body: str) -> None:
     """
-    _getAutoEquipment() must check whether equipment already exists before
-    creating a new one. The byType() call must come before 'new self()' so that
-    repeated calls never produce duplicate equipment (AC7: calling 10 times = 1
-    equipment).
+    _getAutoEquipment() must look for an active equipment before creating a
+    new one. The getActiveEquipment() call must come before 'new self()' so
+    that repeated calls never produce duplicate equipment (AC7: calling 10
+    times = 1 equipment).
 
     Expected result:
-    - byType appears in _getAutoEquipment() body (existence check present)
+    - getActiveEquipment() is called in _getAutoEquipment() (existence check)
     - 'new self()' appears in _getAutoEquipment() body (creation path present)
-    - byType() check precedes 'new self()' in the method source (guard is first)
+    - the check precedes 'new self()' in the method source (guard is first)
     """
-    # Assert: byType existence check is present in the method
-    assert "byType" in get_auto_equipment_body, (
-        "_getAutoEquipment() must call byType() to check for existing equipment before creating"
+    # Assert: the active-equipment lookup is present in the method
+    assert "getActiveEquipment()" in get_auto_equipment_body, (
+        "_getAutoEquipment() must call getActiveEquipment() before creating"
     )
     # Assert: new self() creation path exists
     assert "new self()" in get_auto_equipment_body, (
         "_getAutoEquipment() must contain 'new self()' auto-creation path"
     )
-    # Assert: guard (byType) comes before creation (new self()) — prevents duplicate creation
-    assert get_auto_equipment_body.index("byType") < get_auto_equipment_body.index("new self()"), (
-        "byType() check must appear before 'new self()' in _getAutoEquipment() — "
-        "creation must only happen after confirming no equipment exists"
+    # Assert: guard comes before creation — prevents duplicate creation
+    assert get_auto_equipment_body.index("getActiveEquipment()") < get_auto_equipment_body.index("new self()"), (
+        "getActiveEquipment() must appear before 'new self()' in _getAutoEquipment() — "
+        "creation must only happen after confirming no active equipment exists"
+    )
+
+
+def test_get_active_equipment_ignores_disabled_equipments(php_source: str) -> None:
+    """
+    Story 6.7: disabled equipments are kept in reserve and never picked.
+
+    Expected result:
+    - getActiveEquipment() is public static and returns ?self
+    - its body reads byType() and filters on getIsEnable()
+    - it returns null when no equipment is enabled
+    - _getAutoEquipmentSafe() delegates to it
+    """
+    body = _extract_method_body(php_source, "getActiveEquipment")
+    # Assert: public static nullable resolver
+    assert re.search(r"public\s+static\s+function\s+getActiveEquipment\s*\(\s*\)\s*:\s*\?self", php_source), (
+        "getActiveEquipment() must be 'public static function getActiveEquipment(): ?self'"
+    )
+    # Assert: reads every equipment, then keeps the enabled ones
+    assert "byType" in body and "getIsEnable()" in body, (
+        "getActiveEquipment() must filter eqLogic::byType() on getIsEnable()"
+    )
+    # Assert: null when none is enabled
+    assert "return null" in body, "getActiveEquipment() must return null when no equipment is enabled"
+    # Assert: the Safe variant shares the same rule
+    assert "getActiveEquipment()" in _extract_method_body(php_source, "_getAutoEquipmentSafe"), (
+        "_getAutoEquipmentSafe() must delegate to getActiveEquipment()"
+    )
+
+
+def test_ajax_actions_use_the_active_equipment() -> None:
+    """
+    Story 6.7: no ajax action may take the first equipment found.
+
+    Expected result:
+    - siaDC09.ajax.php never reads eqLogic::byType('siaDC09') nor $eqLogics[0]
+    - it calls siaDC09::getActiveEquipment() for testFtps, testConnection,
+      getDiagnosticData and the frame decoder
+    """
+    ajax_source = (_PROJECT_ROOT / "core/ajax/siaDC09.ajax.php").read_text(encoding="utf-8")
+    # Assert: no raw lookup of the plugin's own equipments remains
+    assert "eqLogic::byType('siaDC09')" not in ajax_source, (
+        "ajax actions must not list every siaDC09 equipment; use getActiveEquipment()"
+    )
+    # Assert: no leftover first-element access on a list that no longer exists
+    assert "$eqLogics" not in ajax_source, (
+        "a leftover $eqLogics[0] would overwrite the resolved equipment with null"
+    )
+    # Assert: four actions use the shared resolver
+    assert ajax_source.count("siaDC09::getActiveEquipment()") == 4, (
+        "testFtps, testConnection, getDiagnosticData and the frame decoder must call getActiveEquipment()"
     )
 
 

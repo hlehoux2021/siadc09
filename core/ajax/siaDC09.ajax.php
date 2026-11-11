@@ -56,12 +56,11 @@ try {
     // no password: the saved configuration is read here and handed to a short-lived Python
     // subprocess, the password by environment only.
     if (init('action') == 'testFtps') {
-        $eqLogics = eqLogic::byType('siaDC09');
-        if (!is_array($eqLogics) || count($eqLogics) === 0) {
-            ajax::success(['status' => 'error', 'step' => 'connexion', 'detail' => __("Équipement introuvable — activez le plugin.", __FILE__)]);
+        $eqLogic = siaDC09::getActiveEquipment();
+        if ($eqLogic === null) {
+            ajax::success(['status' => 'error', 'step' => 'connexion', 'detail' => __("Aucun équipement actif — activez un équipement.", __FILE__)]);
             return;
         }
-        $eqLogic = $eqLogics[0];
 
         $ftpsConfig = [];
         foreach (['ftps_host', 'ftps_port', 'ftps_user', 'ftps_cert_fingerprint'] as $ftpsKey) {
@@ -140,12 +139,11 @@ try {
     }
 
     if (init('action') == 'testConnection') {
-        $eqLogics = eqLogic::byType('siaDC09');
-        if (!is_array($eqLogics) || count($eqLogics) === 0) {
-            ajax::success(['status' => 'error', 'detail' => __("Équipement introuvable — activez le plugin.", __FILE__)]);
+        $eqLogic = siaDC09::getActiveEquipment();
+        if ($eqLogic === null) {
+            ajax::success(['status' => 'error', 'detail' => __("Aucun équipement actif — activez un équipement.", __FILE__)]);
             return;
         }
-        $eqLogic = $eqLogics[0];
 
         $configData = $eqLogic->getConfiguration();
         $encKey = $configData['encryption_key'] ?? '';
@@ -266,8 +264,8 @@ try {
     }
 
     if (init('action') == 'getDiagnosticData') {
-        $eqLogics = eqLogic::byType('siaDC09');
-        if (!is_array($eqLogics) || count($eqLogics) === 0) {
+        $eqLogic = siaDC09::getActiveEquipment();
+        if ($eqLogic === null) {
             ajax::success([
                 'supervision_state' => 1,
                 'supervision_label' => '',
@@ -280,7 +278,6 @@ try {
             ]);
             return;
         }
-        $eqLogic = $eqLogics[0];
 
         // execCmd(), not getValue(): for non-historized 'info' cmds, cmd::event()
         // (called by the daemon's checkAndUpdateCmd on every push) only writes to
@@ -340,12 +337,11 @@ try {
             return;
         }
 
-        $eqLogics = eqLogic::byType('siaDC09');
-        if (empty($eqLogics)) {
-            ajax::error(__('Aucun équipement siaDC09 trouvé', __FILE__));
+        $eqLogic = siaDC09::getActiveEquipment();
+        if ($eqLogic === null) {
+            ajax::error(__('Aucun équipement siaDC09 actif trouvé', __FILE__));
             return;
         }
-        $eqLogic = $eqLogics[0];
 
         $encKey = $eqLogic->getConfiguration('encryption_key', '');
 

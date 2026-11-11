@@ -83,13 +83,13 @@ def test_test_connection_action_exists(ajax_source: str) -> None:
 def test_test_connection_loads_eq_logic(ajax_source: str) -> None:
     """
     testConnection must load the siaDC09 eqLogic to get configuration.
-    eqLogic::byType returns the auto-created equipment.
+    The first ACTIVE equipment is used (story 6.7), never a disabled one.
 
     Expected result:
-    - eqLogic::byType('siaDC09') call present
+    - siaDC09::getActiveEquipment() call present
     """
-    # Assert: equipment loaded
-    assert "eqLogic::byType('siaDC09')" in ajax_source
+    # Assert: active equipment loaded
+    assert "siaDC09::getActiveEquipment()" in ajax_source
 
 
 def test_test_connection_handles_missing_equipment(ajax_source: str) -> None:
@@ -98,10 +98,10 @@ def test_test_connection_handles_missing_equipment(ajax_source: str) -> None:
     (not crash with null pointer).
 
     Expected result:
-    - Empty eqLogics array check with error response
+    - null check on the active equipment with error response
     """
-    # Assert: missing equipment handled gracefully
-    assert re.search(r"count\(\$eqLogics\)\s*===?\s*0", ajax_source)
+    # Assert: missing (or all disabled) equipment handled gracefully
+    assert re.search(r"\$eqLogic\s*===\s*null", ajax_source)
 
 
 def test_test_connection_strips_encryption_key(ajax_source: str) -> None:

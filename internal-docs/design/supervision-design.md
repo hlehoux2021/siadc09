@@ -587,13 +587,12 @@ async def _handle_supervision_nak(self, seq: int, elapsed: float, nak_data: byte
 Group C tasks. Distinct from `_getAutoEquipment()` (Task 2.9) which auto-creates.
 
 ```php
-private static function _getAutoEquipmentSafe() {
-    $eqLogics = self::byType('siaDC09');
-    return empty($eqLogics) ? null : $eqLogics[0];
+private static function _getAutoEquipmentSafe(): ?self {
+    return self::getActiveEquipment(); // first enabled equipment (story 6.7)
 }
 ```
 
-**Contract:** Read-only. Never creates. Returns `null` if equipment missing.
+**Contract:** Read-only. Never creates. Returns `null` if no equipment is enabled.
 Calling this from `deamon_info()` or `cron5()` is safe — no side effects.
 
 ---
@@ -630,7 +629,7 @@ public static function deamon_info() {
     // automatically calls dependancy_info() and injects its result before returning
     // to the watchdog. Adding it here would be a redundant double-check.
 
-    // Guard 1 — equipment exists
+    // Guard 1 — an active equipment exists
     $eqLogic = self::_getAutoEquipmentSafe();
     if (!$eqLogic) {
         $return['launchable'] = 'nok';
