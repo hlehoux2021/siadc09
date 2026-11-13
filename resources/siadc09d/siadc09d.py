@@ -456,6 +456,7 @@ def run_ftps_probe(config: dict[str, object], password: str) -> dict[str, str]:
         The probe answer; a configuration error is an `error` answer, never an exception.
     """
     from siadc09d import ftps_upload  # pylint: disable=import-outside-toplevel
+    plain = config.get("ftps_plain") is True
     try:
         port = int(str(config.get("ftps_port") or ftps_upload.FTPS_DEFAULT_PORT))
         if not MIN_TCP_PORT <= port <= MAX_TCP_PORT:
@@ -466,9 +467,10 @@ def run_ftps_probe(config: dict[str, object], password: str) -> dict[str, str]:
             port=port,
             user=str(config.get("ftps_user") or "").strip(),
             password=password,
-            cert_fingerprint=ftps_upload.normalize_fingerprint(
+            cert_fingerprint="" if plain else ftps_upload.normalize_fingerprint(
                 str(config.get("ftps_cert_fingerprint") or "")
             ),
+            plain=plain,
         )
     except ValueError as err:
         return {"status": _UI_ERROR, "step": ftps_upload.PROBE_STEP_CONNECT,
@@ -569,6 +571,8 @@ if __name__ == "__main__":
     # The FTPS password is read from SIA_FTPS_PASSWORD (never a command-line argument).
     _config.add_argument("--ftps-folder", type=str, default="")
     _config.add_argument("--ftps-cert-fingerprint", type=str, default="")
+    # 18.14: plain FTP, no TLS (off by default).
+    _config.add_argument("--ftps-plain", action="store_true")
     _config.add_argument("--supervision-interval", type=int, default=60)
     # Story 17.1 (ADR-22): periodic-frame settings, resolved PHP-side — the daemon
     # never sees a CSR profile name. Validated by CSRPreset.__post_init__.

@@ -81,9 +81,13 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
     <div class="siaDC09-field"><input class="eqLogicAttr" data-l2key="ftps_user"></div>
     <div class="siaDC09-field"><input type="password" class="eqLogicAttr" data-l2key="ftps_password"></div>
     <div class="siaDC09-field"><input class="eqLogicAttr" data-l2key="ftps_folder"></div>
+    <input type="checkbox" id="siaDC09-ftps-plain" class="eqLogicAttr" data-l2key="ftps_plain">
+    <p id="siaDC09-ftps-plain-warning">n'est pas chiffrée</p>
+    <div id="siaDC09-ftps-cert-block">
     <input type="radio" name="siaDC09-ftps-cert" class="siaDC09-ftps-cert-radio" value="public">
     <input type="radio" name="siaDC09-ftps-cert" class="siaDC09-ftps-cert-radio" value="selfsigned">
     <div id="siaDC09-ftps-fingerprint-group" class="siaDC09-field" style="display:none"><input class="eqLogicAttr" data-l2key="ftps_cert_fingerprint"></div>
+    </div>
   </div>
   <p id="siaDC09-lock-caption" style="display:none"><span></span><a id="bt_siaDC09_goCustom"></a></p>
   </div>
@@ -196,6 +200,9 @@ out.step1Media = {
 }
 out.ftps = {
   fingerprintVisible: shown('#siaDC09-ftps-fingerprint-group'),
+  certBlockVisible: shown('#siaDC09-ftps-cert-block'),
+  plainChecked: field('ftps_plain').is(':checked'),
+  warningVisible: shown('#siaDC09-ftps-plain-warning'),
   certChecked: $('.siaDC09-ftps-cert-radio:checked').val() || null,
   port: field('ftps_port').val(), fingerprint: field('ftps_cert_fingerprint').val(),
   lockedOrReadonly: $('#siaDC09-ftps-card .siaDC09-locked, #siaDC09-ftps-card [readonly], #siaDC09-ftps-card .siaDC09-profile-field, #siaDC09-ftps-card .siaDC09-field-locked, #siaDC09-ftps-card [aria-disabled]').length,

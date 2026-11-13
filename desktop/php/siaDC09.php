@@ -331,6 +331,10 @@ $scenarios = scenario::all();
 												<p class="siaDC09-help">{{Laissez vide pour déposer à la racine du compte. Le dossier doit exister.}}</p>
 											</div>
 											<div class="siaDC09-field siaDC09-w-full" style="margin-top:14px;">
+												<div class="checkbox"><label><input type="checkbox" id="siaDC09-ftps-plain" class="eqLogicAttr" data-l1key="configuration" data-l2key="ftps_plain"> {{FTP sans TLS}}</label></div>
+												<p class="siaDC09-help" id="siaDC09-ftps-plain-warning">{{Attention : sans TLS, la liaison n'est pas chiffrée. Le mot de passe et les images circulent en clair sur le réseau, et le certificat du serveur n'est pas vérifié. À réserver à un serveur qui ne propose pas FTPS, sur un réseau de confiance.}}</p>
+											</div>
+											<div class="siaDC09-field siaDC09-w-full" id="siaDC09-ftps-cert-block" style="margin-top:14px;">
 												<span class="siaDC09-label">{{Certificat du serveur}}</span>
 												<!-- The radios add no config key: an empty fingerprint is « reconnu », a filled one « auto-signé » -->
 												<div class="radio"><label><input type="radio" class="siaDC09-ftps-cert-radio" name="siaDC09-ftps-cert" value="public"> {{Certificat reconnu}}</label>

@@ -578,8 +578,13 @@ class siaDC09 extends eqLogic {
                 $envPrefix = 'SIA_FTPS_PASSWORD=<set> ';
             }
             $cmd .= ' --ftps-folder ' . escapeshellarg((string) $eqLogic->getConfiguration('ftps_folder', ''));
+            // 18.14: plain FTP without TLS; the saved fingerprint is then not sent at all.
+            $ftpsPlain = filter_var($eqLogic->getConfiguration('ftps_plain', 0), FILTER_VALIDATE_BOOLEAN);
+            if ($ftpsPlain) {
+                $cmd .= ' --ftps-plain';
+            }
             $ftpsFingerprint = trim((string) $eqLogic->getConfiguration('ftps_cert_fingerprint', ''));
-            if ($ftpsFingerprint !== '') {
+            if ($ftpsFingerprint !== '' && !$ftpsPlain) {
                 $cmd .= ' --ftps-cert-fingerprint ' . escapeshellarg($ftpsFingerprint);
             }
         }

@@ -229,6 +229,69 @@ def test_debug_trace_follows_every_step_without_the_password(caplog: pytest.LogC
     assert _SECRET not in caplog.text
 
 
+def test_plain_upload_skips_every_tls_step_and_logs_it(caplog: pytest.LogCaptureFixture) -> None:
+    """
+    Ticket 18.14, plain on against a server without FTPS, with an old fingerprint saved.
+
+    Expected result:
+    - connect, login, cwd, STOR in that order on a plain FTP object; no auth, no prot_p
+    - FTP_TLS is never built; the fingerprint is not looked at
+    - the log says "sans TLS" at WARNING; the password never appears
+    """
+    caplog.set_level("DEBUG", logger=ftps_upload.__name__)
+    ftp = _fake_ftp()
+    ftp.voidresp.return_value = "226 Transfer complete"
+    with patch.object(ftps_upload.ftplib, "FTP", return_value=ftp), \
+            patch.object(ftps_upload.ftplib, "FTP_TLS") as tls:
+        upload_bytes(_settings(plain=True, cert_fingerprint=_CERT_SHA), "a.jpg", b"jpeg")
+
+    names = [c[0] for c in ftp.method_calls if c[0] in
+             {"connect", "auth", "login", "prot_p", "cwd", "transfercmd", "close"}]
+    # Assert: plain sequence, no TLS step
+    assert names == ["connect", "login", "cwd", "transfercmd", "close"]
+    # Assert: no TLS object, no certificate read
+    assert not tls.called and not ftp.sock.getpeercert.called
+    # Assert: the unencrypted link is logged, the secret is not
+    assert "sans TLS" in caplog.text
+    assert any(r.levelname == "WARNING" and "sans TLS" in r.getMessage() for r in caplog.records)
+    assert _SECRET not in caplog.text
+
+
+def test_plain_upload_failure_names_its_step_and_masks_the_password() -> None:
+    """
+    Plain mode, the login is refused.
+
+    Expected result:
+    - FtpsUploadError naming "step login", without the password
+    """
+    ftp = _fake_ftp()
+    ftp.login.side_effect = ftplib.error_perm(f"530 bad {_SECRET}")
+    with patch.object(ftps_upload.ftplib, "FTP", return_value=ftp):
+        with pytest.raises(FtpsUploadError) as caught:
+            upload_bytes(_settings(plain=True), "a.jpg", b"x")
+    # Assert: step named, password hidden
+    assert "step login" in str(caught.value)
+    assert _SECRET not in str(caught.value)
+
+
+def test_default_upload_never_falls_back_to_plain() -> None:
+    """
+    Plain off, server answers 530 to AUTH TLS (matrix: Plain off, server without FTPS).
+
+    Expected result:
+    - FtpsUploadError at "step tls"; plain FTP is never built
+    """
+    ftp = _fake_ftp()
+    ftp.auth.side_effect = ftplib.error_perm("530 Please login with USER and PASS")
+    with patch.object(ftps_upload.ftplib, "FTP_TLS", return_value=ftp), \
+            patch.object(ftps_upload.ftplib, "FTP") as plain_ftp:
+        with pytest.raises(FtpsUploadError, match="step tls"):
+            upload_bytes(_settings(), "a.jpg", b"x")
+    # Assert: no silent fallback
+    assert not plain_ftp.called
+    assert not ftp.login.called
+
+
 def test_failure_names_the_step_and_the_presented_fingerprint() -> None:
     """
     A refused connection and a wrong pinned certificate both say where they failed.

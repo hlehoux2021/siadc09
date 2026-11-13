@@ -100,6 +100,10 @@ Files go flat at the root of the configured FTPS folder (`upload/` on the test s
 - To test in the field: the `0001` clip (`.mp4`) is not yet confirmed to be accepted by the receiver.
 - Deferred, not in this version: retention, cleanup or quota on the server (files are never deleted by the plugin), and a configurable layout.
 
+## Plain FTP mode (ticket 18.14)
+
+For a server that has no FTPS (it answers `530 Please login with USER and PASS` to `AUTH TLS`), tick « FTP sans TLS » in the step 2 advanced options. It is off by default and shown with a warning: the link is not encrypted, the password and the files travel in clear, no certificate is checked. Upload and connection test then use plain FTP (connect, login, cwd, STOR). To reproduce with vsftpd: set `ssl_enable=NO` (or use any plain FTP server), tick the box, run the test (`ok`, detail says not encrypted), then untick it: the test fails at « sécurité TLS » as before. The logs say « sans TLS » for each plain upload and test; the password never appears.
+
 ## Not covered
 
 A loopback server proves the protocol and the code, not the network. Timeouts and unreachable servers (18.6) are simulated by stopping or throttling vsftpd; the field run against a separate FTPS server is 18.9.

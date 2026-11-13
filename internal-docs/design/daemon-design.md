@@ -1474,3 +1474,12 @@ The EVENT payload carries `media` (ordered list of `{format: "U"|"V", url}`) and
 - TLS: `context.minimum_version = TLSv1_2` in CA and pinned modes; a refusal (wrong chain or host name, old TLS) fails at step `tls`, before the login. Pinned mode still compares the fingerprint before the login.
 - Secrets: PHP starts the daemon with `SIA_FTPS_PASSWORD='...' python3 siadc09d.py ...`; the daemon has no `--ftps-password` option and pops the variable from its environment at start (`FTPS_PASSWORD_ENV`), so child processes do not inherit it. `testConnection` removes `ftps_password` from the `--config` JSON like `encryption_key`. The launch log line redacts `--apikey`, `--encryption-key` and the `SIA_FTPS_PASSWORD=` prefix.
 - Follow-up (`deferred-work.md`): `encryption_key` and `apikey` are still command-line arguments.
+
+## Ticket 18.14 - Optional plain FTP, without TLS
+
+**TLDR:** a per-equipment `ftps_plain` setting (off by default) makes the upload and the connection test use plain `ftplib.FTP`: no AUTH TLS, no certificate or fingerprint check, no data protection (`PROT P`). Off means the FTPS path above, unchanged.
+
+- PHP adds `--ftps-plain` to the daemon command only when `ftps_plain` is on, and then does not send `--ftps-cert-fingerprint`. `testFtps` puts `ftps_plain` (bool) in the `--config` JSON; `run_ftps_probe` reads it.
+- `FtpsSettings.plain`; `daemon._read_ftps_settings` ignores (does not even parse) the fingerprint when plain is on and logs one WARNING at start (« FTP sans TLS ... not encrypted »). `_upload_stream` builds `ftplib.FTP` instead of `FTP_TLS`, so the sequence is connect, login, cwd, STOR; each upload logs a WARNING that the link is not encrypted. Failures still name their step; `_mask` hides the password.
+- `probe_connection` delegates to `_probe_plain`: connect and login only, answer `ok` with a detail saying the link is not encrypted; a bad login gives the « identifiants » failure.
+- No silent fallback: with the setting off, a server that refuses AUTH TLS still fails at « sécurité TLS ». The fingerprint is never pinned in plain mode.

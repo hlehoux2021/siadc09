@@ -40,6 +40,7 @@ function printEqLogic(_eqLogic) {
   $('#siaDC09-alarm-select').val(cfgSaved.alarm_eqlogic_id ? String(cfgSaved.alarm_eqlogic_id) : '')
   if (cfgSaved.alarm_eqlogic_id) siaDC09_refreshAlarmLinkState()
   siaDC09_syncFtpsCertRadios()
+  siaDC09_updateFtpsPlain()
   siaDC09_updateMediaFields()
   siaDC09_updateAesRow()
   siaDC09_setAdvancedOpen(false)
@@ -449,6 +450,20 @@ function siaDC09_ftpsCertIsSelfSigned() {
   return $('.siaDC09-ftps-cert-radio[value="selfsigned"]').is(':checked')
 }
 
+// « FTP sans TLS » (18.14): never a profile field, never locked.
+function siaDC09_ftpsIsPlain() {
+  return $('#siaDC09-ftps-plain').is(':checked')
+}
+
+// Plain FTP hides the certificate radios and the fingerprint; the warning is always shown.
+function siaDC09_updateFtpsPlain() {
+  var plain = siaDC09_ftpsIsPlain()
+  $('#siaDC09-ftps-cert-block').toggle(!plain)
+  if (!plain) $('#siaDC09-ftps-fingerprint-group').toggle(siaDC09_ftpsCertIsSelfSigned())
+}
+
+$(document).on('change', '#siaDC09-ftps-plain', siaDC09_updateFtpsPlain)
+
 function siaDC09_updateFtpsCard(show) {
   $('#siaDC09-ftps-card').toggle(show)
   if (!show) return
@@ -456,6 +471,7 @@ function siaDC09_updateFtpsCard(show) {
     $('.siaDC09-ftps-cert-radio[value="public"]').prop('checked', true)
   }
   $('#siaDC09-ftps-fingerprint-group').toggle(siaDC09_ftpsCertIsSelfSigned())
+  siaDC09_updateFtpsPlain()
   var $port = $('.eqLogicAttr[data-l2key="ftps_port"]')
   if (($port.val() || '').toString().trim() === '') $port.val(21)
 }
@@ -501,8 +517,9 @@ function siaDC09_ftpsConfigErrors() {
     errors.push({ key: 'ftps_password', message: '{{Mot de passe FTPS : obligatoire.}}' })
   }
   // A fingerprint only counts under « auto-signé »; separators (: space -) are allowed.
+  // Plain FTP (18.14): no certificate, so no fingerprint to check.
   var fingerprint = siaDC09_ftpsFieldValue('ftps_cert_fingerprint').replace(/[\s:-]/g, '')
-  if (siaDC09_ftpsCertIsSelfSigned() && fingerprint !== '' && !/^[0-9a-fA-F]{64}$/.test(fingerprint)) {
+  if (!siaDC09_ftpsIsPlain() && siaDC09_ftpsCertIsSelfSigned() && fingerprint !== '' && !/^[0-9a-fA-F]{64}$/.test(fingerprint)) {
     errors.push({ key: 'ftps_cert_fingerprint', message: '{{Empreinte SHA-256 : 64 caractères hexadécimaux requis}}' })
   }
   return errors
@@ -737,7 +754,7 @@ function siaDC09_populateStep2Summary() {
 // Media settings as a plain config object, read from the form (step 2 summary).
 function siaDC09_formMediaConfig() {
   var cfg = {}
-  ;['media_enabled', 'media_snapshot_enabled', 'media_clip_enabled'].forEach(function(key) {
+  ;['media_enabled', 'media_snapshot_enabled', 'media_clip_enabled', 'ftps_plain'].forEach(function(key) {
     cfg[key] = $('.eqLogicAttr[data-l2key="' + key + '"]').is(':checked') ? '1' : '0'
   })
   ;['media_transport', 'ftps_host', 'ftps_port', 'ftps_folder', 'frigate_media_url_template'].forEach(function(key) {
@@ -768,7 +785,8 @@ function siaDC09_mediaSummaryLine(cfg) {
   if (cfg.media_transport === 'ftps') {
     if (!cfg.ftps_host) return what + ', sur un serveur FTPS (à renseigner)'
     return what + ', sur le serveur FTPS ' + cfg.ftps_host + ':' + (cfg.ftps_port || 21) +
-      ' (' + (cfg.ftps_folder || 'dossier racine') + ')'
+      ' (' + (cfg.ftps_folder || 'dossier racine') + ')' +
+      (siaDC09_isOn(cfg.ftps_plain) ? ', sans TLS (non chiffré)' : '')
   }
   return what + ', par une adresse dans le message d\'alarme'
 }
@@ -924,6 +942,11 @@ function siaDC09_renderFtpsResult(result) {
   var $box
   if (status === 'ok') {
     $box = $('<div class="alert alert-success siaDC09-test-success"><i class="fas fa-check-circle"></i> </div>')
+    if (siaDC09_ftpsIsPlain()) {
+      $('<strong>').text('{{Serveur FTP joignable, sans TLS}}').appendTo($box)
+      $box.append($('<p>').text("{{Identifiant accepté. La liaison n'est pas chiffrée. Le dossier n'est vérifié qu'à la première alarme.}}"))
+      return $box
+    }
     $('<strong>').text('{{Serveur FTPS joignable}}').appendTo($box)
     var pinned = siaDC09_ftpsFieldValue('ftps_cert_fingerprint').trim() !== ''
     $box.append($('<p>').text(pinned
@@ -1484,7 +1507,11 @@ function siaDC09_populateConfigSummary(eqLogic) {
       addLine('Utilisateur : ', $('<span>').text(cfg.ftps_user || ''))
       addLine('Dossier : ', $('<span>').text(cfg.ftps_folder || 'dossier racine'))
       var fp = (cfg.ftps_cert_fingerprint || '').trim()
-      addLine('Certificat : ', $('<span>').text(fp ? 'auto-signé (' + fp.substring(0, 11) + '...)' : 'reconnu'))
+      if (siaDC09_isOn(cfg.ftps_plain)) {
+        addLine('Chiffrement : ', $('<span>').text('aucun (FTP sans TLS)'))
+      } else {
+        addLine('Certificat : ', $('<span>').text(fp ? 'auto-signé (' + fp.substring(0, 11) + '...)' : 'reconnu'))
+      }
     } else {
       addLine('Serveur Frigate : ', cfg.frigate_media_url_template
         ? $('<span>').text(cfg.frigate_media_url_template)

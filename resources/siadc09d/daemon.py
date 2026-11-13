@@ -607,11 +607,16 @@ class SIADaemon(BaseDaemon):
             port = int(getattr(config, "ftps_port", 0) or FTPS_DEFAULT_PORT)
         except (TypeError, ValueError):
             port = FTPS_DEFAULT_PORT
+        plain = getattr(config, "ftps_plain", False) is True
         fingerprint_error: str | None = None
-        try:
-            fingerprint = normalize_fingerprint(str(getattr(config, "ftps_cert_fingerprint", "") or ""))
-        except ValueError as e:
-            fingerprint, fingerprint_error = "", str(e)
+        fingerprint = ""
+        if not plain:  # plain FTP (18.14): any saved fingerprint is ignored
+            try:
+                fingerprint = normalize_fingerprint(
+                    str(getattr(config, "ftps_cert_fingerprint", "") or "")
+                )
+            except ValueError as e:
+                fingerprint_error = str(e)
         settings = FtpsSettings(
             enabled=getattr(config, "ftps_enabled", False) is True,
             host=str(getattr(config, "ftps_host", "") or ""),
@@ -621,7 +626,12 @@ class SIADaemon(BaseDaemon):
             password=os.environ.pop(FTPS_PASSWORD_ENV, ""),
             folder=str(getattr(config, "ftps_folder", "") or ""),
             cert_fingerprint=fingerprint,
+            plain=plain,
         )
+        if settings.enabled and plain:
+            self._logger.warning(
+                "FTP sans TLS: FTPS uploads use plain FTP, the link is not encrypted"
+            )
         if settings.enabled and fingerprint_error is not None:
             self._logger.warning(f"FTPS upload disabled: {fingerprint_error}")
             return FtpsSettings()

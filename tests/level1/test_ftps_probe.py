@@ -326,3 +326,102 @@ def test_connection_reset_during_login_is_not_reported_as_bad_credentials() -> N
     result = _probe(ftp)
     # Assert: a connection fault, not a credentials refusal
     assert (result["status"], result["step"]) == ("error", "connexion")
+
+
+def _probe_plain(ftp: MagicMock, settings: FtpsSettings | None = None) -> tuple[dict[str, str], MagicMock]:
+    """Run the probe with plain FTP replaced by `ftp`; return the answer and the FTP_TLS double."""
+    with patch.object(ftps_upload.ftplib, "FTP", return_value=ftp), \
+            patch.object(ftps_upload.ftplib, "FTP_TLS") as tls:
+        return probe_connection(settings or _settings(plain=True), time.monotonic() + 15), tls
+
+
+def test_plain_probe_logs_in_without_tls_and_says_the_link_is_not_encrypted(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """
+    Plain mode on, a server without FTPS (matrix: Test, plain on / Plain on, server has FTPS).
+
+    Expected result:
+    - status ok, detail says the link is not encrypted; connect + login only
+    - FTP_TLS is never built, no AUTH TLS, no write
+    - the log says "sans TLS" and never holds the password
+    """
+    ftp = MagicMock()
+    with caplog.at_level("DEBUG"):
+        result, tls = _probe_plain(ftp)
+    # Assert: success with the unencrypted notice
+    assert result["status"] == "ok" and "pas chiffrée" in result["detail"]
+    # Assert: no TLS object, no AUTH TLS
+    assert not tls.called and not ftp.auth.called
+    # Assert: connect then login with the password
+    ftp.connect.assert_called_once_with("ftp.example", 2121)
+    ftp.login.assert_called_once_with("siaftps", _SECRET)
+    _assert_no_write(ftp)
+    # Assert: the log names the mode, without the secret
+    assert "sans TLS" in caplog.text and _SECRET not in caplog.text
+
+
+def test_plain_probe_ignores_a_saved_fingerprint() -> None:
+    """
+    Plain mode with an old pinned fingerprint (matrix: Plain on, fingerprint saved).
+
+    Expected result:
+    - status ok, no certificate read
+    """
+    ftp = MagicMock()
+    result, _ = _probe_plain(ftp, _settings(plain=True, cert_fingerprint=_CERT_SHA))
+    # Assert: success, certificate never looked at
+    assert result["status"] == "ok"
+    assert not ftp.sock.getpeercert.called
+
+
+def test_plain_probe_bad_login_gives_the_login_failure() -> None:
+    """
+    Plain mode, the server refuses the credentials.
+
+    Expected result:
+    - error, step "identifiants", password masked
+    """
+    ftp = MagicMock()
+    ftp.login.side_effect = ftplib.error_perm(f"530 Login incorrect {_SECRET}")
+    result, _ = _probe_plain(ftp)
+    # Assert: the login step is named
+    assert (result["status"], result["step"]) == ("error", "identifiants")
+    # Assert: the password is masked
+    assert _SECRET not in json.dumps(result)
+
+
+def test_plain_off_server_without_ftps_still_fails_at_the_tls_step() -> None:
+    """
+    Default mode against a server answering 530 to AUTH TLS (matrix: Plain off).
+
+    Expected result:
+    - error, step "sécurité TLS", plain FTP never used
+    """
+    ftp = _fake_ftp()
+    ftp.auth.side_effect = ftplib.error_perm("530 Please login with USER and PASS")
+    with patch.object(ftps_upload.ftplib, "FTP") as plain_ftp:
+        result = _probe(ftp)
+    # Assert: unchanged failure, no silent fallback
+    assert (result["status"], result["step"]) == ("error", "sécurité TLS")
+    assert not plain_ftp.called
+
+
+def test_cli_entry_passes_the_plain_flag_to_the_probe() -> None:
+    """
+    The --test-ftps config carries ftps_plain (true) and a malformed fingerprint is then ignored.
+
+    Expected result:
+    - the answer is not the "Réglages FTPS invalides" error (the fingerprint is not parsed)
+    - the connection error comes from the plain path: it speaks of the FTP service, not FTPS
+    """
+    done = _run_cli(
+        {"ftps_host": "127.0.0.1", "ftps_port": "1", "ftps_user": "u",
+         "ftps_cert_fingerprint": "zz", "ftps_plain": True},  # type: ignore[dict-item]
+        _SECRET,
+    )
+    answer = json.loads(done.stdout)
+    # Assert: connection error, not an invalid-settings error
+    assert "invalides" not in answer["detail"]
+    # Assert: the plain path ran (its connect failure names the FTP service)
+    assert answer["step"] == "connexion" and "service FTP est" in answer["detail"]

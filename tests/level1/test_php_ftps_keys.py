@@ -19,9 +19,9 @@ _PAGE = (_ROOT / "desktop/php/siaDC09.php").read_text(encoding="utf-8")
 _PHP_TIMEOUT_S = 10
 
 _FTPS_ARGS = ["--ftps-enabled", "--ftps-host", "--ftps-port", "--ftps-user",
-              "--ftps-folder", "--ftps-cert-fingerprint"]
+              "--ftps-folder", "--ftps-cert-fingerprint", "--ftps-plain"]
 _FTPS_KEYS = ["media_transport", "ftps_host", "ftps_port", "ftps_user",
-              "ftps_password", "ftps_folder", "ftps_cert_fingerprint"]
+              "ftps_password", "ftps_folder", "ftps_cert_fingerprint", "ftps_plain"]
 
 
 def test_deamon_start_passes_every_ftps_arg() -> None:
@@ -165,6 +165,28 @@ def test_remote_folder_field_suggests_no_default() -> None:
     assert field
     # Assert: and has no placeholder
     assert "placeholder" not in field.group(0)
+
+
+def test_plain_ftp_setting_is_handed_over_and_never_a_profile_field() -> None:
+    """
+    Ticket 18.14: the "FTP sans TLS" setting is per equipment, off by default.
+
+    Expected result:
+    - deamon_start() adds --ftps-plain only when ftps_plain is on, and skips the fingerprint then
+    - testFtps passes ftps_plain in the --config JSON
+    - the checkbox is a plain eqLogicAttr, unchecked by default, with the warning
+    """
+    start = _CLASS.split("function deamon_start")[1]
+    ajax = (_ROOT / "core/ajax/siaDC09.ajax.php").read_text(encoding="utf-8")
+    # Assert: the flag is sent conditionally and the fingerprint is not sent in plain mode
+    assert "if ($ftpsPlain) {\n                $cmd .= ' --ftps-plain';" in start
+    assert "$ftpsFingerprint !== '' && !$ftpsPlain" in start
+    # Assert: the connection test gets the setting
+    assert "$ftpsConfig['ftps_plain']" in ajax
+    # Assert: unchecked by default (no "checked" attribute) and a warning is in the page
+    box = re.search(r'<input[^>]*data-l2key="ftps_plain"[^>]*>', _PAGE)
+    assert box and "checked" not in box.group(0).replace('type="checkbox"', "")
+    assert "n'est pas chiffrée" in _PAGE
 
 
 def test_ftps_enabled_is_derived_from_the_transport_in_one_place() -> None:

@@ -47,7 +47,7 @@ class FtpsUploadError(Exception):
 
 
 @dataclass(frozen=True)
-class FtpsSettings:
+class FtpsSettings:  # pylint: disable=too-many-instance-attributes
     """Per-equipment FTPS settings, passed by PHP at daemon start.
 
     Attributes:
@@ -58,6 +58,7 @@ class FtpsSettings:
         password: Secret; excluded from repr and never logged.
         folder: Remote folder to change into (empty = login directory).
         cert_fingerprint: Normalized SHA-256 (64 lowercase hex) or "" for CA verification.
+        plain: Plain FTP, no TLS at all (ticket 18.14); the fingerprint is then ignored.
     """
 
     enabled: bool = False
@@ -67,6 +68,7 @@ class FtpsSettings:
     password: str = field(default="", repr=False)
     folder: str = ""
     cert_fingerprint: str = ""
+    plain: bool = False
 
     @property
     def complete(self) -> bool:
@@ -256,7 +258,7 @@ def _socket_timeout(deadline: float | None) -> float:
     return max(MIN_SOCKET_TIMEOUT_S, _remaining(deadline))
 
 
-def _arm(ftp: ftplib.FTP_TLS, deadline: float | None) -> None:
+def _arm(ftp: ftplib.FTP, deadline: float | None) -> None:
     """Shrink the control and future data socket timeouts to the time left."""
     left = _socket_timeout(deadline)
     ftp.timeout = left
@@ -265,7 +267,7 @@ def _arm(ftp: ftplib.FTP_TLS, deadline: float | None) -> None:
 
 
 def _store(
-    ftp: ftplib.FTP_TLS, command: str, source: BinaryIO, deadline: float | None
+    ftp: ftplib.FTP, command: str, source: BinaryIO, deadline: float | None
 ) -> str:
     """Run a STOR transfer, bounding every send and the final reply by `deadline`.
 
@@ -301,7 +303,16 @@ def _store(
     return ftp.voidresp()
 
 
-def _upload_stream(settings: FtpsSettings, transfer: _Transfer) -> None:
+def _verify_label(settings: FtpsSettings) -> str:
+    """Short description of the certificate policy, for the debug log."""
+    if settings.plain:
+        return "none (plain FTP, sans TLS)"
+    return "fingerprint" if settings.cert_fingerprint else "CA chain"
+
+
+def _upload_stream(  # pylint: disable=too-many-statements
+    settings: FtpsSettings, transfer: _Transfer
+) -> None:
     """Connect, authenticate and STOR the transfer's source (shared by bytes and file uploads).
 
     Args:
@@ -314,33 +325,42 @@ def _upload_stream(settings: FtpsSettings, transfer: _Transfer) -> None:
     name, source, size = transfer.name, transfer.source, transfer.size
     deadline = transfer.deadline
     step = "connect"
-    ftp = ftplib.FTP_TLS(context=_build_context(settings), timeout=FTPS_TIMEOUT_S)
+    ftp: ftplib.FTP
+    tls: ftplib.FTP_TLS | None = None  # None = plain FTP (18.14)
+    if settings.plain:
+        ftp = ftplib.FTP(timeout=FTPS_TIMEOUT_S)  # noqa: S321 - explicit user choice (18.14)
+    else:
+        tls = ftplib.FTP_TLS(context=_build_context(settings), timeout=FTPS_TIMEOUT_S)
+        ftp = tls
     target = f"{settings.host}:{settings.port}"
     started = time.monotonic()
     try:
+        if settings.plain:
+            _logger.warning(f"FTP sans TLS: the link to {target} is not encrypted")
         _logger.debug(
             f"FTPS {step}: {target} user={settings.user!r} folder={settings.folder!r} "
-            f"verify={'fingerprint' if settings.cert_fingerprint else 'CA chain'} "
-            f"timeout={FTPS_TIMEOUT_S}s"
+            f"verify={_verify_label(settings)} timeout={FTPS_TIMEOUT_S}s"
         )
         ftp.timeout = _remaining(deadline)
         ftp.connect(settings.host, settings.port)
-        step = "tls"
-        _arm(ftp, deadline)
-        ftp.auth()
-        _arm(ftp, deadline)
-        tls_version = ftp.sock.version()  # type: ignore[union-attr]
-        _logger.debug(f"FTPS {step}: AUTH TLS done ({tls_version})")
-        if settings.cert_fingerprint:
-            step = "fingerprint"
-            _check_fingerprint(ftp, settings.cert_fingerprint)
+        if tls is not None:
+            step = "tls"
+            _arm(tls, deadline)
+            tls.auth()
+            _arm(tls, deadline)
+            tls_version = tls.sock.version()  # type: ignore[union-attr]
+            _logger.debug(f"FTPS {step}: AUTH TLS done ({tls_version})")
+            if settings.cert_fingerprint:
+                step = "fingerprint"
+                _check_fingerprint(tls, settings.cert_fingerprint)
         step = "login"
         _arm(ftp, deadline)
         ftp.login(settings.user, settings.password)
         _logger.debug(f"FTPS {step}: logged in as {settings.user!r}")
-        step = "data-protection"
-        _arm(ftp, deadline)
-        ftp.prot_p()
+        if tls is not None:
+            step = "data-protection"
+            _arm(tls, deadline)
+            tls.prot_p()
         if settings.folder:
             step = "cwd"
             _arm(ftp, deadline)
@@ -437,10 +457,11 @@ def _probe_failure(step: str, err: BaseException, settings: FtpsSettings) -> _Pr
             f"Le serveur {target} n'accepte pas une connexion TLS sécurisée (TLS 1.2 minimum, "
             f"AUTH TLS requis). ({reason})",
         )
+    service = "FTP" if settings.plain else "FTPS"
     return _probe_error(
         PROBE_STEP_CONNECT,
         f"Impossible de joindre {target} (connexion refusée). Vérifiez : l'adresse et le "
-        f"port ; que le service FTPS est démarré ; le pare-feu. ({reason})",
+        f"port ; que le service {service} est démarré ; le pare-feu. ({reason})",
     )
 
 
@@ -461,6 +482,29 @@ def _probe_certificate_refusal(
     }
 
 
+def _probe_plain(settings: FtpsSettings, deadline: float) -> _ProbeResult:
+    """Plain FTP probe (ticket 18.14): connect and log in, no TLS step, no certificate."""
+    _logger.warning(
+        f"FTP sans TLS: connection test to {settings.host}:{settings.port}, link not encrypted"
+    )
+    step = PROBE_STEP_CONNECT
+    ftp = ftplib.FTP(timeout=FTPS_TIMEOUT_S)  # noqa: S321 - explicit user choice (18.14)
+    try:
+        ftp.timeout = _remaining(deadline)
+        ftp.connect(settings.host, settings.port)
+        step = PROBE_STEP_LOGIN
+        _arm(ftp, deadline)
+        ftp.login(settings.user, settings.password)
+        return {
+            "status": "ok",
+            "detail": "Connexion FTP sans TLS : la liaison n'est pas chiffrée.",
+        }
+    except (*_FTP_ERRORS, FtpsUploadError) as err:
+        return _probe_failure(step, err, settings)
+    finally:
+        ftp.close()
+
+
 def probe_connection(settings: FtpsSettings, deadline: float) -> _ProbeResult:
     """Connect, negotiate TLS, check the certificate, log in (blocking). Writes nothing.
 
@@ -479,6 +523,8 @@ def probe_connection(settings: FtpsSettings, deadline: float) -> _ProbeResult:
         return _probe_error(
             PROBE_STEP_CONNECT, "Réglages FTPS incomplets : serveur et utilisateur requis."
         )
+    if settings.plain:
+        return _probe_plain(settings, deadline)
     step = PROBE_STEP_CONNECT
     ftp = ftplib.FTP_TLS(context=_build_context(settings), timeout=FTPS_TIMEOUT_S)
     try:

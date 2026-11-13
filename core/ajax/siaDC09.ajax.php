@@ -66,6 +66,8 @@ try {
         foreach (['ftps_host', 'ftps_port', 'ftps_user', 'ftps_cert_fingerprint'] as $ftpsKey) {
             $ftpsConfig[$ftpsKey] = (string) $eqLogic->getConfiguration($ftpsKey, '');
         }
+        // 18.14: plain FTP without TLS (boolean, off by default).
+        $ftpsConfig['ftps_plain'] = filter_var($eqLogic->getConfiguration('ftps_plain', 0), FILTER_VALIDATE_BOOLEAN);
         if (trim($ftpsConfig['ftps_host']) === '' || trim($ftpsConfig['ftps_user']) === '') {
             // Nothing is contacted.
             ajax::success([

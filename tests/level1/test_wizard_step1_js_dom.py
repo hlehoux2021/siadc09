@@ -948,6 +948,70 @@ def test_18_11_certificate_choice_shows_then_hides_and_empties_at_save() -> None
     assert kept["saved"][0]["configuration"]["ftps_cert_fingerprint"] == _FINGERPRINT
 
 
+def test_18_14_plain_box_is_off_by_default_with_warning_and_certificate_choice() -> None:
+    """
+    Ticket 18.14, default: FTPS card shown, box not ticked.
+
+    Expected result:
+    - the box is unticked, the warning is shown, the certificate choice is shown
+    """
+    out = _run({"fields": {**_FTPS_ON, **_FTPS_COMPLETE}, "actions": [_FTPS_REFRESH]})
+
+    # Assert: off by default, FTPS behaviour unchanged
+    assert not out["ftps"]["plainChecked"] and out["ftps"]["certBlockVisible"]
+    # Assert: the warning is always shown
+    assert out["ftps"]["warningVisible"]
+
+
+def test_18_14_plain_box_hides_certificate_and_drops_the_fingerprint_rule() -> None:
+    """
+    Matrix rows 'Wizard, box ticked' and 'Completeness': plain on, host/user/password set, bad fingerprint.
+
+    Expected result:
+    - certificate radios and fingerprint hidden, warning shown
+    - no FTPS error even with a malformed saved fingerprint
+    - the box is not locked by a profile and unticking brings the certificate choice back
+    """
+    fields = {**_FTPS_ON, **_FTPS_COMPLETE, "ftps_cert_fingerprint": "ABCD"}
+    on = _run({"fields": fields,
+               "actions": [{"op": "printEqLogic", "eqLogic": {"configuration": {**fields, "ftps_plain": "1"}}},
+                           _FTPS_REFRESH, {"op": "ftpsErrors"}]})
+    off = _run({"fields": fields,
+                "actions": [{"op": "printEqLogic", "eqLogic": {"configuration": {**fields, "ftps_plain": "1"}}},
+                            _FTPS_REFRESH,
+                            {"op": "trigger", "selector": "#siaDC09-ftps-plain", "checked": False},
+                            {"op": "ftpsErrors"}]})
+
+    # Assert: certificate part hidden, warning shown
+    assert on["ftps"]["plainChecked"] and not on["ftps"]["certBlockVisible"] and on["ftps"]["warningVisible"]
+    # Assert: no error, the fingerprint is not required nor checked
+    assert on["ftpsErrorLists"][0] == []
+    # Assert: unticked, the certificate choice and the fingerprint rule are back
+    assert off["ftps"]["certBlockVisible"]
+    assert [e["key"] for e in off["ftpsErrorLists"][0]] == ["ftps_cert_fingerprint"]
+    # Assert: the box is never a locked profile field
+    assert on["ftps"]["lockedOrReadonly"] == 0
+
+
+def test_18_14_plain_summary_says_not_encrypted_and_never_the_password() -> None:
+    """
+    The step 2 line 2 names the plain mode.
+
+    Expected result:
+    - the line ends with « sans TLS (non chiffré) » when ftps_plain is on, and is unchanged when off
+    """
+    base = {"media_snapshot_enabled": "1", "media_clip_enabled": "1", "media_enabled": "1",
+            "media_transport": "ftps", "ftps_host": "h", "ftps_port": "21", "ftps_folder": "", "ftps_password": "SECRET"}
+    out = _run({"actions": [{"op": "mediaSummary", "cfg": {**base, "ftps_plain": "1"}},
+                            {"op": "mediaSummary", "cfg": {**base, "ftps_plain": "0"}}]})
+
+    # Assert: plain mode named, password absent
+    assert out["summaries"][0] == "photo + vidéo, sur le serveur FTPS h:21 (dossier racine), sans TLS (non chiffré)"
+    assert "SECRET" not in out["summaries"][0]
+    # Assert: unchanged otherwise
+    assert out["summaries"][1] == "photo + vidéo, sur le serveur FTPS h:21 (dossier racine)"
+
+
 def test_18_11_profile_never_locks_ftps_fields() -> None:
     """
     Matrix row 'Profile locks media': Personnalisé with FTPS, then a locking profile applied.
@@ -974,8 +1038,8 @@ def test_18_11_php_ftps_inputs_carry_no_profile_class() -> None:
     page = (_PROJECT_ROOT / "desktop" / "php" / "siaDC09.php").read_text(encoding="utf-8")
     inputs = [tag for tag in re.findall(r"<input[^>]*>", page) if 'data-l2key="ftps_' in tag]
 
-    # Assert: the six FTPS settings exist
-    assert len(inputs) == 6
+    # Assert: the seven FTPS settings exist (the sixth is the fingerprint, the seventh "FTP sans TLS", 18.14)
+    assert len(inputs) == 7
     # Assert: none of them is a profile field
     assert all("siaDC09-profile-field" not in tag for tag in inputs)
 
