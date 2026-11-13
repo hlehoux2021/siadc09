@@ -16,7 +16,7 @@
         "Supervision": "Supervision",
         "État alarme": "Alarm state",
         "Alarme": "Alarm",
-        "Aucun équipement actif — création automatique": "No active equipment — auto-creating",
+        "Aucun équipement — création automatique": "No equipment — auto-creating",
         "Message daemon reçu mais équipement absent — ignoré jusqu'à réactivation du plugin.": "Daemon message received but equipment missing — ignored until plugin reactivation.",
         "Commande notification non configurée — alerte ignorée": "Notification command not configured — alert ignored",
         "Impossible d'envoyer la notification : ": "Unable to send notification: "

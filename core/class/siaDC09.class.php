@@ -320,7 +320,13 @@ class siaDC09 extends eqLogic {
         if ($active !== null) {
             return $active;
         }
-        log::add(__CLASS__, 'warning', __('Aucun équipement actif — création automatique', __FILE__));
+        // Only create when no equipment exists at all: disabled ones are kept in reserve, and
+        // creating one while the user switches the active equipment would leave a useless extra.
+        $existing = eqLogic::byType(__CLASS__);
+        if (is_array($existing) && count($existing) > 0) {
+            return $existing[0];
+        }
+        log::add(__CLASS__, 'warning', __('Aucun équipement — création automatique', __FILE__));
         $eq = new self();
         $eq->setName('Télésurveillance');
         $eq->setEqType_name(__CLASS__);
