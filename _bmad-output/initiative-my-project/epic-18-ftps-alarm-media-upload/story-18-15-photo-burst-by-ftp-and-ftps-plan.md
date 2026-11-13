@@ -21,11 +21,11 @@ context: []
 
 **Problem:** A BA alarm verified by FTP/FTPS uploads one snapshot; the receiver wants a series it can rebuild a video from.
 
-**Approach:** On `prefetchEvent` the daemon starts a tracked task that grabs 5 photos (1 per second, `latest.jpg`) into memory, tied to the `run_id`. When the BA alarm arrives, the daemon uploads them as `{UID}_{zone}_{timestamp}_0001..0005.jpg` over one connection; without a series it sends the single event snapshot as today.
+**Approach:** On `prefetchEvent` the daemon starts a tracked task that grabs 5 photos (1 per second, `latest.jpg`) into memory, tied to the `run_id`. When the BA alarm arrives, the daemon uploads them as `{UID}_{zone}_{epoch of the photo}_0001..0005.jpg` over one connection; without a series it sends the single event snapshot as today.
 
 ## Boundaries & Constraints
 
-**Always:** FTP/FTPS only, only when the photo is wanted; series in memory only, dropped after 120 s, never sent without a BA alarm; the SIA frame never waits; one notification for a partial failure; password never logged; Frigate event snapshot sent last when an event exists; same timestamp for the whole series.
+**Always:** FTP/FTPS only, only when the photo is wanted; series in memory only, dropped after 120 s, never sent without a BA alarm; the SIA frame never waits; one notification for a partial failure; password never logged; no Frigate event snapshot with a series (amended 2026-11-14); each photo named with its own capture epoch second.
 
 **Always (decisions, user 2026-11-13):** the 5 photos are taken right after the immediate action (the delay only lets a legitimate user cancel), not in a rolling buffer; send whatever can be obtained: series, event snapshot and clip are independent, and a missing Frigate event never blocks the series (nor the reverse). The PHP side builds `ftps_upload` when a `run_id` exists even with no event id.
 
