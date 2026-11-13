@@ -75,6 +75,7 @@ from .messages import (
     SM1_CONFIG_ERROR_FR,
 )
 from .frigate_prefetch import (
+    BurstPhoto,
     ClipFetchError,
     PrefetchResult,
     capture_burst,
@@ -225,12 +226,12 @@ class _BurstSeries:
     """A photo series held in memory for one prefetch run (ticket 18.15).
 
     Attributes:
-        photos: JPEG frames in capture order, filled while `task` runs.
+        photos: Frames (JPEG + capture time) in capture order, filled while `task` runs.
         task: The tracked capture task.
         expiry: Timer that drops the series when no BA alarm took it in time.
     """
 
-    photos: list[bytes]
+    photos: list[BurstPhoto]
     task: asyncio.Task
     expiry: asyncio.TimerHandle
 
@@ -670,71 +671,59 @@ class SIADaemon(BaseDaemon):
         Runs as a tracked background task, so the SIA frame never waits for it. The two
         media are independent: one failing does not skip the other (ticket 18.5).
 
-        Ticket 18.15: when the prefetch run holds a photo series, the series goes first over
-        one connection, with the event snapshot last; without a series the single snapshot
-        is sent as before. Series, snapshot and clip are independent: a missing Frigate
-        event never blocks the series, and the reverse.
+        Ticket 18.15: when the prefetch run holds a photo series, the series goes alone over
+        one connection (the event snapshot is not sent); without a series the single snapshot
+        is sent as before. Series and clip are independent: a missing Frigate event never
+        blocks the series, and the reverse.
 
         Args:
             media: Which media of which Frigate event to upload.
         """
-        # One alarm time (one epoch) for every media, so they differ only by image number
-        # and extension (18.13, 18.15).
+        # One alarm time (one epoch) for the snapshot and the clip, so they differ only by
+        # extension (18.13); each photo of a series carries its own capture time (18.15).
         when = datetime.now().astimezone()
         photos = self._take_burst(media.run_id) if media.run_id else []
         if not media.event_id:
             outcome = (
-                f"photo series only ({len(photos)} photo(s)), no event snapshot or clip"
+                f"photo series only ({len(photos)} photo(s)), no clip"
                 if photos and media.snapshot else "nothing to send"
             )
             self._logger.warning(f"FTPS: no Frigate event for this alarm — {outcome}")
         if media.snapshot and photos:
-            await self._upload_series(media, when, photos)
+            await self._upload_series(media, photos)
         elif media.snapshot and media.event_id:
             await self._upload_snapshot(media, when)
         if media.clip and media.event_id:
             await self._upload_clip(media, when)
 
-    async def _upload_series(
-        self, media: FtpsAlarmMedia, when: datetime, photos: list[bytes]
-    ) -> None:
-        """Upload the photo series, then the event snapshot, over one connection (18.15).
+    async def _upload_series(self, media: FtpsAlarmMedia, photos: list[BurstPhoto]) -> None:
+        """Upload the photo series over one connection (18.15).
 
-        Files are `..._0001.jpg` to `..._000N.jpg`, the event snapshot (when an event exists
-        and Frigate serves it) taking the next number. A failure is reported once, naming
-        how many photos reached the server; no retry.
+        Files are `<account>_<zone>_<epoch of the photo>_0001.jpg` to `..._000N.jpg`: the
+        epoch is the second the frame was taken, so each name tells when its photo was
+        shot. The event snapshot is not sent with a series. A failure is reported once,
+        naming how many photos reached the server; no retry.
 
         Args:
             media: The alarm's media (event id may be "").
-            when: Alarm time, shared by every file of the alarm.
             photos: The series, in capture order (at least one).
         """
         zone = media.zone
         target = f"{self._ftps.host}:{self._ftps.port}"
         started = time.monotonic()
         files = [
-            (remote_location(self._account, media.zone_number, when, "jpg", image=i), photo)
+            (
+                remote_location(
+                    self._account, media.zone_number,
+                    datetime.fromtimestamp(photo.taken_at, tz=timezone.utc), "jpg", image=i,
+                ),
+                photo.data,
+            )
             for i, photo in enumerate(photos, start=1)
         ]
-        missing_event_photo = ""
-        if media.event_id:
-            snapshot = await fetch_event_snapshot(media.frigate_host, media.event_id)
-            if snapshot is None:
-                missing_event_photo = (
-                    f"aucune photo reçue de Frigate {media.frigate_host} "
-                    f"pour l'évènement {media.event_id}"
-                )
-            else:
-                files.append((
-                    remote_location(
-                        self._account, media.zone_number, when, "jpg", image=len(files) + 1
-                    ),
-                    snapshot,
-                ))
         deadline = FTPS_UPLOAD_DEADLINE_S + FTPS_SERIES_PER_FILE_S * (len(files) - 1)
         self._logger.debug(
-            f"FTPS upload task: {len(files)} photo(s) ({len(photos)} series) -> {target} "
-            f"(deadline {deadline:.0f}s)"
+            f"FTPS upload task: {len(files)} photo(s) -> {target} (deadline {deadline:.0f}s)"
         )
         try:
             await asyncio.wait_for(
@@ -746,18 +735,12 @@ class SIADaemon(BaseDaemon):
         except FtpsUploadError as e:
             await self._report_ftps_failure(
                 zone, f"{e.sent} photos sur {len(files)} envoyées — {e}"
-                + (f" ; {missing_event_photo}" if missing_event_photo else "")
             )
         except (asyncio.TimeoutError, TimeoutError):
             await self._report_ftps_failure(
                 zone, f"délai dépassé ({deadline:.0f} s) pour {len(files)} photos"
-                + (f" ; {missing_event_photo}" if missing_event_photo else "")
             )
         else:
-            if missing_event_photo:
-                await self._report_ftps_failure(
-                    zone, f"{len(photos)} photos de la série envoyées, mais {missing_event_photo}"
-                )
             self._logger.info(
                 f"FTPS upload to {target} done: {files[0][0]} .. {files[-1][0]} "
                 f"({len(files)} photos, {sum(len(d) for _, d in files)} bytes, "
@@ -772,7 +755,7 @@ class SIADaemon(BaseDaemon):
             frigate_host: Frigate "host:port".
             camera_name: Frigate-native camera name.
         """
-        photos: list[bytes] = []
+        photos: list[BurstPhoto] = []
         task = self._track_task(
             capture_burst(frigate_host, camera_name, photos), name=f"photo-burst-{run_id}"
         )
@@ -799,7 +782,7 @@ class SIADaemon(BaseDaemon):
                 f"({len(series.photos)} photo(s) dropped, nothing sent)"
             )
 
-    def _take_burst(self, run_id: str) -> list[bytes]:
+    def _take_burst(self, run_id: str) -> list[BurstPhoto]:
         """Take the photos a run holds so far (stops its capture); [] when there is none."""
         series = self._burst_series.pop(run_id, None)
         if series is None:

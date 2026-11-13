@@ -377,6 +377,8 @@ function siaDC09_updateMediaFields() {
   $('#siaDC09-zone-content').toggle(m.enabled && !ftps)
   siaDC09_updateFtpsCard(m.enabled && ftps)
   $('.siaDC09-transport-radio').each(function() { $(this).prop('checked', $(this).val() === m.transport) })
+  // Ticket 18.15: by FTP/FTPS the photo is a series of 5; by address it stays one photo.
+  $('#siaDC09-media-snapshot-label').text(ftps ? "{{Rafale de 5 photos}}" : "{{Photo}}")
   var available = m.snapshotOn && m.clipOn && m.snapshotFormat === m.clipFormat
   var mixed = m.snapshotOn && m.clipOn && !available
   var $single = $('.eqLogicAttr[data-l2key="media_single_tag"]')

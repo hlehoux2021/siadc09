@@ -194,10 +194,23 @@ async def fetch_latest_jpeg(frigate_host: str, camera: str) -> bytes | None:
                                             timeout=PREFETCH_HTTP_TIMEOUT_S)
 
 
+@dataclass(frozen=True)
+class BurstPhoto:
+    """One frame of a photo series.
+
+    Attributes:
+        data: JPEG bytes.
+        taken_at: Unix time (seconds) when the frame was received; it names the remote file.
+    """
+
+    data: bytes
+    taken_at: float
+
+
 async def capture_burst(
     frigate_host: str,
     camera: str,
-    photos: list[bytes],
+    photos: list[BurstPhoto],
     *,
     count: int = BURST_COUNT,
     interval_s: float = BURST_INTERVAL_S,
@@ -207,7 +220,8 @@ async def capture_burst(
     `photos` is filled as the frames arrive, so a caller that stops the capture early (alarm
     before the end) keeps what was taken. The first refused or failed frame ends the series
     with one WARNING. Identical consecutive frames (camera offline, frozen picture) are kept
-    and logged once at WARNING. Nothing is written to disk.
+    and logged once at WARNING. Each frame logs one DEBUG line (rank, time since the first
+    request, size). Nothing is written to disk.
 
     Args:
         frigate_host: Frigate "host:port".
@@ -226,12 +240,17 @@ async def capture_burst(
                 f"(frame {index + 1}/{count}) — series stopped at {len(photos)} photo(s)"
             )
             return
-        if photos and photo == photos[-1] and not frozen_warned:
+        if photos and photo == photos[-1].data and not frozen_warned:
             _logger.warning(
                 f"photo series: camera {camera!r} returns identical frames (offline or frozen?)"
             )
             frozen_warned = True
-        photos.append(photo)
+        taken_at = time.time()
+        photos.append(BurstPhoto(photo, taken_at))
+        _logger.debug(
+            f"photo series: frame {index + 1}/{count} of camera {camera!r} at "
+            f"+{time.monotonic() - started:.2f}s, {len(photo)} bytes, taken {taken_at:.3f}"
+        )
         if index + 1 < count:
             wait = started + (index + 1) * interval_s - time.monotonic()
             if wait > 0:

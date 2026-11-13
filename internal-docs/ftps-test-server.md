@@ -95,7 +95,7 @@ Files go flat at the root of the configured FTPS folder (`upload/` on the test s
 - The clip of the same alarm sits beside the snapshot with the same name and the `.mp4` extension (one epoch shared by both media).
 - The epoch is the daemon's time when the alarm is handled; it is timezone-independent.
 - The account goes through `safe_name_part()` (anything outside `A-Za-z0-9._-` becomes `_`); an empty or dots-only account becomes `noaccount`. A zone of three digits is not truncated (`..._123_...`); an absent zone number gives `00`.
-- The image part is 4 digits (`remote_location(..., image=n)`, default `0001`). A single photo is `0001`. With a photo series (ticket 18.15) the series is `0001` to `0005` (fewer when the alarm comes early) and the event snapshot, when there is one, takes the next number (`0006`); all files of one alarm share the epoch and go over one connection.
+- The image part is 4 digits (`remote_location(..., image=n)`, default `0001`). A single photo is `0001`. With a photo series (ticket 18.15) the series is `0001` to `0005` (fewer when the alarm comes early), sent alone: the event snapshot is not sent with a series. Each file of a series carries the epoch second its own photo was taken (so names differ by epoch and image number), all over one connection.
 - Same zone in the same second (two events): same name, the later file overwrites the earlier. Accepted by the user.
 - To test in the field: the `0001` clip (`.mp4`) is not yet confirmed to be accepted by the receiver.
 - Deferred, not in this version: retention, cleanup or quota on the server (files are never deleted by the plugin), and a configurable layout.

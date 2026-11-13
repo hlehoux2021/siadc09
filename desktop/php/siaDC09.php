@@ -205,11 +205,6 @@ $scenarios = scenario::all();
 										<div id="siaDC09-media-body" style="display:none;">
 											<div class="siaDC09-subzone" id="siaDC09-media-profile-group">
 												<h5 class="siaDC09-zone-title">{{Contenu et mode d'envoi}}</h5>
-											<div class="siaDC09-field siaDC09-w-full" id="siaDC09-media-what" style="margin-top:14px;">
-												<span class="siaDC09-label">{{Que joindre ?}}</span>
-												<label class="siaDC09-check-line"><input type="checkbox" class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l1key="configuration" data-l2key="media_snapshot_enabled">{{Photo}}</label>
-												<label class="siaDC09-check-line"><input type="checkbox" class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l1key="configuration" data-l2key="media_clip_enabled">{{Vidéo}}</label>
-											</div>
 											<div class="siaDC09-field siaDC09-w-full" id="siaDC09-media-transport-group" style="margin-top:14px;">
 												<span class="siaDC09-label">{{Comment la centrale reçoit-elle la photo ou la vidéo ?}}</span>
 												<!-- media_transport is the saved field ('url' | 'ftps'); the radios drive it (Jeedom does not save radios as eqLogicAttr) -->
@@ -218,6 +213,12 @@ $scenarios = scenario::all();
 													<p class="siaDC09-help">{{La centrale va chercher le média sur votre serveur Frigate.}}</p></div>
 												<div class="radio"><label><input type="radio" class="siaDC09-transport-radio siaDC09-transport-field siaDC09-profile-field" name="siaDC09-media-transport" value="ftps"> {{Une copie déposée sur un serveur FTPS}}</label>
 													<p class="siaDC09-help">{{Le plugin dépose le média sur votre serveur ; le message d'alarme ne contient pas d'adresse.}}</p></div>
+											</div>
+											<!-- Below the transport question: the photo label depends on it (ticket 18.15) -->
+											<div class="siaDC09-field siaDC09-w-full" id="siaDC09-media-what" style="margin-top:14px;">
+												<span class="siaDC09-label">{{Que joindre ?}}</span>
+												<label class="siaDC09-check-line"><input type="checkbox" class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l1key="configuration" data-l2key="media_snapshot_enabled"><span id="siaDC09-media-snapshot-label">{{Photo}}</span></label>
+												<label class="siaDC09-check-line"><input type="checkbox" class="eqLogicAttr siaDC09-media-field siaDC09-profile-field" data-l1key="configuration" data-l2key="media_clip_enabled">{{Vidéo}}</label>
 											</div>
 												<p class="siaDC09-help" id="siaDC09-media-lock-note" style="display:none;"><i class="fas fa-lock"></i> <span></span></p>
 											</div><!-- /#siaDC09-media-profile-group -->
