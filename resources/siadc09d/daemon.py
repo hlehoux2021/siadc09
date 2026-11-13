@@ -201,8 +201,9 @@ class FtpsAlarmMedia:
 
     Attributes:
         frigate_host: Frigate "host:port".
-        event_id: Frigate event id (also part of the remote file names).
+        event_id: Frigate event id (used to fetch the media).
         zone: Zone label of the alarm, for the user-facing message (None when unknown).
+        zone_number: Zone number of the alarm, part of the remote file names (ticket 18.13).
         snapshot: Upload the snapshot.
         clip: Upload the clip.
     """
@@ -212,6 +213,7 @@ class FtpsAlarmMedia:
     zone: str | None = None
     snapshot: bool = True
     clip: bool = False
+    zone_number: int | None = None
 
 
 @dataclass
@@ -636,7 +638,7 @@ class SIADaemon(BaseDaemon):
         Args:
             media: Which media of which Frigate event to upload.
         """
-        # One alarm time for both media, so they sit side by side on the server (18.8).
+        # One alarm time (one epoch) for both media, so they differ only by extension (18.13).
         when = datetime.now().astimezone()
         if media.snapshot:
             await self._upload_snapshot(media, when)
@@ -662,7 +664,7 @@ class SIADaemon(BaseDaemon):
             await self._report_ftps_failure(zone, str(e), video=True)
             return
         deadline = FTPS_UPLOAD_DEADLINE_S + clip.duration_s
-        directory, name = remote_location(self._account, zone, event_id, when, "mp4")
+        name = remote_location(self._account, media.zone_number, when, "mp4")
         try:
             self._logger.debug(
                 f"FTPS upload task: clip {clip.size} bytes from Frigate "
@@ -671,7 +673,7 @@ class SIADaemon(BaseDaemon):
             await asyncio.wait_for(
                 asyncio.to_thread(
                     upload_file, self._ftps, name, clip.path,
-                    deadline=time.monotonic() + deadline, directory=directory,
+                    deadline=time.monotonic() + deadline,
                 ),
                 timeout=deadline + FTPS_TIMEOUT_S + FTPS_OUTER_GRACE_S,
             )
@@ -714,12 +716,12 @@ class SIADaemon(BaseDaemon):
             f"FTPS upload task: snapshot {len(snapshot)} bytes from Frigate "
             f"in {time.monotonic() - started:.2f}s"
         )
-        directory, name = remote_location(self._account, zone, event_id, when, "jpg")
+        name = remote_location(self._account, media.zone_number, when, "jpg")
         try:
             await asyncio.wait_for(
                 asyncio.to_thread(
                     upload_bytes, self._ftps, name, snapshot,
-                    deadline=time.monotonic() + FTPS_UPLOAD_DEADLINE_S, directory=directory,
+                    deadline=time.monotonic() + FTPS_UPLOAD_DEADLINE_S,
                 ),
                 timeout=FTPS_UPLOAD_DEADLINE_S + FTPS_TIMEOUT_S + FTPS_OUTER_GRACE_S,
             )
@@ -3087,7 +3089,8 @@ class SIADaemon(BaseDaemon):
                 self._track_task(
                     self._run_ftps_upload(
                         FtpsAlarmMedia(
-                            ftps_host, ftps_event_id, zone, snapshot=want_snapshot, clip=want_clip
+                            ftps_host, ftps_event_id, zone, snapshot=want_snapshot,
+                            clip=want_clip, zone_number=zone_number,
                         )
                     ),
                     name="ftps-upload",

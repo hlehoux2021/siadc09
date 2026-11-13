@@ -83,20 +83,21 @@ Expected: a PASS line per step (connect, tls, login, data-protection, cwd, uploa
 
 The password is read from `FTPS_PASSWORD` only and is never printed.
 
-## Remote file layout (ticket 18.8, first version)
+## Remote file layout (ticket 18.13, replaces the 18.8 folders)
 
-Below the configured FTPS folder (`upload/` on the test server), the daemon creates one folder per account and per day, and names each file after the alarm time, the zone and the Frigate event:
+Files go flat at the root of the configured FTPS folder (`upload/` on the test server), named as the receiver expects `{UID}_{zone}_{timestamp}_{image}`:
 
 | Part | Rule | Example |
 |------|------|---------|
-| Folder | `<ftps_folder>/<account>/<YYYY-MM-DD>/` | `upload/001234/2026-11-10/` |
-| File | `<HHMMSS>_<zone>_<event_id>.<jpg or mp4>` | `140509_Salon_1700000.1-abc.jpg` |
+| Folder | none: the configured folder itself, no subfolder is created | `upload/` |
+| File | `<account>_<zone number, 2 digits>_<Unix epoch seconds>_0001.<jpg or mp4>` | `12345678_01_1675938881_0001.jpg` |
 
-- Full path example: `upload/001234/2026-11-10/140509_Salon_1700000.1-abc.jpg`, and the clip of the same alarm beside it as `...abc.mp4`.
-- Date and time are the daemon's local time when the alarm is handled (one value shared by the snapshot and the clip).
-- Every variable part goes through `safe_name_part()` (anything outside `A-Za-z0-9._-` becomes `_`, so `Salon é` gives `Salon__`); an empty or dots-only part becomes `noaccount`, `nozone` or `noevent`, so a path can never contain `..`.
-- Missing folders are created level by level when the file is uploaded (`CWD`, then `MKD` and `CWD` if refused; an "already exists" race is tolerated). The login account needs write permission in the configured folder.
-- Two zones, two times or two events never collide; the event id separates two events of one zone in the same second.
+- The clip of the same alarm sits beside the snapshot with the same name and the `.mp4` extension (one epoch shared by both media).
+- The epoch is the daemon's time when the alarm is handled; it is timezone-independent.
+- The account goes through `safe_name_part()` (anything outside `A-Za-z0-9._-` becomes `_`); an empty or dots-only account becomes `noaccount`. A zone of three digits is not truncated (`..._123_...`); an absent zone number gives `00`.
+- The image part is the constant `0001` (`IMAGE_NUMBER`), the one place to change for a future series feature.
+- Same zone in the same second (two events): same name, the later file overwrites the earlier. Accepted by the user.
+- To test in the field: the `0001` clip (`.mp4`) is not yet confirmed to be accepted by the receiver.
 - Deferred, not in this version: retention, cleanup or quota on the server (files are never deleted by the plugin), and a configurable layout.
 
 ## Not covered

@@ -73,9 +73,9 @@ async def test_ba_uploads_snapshot_and_enqueues_frame(daemon) -> None:
     settings, name, data = upload.call_args[0]
     # Assert: uploaded to the configured host with the downloaded bytes and fixed name
     assert settings.host == "ftp.example" and data == b"jpeg"
-    assert re.fullmatch(r"\d{6}_Z_1700000\.1-abc\.jpg", name)
-    # Assert: sent into <account>/<date> (ticket 18.8)
-    assert re.fullmatch(r"001234/\d{4}-\d{2}-\d{2}", upload.call_args.kwargs["directory"])
+    assert re.fullmatch(r"001234_01_\d{10}_0001\.jpg", name)
+    # Assert: flat layout, no directory argument (ticket 18.13)
+    assert "directory" not in upload.call_args.kwargs
 
 
 @pytest.mark.asyncio
