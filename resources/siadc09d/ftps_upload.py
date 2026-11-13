@@ -21,6 +21,7 @@ import os
 import re
 import ssl
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import BinaryIO, Final, Literal, TypedDict
@@ -39,11 +40,19 @@ _FTP_ERRORS: Final[tuple[type[BaseException], ...]] = (*ftplib.all_errors, Value
 # Remote names are built from external ids: keep only filename-safe characters.
 _UNSAFE_NAME_CHARS: Final[re.Pattern[str]] = re.compile(r"[^A-Za-z0-9._-]")
 NO_ACCOUNT: Final[str] = "noaccount"
-IMAGE_NUMBER: Final[str] = "0001"  # image part of the receiver file name (no series yet)
+FIRST_IMAGE: Final[int] = 1  # image part of the receiver file name, 4 digits (ticket 18.15)
 
 
 class FtpsUploadError(Exception):
-    """The upload failed; the message never contains the password."""
+    """The upload failed; the message never contains the password.
+
+    Attributes:
+        sent: Files fully stored before the failure (multi-file upload, ticket 18.15).
+    """
+
+    def __init__(self, message: str, sent: int = 0) -> None:
+        super().__init__(message)
+        self.sent = sent
 
 
 @dataclass(frozen=True)
@@ -115,13 +124,15 @@ def _path_part(text: str, fallback: str) -> str:
 
 
 def remote_location(
-    account: str, zone_number: int | None, when: datetime, extension: str
+    account: str, zone_number: int | None, when: datetime, extension: str,
+    *, image: int = FIRST_IMAGE,
 ) -> str:
-    """Return the remote file name of one alarm media (ticket 18.13).
+    """Return the remote file name of one alarm media (tickets 18.13, 18.15).
 
     Flat layout at the root of the configured FTPS folder:
-    `<account>_<zone, 2 digits>_<Unix epoch seconds>_0001.<extension>`. The epoch is
-    timezone-independent, so a snapshot and a clip of one alarm differ only by extension.
+    `<account>_<zone, 2 digits>_<Unix epoch seconds>_<image, 4 digits>.<extension>`. The
+    epoch is timezone-independent, so a snapshot and a clip of one alarm differ only by
+    extension; the photos of a series share the epoch and differ by image number.
     Two alarms of the same zone in the same second share a name (the later overwrites).
 
     Args:
@@ -129,6 +140,7 @@ def remote_location(
         zone_number: Zone number sent with the alarm (None becomes 00).
         when: Alarm time (timezone-aware, or naive local time).
         extension: File extension without the dot ("jpg" or "mp4").
+        image: Image number in the series (1 = 0001, the single-photo default).
 
     Returns:
         The file name; the account went through `_path_part()` and the extension through
@@ -137,7 +149,7 @@ def remote_location(
     zone = zone_number if zone_number is not None else 0
     return (
         f"{_path_part(account, NO_ACCOUNT)}_{zone:02d}_{int(when.timestamp())}_"
-        f"{IMAGE_NUMBER}.{safe_name_part(extension)}"
+        f"{image:04d}.{safe_name_part(extension)}"
     )
 
 
@@ -180,19 +192,17 @@ def _check_fingerprint(ftp: ftplib.FTP_TLS, expected: str) -> None:
 
 @dataclass(frozen=True)
 class _Transfer:
-    """What one upload sends and where (shared by the bytes and file uploads, ticket 18.10).
+    """One file an upload sends and where (shared by the bytes and file uploads, ticket 18.10).
 
     Attributes:
         name: Remote file name (no path).
         source: Open binary stream to send.
         size: Number of bytes in `source`, for the log line.
-        deadline: Absolute `time.monotonic()` abort time (None = only the per-socket timeout).
     """
 
     name: str
     source: BinaryIO
     size: int
-    deadline: float | None = None
 
 
 def upload_bytes(
@@ -211,7 +221,26 @@ def upload_bytes(
         FtpsUploadError: Any connection, TLS, login or transfer failure. The message names
             the failing exception type and server reply, never the password.
     """
-    _upload_stream(settings, _Transfer(name, io.BytesIO(data), len(data), deadline))
+    _upload_stream(settings, [_Transfer(name, io.BytesIO(data), len(data))], deadline)
+
+
+def upload_many(
+    settings: FtpsSettings, files: Sequence[tuple[str, bytes]], deadline: float | None = None
+) -> None:
+    """Upload several in-memory files, in order, over one connection and one login (18.15).
+
+    Args:
+        settings: FTPS settings (must be complete).
+        files: `(remote name, content)` pairs, stored in this order.
+        deadline: Absolute `time.monotonic()` abort time for the whole batch (None = none).
+
+    Raises:
+        FtpsUploadError: Any connection, TLS, login or transfer failure; `sent` counts the
+            files fully stored before it. No retry.
+    """
+    _upload_stream(
+        settings, [_Transfer(name, io.BytesIO(data), len(data)) for name, data in files], deadline
+    )
 
 
 def upload_file(
@@ -233,7 +262,7 @@ def upload_file(
     try:
         with open(path, "rb") as source:
             size = os.fstat(source.fileno()).st_size
-            _upload_stream(settings, _Transfer(name, source, size, deadline))
+            _upload_stream(settings, [_Transfer(name, source, size)], deadline)
     except OSError as err:
         # FtpsUploadError is not an OSError, so only local file problems land here.
         raise FtpsUploadError(f"step read: {type(err).__name__}: {err}") from None
@@ -311,19 +340,20 @@ def _verify_label(settings: FtpsSettings) -> str:
 
 
 def _upload_stream(  # pylint: disable=too-many-statements
-    settings: FtpsSettings, transfer: _Transfer
+    settings: FtpsSettings, transfers: Sequence[_Transfer], deadline: float | None
 ) -> None:
-    """Connect, authenticate and STOR the transfer's source (shared by bytes and file uploads).
+    """Connect, authenticate once and STOR every transfer in order (all uploads share it).
 
     Args:
         settings: FTPS settings (must be complete).
-        transfer: What to send (remote name, source, size) and the deadline.
+        transfers: What to send (remote name, source, size), in order.
+        deadline: Absolute `time.monotonic()` abort time for the whole connection, or None.
 
     Raises:
-        FtpsUploadError: Any connection, TLS, login or transfer failure, naming the failed step.
+        FtpsUploadError: Any connection, TLS, login or transfer failure, naming the failed
+            step; `sent` counts the transfers fully stored before it.
     """
-    name, source, size = transfer.name, transfer.source, transfer.size
-    deadline = transfer.deadline
+    sent = 0
     step = "connect"
     ftp: ftplib.FTP
     tls: ftplib.FTP_TLS | None = None  # None = plain FTP (18.14)
@@ -366,15 +396,19 @@ def _upload_stream(  # pylint: disable=too-many-statements
             _arm(ftp, deadline)
             ftp.cwd(settings.folder)
         step = "upload"
-        reply = _store(ftp, f"STOR {name}", source, deadline)
-        _logger.debug(
-            f"FTPS {step}: STOR {name} {size} bytes -> {reply!r} "
-            f"in {time.monotonic() - started:.2f}s"
-        )
+        for transfer in transfers:
+            reply = _store(ftp, f"STOR {transfer.name}", transfer.source, deadline)
+            sent += 1
+            _logger.debug(
+                f"FTPS {step}: STOR {transfer.name} {transfer.size} bytes -> {reply!r} "
+                f"in {time.monotonic() - started:.2f}s"
+            )
     except FtpsUploadError as err:
-        raise FtpsUploadError(f"step {step}: {err}") from None
+        raise FtpsUploadError(f"step {step}: {err}", sent=sent) from None
     except _FTP_ERRORS as err:
-        raise FtpsUploadError(_mask(f"step {step}: {type(err).__name__}: {err}", settings)) from None
+        raise FtpsUploadError(
+            _mask(f"step {step}: {type(err).__name__}: {err}", settings), sent=sent
+        ) from None
     finally:
         ftp.close()
 

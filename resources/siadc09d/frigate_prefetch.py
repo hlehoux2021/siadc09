@@ -168,6 +168,77 @@ async def fetch_event_snapshot(frigate_host: str, event_id: str) -> bytes | None
                                             timeout=PREFETCH_HTTP_TIMEOUT_S)
 
 
+# Photo series (ticket 18.15): taken right after the immediate action, from the camera's
+# current frame. Fixed by design, never an equipment setting.
+BURST_COUNT: Final[int] = 5
+BURST_INTERVAL_S: Final[float] = 1.0
+# Plain current frame, no overlay (same query as the Frigate plugin's own latest.jpg URL).
+_LATEST_QUERY: Final[str] = "timestamp=0&bbox=0&zones=0&mask=0&motion=0&regions=0"
+
+
+async def fetch_latest_jpeg(frigate_host: str, camera: str) -> bytes | None:
+    """Download the camera's current frame (`/api/<camera>/latest.jpg`), best effort.
+
+    Args:
+        frigate_host: Frigate "host:port".
+        camera: Frigate-native camera name.
+
+    Returns:
+        The JPEG bytes, or None on any HTTP/network error or timeout. Never raises.
+    """
+    url = (
+        f"http://{frigate_host}/api/{urllib.parse.quote(camera, safe='')}/latest.jpg"
+        f"?{_LATEST_QUERY}"
+    )
+    return await _run_with_deadline_timeout(_get_bytes, url, PREFETCH_HTTP_TIMEOUT_S,
+                                            timeout=PREFETCH_HTTP_TIMEOUT_S)
+
+
+async def capture_burst(
+    frigate_host: str,
+    camera: str,
+    photos: list[bytes],
+    *,
+    count: int = BURST_COUNT,
+    interval_s: float = BURST_INTERVAL_S,
+) -> None:
+    """Take up to `count` current frames, one every `interval_s`, appending each to `photos`.
+
+    `photos` is filled as the frames arrive, so a caller that stops the capture early (alarm
+    before the end) keeps what was taken. The first refused or failed frame ends the series
+    with one WARNING. Identical consecutive frames (camera offline, frozen picture) are kept
+    and logged once at WARNING. Nothing is written to disk.
+
+    Args:
+        frigate_host: Frigate "host:port".
+        camera: Frigate-native camera name.
+        photos: List the frames are appended to, in order.
+        count: Number of frames wanted.
+        interval_s: Seconds between two frame starts.
+    """
+    started = time.monotonic()
+    frozen_warned = False
+    for index in range(count):
+        photo = await fetch_latest_jpeg(frigate_host, camera)
+        if photo is None:
+            _logger.warning(
+                f"photo series: latest.jpg of camera {camera!r} refused by Frigate {frigate_host} "
+                f"(frame {index + 1}/{count}) — series stopped at {len(photos)} photo(s)"
+            )
+            return
+        if photos and photo == photos[-1] and not frozen_warned:
+            _logger.warning(
+                f"photo series: camera {camera!r} returns identical frames (offline or frozen?)"
+            )
+            frozen_warned = True
+        photos.append(photo)
+        if index + 1 < count:
+            wait = started + (index + 1) * interval_s - time.monotonic()
+            if wait > 0:
+                await asyncio.sleep(wait)
+    _logger.debug(f"photo series: {len(photos)} photo(s) of camera {camera!r} held in memory")
+
+
 class ClipFetchError(Exception):
     """The clip could not be obtained; the message is shown to the user (French, no secret)."""
 

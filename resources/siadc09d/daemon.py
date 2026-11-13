@@ -77,6 +77,7 @@ from .messages import (
 from .frigate_prefetch import (
     ClipFetchError,
     PrefetchResult,
+    capture_burst,
     fetch_event_clip,
     fetch_event_snapshot,
     prefetch_alarm_media,
@@ -91,6 +92,7 @@ from .ftps_upload import (
     remote_location,
     upload_bytes,
     upload_file,
+    upload_many,
 )
 from .ring_buffer import RingBuffer, make_message_entry
 from .sia_protocol import (
@@ -201,11 +203,12 @@ class FtpsAlarmMedia:
 
     Attributes:
         frigate_host: Frigate "host:port".
-        event_id: Frigate event id (used to fetch the media).
+        event_id: Frigate event id (used to fetch the media); "" when no event exists.
         zone: Zone label of the alarm, for the user-facing message (None when unknown).
         zone_number: Zone number of the alarm, part of the remote file names (ticket 18.13).
-        snapshot: Upload the snapshot.
+        snapshot: Upload the snapshot (and the photo series, ticket 18.15).
         clip: Upload the clip.
+        run_id: Prefetch run whose photo series to send ("" = none, ticket 18.15).
     """
 
     frigate_host: str
@@ -214,6 +217,22 @@ class FtpsAlarmMedia:
     snapshot: bool = True
     clip: bool = False
     zone_number: int | None = None
+    run_id: str = ""
+
+
+@dataclass
+class _BurstSeries:
+    """A photo series held in memory for one prefetch run (ticket 18.15).
+
+    Attributes:
+        photos: JPEG frames in capture order, filled while `task` runs.
+        task: The tracked capture task.
+        expiry: Timer that drops the series when no BA alarm took it in time.
+    """
+
+    photos: list[bytes]
+    task: asyncio.Task
+    expiry: asyncio.TimerHandle
 
 
 @dataclass
@@ -311,6 +330,10 @@ FTPS_UPLOAD_DEADLINE_S: Final[float] = FTPS_TIMEOUT_S * 3
 # at deadline + FTPS_TIMEOUT_S (the longest a socket step can run past it) + this grace,
 # so the inner abort (which names the step) always reports first.
 FTPS_OUTER_GRACE_S: Final[float] = 2.0
+# Photo series (18.15): dropped from memory when no BA alarm took it within this time.
+BURST_TTL_S: Final[float] = 120.0
+# Series upload deadline: the single-file deadline plus this per extra file.
+FTPS_SERIES_PER_FILE_S: Final[float] = FTPS_TIMEOUT_S
 
 
 class OnMessageParams(TypedDict, total=False):
@@ -568,6 +591,8 @@ class SIADaemon(BaseDaemon):
         # Epic 18 (18.2): FTPS media upload keys, passed by PHP like the encryption key.
         # The password stays inside FtpsSettings (repr=False) and is never logged.
         self._ftps: FtpsSettings = self._read_ftps_settings(config)
+        # Ticket 18.15: photo series per prefetch run_id, in memory only, TTL BURST_TTL_S.
+        self._burst_series: dict[str, _BurstSeries] = {}
 
         # Queue coordination (Story 5-3): PriorityQueue + monotonic counter.
         # 4-tuple items: (priority: int, counter: int, item_type: QueueItemType, payload: QueuePayload)
@@ -645,15 +670,142 @@ class SIADaemon(BaseDaemon):
         Runs as a tracked background task, so the SIA frame never waits for it. The two
         media are independent: one failing does not skip the other (ticket 18.5).
 
+        Ticket 18.15: when the prefetch run holds a photo series, the series goes first over
+        one connection, with the event snapshot last; without a series the single snapshot
+        is sent as before. Series, snapshot and clip are independent: a missing Frigate
+        event never blocks the series, and the reverse.
+
         Args:
             media: Which media of which Frigate event to upload.
         """
-        # One alarm time (one epoch) for both media, so they differ only by extension (18.13).
+        # One alarm time (one epoch) for every media, so they differ only by image number
+        # and extension (18.13, 18.15).
         when = datetime.now().astimezone()
-        if media.snapshot:
+        photos = self._take_burst(media.run_id) if media.run_id else []
+        if not media.event_id:
+            outcome = (
+                f"photo series only ({len(photos)} photo(s)), no event snapshot or clip"
+                if photos and media.snapshot else "nothing to send"
+            )
+            self._logger.warning(f"FTPS: no Frigate event for this alarm — {outcome}")
+        if media.snapshot and photos:
+            await self._upload_series(media, when, photos)
+        elif media.snapshot and media.event_id:
             await self._upload_snapshot(media, when)
-        if media.clip:
+        if media.clip and media.event_id:
             await self._upload_clip(media, when)
+
+    async def _upload_series(
+        self, media: FtpsAlarmMedia, when: datetime, photos: list[bytes]
+    ) -> None:
+        """Upload the photo series, then the event snapshot, over one connection (18.15).
+
+        Files are `..._0001.jpg` to `..._000N.jpg`, the event snapshot (when an event exists
+        and Frigate serves it) taking the next number. A failure is reported once, naming
+        how many photos reached the server; no retry.
+
+        Args:
+            media: The alarm's media (event id may be "").
+            when: Alarm time, shared by every file of the alarm.
+            photos: The series, in capture order (at least one).
+        """
+        zone = media.zone
+        target = f"{self._ftps.host}:{self._ftps.port}"
+        started = time.monotonic()
+        files = [
+            (remote_location(self._account, media.zone_number, when, "jpg", image=i), photo)
+            for i, photo in enumerate(photos, start=1)
+        ]
+        missing_event_photo = ""
+        if media.event_id:
+            snapshot = await fetch_event_snapshot(media.frigate_host, media.event_id)
+            if snapshot is None:
+                missing_event_photo = (
+                    f"aucune photo reçue de Frigate {media.frigate_host} "
+                    f"pour l'évènement {media.event_id}"
+                )
+            else:
+                files.append((
+                    remote_location(
+                        self._account, media.zone_number, when, "jpg", image=len(files) + 1
+                    ),
+                    snapshot,
+                ))
+        deadline = FTPS_UPLOAD_DEADLINE_S + FTPS_SERIES_PER_FILE_S * (len(files) - 1)
+        self._logger.debug(
+            f"FTPS upload task: {len(files)} photo(s) ({len(photos)} series) -> {target} "
+            f"(deadline {deadline:.0f}s)"
+        )
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(
+                    upload_many, self._ftps, files, deadline=time.monotonic() + deadline,
+                ),
+                timeout=deadline + FTPS_TIMEOUT_S + FTPS_OUTER_GRACE_S,
+            )
+        except FtpsUploadError as e:
+            await self._report_ftps_failure(
+                zone, f"{e.sent} photos sur {len(files)} envoyées — {e}"
+                + (f" ; {missing_event_photo}" if missing_event_photo else "")
+            )
+        except (asyncio.TimeoutError, TimeoutError):
+            await self._report_ftps_failure(
+                zone, f"délai dépassé ({deadline:.0f} s) pour {len(files)} photos"
+                + (f" ; {missing_event_photo}" if missing_event_photo else "")
+            )
+        else:
+            if missing_event_photo:
+                await self._report_ftps_failure(
+                    zone, f"{len(photos)} photos de la série envoyées, mais {missing_event_photo}"
+                )
+            self._logger.info(
+                f"FTPS upload to {target} done: {files[0][0]} .. {files[-1][0]} "
+                f"({len(files)} photos, {sum(len(d) for _, d in files)} bytes, "
+                f"{time.monotonic() - started:.2f}s)"
+            )
+
+    def _start_burst(self, run_id: str, frigate_host: str, camera_name: str) -> None:
+        """Start the photo series of a prefetch run, held in memory for BURST_TTL_S (18.15).
+
+        Args:
+            run_id: Prefetch run the series belongs to.
+            frigate_host: Frigate "host:port".
+            camera_name: Frigate-native camera name.
+        """
+        photos: list[bytes] = []
+        task = self._track_task(
+            capture_burst(frigate_host, camera_name, photos), name=f"photo-burst-{run_id}"
+        )
+        expiry = asyncio.get_running_loop().call_later(BURST_TTL_S, self._expire_burst, run_id)
+        previous = self._burst_series.pop(run_id, None)
+        if previous is not None:
+            self._drop_burst(previous)
+        self._burst_series[run_id] = _BurstSeries(photos=photos, task=task, expiry=expiry)
+
+    @staticmethod
+    def _drop_burst(series: _BurstSeries) -> None:
+        """Stop a series' capture and timer; its photos are left to the caller."""
+        series.expiry.cancel()
+        if not series.task.done():
+            series.task.cancel()
+
+    def _expire_burst(self, run_id: str) -> None:
+        """Drop a series no BA alarm took in time: nothing is ever uploaded for it."""
+        series = self._burst_series.pop(run_id, None)
+        if series is not None:
+            self._drop_burst(series)
+            self._logger.debug(
+                f"photo series of run {run_id!r} expired after {BURST_TTL_S:.0f}s "
+                f"({len(series.photos)} photo(s) dropped, nothing sent)"
+            )
+
+    def _take_burst(self, run_id: str) -> list[bytes]:
+        """Take the photos a run holds so far (stops its capture); [] when there is none."""
+        series = self._burst_series.pop(run_id, None)
+        if series is None:
+            return []
+        self._drop_burst(series)
+        return list(series.photos)
 
     async def _upload_clip(self, media: FtpsAlarmMedia, when: datetime) -> None:
         """Download the event clip into a temporary file and upload it by FTPS (best effort).
@@ -3008,6 +3160,9 @@ class SIADaemon(BaseDaemon):
                 self._run_prefetch(cam_id, camera_name, frigate_host, str(run_id)),
                 name=f"frigate-prefetch-{cam_id}",
             )
+            # Ticket 18.15: photo series, independent of the event search above.
+            if params.get("burst") is True and self._ftps.active:
+                self._start_burst(str(run_id), str(frigate_host), str(camera_name))
             return
 
         sia_code: SiaEventCode | None
@@ -3091,24 +3246,29 @@ class SIADaemon(BaseDaemon):
         if sia_code == "BA" and isinstance(raw_ftps, dict) and self._ftps.active:
             ftps_host = str(raw_ftps.get("frigate_host") or "")
             ftps_event_id = str(raw_ftps.get("event_id") or "")
+            # Ticket 18.15: the prefetch run whose photo series to send; may come without event.
+            ftps_run_id = str(raw_ftps.get("run_id") or "")
             # Ticket 18.5: which media the equipment wants; payloads without the flags keep
             # the 18.2 behaviour (snapshot only).
             want_snapshot = raw_ftps.get("snapshot", True) is not False
             want_clip = raw_ftps.get("clip", False) is True
-            if ftps_host and ftps_event_id and (want_snapshot or want_clip):
+            has_source = bool(ftps_host and (ftps_event_id or ftps_run_id))
+            if has_source and (want_snapshot or want_clip):
                 self._track_task(
                     self._run_ftps_upload(
                         FtpsAlarmMedia(
                             ftps_host, ftps_event_id, zone, snapshot=want_snapshot,
-                            clip=want_clip, zone_number=zone_number,
+                            clip=want_clip, zone_number=zone_number, run_id=ftps_run_id,
                         )
                     ),
                     name="ftps-upload",
                 )
-            elif ftps_host and ftps_event_id:
+            elif has_source:
                 self._logger.warning("on_message: ftps_upload asks for neither snapshot nor clip")
             else:
-                self._logger.warning("on_message: ftps_upload without frigate_host/event_id — no upload")
+                self._logger.warning(
+                    "on_message: ftps_upload without frigate_host/event_id/run_id — no upload"
+                )
         elif sia_code == "BA" and isinstance(raw_ftps, dict):
             self._logger.warning(
                 "FTPS upload requested by the plugin but the daemon has no active FTPS settings "

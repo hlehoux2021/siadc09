@@ -100,12 +100,18 @@ class siaDC09Cmd extends cmd {
                 // rule in siaDC09::_prefetchResultShouldReplace() is unaffected.
                 $runId = sprintf('%.6f', microtime(true)) . '-' . bin2hex(random_bytes(3));
                 $this->_writePrefetchPlaceholder((int) $target['camera_eqlogic_id'], $runId);
+                // Ticket 18.15: the daemon takes a photo series for this run only when the
+                // photo goes by FTP/FTPS (same switches as the BA upload: master + photo).
+                $burst = $this->_ftpsTransportActive()
+                    && (bool) $this->_mediaSetting(siaDC09::MEDIA_ENABLED_KEY)
+                    && (bool) $this->_mediaSetting(siaDC09::MEDIA_SNAPSHOT_ENABLED_KEY);
                 siaDC09::sendToDaemon([
                     'cmd'               => 'prefetchEvent',
                     'camera_eqlogic_id' => $target['camera_eqlogic_id'],
                     'camera_name'       => $target['camera_name'],
                     'frigate_host'      => $target['frigate_host'],
                     'run_id'            => $runId,
+                    'burst'             => $burst,
                 ]);
                 break;
 
@@ -246,23 +252,28 @@ class siaDC09Cmd extends cmd {
      * Epic 18 (18.2): the Frigate host and event id the daemon needs to fetch the snapshot, or
      * null when ftps is not active or no usable prefetched event exists. Never throws; reuses
      * the single shared cache read of execute() and the same found/TTL checks as the URL path.
+     * Ticket 18.15: also carries the prefetch `run_id`, whose photo series the daemon may
+     * hold; with a recent run but no event, `event_id` is '' (the series goes alone).
      */
     private function _resolveFtpsUpload(array $zoneEntry, ?array $cacheEntry): ?array {
         if (!$this->_ftpsTransportActive()) {
             return null;
         }
-        if (!is_array($cacheEntry) || empty($cacheEntry['found'])
-            || time() - (int) ($cacheEntry['ts'] ?? 0) > self::PREFETCH_CACHE_TTL) {
+        $recent = is_array($cacheEntry)
+            && time() - (int) ($cacheEntry['ts'] ?? 0) <= self::PREFETCH_CACHE_TTL;
+        $runId = $recent ? (string) ($cacheEntry['run_id'] ?? '') : '';
+        $eventId = $recent && !empty($cacheEntry['found']) ? ($cacheEntry['event_id'] ?? null) : null;
+        $eventId = is_string($eventId) ? $eventId : '';
+        if ($runId === '' && $eventId === '') {
             log::add('siaDC09', 'warning', 'FTPS : aucun évènement Frigate récent — pas d\'envoi de photo ni de vidéo');
             return null;
         }
-        $eventId = $cacheEntry['event_id'] ?? null;
         $target = $this->_resolvePrefetchTarget($zoneEntry);
-        if (!is_string($eventId) || $eventId === '' || $target === null) {
+        if ($target === null) {
             log::add('siaDC09', 'warning', 'FTPS : évènement ou hôte Frigate introuvable — pas d\'envoi de photo ni de vidéo');
             return null;
         }
-        return ['frigate_host' => $target['frigate_host'], 'event_id' => $eventId];
+        return ['frigate_host' => $target['frigate_host'], 'event_id' => $eventId, 'run_id' => $runId];
     }
 
     /** Story 17.7: an alarm-media equipment key, falling back to the pre-17.7 default. */

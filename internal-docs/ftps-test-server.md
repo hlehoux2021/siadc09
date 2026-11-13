@@ -95,10 +95,16 @@ Files go flat at the root of the configured FTPS folder (`upload/` on the test s
 - The clip of the same alarm sits beside the snapshot with the same name and the `.mp4` extension (one epoch shared by both media).
 - The epoch is the daemon's time when the alarm is handled; it is timezone-independent.
 - The account goes through `safe_name_part()` (anything outside `A-Za-z0-9._-` becomes `_`); an empty or dots-only account becomes `noaccount`. A zone of three digits is not truncated (`..._123_...`); an absent zone number gives `00`.
-- The image part is the constant `0001` (`IMAGE_NUMBER`), the one place to change for a future series feature.
+- The image part is 4 digits (`remote_location(..., image=n)`, default `0001`). A single photo is `0001`. With a photo series (ticket 18.15) the series is `0001` to `0005` (fewer when the alarm comes early) and the event snapshot, when there is one, takes the next number (`0006`); all files of one alarm share the epoch and go over one connection.
 - Same zone in the same second (two events): same name, the later file overwrites the earlier. Accepted by the user.
 - To test in the field: the `0001` clip (`.mp4`) is not yet confirmed to be accepted by the receiver.
 - Deferred, not in this version: retention, cleanup or quota on the server (files are never deleted by the plugin), and a configurable layout.
+
+## Photo series source (ticket 18.15)
+
+The series uses Frigate's current frame, `GET http://<frigate host:port>/api/<camera>/latest.jpg?timestamp=0&bbox=0&zones=0&mask=0&motion=0&regions=0`, without login on the internal port 5000 (same URL shape the Frigate plugin itself uses, `frigate.class.php`).
+
+- Checked on test-frigate (Frigate 0.17.2) on 2026-11-14, camera `reolink`, run on the Frigate host: `200 image/jpeg 29237` (one call; the "different sizes on a second call" part not yet observed). Command: `curl -s -o /dev/null -w "%{http_code} %{content_type} %{size_download}\n" "http://192.168.100.18:5000/api/<camera>/latest.jpg?timestamp=0&bbox=0&zones=0&mask=0&motion=0&regions=0"`. Expected: `200 image/jpeg <size>`, twice in a row with different sizes while the camera is live.
 
 ## Plain FTP mode (ticket 18.14)
 
