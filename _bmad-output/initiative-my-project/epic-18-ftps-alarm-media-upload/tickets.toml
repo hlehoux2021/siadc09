@@ -141,6 +141,26 @@ notes = [
 ]
 
 [[entry]]
+id = 14
+type = "story"
+title = "18.14 — Optional plain FTP, without TLS"
+description = "Adds a per-equipment setting to upload by plain FTP, without TLS, for a server that does not offer FTPS. It is off by default and FTPS stays the normal mode. When it is on, the daemon skips the TLS and certificate steps and the data protection step, the connection test skips them too and says that the link is not encrypted, the wizard shows a clear warning next to the setting, and every upload logs that it went without TLS. Today such a server fails at the step named sécurité TLS with the reply 530 Please login with USER and PASS."
+verify = "Against a server with no FTPS, a test connection and an alarm upload succeed with the setting on and fail at the TLS step with it off; the warning shows in the wizard and in the logs, and the password appears nowhere."
+covers = ["E18-R1", "E18-R2", "E18-R5"]
+after = [13]
+hitl = false
+risk = "medium"
+notes = [
+  "Decision: the setting is per equipment, off by default, and FTPS stays the default mode (user, 2026-11-13).",
+  "Decision: the user's server cannot enable FTPS, so a plain FTP mode is needed (user, 2026-11-13). Supersedes the epic decision FTPS only, for this opt-in case.",
+  "Decision: the plain mode is not a profile field and is never locked, like the other FTPS settings (ADR-22).",
+  "Decision: the plain mode is a setting always present in the step 2 advanced options, with the other FTPS settings (user, 2026-11-13).",
+  "Decision: a text-only warning is enough, no mockup (user, 2026-11-13).",
+  "Risk: the login, the password and the alarm media travel in clear text. The warning, the off default and the log line are the controls. Check outside the ticket: the user confirms the warning in the wizard on test-jeedom.",
+  "Code to change: the FTPS settings and the three call paths in ftps_upload.py (upload, connection test, certificate probe); the daemon start arguments and settings read in daemon.py; the equipment configuration key and the argument passed by core/class/siaDC09.class.php; the wizard advanced options and the step 2 test messages; tests/level1 and tests/level2 FTPS tests; internal-docs/ftps-test-server.md and internal-docs/design/wizard-design.md.",
+]
+
+[[entry]]
 id = 9
 type = "story"
 title = "18.9 — Field validation against a real FTPS server"

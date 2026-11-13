@@ -72,6 +72,7 @@ The daemon's media upload and the per-equipment settings that drive it. Not the 
 - Decision: the FTPS password follows the precedent of the AES `encryption_key`: a `type="password"` field in the equipment configuration, passed to the daemon the same way, and kept out of logs (user, 2026-11-09). Not a conflict with the `media_url` rule, which only says the URL template carries no real secret.
 - Unknown: FTPS mode (explicit TLS on port 21 vs implicit on 990) and certificate handling (public CA, self-signed with pinned fingerprint); to settle with the first test server.
 - Decision (user, 2026-11-13, supersedes the 18.8 layout): remote files go flat at the root of the FTPS folder, named `{UID}_{zone}_{timestamp}_{image}.{jpg|mp4}` (account, zone number, Unix epoch seconds, image 0001). Entry 13 (18.13) builds it.
+- Decision (user, 2026-11-13, for the case of a server with no FTPS, which answers `530 Please login with USER and PASS` to AUTH TLS): a per-equipment opt-in plain FTP mode, off by default, with a warning. It limits "FTPS only" and the TLS part of E18-R4 to the default mode. Entry 14 (18.14) builds it.
 - Unknown: any retention or cleanup on the server.
 - Unknown: whether the clip is ready when the alarm fires; `frigate_prefetch.py` already upgrades to the clip later, so the upload may have to wait for it.
 - Open question: no test server exists yet; entry 1 is a hitl story to set one up.
