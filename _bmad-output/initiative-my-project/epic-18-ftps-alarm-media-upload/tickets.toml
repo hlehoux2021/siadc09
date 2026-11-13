@@ -120,6 +120,27 @@ risk = "low"
 unknown = "Layout and any retention or cleanup on the server."
 
 [[entry]]
+id = 13
+type = "story"
+title = "18.13 — Flat remote layout and receiver file names"
+description = "Replaces the 18.8 layout (account and date subfolders, name with time, zone label and event id). Files go flat in the configured FTPS folder, named {UID}_{zone}_{timestamp}_{image}.{jpg|mp4}, for example 12345678_01_1675938881_0001.jpg. UID is the SIA account. zone is the zone order number (2 digits), which the daemon now receives from the plugin with the alarm. timestamp is the Unix epoch in seconds, not a formatted date. image is 4 digits and is 0001 for every file for now. The clip uses the same scheme with .mp4, and the snapshot and the clip of one alarm share the same timestamp."
+verify = "Two alarms from different zones leave distinct files at the root of the upload folder, named like 12345678_01_1675938881_0001.jpg, with no subfolder created."
+covers = ["E18-R2"]
+after = [8]
+hitl = false
+risk = "low"
+notes = [
+  "Decision: flat layout at the root of the FTPS folder, name {UID}_{zone}_{timestamp}_{image}, UID = SIA account, zone = zone order number, timestamp = Unix epoch in seconds, image fixed at 0001 (user, 2026-11-13). Supersedes the layout of 18.8.",
+  "Decision: the clip uses the same scheme with the .mp4 extension (user, 2026-11-13).",
+  "Decision: image number 0001 everywhere for now; the receiver reads it as the rank in a series of successive snapshots (user, 2026-11-13).",
+  "Decision: a BA alarm whose zone is not in the zone table has no camera, so it never reaches the FTPS upload; no zone value is needed for it (user, 2026-11-13).",
+  "Decision: two alarms on the same zone in the same second share a name and the later file overwrites the earlier; accepted (user, 2026-11-13).",
+  "Decision: whether the receiver accepts a 0001 .mp4 clip is tested in the field after the build (user, 2026-11-13).",
+  "Decision: zones are numbered by design in the wizard, so a zone with a camera but no number is not handled (user, 2026-11-13).",
+  "Code to change: remote_location() and the directory handling in ftps_upload.py; _run_ftps_upload, _upload_snapshot, _upload_clip and the ftps_upload payload read in on_message in daemon.py; the PHP side that builds the payload, to pass the zone number; tests/level1/test_ftps_remote_layout.py and the level 2 FTPS dispatch tests; internal-docs/ftps-test-server.md.",
+]
+
+[[entry]]
 id = 9
 type = "story"
 title = "18.9 — Field validation against a real FTPS server"

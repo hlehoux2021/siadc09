@@ -71,6 +71,7 @@ The daemon's media upload and the per-equipment settings that drive it. Not the 
 - Decision: the epic now has 12 entries (supersedes the counts of 10 and 11 above).
 - Decision: the FTPS password follows the precedent of the AES `encryption_key`: a `type="password"` field in the equipment configuration, passed to the daemon the same way, and kept out of logs (user, 2026-11-09). Not a conflict with the `media_url` rule, which only says the URL template carries no real secret.
 - Unknown: FTPS mode (explicit TLS on port 21 vs implicit on 990) and certificate handling (public CA, self-signed with pinned fingerprint); to settle with the first test server.
-- Unknown: remote file layout (folder per account/zone/date, file names) and any retention or cleanup on the server.
+- Decision (user, 2026-11-13, supersedes the 18.8 layout): remote files go flat at the root of the FTPS folder, named `{UID}_{zone}_{timestamp}_{image}.{jpg|mp4}` (account, zone number, Unix epoch seconds, image 0001). Entry 13 (18.13) builds it.
+- Unknown: any retention or cleanup on the server.
 - Unknown: whether the clip is ready when the alarm fires; `frigate_prefetch.py` already upgrades to the clip later, so the upload may have to wait for it.
 - Open question: no test server exists yet; entry 1 is a hitl story to set one up.
