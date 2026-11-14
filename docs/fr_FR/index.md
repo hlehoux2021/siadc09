@@ -35,7 +35,7 @@ Vous aurez besoin de :
   - si le chiffrement est demandé, la **clé AES** (voir [Limitations connues](#limitations-connues) avant de l'activer).
 - Optionnel : le **plugin Frigate** si vous voulez joindre une photo ou une vidéo aux alarmes.
 
-> **Important** — Ce plugin transmet des alarmes réelles. Faites toujours un essai coordonné avec votre centrale (en la prévenant) avant de compter dessus.
+> **Important** — Ce plugin transmet des alarmes réelles. Faites toujours un essai coordonné avec votre centrale (en la prévenant) avant de compter dessus. Il s'agit d'un outil personnel, non certifié : il ne remplace pas un transmetteur d'alarme homologué.
 
 ## Installation
 
@@ -43,41 +43,48 @@ Vous aurez besoin de :
 
 1. *(à venir)* Installez le plugin depuis le **Market Jeedom** (catégorie Sécurité), puis activez-le. En attendant : installation manuelle depuis GitHub, puis activation dans **Plugins → Gestion des plugins**.
 2. Sur la page de configuration du plugin, lancez l'**installation des dépendances** (Python : `jeedomdaemon`, `cryptography`). Attendez le statut **OK**.
-3. Ouvrez **Plugins → Sécurité → Télésurveillance SIA DC-09**. L'équipement unique « Télésurveillance » est créé automatiquement.
+3. Ouvrez **Plugins → Sécurité → Télésurveillance SIA DC-09**. L'équipement « Télésurveillance » est créé automatiquement s'il n'en existe pas déjà un.
 4. Suivez l'assistant ci-dessous. Le démon ne peut pas démarrer tant que l'assistant n'est pas terminé.
 
 ## L'assistant de configuration
 
-L'assistant comporte 4 étapes. Vous pouvez le relancer à tout moment avec le bouton **Relancer l'assistant**.
+L'assistant comporte 3 étapes : **Centrale**, **Test**, **Zones et alertes**. Vous pouvez le relancer à tout moment avec le bouton **Relancer l'assistant**.
 
-### Étape 1 — Centrale de télésurveillance
+### Étape 1 — Centrale
 
-Choisissez la carte **Personnalisé** et saisissez les paramètres communiqués par votre centrale. Vérifiez avec elle le transport et le chiffrement (voir [Limitations connues](#limitations-connues)).
+Saisissez les paramètres communiqués par votre centrale. Vérifiez avec elle le transport et le chiffrement (voir [Limitations connues](#limitations-connues)).
 
 | Champ | Ce qu'il faut saisir |
 |-------|----------------------|
-| Adresse IP | Adresse du récepteur de la centrale (obligatoire) |
+| Profil de la centrale | Les profils prédéfinis ne sont pas encore documentés |
+| Adresse IP de la centrale | Adresse du récepteur de la centrale (obligatoire) |
 | Port | 1 à 65535 |
 | Transport | UDP ou TCP, selon la centrale |
 | Numéro de compte | 3 à 16 caractères hexadécimaux, fournis par la centrale |
-| Chiffrement activé / Clé AES | Clé hexadécimale de 32, 48 ou 64 caractères, obligatoire si le chiffrement est coché |
-| Intervalle supervision (s) | Fréquence des trames de supervision (60 s par défaut) |
-| Tentatives | Nombre de tentatives de reconnexion **TCP** (6 par défaut) |
-| Délai de reconnexion (s) | Délai de base entre deux reconnexions TCP (30 s par défaut) |
+| Chiffrer les échanges (clé AES) | Clé hexadécimale de 32, 48 ou 64 caractères, obligatoire si la case est cochée |
+
+**Levée de doute photo / vidéo.** La carte du même nom permet de joindre une photo ou une vidéo aux alarmes (voir [Photos et vidéos](#photos-et-vidéos-frigate-optionnel)). Si vous choisissez l'envoi par adresse (URL), l'**adresse de votre serveur Frigate** se saisit ici, à l'étape 1.
 
 Cliquez sur **Suivant**.
 
-### Étape 2 — Test de connexion
+### Étape 2 — Test
 
-Le plugin envoie une trame de supervision à la centrale et affiche le résultat :
+Rien ne part tout seul : cliquez sur **Lancer le test**. Chaque test a sa zone de résultat : le test de la centrale (SIA) et, si les médias sont déposés par FTPS, le test du serveur FTPS (voir [la page FTP/FTPS](media-ftps.md)). Pour la centrale, le plugin envoie une trame de supervision et affiche le résultat :
 
-- **Vert (ACK)** : la centrale a répondu et accepté la trame. Continuez.
-- **Orange (NAK)** : la centrale répond mais refuse la trame — souvent un numéro de compte inconnu. Vous pouvez continuer après confirmation, mais vérifiez avec la centrale.
-- **Rouge** : pas de réponse, connexion refusée, adresse injoignable… Le message indique la cause probable. Corrigez l'étape 1 avant de continuer.
+- **Vert (ACK)** : la centrale a répondu et accepté la trame.
+- **Orange (NAK)** : la centrale répond mais refuse la trame — souvent un numéro de compte inconnu. Vérifiez avec la centrale.
+- **Orange (DUH)** : la centrale reçoit la trame mais ne la traite pas ; voir le [dépannage](#dépannage).
+- **Rouge** : pas de réponse, connexion refusée, adresse injoignable… Le message indique la cause probable.
 
-**Relancer le test** refait l'essai ; **Ignorer** passe à l'étape suivante sans test (déconseillé).
+**Suivant** n'apparaît que si tous les tests sont verts ; sinon, **Ignorer** passe à l'étape 3 (déconseillé ; un avertissement y rappelle le test non réussi). **Relancer le test** refait l'essai ; **Modifier la centrale** revient à l'étape 1.
 
-### Étape 3 — Zones
+Les **options avancées** se trouvent aussi sur cette étape (cliquez sur la barre pour les afficher ; elle s'ouvre seule si une erreur s'y trouve) :
+
+- **Contenu envoyé avec l'alarme** : format du lien de la photo et de la vidéo (V ou U), une extension commune ou une par lien.
+- **Serveur FTPS** : réglages du dépôt des médias, décrits dans [la page FTP/FTPS](media-ftps.md).
+- **Supervision de la liaison** : message de vie (Aucune, SIA-DCS ou NULL) et sa période ; test cyclique (RP) et sa période ; tentatives et délai de reconnexion **TCP**. Au moins un des deux, supervision ou test cyclique, doit être actif.
+
+### Étape 3 — Zones et alertes
 
 Le tableau liste les zones de votre plugin Alarme :
 
@@ -86,17 +93,13 @@ Le tableau liste les zones de votre plugin Alarme :
 
 Sur la même étape :
 
-- **URL media Frigate** (optionnel) : voir [Photos et vidéos Frigate](#photos-et-vidéos-frigate-optionnel).
+- **Équipement Alarme** et bouton **Lier au plugin Alarme** : voir [Câbler le plugin Alarme](#câbler-le-plugin-alarme).
 - **Numéro utilisateur SIA** (1 à 999) : le numéro sous lequel la centrale identifie « l'utilisateur Jeedom » pour les armements, désarmements et annulations. Déclarez-le à votre centrale.
+- **Alertes critiques** : choisissez qui prévenir si une alarme n'a pas pu être transmise ou si la supervision est perdue :
+  - **Commande d'un équipement** (SMS, Telegram, notification mobile, e-mail…) : seules les commandes action de sous-type « message » sont proposées.
+  - **Action interne Jeedom** : le **centre de messages** Jeedom, ou le lancement d'un **scénario** (déclencheur « siaDC09 », texte de l'alerte dans son historique).
 
-### Étape 4 — Alertes critiques
-
-Choisissez qui prévenir si une alarme n'a pas pu être transmise ou si la supervision est perdue :
-
-- **Commande d'un équipement** (SMS, Telegram, notification mobile, e-mail…) : seules les commandes action de sous-type « message » sont proposées.
-- **Action interne Jeedom** : le **centre de messages** Jeedom, ou le lancement d'un **scénario** (déclencheur « siaDC09 », texte de l'alerte dans son historique).
-
-Cliquez sur **Terminer**. La page affiche alors le panneau **Configuration active** (résumé de la connexion, des zones et de la notification) et l'onglet **Diagnostic** apparaît. Démarrez le démon depuis la page de configuration du plugin (ou laissez la gestion automatique le faire).
+Cliquez sur **Terminer** (en bas de l'étape 3). La page affiche alors le panneau **Configuration active** (résumé de la connexion, des zones et de la notification) et l'onglet **Diagnostic** apparaît. Démarrez le démon depuis la page de configuration du plugin (ou laissez la gestion automatique le faire).
 
 > Après toute modification de configuration, **redémarrez le démon** : il ne relit pas la configuration à chaud.
 
@@ -104,13 +107,13 @@ Cliquez sur **Terminer**. La page affiche alors le panneau **Configuration activ
 
 siaDC09 ne surveille pas vos capteurs : c'est le **plugin Alarme** qui décide, et qui appelle les commandes de l'équipement « Télésurveillance ».
 
-**Câblage automatique.** À l'étape 3 de l'assistant, choisissez votre équipement Alarme puis cliquez sur **« Lier au plugin Alarme »** : siaDC09 écrit lui-même ses commandes dans les actions de cet équipement (Armement, Désarmement, Réinitialisation alarme, et dans l'onglet **Déclenchement** Alarme intrusion et, si au moins une zone a une caméra et que les médias sont activés, Prefetch ; les deux avec le Titre `#zone#`). Le bouton peut être recliqué après tout changement de zones : les entrées sont rafraîchies, jamais dupliquées, et vos autres actions ne sont pas touchées. **Fermez la page de l'équipement Alarme avant de lier** : un enregistrement depuis cette page écraserait le résultat. Le bouton **« Délier du plugin Alarme »**, à côté de « Relancer l'assistant », retire uniquement les entrées de siaDC09. Le plugin gère uniquement l'intrusion : incendie et panique ne sont pas câblés.
+**Câblage automatique.** À l'étape 3 de l'assistant, choisissez votre équipement Alarme puis cliquez sur **« Lier au plugin Alarme »** : siaDC09 écrit lui-même ses commandes dans les actions de cet équipement (Armement, Désarmement, Réinitialisation alarme, et dans l'onglet **Déclenchement** Alarme intrusion et, si au moins une zone a une caméra et que les médias sont activés, Prefetch ; les deux avec le Titre `#zone#`). Le bouton peut être recliqué après tout changement de zones : les entrées sont rafraîchies, jamais dupliquées, et vos autres actions ne sont pas touchées. **Fermez la page de l'équipement Alarme avant de lier** : un enregistrement depuis cette page écraserait le résultat. Le bouton **« Délier du plugin Alarme »**, à côté de « Relancer l'assistant », retire uniquement les entrées de siaDC09. Le bouton « Délier » n'apparaît que s'il reste des entrées siaDC09 dans le plugin Alarme. Le plugin gère uniquement l'intrusion.
 
 Le tableau suivant décrit ce que la liaison écrit (utile pour vérifier, ou pour câbler à la main) :
 
 | Où, dans le plugin Alarme | Commande siaDC09 à ajouter | Ce qui est envoyé à la centrale |
 |---------------------------|----------------------------|----------------------------------|
-| Onglet **Déclenchement**, bouton **« Ajouter action de déclenchement »** (actions globales, **recommandé**) — ou les actions de déclenchement de chaque zone | **Alarme intrusion** (ou **Alarme incendie**, **Alarme panique**), champ **Titre** = `#zone#` | BA (ou FA, PA) avec le N° de zone |
+| Onglet **Déclenchement**, bouton **« Ajouter action de déclenchement »** (actions globales, **recommandé**) — ou les actions de déclenchement de chaque zone | **Alarme intrusion**, champ **Titre** = `#zone#` | BA avec le N° de zone |
 | « Désactivation OK » | **Désarmement** | BC puis OP si une intrusion est en cours, sinon OP seul |
 | « Réinitialisation » | **Réinitialisation alarme** | BC seul si une intrusion est en cours (changement de mode sans désarmer) |
 | Onglet « Activation OK », bouton **« Ajouter action immediate lors de l'activation »** | **Armement** | CL |
@@ -139,28 +142,36 @@ Dans les exemples ci-dessous, l'équipement siaDC09 s'appelle « Télésurveilla
 ### Points d'attention
 
 - **Pourquoi les actions globales ?** Le plugin Alarme remplit `#zone#` avec le nom de la zone qui a déclenché, aussi bien dans les actions globales de l'onglet Déclenchement que dans celles des zones. Une seule action globale couvre donc toutes les zones, y compris celles que vous ajouterez plus tard. N'utilisez pas les deux à la fois pour la même commande, sinon l'alarme partira deux fois. Pour une zone sans caméra, le Prefetch ne fait simplement rien.
-- Le **Titre** `#zone#` est indispensable : c'est lui qui dit à siaDC09 quelle zone a déclenché, donc quel N° envoyer et quelle caméra interroger. Une zone absente du tableau de l'étape 3 part **sans numéro de zone** (un avertissement est écrit dans le log).
+- Le **Titre** `#zone#` est indispensable : c'est lui qui dit à siaDC09 quelle zone a déclenché, donc quel N° envoyer et quelle caméra interroger. Une zone absente du tableau de l'étape 3 (zones) part **sans numéro de zone** (un avertissement est écrit dans le log).
 - Câblez **les trois** commandes Désarmement / Réinitialisation alarme / Armement, sinon certains cas ne seront jamais signalés à la centrale.
 - Pour l'armement, utilisez bien l'action **immédiate** : l'action « Ajouter action lors de l'activation » ne se déclenche plus après une dérogation.
 
 ## Photos et vidéos Frigate (optionnel)
 
-Si une zone est reliée à une caméra Frigate, la trame d'alarme peut contenir un lien vers une photo et une vidéo de l'événement, que l'opérateur de la centrale ouvre depuis sa console.
+Si une zone est reliée à une caméra Frigate, l'alarme d'intrusion peut être accompagnée d'une photo et d'une vidéo de l'événement, que l'opérateur de la centrale consulte depuis sa console. Cette fonction est facultative : sans elle, l'alarme part sans média.
 
 1. Installez et configurez le **plugin Frigate**. siaDC09 lit l'adresse du serveur Frigate dans la configuration de ce plugin.
-2. À l'étape 3, choisissez la caméra de chaque zone.
-3. Renseignez l'**URL media Frigate** : c'est l'adresse publique par laquelle la centrale joindra votre Frigate, **avec des marqueurs littéraux à la place des identifiants**, par exemple `https://<user>:<pass>@frigate.example.org/` ou `https://frigate.example.org/?accesstoken=<token>`. **N'y mettez jamais un vrai mot de passe** : c'est la centrale qui remplace les marqueurs par vos identifiants, qu'elle détient par ailleurs.
+2. À l'étape 1, dans la carte **Levée de doute photo / vidéo**, cochez **Joindre une photo ou une vidéo à l'alarme**, choisissez **Photo** et/ou **Vidéo**, puis le mode d'envoi (voir ci-dessous). Sans cette case, rien n'est préparé ni joint.
+3. À l'étape 3, choisissez la caméra de chaque zone.
 4. Le bouton **« Lier au plugin Alarme »** (étape 3) câble la commande **Prefetch événement Frigate** dans les actions immédiates de déclenchement (onglet Déclenchement) dès qu'une zone a une caméra, avec le Titre `#zone#` (voir [le câblage](#câbler-le-plugin-alarme)).
 
+### Deux modes d'envoi
+
+- **Une adresse (URL) dans le message d'alarme** : la centrale va chercher le média sur votre serveur Frigate. Renseignez à l'étape 1 l'**adresse de votre serveur Frigate** (obligatoire dans ce mode) : c'est l'adresse publique par laquelle la centrale joindra Frigate, **avec des marqueurs littéraux à la place des identifiants**, par exemple `https://<user>:<pass>@frigate.example.org/` ou `https://frigate.example.org/?accesstoken=<token>`. **N'y mettez jamais un vrai mot de passe** : c'est la centrale qui remplace les marqueurs par vos identifiants, qu'elle détient par ailleurs. Le format du lien (options avancées, étape 2) est « URL Multimedia Direct » (U) ou « Video Verification Link » (V), au choix pour la photo et pour la vidéo ; le format U est une extension prévue par la norme.
+- **Une copie déposée sur un serveur FTP/FTPS** : le plugin dépose le média sur votre serveur, et le message d'alarme ne contient pas d'adresse. Les réglages, le test, le certificat, le nom des fichiers et la rafale de photos sont décrits dans la page [Dépôt FTP/FTPS](media-ftps.md).
 Pour bien régler Frigate (exposition à la centrale, enregistrements, objets suivis), lisez les [conseils Frigate](frigate.md).
 
-Fonctionnement : dès que le capteur déclenche, siaDC09 demande à Frigate un enregistrement forcé de 30 s, puis cherche pendant quelques secondes le meilleur événement récent de la caméra (une personne de préférence). Quand l'alarme part, la meilleure photo/vidéo trouvée est jointe. **Si rien n'est trouvé, l'alarme part quand même, sans média** — la photo ne retarde ni ne bloque jamais une alarme.
+Fonctionnement : dès que le capteur déclenche, siaDC09 demande à Frigate un enregistrement forcé de 30 s, puis cherche pendant quelques secondes le meilleur événement récent de la caméra (une personne de préférence). Quand l'alarme part, la meilleure photo/vidéo trouvée est jointe (si la case de levée de doute est cochée). **Si rien n'est trouvé, l'alarme part quand même, sans média** — la photo ne retarde ni ne bloque jamais une alarme.
 
 ## Comprendre les indicateurs d'état
 
 ### Le widget
 
-Le widget « Télésurveillance » affiche deux lignes.
+Le widget « Télésurveillance » affiche l'état de la supervision (pastille et texte) et le **dernier événement** transmis.
+
+Deux mécanismes entretiennent le lien avec la centrale, selon ce qu'elle attend : la **supervision** (trame de vie : Aucune, SIA-DCS ou NULL) et le **test cyclique (RP)**. Le test cyclique est envoyé à sa propre période (options avancées, étape 2).
+
+Détail du bloc **Supervision** :
 
 **Supervision** — pastille de couleur + texte :
 
@@ -247,7 +258,7 @@ Le plugin classe ses problèmes en trois niveaux :
 | Niveau | Quand | Où vous le voyez |
 |--------|-------|------------------|
 | **T1** — se résout seul | Une supervision sans réponse, ou un NAK de supervision passager | Centre de messages Jeedom uniquement |
-| **T2** — à vérifier | Réponse de la centrale incompréhensible, ou **alarme refusée (NAK)** | Centre de messages + notification de l'étape 4 + onglet Diagnostic |
+| **T2** — à vérifier | Réponse de la centrale incompréhensible, ou **alarme refusée (NAK)** | Centre de messages + notification choisie à l'étape 3 + onglet Diagnostic |
 | **T3** — critique | Supervision perdue, **alarme non transmise**, connexion TCP impossible | Idem T2, titre préfixé « CRITIQUE — » |
 
 En plus, une tâche Jeedom vérifie toutes les 5 minutes que le démon répond encore. S'il tourne mais ne met plus à jour la supervision depuis plus de 3 intervalles, vous recevez « siaDC09 — Démon bloqué » (au plus une fois toutes les 30 minutes).
@@ -263,14 +274,16 @@ En plus, une tâche Jeedom vérifie toutes les 5 minutes que le démon répond e
 | Test de connexion : « Connexion refusée » | Mauvais port, ou le récepteur n'écoute pas dans ce transport | Vérifiez port et UDP/TCP auprès de la centrale |
 | Test de connexion : délai dépassé / injoignable | IP erronée, pare-feu, box Internet | Vérifiez l'IP ; autorisez la sortie vers le port de la centrale |
 | Test de connexion : NAK | Numéro de compte inconnu du récepteur | Vérifiez le numéro de compte avec la centrale |
-| Test de connexion : DUH | La centrale est joignable et reçoit la trame, mais ne la traite pas (cas connu avec le format de supervision SIA-DCS) | Choisissez le format de supervision **NULL** ; vérifiez le numéro de compte et le préfixe |
+| Test de connexion : DUH | La centrale est joignable et reçoit la trame, mais ne la traite pas (cas connu avec le format de supervision SIA-DCS) | Dans les options avancées (étape 2), essayez le format de supervision **NULL** ; vérifiez le numéro de compte et le préfixe |
 | Test de connexion : réponse non reconnue | La centrale répond, mais pas par un ACK, NAK ou DUH valide | Consultez le log `siaDC09` (niveau Debug) pour la trame reçue ; vérifiez le chiffrement avec la centrale |
 | Widget orange « initialisation » juste après le démarrage | Normal : la première supervision part après un intervalle | Attendez environ un intervalle de supervision |
 | Widget gris « Données non disponibles » | Démon arrêté ou bloqué | Vérifiez l'état du démon sur la page du plugin, redémarrez-le |
 | Libellé « Alarme » figé | Démon arrêté (la supervision peut encore afficher un ancien « OK ») | Vérifiez d'abord que le démon tourne |
 | « Connexion dégradée » récurrente, NAK de supervision | Horloge de Jeedom décalée (la centrale rejette l'horodatage) | Vérifiez l'heure / NTP de Jeedom |
 | Alarme partie **sans numéro de zone** | Titre de l'action vide, laissé à un autre texte, ou zone absente de l'étape 3 | Titre = `#zone#` ; refaites l'étape 3 si vous avez ajouté une zone |
-| Pas de photo dans l'alarme | Commande Prefetch non câblée en action **immédiate**, Titre ≠ `#zone#`, caméra non choisie, Frigate injoignable, délai de déclenchement de l'alarme très court | Vérifiez le câblage ; l'alarme part de toute façon |
+| Pas de photo dans l'alarme | Case « Joindre une photo ou une vidéo » décochée, commande Prefetch non câblée en action **immédiate**, Titre ≠ `#zone#`, caméra non choisie, Frigate injoignable, délai de déclenchement de l'alarme très court | Vérifiez la case à l'étape 1 et le câblage ; l'alarme part de toute façon |
+| Le démon refuse de démarrer, média par adresse (URL) activé | L'adresse du serveur Frigate (étape 1) est vide | Renseignez-la, ou désactivez le média |
+| Test FTPS en échec, dépôt de médias qui échoue | Serveur injoignable, certificat modifié ou non reconnu, identifiants refusés, dossier distant absent | Voir la page [Dépôt FTP/FTPS](media-ftps.md) ; l'alarme part de toute façon |
 | Une caméra Frigate n'apparaît pas à l'étape 3 | Caméra récente sans aucun événement Frigate : il manque la commande `info_id` du plugin Frigate | Lancez **Créer un évènement** sur l'équipement caméra, puis rouvrez l'assistant |
 | Modification de configuration sans effet | Le démon ne relit pas la configuration à chaud | Redémarrez le démon |
 
@@ -282,8 +295,10 @@ En plus, une tâche Jeedom vérifie toutes les 5 minutes que le démon répond e
 - **Clé AES** : elle se saisit en **hexadécimal**, 32, 48 ou 64 caractères (128, 192 ou 256 bits). Certaines centrales utilisent directement les caractères d'un texte comme clé : cette forme n'est pas encore prise en charge. Avec une clé absente ou invalide, le démon refuse de démarrer ; s'il tourne déjà, il continue de fonctionner mais n'envoie plus rien (jamais de repli en clair).
 - **Un seul récepteur**, pas de récepteur de secours.
 - **UDP** n'a été testé qu'avec un simulateur, pas avec un récepteur réel.
+- **Pas de connexion TCP permanente** : en TCP, la connexion est ouverte à la demande.
+- **Dépôt FTP/FTPS des médias et rafale de photos**  : les échecs détectés avant l'envoi (pas d'événement Frigate, réglages invalides) sont seulement écrits dans le log. Le mot de passe FTPS reste lisible dans l'environnement du processus du démon. Détails : [Dépôt FTP/FTPS](media-ftps.md).
 - Les alarmes sont retentées **4 fois** (valeur fixe) ; le champ « Tentatives » ne concerne que les reconnexions TCP. Une alarme refusée (NAK) est renvoyée immédiatement avec un horodatage mis à jour, dans la limite de ces 4 tentatives.
-- **Incendie / panique** : pas de code d'annulation spécifique ; pas de code de retour à la normale (restauration) d'intrusion.
+- **Intrusion uniquement** : le plugin ne transmet que les alarmes d'intrusion. Pas de code de retour à la normale (restauration) d'intrusion.
 - Un changement de mode de l'alarme **sans désarmer** n'est pas signalé comme tel (seule l'annulation BC l'est).
 - Un **seul numéro utilisateur** SIA pour tout le foyer.
 - Le libellé « Alarme » ne montre que le **dernier** événement.

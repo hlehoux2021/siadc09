@@ -2,7 +2,13 @@
 
 > 🧪 Version de test : ces conseils ont été vérifiés avec **Frigate 0.17** et le plugin Jeedom **Frigate**. Revérifiez-les si vous utilisez une autre version.
 
-siaDC09 peut ajouter à chaque trame d'alarme un lien vers une **photo** et une **vidéo** Frigate de l'événement. L'opérateur de la centrale ouvre ce lien depuis sa console. Cette page explique comment régler Frigate pour que ce lien fonctionne, reste sûr et pointe vers une image utile. Le câblage côté Jeedom est décrit dans le [guide utilisateur](index.md#photos-et-vidéos-frigate-optionnel).
+**En bref**
+
+- siaDC09 peut joindre à l'alarme une **photo** et une **vidéo** Frigate de l'événement, pour la levée de doute par la centrale.
+- Cette page décrit le mode **« Une adresse (URL) dans le message d'alarme »** : la centrale ouvre un lien vers votre Frigate. Elle explique aussi comment régler Frigate (objets suivis, snapshots, enregistrements, conservation).
+- Si vous préférez que le plugin **dépose** la photo et la vidéo sur un serveur FTP/FTPS, lisez le guide [Dépôt de la photo et de la vidéo par FTP/FTPS](media-ftps.md). Les sections « Exposer Frigate » et le gabarit d'adresse ne vous concernent alors pas.
+
+Le câblage côté Jeedom est décrit dans le [guide utilisateur](index.md#photos-et-vidéos-frigate-optionnel). Le format du lien (U ou V) dépend de votre centrale ; il se règle dans les options avancées de l'étape 2 de l'assistant.
 
 **Sommaire**
 
@@ -34,7 +40,7 @@ Dès que le capteur déclenche, la commande **Prefetch événement Frigate** (ac
 | 3 | La capture forcée `alarm` | Image de la caméra au moment du déclenchement, sans détection |
 | — | Rien | L'alarme part **sans lien média** |
 
-Au moment où l'alarme est envoyée, siaDC09 joint le meilleur résultat trouvé jusque-là. La photo est toujours jointe ; la vidéo ne l'est que si Frigate l'a déjà prête.
+Au moment où l'alarme est envoyée, siaDC09 joint le meilleur résultat trouvé jusque-là. Ce qui est joint dépend des cases cochées dans la carte **Levée de doute photo / vidéo** (étape 1 de l'assistant) : la **photo**, la **vidéo**, ou les deux. La vidéo n'est jointe que si Frigate l'a déjà prête.
 
 **La photo ne retarde et ne bloque jamais l'alarme.** Si Frigate est injoignable ou lent, l'alarme part quand même, sans média.
 
@@ -45,22 +51,24 @@ siaDC09 utilise Frigate par **deux chemins distincts** :
 | Qui | Adresse utilisée | Pour quoi |
 |-----|------------------|-----------|
 | Le démon siaDC09, sur votre réseau | L'**adresse et le port configurés dans le plugin Frigate** de Jeedom | Créer la capture forcée et chercher les événements |
-| La centrale, depuis Internet | L'**URL media Frigate** saisie à l'étape 3 de l'assistant | Afficher la photo et la vidéo |
+| La centrale, depuis Internet | Le champ **Adresse de votre serveur Frigate** (étape 1 de l'assistant, carte **Levée de doute photo / vidéo**, groupe « Adresse pour la centrale ») | Afficher la photo et la vidéo |
+
+Ce champ n'apparaît que si vous avez choisi « Une adresse (URL) dans le message d'alarme ». Exemple de saisie : `https://frigate.maison.fr`.
 
 **Côté Jeedom (réseau local).** La capture forcée exige le rôle `admin` de Frigate. Frigate l'accorde d'office sur son port interne non authentifié (**5000**), et siaDC09 n'envoie jamais d'identifiants à Frigate. Si le plugin Frigate pointe vers le port authentifié (**8971**), la capture forcée est refusée : siaDC09 écrit un avertissement dans le log et continue avec les vrais événements seulement (rangs 1 et 2). Pour avoir la capture forcée, le plugin Frigate doit donc utiliser le port 5000, **joignable uniquement depuis votre réseau local**.
 
 **Côté centrale (Internet).** La centrale ouvre des adresses de la forme :
 
 ```
-<URL media>/api/events/<id de l'événement>/snapshot.jpg
-<URL media>/api/events/<id de l'événement>/clip.mp4
+<adresse Frigate>/api/events/<id de l'événement>/snapshot.jpg
+<adresse Frigate>/api/events/<id de l'événement>/clip.mp4
 ```
 
 Il faut donc un accès depuis Internet, **authentifié**, à ces deux chemins. C'est l'objet de la section suivante.
 
 ## Exposer Frigate à la centrale
 
-Frigate donne accès à vos caméras, et à l'intérieur de votre maison. Exposez-le avec prudence :
+Cette section ne concerne que le transport par adresse. Frigate donne accès à vos caméras, et à l'intérieur de votre maison. Exposez-le avec prudence :
 
 - **N'exposez jamais le port 5000 sur Internet.** Il n'a aucune authentification et donne le rôle `admin` à tout le monde.
 - **Passez par un reverse-proxy en HTTPS** (Caddy, Nginx, Traefik, Nginx Proxy Manager…), avec un certificat valide (Let's Encrypt). Ne redirigez pas un port de votre box directement vers Frigate.
@@ -70,14 +78,16 @@ Frigate donne accès à vos caméras, et à l'intérieur de votre maison. Expose
 - **Filtrez par adresse IP** si la centrale vous communique les adresses d'où elle se connecte.
 - **Tenez Frigate et le reverse-proxy à jour.**
 
-**Les identifiants ne sont jamais stockés dans siaDC09.** L'URL media contient des **marqueurs littéraux** à la place des identifiants, par exemple :
+**Les identifiants ne sont jamais stockés dans le gabarit d'adresse.** Si votre reverse-proxy en demande, l'adresse contient des **marqueurs littéraux** à la place des identifiants, par exemple :
 
 ```
 https://<user>:<pass>@frigate.example.org/
 https://frigate.example.org/?accesstoken=<token>
 ```
 
-Choisissez la forme que votre reverse-proxy accepte. Vous communiquez les vrais identifiants à la centrale par un autre moyen ; c'est elle qui remplace les marqueurs. **N'écrivez jamais un vrai mot de passe dans l'URL media** : elle part en clair dans chaque trame d'alarme.
+Choisissez la forme que votre reverse-proxy accepte. Vous communiquez les vrais identifiants à la centrale par un autre moyen ; c'est elle qui remplace les marqueurs. **N'écrivez jamais un vrai mot de passe dans cette adresse** : elle part en clair dans chaque trame d'alarme.
+
+> Cette règle ne vaut que pour l'adresse. Le mot de passe d'un serveur FTP/FTPS, lui, est enregistré dans Jeedom : voir [media-ftps.md](media-ftps.md#secrets-et-sécurité-du-compte).
 
 ## Objets suivis et labels
 
@@ -120,15 +130,17 @@ La vidéo jointe (`clip.mp4`) n'existe que si Frigate **enregistre** la caméra 
 
 La vidéo d'une capture forcée n'est complète qu'après les 30 s de l'événement. Juste après le déclenchement, elle est **partielle**, voire pas encore disponible. C'est pourquoi siaDC09 ne joint le lien vidéo que si Frigate indique qu'elle est prête. Quand l'opérateur l'ouvre un peu plus tard, elle est complète.
 
+> En dépôt FTP/FTPS, la copie se trouve sur votre serveur : la conservation Frigate importe moins. L'enregistrement (`record.enabled`) reste toutefois nécessaire pour la vidéo. Voir [media-ftps.md](media-ftps.md).
+
 ## Caméras et zones
 
 - **Une caméra par zone**, cadrée **serré sur l'accès protégé** de la zone (porte, fenêtre, portail), plutôt qu'un plan large de tout le jardin. La recherche ne remonte que 30 s avant le déclenchement : un cadrage serré donne un événement qui correspond vraiment à l'intrusion.
-- Le nom de caméra utilisé est celui de **Frigate** (repris par le plugin Frigate lors de la création de l'équipement caméra). Si vous renommez une caméra dans Frigate, vérifiez que l'équipement caméra du plugin Frigate porte bien le nouveau nom, puis refaites l'étape 3 de l'assistant.
+- Le nom de caméra utilisé est celui de **Frigate** (repris par le plugin Frigate lors de la création de l'équipement caméra). Si vous renommez une caméra dans Frigate, vérifiez que l'équipement caméra du plugin Frigate porte bien le nouveau nom, puis revérifiez la configuration de l'assistant.
 - Une caméra partagée entre deux zones fonctionne. Si les deux zones déclenchent en même temps, le résultat de la dernière recherche remplace le précédent.
 
 ## Délais
 
-- Le **Prefetch** doit être câblé en **action immédiate** : il part au premier capteur, pendant le délai de déclenchement de l'alarme.
+- Le **Prefetch** doit être câblé en **action immédiate** : il part au premier capteur, pendant le délai de déclenchement de l'alarme. Le câblage est décrit dans le [guide utilisateur](index.md#photos-et-vidéos-frigate-optionnel).
 - La recherche dure **25 s au plus**. Avec un délai de déclenchement de l'alarme **d'au moins 20 à 30 s**, siaDC09 a le temps de trouver un événement réel. Avec un délai plus court, l'alarme part avec le meilleur résultat du moment, souvent la capture forcée.
 - Le résultat reste valable **2 minutes**. Si l'alarme part plus de 2 minutes après le premier capteur, elle part sans média.
 
@@ -184,6 +196,6 @@ cameras:
 Avant de compter sur les médias, faites un essai coordonné avec votre centrale :
 
 1. Déclenchez la zone (en prévenant la centrale). Dans Frigate, vérifiez qu'un événement **`alarm`** apparaît sur la caméra de la zone. S'il manque, regardez le log `siaDC09_daemon` : un refus de création veut dire que le plugin Frigate n'utilise pas le port 5000.
-2. Vérifiez le lien envoyé. L'inspecteur de protocole de l'onglet **Diagnostic** n'affiche pas encore le bloc média de la trame. En niveau de log **Debug**, le log `siaDC09` indique l'URL média résolue (`résolu media_url=…`).
+2. Vérifiez le lien envoyé. En niveau de log **Debug**, le log `siaDC09` indique l'adresse média résolue (`résolu media_url=…`).
 3. Ouvrez vous-même ce lien **depuis l'extérieur de votre réseau** (téléphone en 4G par exemple), en remplaçant les marqueurs par les identifiants de la centrale : la photo doit s'afficher, et l'accès sans identifiants doit être refusé.
 4. Demandez à la centrale de confirmer qu'elle voit la photo et la vidéo depuis sa console.

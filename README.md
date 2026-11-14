@@ -1,4 +1,4 @@
-# siaDC09 — Télésurveillance SIA DC-09 pour Jeedom
+# siaDC09 — SIA DC-09 remote monitoring for Jeedom
 
 > **Jeedom plugin that reports alarms to a monitoring centre (CSR) over the SIA DC-09 Internet protocol**
 
@@ -9,36 +9,35 @@ siaDC09 turns a Jeedom box into an alarm transmitter. When the official Jeedom *
 ## Features
 
 - **SIA DC-09-2021 transmitter**: SIA-DCS framing, CRC-16, sequence numbers, timestamps, ACK/NAK/DUH handling, over **TCP or UDP**
-- **Alarm vocabulary**: burglary (BA), fire (FA), panic (PA), burglary cancel (BC), open/close (OP/CL) with zone and user numbers
-- **Link supervision**: periodic keep-alive frames, degraded/lost detection, TCP reconnection with back-off
+- **Alarm vocabulary (intrusion only)**: burglary (BA), burglary cancel (BC), open/close (OP/CL) with zone and user numbers. Fire and panic are postponed
+- **Link supervision**: periodic keep-alive frame (none, SIA-DCS or NULL format), optional cyclic test (RP), degraded/lost detection, TCP reconnection with back-off
 - **Tiered error handling**: T1 (self-healing) / T2 (check) / T3 (critical) notifications to any Jeedom message command, the message centre, or a scenario
-- **Guided setup**: 4-step wizard with the monitoring-centre settings, a live connection test, zone numbering and notification target
+- **Guided setup**: 3-step wizard (Centre, Test, Zones and alerts) with the monitoring-centre settings, live SIA and FTPS tests, zone numbering, Alarm plugin linking and notification target
 - **Diagnostics**: dashboard widget, last-errors list and a protocol inspector that decodes every exchanged frame
-- **Frigate media (optional)**: forced capture and best-event lookup at trigger time; the alarm frame carries a media URL template — alarms are never delayed by media
+- **Photo/video verification (optional)**: forced capture and best-event lookup at trigger time (Frigate). The centre receives the media either through an address (URL) in the alarm frame, or through a copy uploaded to your FTPS server (FTP without TLS is possible but discouraged), photo burst included. Alarms are never delayed by media
 - **Async Python daemon** built on [`jeedomdaemon`](https://pypi.org/project/jeedomdaemon/)
 
 ## Quick Links
 
 - 📘 [Guide utilisateur (FR)](docs/fr_FR/index.md) — installation, wizard, Alarm plugin wiring, status indicators, troubleshooting
 - 📷 [Conseils Frigate (FR)](docs/fr_FR/frigate.md) — exposing Frigate to the CSR, recordings, tracked objects and labels
+- 🖼️ [Photo/video by FTPS (FR)](docs/fr_FR/media-ftps.md) — uploading media to your own FTPS server instead of exposing Frigate
 - 🛠️ [Admin guide (EN)](docs/admin-guide.md) — configuration keys, backup/restore, upgrades
-- 👩‍💻 [Developer guide (EN)](docs/developer-guide.md) — code map, IPC contracts, adding a CSR preset, tests
 - 📋 [Changelog (FR)](docs/fr_FR/changelog.md)
-- 📜 [SIA DC-09-2021 specification (text)](internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md)
 - 🐛 [Issues](https://github.com/hlehoux2021/siadc09/issues)
 
 ## Known Limitations
 
 - **Encryption** is implemented to DC-09-2021 § 5.4 (AES-CBC, 128/192/256-bit keys) and checked against encrypted frames from real panels, but it is **not yet validated against a real receiver**. The field-validated configuration is still **TCP, unencrypted, hex CRC**.
 - The AES key is entered as **hex**: 32, 48 or 64 hex digits (128, 192 or 256 bits). Some panels use the ASCII bytes of a key text instead; that form is not supported yet.
-- **UDP** has only been exercised against the bundled CSR simulator, not against a real receiver.
+- **UDP** has only been exercised against a CSR simulator, not against a real receiver.
+- **FTPS / FTP media upload:** FTP without TLS sends the password and the images in clear text, and the FTPS password is stored in the plugin configuration like the AES key.
+- **No permanent TCP connection**: TCP is opened on demand (the cyclic test is supported, a permanent link is not).
 - One receiver (no backup receiver), one equipment, one SIA user number.
 - Alarm retries are fixed (4 attempts); the "Retries" setting only applies to TCP reconnection. A NAK is answered by an immediate re-send with an updated timestamp, within those 4 attempts.
-- No restore codes (BR) and no fire/panic-specific cancel codes yet.
+- Intrusion only: no fire/panic alarms, no restore codes (BR).
 - Configuration changes require a daemon restart; the first supervision frame is sent one interval after start.
 - Daemon and notification messages are French only (`messages.py`; gettext is planned).
-
-The full list, with the tracking IDs, is in the [developer guide](docs/developer-guide.md#known-gaps-and-discrepancies).
 
 ## Disclaimer
 
@@ -48,7 +47,7 @@ siaDC09 is an independent open-source project, **not certified** by the SIA, by 
 
 - Scaffolding started from the [aiodemo](https://github.com/mips2648/jeedom-aiodemo) plugin template by **Mips2648**, and uses his [`jeedomdaemon`](https://github.com/Mips2648/jeedom-daemon-py) Python library
 - Many thanks to **Sagitaz** and **Noodom**, authors of the Jeedom [Frigate plugin](https://github.com/sagitaz/plugin-frigate), on which the alarm media feature relies
-- Protocol: SIA DC-09-2021 *Internet Protocol Event Reporting* (Security Industry Association)
+- Protocol: SIA DC-09-2021 *Internet Protocol Event Reporting* (Security Industry Association; the specification is not redistributed here)
 
 ---
 
@@ -87,20 +86,19 @@ ln -s "$PWD/siadc09" /var/www/html/plugins/siaDC09
 chown -h www-data:www-data /var/www/html/plugins/siaDC09
 ```
 
-Then activate it in **Plugin management**, click **Relancer** under *Dépendances* on the plugin configuration page and wait for **OK**, and open **Plugins → Sécurité → Télésurveillance SIA DC-09** to run the wizard. The development test suite needs `tests/requirements-dev.txt`.
-
+Then activate it in **Plugin management**, click **Relancer** under *Dépendances* on the plugin configuration page and wait for **OK**, and open **Plugins → Sécurité → Télésurveillance SIA DC-09** to run the wizard.
 ## Configuration
 
-The equipment is created automatically; everything is set through the wizard. Full walkthrough: [guide utilisateur](docs/fr_FR/index.md#lassistant-de-configuration).
+The equipment is created automatically; everything is set through the 3-step wizard. Full walkthrough: [guide utilisateur](docs/fr_FR/index.md#lassistant-de-configuration).
 
 | Step | What you set | Main keys (`eqLogic` configuration) |
 |------|--------------|--------------------------------------|
-| 1 — CSR | Receiver address, transport, account, encryption, supervision interval, TCP retries/back-off | `csr_ip`, `csr_port`, `transport`, `account_number`, `encryption_enabled`, `encryption_key`, `supervision_interval`, `retry_count`, `reconnect_delay` |
-| 2 — Test | Live supervision frame to the CSR, shows ACK / NAK / failure cause | — |
-| 3 — Zones | SIA zone number and optional Frigate camera per Alarm zone, media URL template, SIA user number | `sia_zone_mappings`, `frigate_media_url_template`, `sia_user_number` |
-| 4 — Alerts | Who receives critical notifications | `sia_notify_kind`, `sia_notify_cmd_id`, `sia_notify_internal`, `sia_notify_scenario_id` |
+| 1 — Centre (*Centrale*) | Receiver address, transport, account, AES encryption. Photo/video verification: enable it, choose photo and/or video, and how the centre receives it: an address (URL) to your Frigate server, or a copy uploaded to an FTPS server | `csr_ip`, `csr_port`, `transport`, `account_number`, `encryption_enabled`, `encryption_key`, `media_enabled`, `media_transport`, `media_snapshot_enabled`, `media_clip_enabled`, `frigate_media_url_template` (URL transport only) |
+| 2 — Test | Live SIA test (supervision frame, shows ACK / NAK / failure cause) and, under FTPS, an FTPS test (connection, certificate, login; no file is written). **Advanced options**: link format (V/U) and single-tag choice, FTPS server, supervision frame format and interval, cyclic test (RP), TCP reconnection | `media_snapshot_format`, `media_clip_format`, `media_single_tag`, `ftps_host`, `ftps_port`, `ftps_user`, `ftps_password`, `ftps_folder`, `ftps_plain`, `ftps_cert_fingerprint`, `supervision_format`, `supervision_interval`, `rp_enabled`, `rp_interval`, `retry_count`, `reconnect_delay` |
+| 3 — Zones and alerts | Alarm equipment to link, SIA zone number and optional Frigate camera per Alarm zone, SIA user number; who receives critical notifications | `alarm_eqlogic_id`, `sia_zone_mappings`, `sia_user_number`, `sia_notify_kind`, `sia_notify_cmd_id`, `sia_notify_internal`, `sia_notify_scenario_id` |
 
-Then wire the siaDC09 action commands (*Alarme intrusion*, *Désarmement*, *Réinitialisation alarme*, *Armement*, *Prefetch événement Frigate*) into the Alarm plugin, with **Titre = `#zone#`** — see [Câbler le plugin Alarme](docs/fr_FR/index.md#câbler-le-plugin-alarme). All keys are described in the [admin guide](docs/admin-guide.md#configuration-keys).
+
+The **Lier au plugin Alarme** button of step 3 wires the siaDC09 action commands (*Alarme intrusion*, *Désarmement*, *Réinitialisation alarme*, *Armement*, *Prefetch événement Frigate*) into the Alarm plugin with **Titre = `#zone#`** — see [Câbler le plugin Alarme](docs/fr_FR/index.md#câbler-le-plugin-alarme). A daemon restart is needed after any change; see the [admin guide](docs/admin-guide.md#configuration).
 
 ## Architecture
 
@@ -117,9 +115,7 @@ Jeedom Alarm plugin ──cmd──▶ siaDC09 (PHP: eqLogic/cmd, AJAX, cron wat
 ```
 
 - **PHP plugin** (`core/`, `desktop/`): equipment and commands, wizard, widget, diagnostic tab, daemon lifecycle and a 5-minute freshness watchdog.
-- **Daemon** (`resources/siadc09d/`): protocol encoding/decoding, transports, supervision (SM1) and event (SM2) state machines, tiered error handler, Frigate media prefetch.
-
-Details: [developer guide](docs/developer-guide.md) and the design documents in [internal-docs/design/](internal-docs/design/) ([daemon](internal-docs/design/daemon-design.md), [PHP core](internal-docs/design/php-core-design.md), [supervision](internal-docs/design/supervision-design.md), [error handler](internal-docs/design/error-handler-design.md), [logging](internal-docs/design/logging-design.md), [wizard](internal-docs/design/wizard-design.md), [widget](internal-docs/design/widget-design.md), [debug UI](internal-docs/design/debug-ui-design.md)).
+- **Daemon** (`resources/siadc09d/`): protocol encoding/decoding, transports, supervision (SM1) and event (SM2) state machines, tiered error handler, Frigate media prefetch, best-effort FTPS/FTP media upload (`ftps_upload.py`).
 
 ## License
 

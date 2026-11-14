@@ -1,12 +1,12 @@
 # siaDC09 — Administrator Guide
 
-For the person who installs and maintains the plugin on a Jeedom box: where the configuration lives, how to back it up and restore it, and how upgrades work. For day-to-day use (wizard, Alarm plugin wiring, status indicators, troubleshooting), see the French [user guide](fr_FR/index.md). For the code, see the [developer guide](developer-guide.md).
+For the person who installs and maintains the plugin on a Jeedom box: what runs on the box, how to back it up and restore it, and how upgrades work. For day-to-day use (wizard, Alarm plugin wiring, status indicators, troubleshooting), see the French [user guide](fr_FR/index.md).
 
 ## Contents
 
-1. [Components on the box](#components-on-the-box)
-2. [Configuration keys](#configuration-keys)
-3. [Daemon lifecycle](#daemon-lifecycle)
+1. [What runs on the box](#what-runs-on-the-box)
+2. [Configuration](#configuration)
+3. [Daemon](#daemon)
 4. [Logs](#logs)
 5. [Backup and restore](#backup-and-restore)
 6. [Upgrade path](#upgrade-path)
@@ -14,143 +14,95 @@ For the person who installs and maintains the plugin on a Jeedom box: where the 
 
 ---
 
-## Components on the box
+## What runs on the box
 
-| Component | Location | Role |
-|-----------|----------|------|
-| PHP plugin | `/var/www/html/plugins/siaDC09/` (`core/`, `desktop/`, `plugin_info/`) | Equipment, commands, wizard, widget, diagnostic tab, daemon start/stop, 5-minute freshness watchdog (`cron5`) |
-| Python daemon | `resources/siadc09d/siadc09d.py` | SIA DC-09 transmitter: supervision, events, error handling, Frigate prefetch |
-| Python venv | managed by Jeedom (`system::getCmdPython3`) | `jeedomdaemon==1.2.9`, `cryptography==43.0.3` from `plugin_info/packages.json` |
-| PID file | `jeedom::getTmpFolder('siaDC09')/daemon.pid` | Used by `deamon_info()` to report the daemon state |
-| Local IPC | TCP `127.0.0.1:<socketport>` (default `55009`) | PHP → daemon JSON commands |
-| Callback | `core/php/jeesiaDC09.php` over the internal Jeedom URL | Daemon → PHP updates, authenticated with the plugin API key |
+| Component | Role |
+|-----------|------|
+| PHP plugin (`plugins/siaDC09/`) | Equipment, commands, configuration wizard, widget, diagnostic tab, daemon start/stop, 5-minute freshness watchdog |
+| Python daemon | Sends the SIA DC-09 frames: supervision, periodic test, alarm events, error handling, Frigate photo retrieval, optional FTP/FTPS photo upload |
+| Python virtual environment | Managed by Jeedom; dependencies are installed from the plugin's dependency panel |
 
-There is exactly **one** siaDC09 equipment (created automatically, "Télésurveillance"). The daemon talks to **one** receiver.
+There is exactly **one** siaDC09 equipment (created automatically, "Télésurveillance"). The daemon talks to **one** receiver, with no failover.
 
-**Network:** the box must be able to open an outbound connection to the receiver's IP/port (TCP or UDP). Nothing is exposed inbound. If Frigate media is used, the *monitoring centre* must be able to reach the Frigate URL entered in the wizard — that is your reverse-proxy/firewall concern, not the plugin's.
+**Network:** the box must be able to open an outbound connection to the receiver's IP and port (TCP or UDP). Nothing is exposed inbound. The daemon and the plugin talk to each other on the box only (local port `55009` by default). Photos and videos depend on the transport chosen in the wizard:
 
-## Configuration keys
+- **Address (URL):** the *monitoring centre* must be able to reach the Frigate address entered in the wizard. That is your reverse-proxy and firewall concern, not the plugin's.
+- **FTPS:** the box must also be able to open an outbound FTP/FTPS connection (port 21 by default) to the monitoring centre's server. The wizard has a connection test for both the receiver and the FTP(S) server (see the [FTP/FTPS page](fr_FR/media-ftps.md)).
 
-### Equipment configuration (`eqLogic->getConfiguration()`)
+## Configuration
 
-All set by the wizard; stored in the Jeedom database with the equipment.
+All settings are entered in the plugin's three-step wizard (1 Centrale, 2 Test, 3 Zones et alertes), described in the [user guide](fr_FR/index.md#lassistant-de-configuration) and stored in the Jeedom database with the equipment. There is nothing to edit by hand in normal use.
 
-| Key | Default | Wizard step | Meaning | Passed to daemon as |
-|-----|---------|-------------|---------|---------------------|
-| `csr_ip` | `''` | 1 | Receiver IP. Must not be empty or `TBD` | `--host` |
-| `csr_port` | `0` | 1 | Receiver port, 1-65535 | `--port` |
-| `transport` | `udp` | 1 | `udp` or `tcp` | `--transport` |
-| `account_number` | `''` | 1 | 3-16 hex chars | `--account` |
-| `encryption_enabled` | `false` | 1 | Encryption flag — see [Security notes](#security-notes) | `--encryption-enabled` |
-| `encryption_key` | `''` | 1 | AES key, 32/48/64 hex chars; required when encryption is enabled | `--encryption-key` |
-| `supervision_interval` | `60` | 1 | Seconds between supervision frames; also drives the stale-widget and watchdog thresholds (3 × interval) | `--supervision-interval` |
-| `retry_count` | `6` | 1 | **TCP reconnection** attempts before "Hors Réseau" (does not change alarm retries, which are fixed at 4 attempts) | `--retry-count` |
-| `reconnect_delay` | `30` | 1 | Base TCP reconnection delay, seconds | `--reconnect-delay` |
-| `crc_format` | `hex` | — (no UI) | `hex` or `bin`. **The daemon always sends ASCII hex CRC** regardless | `--crc-format` |
-| `receiver_prefix` | `''` | — (no UI) | Optional SIA receiver number (`R…`) | `--receiver-prefix` |
-| `account_prefix` | `''` | — (no UI) | Optional account prefix (`L…`) | `--account-prefix` |
-| `sia_zone_mappings` | `[]` | 3 | Alarm zone name → SIA zone number and optional Frigate camera. Numbers are stable: a zone keeps its number, new zones get the next free one | resolved by PHP, sent with each command |
-| `frigate_media_url_template` | `''` | 1 (advanced) | Public Frigate URL **with literal placeholders** (`<user>`, `<pass>`, `<token>`) — never a real credential | resolved by PHP, sent with each command |
-| `media_snapshot_enabled` / `media_clip_enabled` | `1` / `1` | 1 (advanced) | Send the snapshot / clip URL in burglar, fire and panic alarm frames. Both off: no media tag. The URL field shows only when one is on | `media` list in the command payload |
-| `media_snapshot_format` / `media_clip_format` | `V` / `V` | 1 (advanced) | Tag letter per media, `U` or `V` (Vesta expects U, FoxStream V) | `media[].format` |
-| `media_single_tag` | `1` | 1 (advanced) | One tag with both URLs space-separated (only when both formats are equal) or one tag per URL | `media_single_tag` |
-| `sia_user_number` | — | 3 | 1-999, user number for OP/CL/BC | resolved by PHP, sent with each command |
-| `sia_notify_kind` | `''` | 4 | `cmd` (a Jeedom message action) or `internal` | — |
-| `sia_notify_cmd_id` | `0` | 4 | Target command ID when `kind = cmd` | `--notify-cmd-id` |
-| `sia_notify_internal` | `''` | 4 | `message` (message centre) or `scenario` | — |
-| `sia_notify_scenario_id` | `0` | 4 | Target scenario when `internal = scenario` | — |
-| `sia_wizard_step` | `0` | all | Wizard progress; the daemon is not launchable before the wizard is finished | — |
+- **Restart the daemon after any change.** The daemon reads its settings once, when it starts.
+- **Local port.** If another plugin already uses port `55009`, change the plugin's `socketport` setting with `config::save('socketport', <port>, 'siaDC09')`, then restart the daemon. There is no interface field for it.
+- **Daemon auto-management** is the standard Jeedom one (`autoStartDeamon`, on by default).
 
-The daemon reads its settings **once, at start**. Any change needs a daemon restart (deferred item D-40).
+## Daemon
 
-`crc_format`, `receiver_prefix` and `account_prefix` have no UI field. They only change through a direct database edit or a future UI; leave them at their defaults unless the monitoring centre asks otherwise.
+The daemon refuses to start, with a message that points to the wizard step to fix, while the configuration is incomplete or inconsistent:
 
-### Plugin configuration (`config::byKey(..., 'siaDC09')`)
+- the wizard is not finished;
+- the receiver address, port, transport or account number is missing or invalid;
+- the periodic frames are inconsistent (for example no supervision frame and no periodic test, or a periodic-test interval outside 60 to 86400 seconds);
+- photo/video by address is enabled without a Frigate address;
+- encryption is enabled without a valid key;
+- no critical-notification target is configured.
 
-| Key | Default | Meaning |
-|-----|---------|---------|
-| `socketport` | `55009` | Local daemon IPC port. No UI field: change it with `config::save('socketport', <port>, 'siaDC09')` only if another plugin already uses 55009, then restart the daemon |
-| `autoStartDeamon` | `1` | Standard Jeedom daemon auto-management |
-| `sia_last_errors` | `[]` | JSON, last 10 T2/T3 errors shown in the diagnostic tab |
-| `sia_last_messages` | `[]` | JSON, last 50 protocol exchanges shown in the protocol inspector |
-| `_freshness_alert_ts` | `0` | Timestamp of the last "Démon bloqué" alert (rate limit: one per 30 min) |
+Dependencies are checked by Jeedom, not by the plugin.
 
-### Commands (logical IDs)
+Jeedom's watchdog restarts a crashed daemon when auto-management is on. In TCP, when every reconnection attempt fails, the daemon shows "Hors Réseau" and stops; the watchdog then restarts it.
 
-Action: `burglarAlarm`, `fireAlarm`, `panicAlarm`, `prefetchEvent` (subType `message`, Titre = `#zone#`), `disarm`, `alarmReset`, `arm` (subType `other`).
-Info: `supervision_state` (0/1/2), `supervision_label`, `event_state` (0/1/2/3), `event_label`.
+**Freshness watchdog.** Every 5 minutes, if the daemon is running but the supervision state has not been updated for more than three supervision intervals, the plugin sends "siaDC09 — Démon bloqué" to the critical-notification target (at most once every 30 minutes).
 
-Commands are (re)created by `postSave()`, and by `siaDC09_update()` on every plugin upgrade, so an upgrade adds new commands without the equipment being re-saved.
-
-## Daemon lifecycle
-
-`deamon_info()` reports **not launchable** — with a message pointing to the wizard step to fix — while any of these is true:
-
-1. the wizard is not finished;
-2. `csr_ip` is empty or `TBD`, or `csr_port` / `account_number` is invalid;
-3. encryption is enabled without a key;
-4. no critical-notification target is configured (step 4).
-
-Dependencies are checked by the Jeedom core wrapper, not by the plugin.
-
-`deamon_start()` builds the command line from the keys above (the AES key is redacted in the `siaDC09` log line), starts `siadc09d.py` in the venv and waits up to 10 s for the PID file. Jeedom's watchdog restarts a crashed daemon when auto-management is on. In TCP, when all reconnection attempts fail the daemon reports "Hors Réseau" and exits; the watchdog then restarts it.
-
-**Watchdog (`cron5`).** Every 5 minutes, if the daemon is running but `supervision_state` has not been updated for more than 3 × `supervision_interval`, the plugin sends "siaDC09 — Démon bloqué" to the step-4 target (at most once per 30 minutes).
-
-**Startup delay.** The first supervision frame goes out one full interval after start, so the widget stays orange for about one interval (D-42).
+**Startup delay.** The first supervision frame goes out one full interval after start, so the widget stays orange for about one interval.
 
 ## Logs
 
 | Log | Content |
 |-----|---------|
-| `siaDC09` | PHP side: daemon launch (key redacted), command execution, callback handling, watchdog |
+| `siaDC09` | PHP side: daemon launch, command execution, callbacks, watchdog |
 | `siaDC09_daemon` | Daemon: startup line `Démon SIA DC-09 version X.Y.Z`, state transitions, frames, errors |
-| `siaDC09_update` / dependency log | Dependency installation |
+| Dependency log | Dependency installation, from the plugin's dependency panel |
 
-INFO, WARNING and ERROR lines are in French; DEBUG lines are in English and include the hex frames. Set the plugin log level to **Debug** before reproducing an issue to get the technical detail. The AES key is never logged.
+INFO, WARNING and ERROR lines are in French; DEBUG lines are in English and include the hex frames. Set the plugin log level to **Debug** before reproducing an issue to get the technical detail. The AES key and the FTPS password are never logged.
 
 ## Backup and restore
 
 siaDC09 has no export format of its own; it relies on the standard **Jeedom backup** (Settings → System → Backups), which contains:
 
-- the **database** — the siaDC09 equipment and its configuration (every key in the equipment table above, including `encryption_key` and the zone mappings), its commands, and the plugin configuration keys;
+- the **database**: the siaDC09 equipment and all its settings (including the AES key, the FTPS password and the zone table), its commands, and the plugin settings;
 - the **plugin files** under `plugins/siaDC09/`.
 
-The Python venv is not something to restore: reinstall the dependencies after a restore.
+The Python virtual environment is not something to restore: reinstall the dependencies after a restore.
 
 **Restore on the same or a new box:**
 
 1. Restore the Jeedom backup (Settings → System → Backups → Restore).
 2. Open the plugin configuration page and **reinstall the dependencies**; wait for OK.
-3. Check the equipment page: the **Configuration active** panel should show your receiver, zones and notification target.
-4. Start the daemon and confirm **Connexion OK** on the widget within about 2 supervision intervals.
-5. The Alarm plugin keeps its references to the siaDC09 commands only if their IDs are unchanged (full restore). If you rebuilt the equipment by hand instead, re-wire the Alarm plugin actions ([user guide](fr_FR/index.md#câbler-le-plugin-alarme)) and re-check the step-4 target, since it is stored as a command or scenario ID.
+3. Check the equipment page: the **Configuration active** panel should show your receiver, media transport, zones and notification target.
+4. Start the daemon and confirm **Connexion OK** on the widget within about two supervision intervals.
+5. The Alarm plugin keeps its references to the siaDC09 commands only if their IDs are unchanged (full restore). If you rebuilt the equipment by hand instead, the plugin rewires the Alarm plugin automatically from the configuration screen ([user guide](fr_FR/index.md#câbler-le-plugin-alarme)). Re-check the step-3 notification target, since it is stored as a command or scenario ID.
 
 **What a backup does not cover:** the zone-number ↔ zone-name table registered at the monitoring centre. Keep a copy of step 3 (or the Configuration active panel) with your monitoring-centre paperwork.
 
-Because the backup contains the AES key and the monitoring-centre account in clear, store backups as carefully as the key itself.
+Because the backup contains the AES key, the FTPS password and the monitoring-centre account in clear, store backups as carefully as those secrets.
 
 ## Upgrade path
 
-1. The Market publishes a new version. Jeedom offers the update in **Plugin management**; install it.
-2. Jeedom runs `siaDC09_update()`, which calls `postSave()` on the equipment and creates any new command. Existing configuration is untouched.
-3. If `packages.json` changed, Jeedom reinstalls the dependencies (`jeedomdaemon` is marked `reinstall`).
+The plugin is an early-tester version (0.1.0), installed from its Git repository; the Market comes later. An upgrade is therefore a repository update (pull the new version into `plugins/siaDC09/`), then:
+
+1. Jeedom picks up the new files in **Plugin management**; run the update from there if it proposes one.
+2. Jeedom creates any new command. Existing settings are untouched, and an equipment saved before a setting existed keeps its previous behaviour.
+3. If the dependencies changed, Jeedom reinstalls them.
 4. **Restart the daemon** (Jeedom normally does it after a plugin update). Check that `siaDC09_daemon` logs the new `Démon SIA DC-09 version X.Y.Z`: this is how you confirm the running daemon matches the installed plugin.
-5. Read the [changelog](fr_FR/changelog.md) for new Alarm-plugin wiring (for example, a new command to add to a zone action).
-
-### Version discipline (maintainer)
-
-Two numbers must move together before every Market publish:
-
-- `plugin_info/info.json` → `pluginVersion`
-- `resources/siadc09d/__init__.py` → `DAEMON_VERSION`
-
-`tests/level1/test_daemon_version.py` fails if they differ or if either is not `MAJOR.MINOR.PATCH`. Update the changelog (`docs/fr_FR/changelog.md`, French only) in the same commit. The publishing steps are in the [Market submission checklist](../internal-docs/market-submission-checklist.md).
+5. Read the [changelog](fr_FR/changelog.md) for any change that affects your setup.
 
 ## Security notes
 
-- **Encryption is not yet validated against a real receiver.** With `encryption_enabled`, supervision (`*NULL`) and alarm (`*SIA-DCS`) frames are AES-CBC encrypted per DC-09-2021 § 5.4, and the implementation is checked against encrypted frames from real panels. Check with the monitoring centre before enabling it.
-- **Key format.** `encryption_key` must be 32, 48 or 64 **hex** digits (AES-128/192/256). With encryption on and a missing or malformed key, the daemon refuses to start, and a daemon already running sends nothing (no plaintext fallback). The ASCII-bytes key form some panels use is not supported yet.
-- **AES key storage.** `encryption_key` is stored **unencrypted** in the equipment configuration (it is not declared in `$_encryptConfigKey`), so it is included in clear in every Jeedom backup. It is also passed on the daemon's **command line** (`--encryption-key`), so any local user who can list processes on the box can read it. It is redacted from the Jeedom log.
-- **Frigate URL.** Only literal placeholders (`<user>`, `<pass>`, `<token>`) may be stored. The monitoring centre substitutes the real credentials on its side. Never put a real password in `frigate_media_url_template`: it travels in every alarm frame.
-- **Callback authentication.** `jeesiaDC09.php` accepts only requests carrying the plugin API key; the IPC socket listens on `127.0.0.1` only.
+- **Encryption is implemented but not validated against a real receiver.** With encryption enabled, supervision and alarm frames are AES-encrypted per DC-09-2021 § 5.4. It is covered by automated tests only; no real receiver has confirmed it. Check with the monitoring centre before enabling it.
+- **UDP.** The UDP transport has only been tested against a simulator, not a real UDP receiver. TCP has been validated against a real receiver.
+- **Key format.** The AES key must be 32, 48 or 64 **hexadecimal** digits (AES-128/192/256). With encryption on and a missing or malformed key, the daemon refuses to start, and a daemon already running sends nothing (never a plaintext fallback). The form some panels use, where the key is the ASCII characters of a text, is not supported yet.
+- **Secrets are not encrypted in Jeedom.** The AES key and the FTPS password are stored unencrypted in the equipment settings, so they appear in clear in every Jeedom backup. The AES key is also visible to any local user who can list the processes on the box. Neither is written to the logs.
+- **FTP without TLS.** The *FTP sans TLS* option sends the password and the images in clear on the network, and does not verify the server certificate. Prefer FTPS, with the certificate fingerprint pinned.
+- **Frigate address.** Only literal placeholders (`<user>`, `<pass>`, `<token>`) may be stored. The monitoring centre substitutes the real credentials on its side. Never put a real password in this address: it travels in every alarm frame.
+- **Access to the daemon.** The plugin and the daemon talk on the box only, and the callback from the daemon is accepted only with the plugin's API key.
