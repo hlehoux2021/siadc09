@@ -1,8 +1,8 @@
 """Epic 18 / ticket 18.15: photo series by FTP/FTPS on a BA alarm.
 
-The I/O matrix of the plan, with Frigate and ftplib mocked: the series is taken on
-prefetchEvent, held in memory per run_id, and sent on the BA alarm over one connection
-with the event snapshot last; without a series the single snapshot goes as before.
+The I/O matrix of the plan, with Frigate and ftplib mocked: nothing happens at the prefetch;
+at the BA alarm the daemon cuts the series from the event recordings and sends it over one
+connection, named with the event start_time; without a frame the single event snapshot goes.
 """
 
 import asyncio
@@ -13,19 +13,18 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from resources.siadc09d import daemon as daemon_module
-from resources.siadc09d import frigate_prefetch
-from resources.siadc09d.daemon import BURST_TTL_S, SIADaemon
-from resources.siadc09d.frigate_prefetch import BURST_COUNT, BurstPhoto, capture_burst
+from resources.siadc09d.daemon import SIADaemon
+from resources.siadc09d.frigate_prefetch import ClipFile, EventSeries
 from resources.siadc09d.ftps_upload import FtpsSettings, FtpsUploadError
 from tests.conftest import make_daemon_preset
 
 _SECRET = "s3cr3t-pw"
 _HOST = "10.0.0.5:5000"
 _EVENT = "1700000.1-abc"
-_RUN = "1700000000.123456-a1b2c3"
 _CAMERA = "vigi_sud-est"
-_NAME = re.compile(r"001234_03_(\d{10})_(\d{4})\.jpg")
-_BASE_TIME = 1700000000.0  # fake capture time of the first frame, one second apart
+_NAME = re.compile(r"001234_03_(\d{10})_(\d{4})\.(jpg|mp4)")
+_START = 1700000000.5  # event start_time
+_ALARM_NAME = re.compile(r"001234_03_(\d{10})_0001\.jpg")
 
 
 @pytest.fixture
@@ -39,9 +38,7 @@ def daemon(caplog: pytest.LogCaptureFixture):
     d._run_prefetch = AsyncMock()
     d._ftps = FtpsSettings(enabled=True, host="ftp.example", port=21, user="u",
                            password=_SECRET, folder="upload")
-    yield d
-    for series in d._burst_series.values():
-        series.expiry.cancel()
+    return d
 
 
 async def _drain(d: SIADaemon) -> None:
@@ -50,354 +47,226 @@ async def _drain(d: SIADaemon) -> None:
     await asyncio.gather(*d._tasks, return_exceptions=True)
 
 
-def _photos(n: int) -> list[bytes]:
+def _frames(n: int) -> list[bytes]:
     """n distinct fake JPEG frames."""
     return [f"jpeg-{i}".encode() for i in range(1, n + 1)]
 
 
-def _fake_capture(
-    frames: list[bytes], hold: asyncio.Event | None = None, ready: asyncio.Event | None = None
-):
-    """capture_burst double: appends `frames`, sets `ready`, then waits on `hold` if given."""
-
-    async def capture(_host: str, _camera: str, photos: list[BurstPhoto], **_kw: object) -> None:
-        photos.extend(BurstPhoto(data, _BASE_TIME + i) for i, data in enumerate(frames))
-        if ready is not None:
-            ready.set()
-        if hold is not None:
-            await hold.wait()
-
-    return capture
+def _series(n: int) -> AsyncMock:
+    """fetch_event_frames double returning n frames from _START."""
+    return AsyncMock(return_value=EventSeries(start_time=_START, frames=_frames(n)))
 
 
-async def _prefetch(d: SIADaemon, burst: bool = True) -> None:
-    """Send the prefetchEvent of the immediate action."""
-    await d.on_message("prefetchEvent", {
-        "camera_eqlogic_id": 42, "camera_name": _CAMERA, "frigate_host": _HOST,
-        "run_id": _RUN, "burst": burst,
-    })
-
-
-async def _alarm(d: SIADaemon, event_id: str = _EVENT, run_id: str = _RUN, **flags: bool) -> None:
+async def _alarm(d: SIADaemon, event_id: str = _EVENT, **flags: bool) -> None:
     """Send the BA alarm with its ftps_upload payload."""
-    upload = {"frigate_host": _HOST, "event_id": event_id, "run_id": run_id,
-              "snapshot": True, "clip": False, **flags}
+    upload = {"frigate_host": _HOST, "event_id": event_id, "snapshot": True, "clip": False, **flags}
     await d.on_message("burglarAlarm", {"zone": "Z", "zone_number": 3, "ftps_upload": upload})
 
 
-# ---- capture_burst ---------------------------------------------------------------------
-
-
 @pytest.mark.asyncio
-async def test_capture_takes_thirty_frames_three_per_second(caplog) -> None:
+async def test_full_series_alone_on_one_connection_named_by_start_time(daemon) -> None:
     """
-    Frigate serves every frame.
+    Full series: event with recordings, BA alarm.
 
     Expected result:
-    - 30 frames in order; 29 waits of 1/3 s between frame starts; latest.jpg URL plain
-    - one DEBUG line per frame (rank, elapsed, size); each frame stamped with its capture time
+    - one upload_many call: 0001..0030, every name with the event start_time epoch
+    - the event snapshot is neither fetched nor sent; frame enqueued
     """
-    urls: list[str] = []
-
-    def get_bytes(url: str, _timeout: float) -> bytes:
-        urls.append(url)
-        return f"f{len(urls)}".encode()
-
-    clock = [1000.0]
-
-    async def fake_sleep(seconds: float) -> None:
-        clock[0] += seconds
-
-    caplog.set_level(logging.DEBUG)
-    photos: list[BurstPhoto] = []
-    with patch.object(frigate_prefetch, "_get_bytes", get_bytes), \
-         patch.object(frigate_prefetch.time, "monotonic", lambda: clock[0]), \
-         patch.object(frigate_prefetch.time, "time", lambda: _BASE_TIME + clock[0] - 1000.0), \
-         patch.object(frigate_prefetch.asyncio, "sleep", AsyncMock(side_effect=fake_sleep)) as sleep:
-        await capture_burst(_HOST, _CAMERA, photos)
-    # Assert: thirty frames (3 per second for 10 s), in order
-    assert [p.data for p in photos] == [f"f{i}".encode() for i in range(1, 31)]
-    assert BURST_COUNT == 30
-    # Assert: each frame is stamped with its own capture time, a third of a second apart
-    assert [p.taken_at for p in photos] == pytest.approx([_BASE_TIME + i / 3 for i in range(30)])
-    # Assert: one DEBUG line per frame with rank, elapsed time and size
-    lines = [r.getMessage() for r in caplog.records if "frame " in r.getMessage()]
-    assert len(lines) == 30
-    assert "frame 4/30" in lines[3] and "+1.00s" in lines[3] and "2 bytes" in lines[3]
-    # Assert: one wait of 1/3 s between two frames, none after the last
-    assert [c.args[0] for c in sleep.await_args_list] == pytest.approx([1 / 3] * 29)
-    # Assert: the camera's current frame, no overlay
-    assert urls[0] == (f"http://{_HOST}/api/{_CAMERA}/latest.jpg"
-                       "?timestamp=0&bbox=0&zones=0&mask=0&motion=0&regions=0")
-
-
-@pytest.mark.asyncio
-async def test_capture_refused_gives_no_series_and_one_warning(caplog) -> None:
-    """
-    latest.jpg refused (HTTP error -> _get_bytes returns None).
-
-    Expected result:
-    - no frame held; exactly one WARNING; no further request
-    """
-    caplog.set_level(logging.WARNING)
-    calls: list[str] = []
-
-    def refused(url: str, _timeout: float) -> None:
-        calls.append(url)
-
-    photos: list[BurstPhoto] = []
-    with patch.object(frigate_prefetch, "_get_bytes", refused):
-        await capture_burst(_HOST, _CAMERA, photos)
-    # Assert: no series
-    assert photos == []
-    # Assert: stopped at the first refusal
-    assert len(calls) == 1
-    # Assert: one warning
-    assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 1
-
-
-@pytest.mark.asyncio
-async def test_identical_frames_are_kept_with_one_warning(caplog) -> None:
-    """
-    Camera offline: Frigate returns the same bytes every time.
-
-    Expected result:
-    - the 5 frames are kept; one WARNING only
-    """
-    caplog.set_level(logging.WARNING)
-    photos: list[BurstPhoto] = []
-    with patch.object(frigate_prefetch, "_get_bytes", return_value=b"same"), \
-         patch.object(frigate_prefetch.asyncio, "sleep", AsyncMock()):
-        await capture_burst(_HOST, _CAMERA, photos)
-    # Assert: series kept
-    assert [p.data for p in photos] == [b"same"] * BURST_COUNT
-    # Assert: one warning for the frozen camera
-    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
-    assert len(warnings) == 1 and "identical" in warnings[0].getMessage()
-
-
-# ---- daemon: I/O matrix ----------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_full_series_alone_on_one_connection_each_named_by_its_time(daemon) -> None:
-    """
-    Full series: 5 photos held, BA alarm with an event.
-
-    Expected result:
-    - one upload_many call: 0001..0005, the event snapshot is not fetched nor sent
-    - every name carries the epoch second of the first photo (same on all files)
-    - no single-file upload; frame enqueued; series gone from memory
-    """
-    with patch.object(daemon_module, "capture_burst", _fake_capture(_photos(5))), \
-         patch.object(daemon_module, "fetch_event_snapshot", AsyncMock(return_value=b"event")) as snap, \
+    with patch.object(daemon_module, "fetch_event_frames", _series(30)), \
+         patch.object(daemon_module, "fetch_event_snapshot", AsyncMock(return_value=b"e")) as snap, \
          patch.object(daemon_module, "upload_many") as many, \
          patch.object(daemon_module, "upload_bytes") as single:
-        await _prefetch(daemon)
-        await _drain(daemon)
         await _alarm(daemon)
         await _drain(daemon)
-    # Assert: one connection for the whole alarm
+    # Assert: one connection, no single upload
     many.assert_called_once()
     single.assert_not_called()
     files = many.call_args.args[1]
     parts = [_NAME.fullmatch(name).groups() for name, _ in files]
-    # Assert: image numbers 0001..0005, the series only
-    assert [img for _, img in parts] == ["0001", "0002", "0003", "0004", "0005"]
-    assert [data for _, data in files] == _photos(5)
-    # Assert: the event snapshot is left out when a series exists
+    # Assert: image numbers 0001..0030 in order
+    assert [img for _, img, _ in parts] == [f"{i:04d}" for i in range(1, 31)]
+    assert [data for _, data in files] == _frames(30)
+    # Assert: one epoch, the event start_time
+    assert {int(ts) for ts, _, _ in parts} == {int(_START)}
+    # Assert: no event snapshot with a series; frame went out
     snap.assert_not_awaited()
-    # Assert: every file carries the first photo's epoch, never incremented
-    assert {int(ts) for ts, _ in parts} == {int(_BASE_TIME)}
-    # Assert: the frame went out, and the series is no longer held
     daemon._enqueue_event.assert_awaited_once()
-    assert daemon._burst_series == {}
 
 
 @pytest.mark.asyncio
-async def test_alarm_early_sends_the_photos_held(daemon) -> None:
+async def test_prefetch_requests_no_frame_and_arms_no_timer(daemon) -> None:
     """
-    Alarm early: 2 photos held, capture still running.
+    prefetchEvent (even with an old burst flag).
 
     Expected result:
-    - the 2 photos are sent alone; the capture is stopped
+    - no frame requested from Frigate, no timer armed, no state held
     """
-    hold, ready = asyncio.Event(), asyncio.Event()
-    with patch.object(daemon_module, "capture_burst", _fake_capture(_photos(2), hold, ready)), \
-         patch.object(daemon_module, "upload_many") as many:
-        await _prefetch(daemon)
-        await asyncio.wait_for(ready.wait(), timeout=1.0)
-        capture_task = daemon._burst_series[_RUN].task
-        await _alarm(daemon)
+    loop = asyncio.get_running_loop()
+    with patch.object(daemon_module, "fetch_event_frames", AsyncMock()) as frames, \
+         patch.object(loop, "call_later") as timer:
+        await daemon.on_message("prefetchEvent", {
+            "camera_eqlogic_id": 42, "camera_name": _CAMERA, "frigate_host": _HOST,
+            "run_id": "1700000000.1-aa", "burst": True,
+        })
         await _drain(daemon)
-    files = many.call_args.args[1]
-    # Assert: the 2 held photos only
-    assert [data for _, data in files] == _photos(2)
-    # Assert: capture stopped
-    assert capture_task.cancelled()
+    # Assert: nothing fetched, no timer
+    frames.assert_not_awaited()
+    timer.assert_not_called()
+    # Assert: no burst state on the daemon
+    assert not hasattr(daemon, "_burst_series")
 
 
 @pytest.mark.asyncio
-async def test_no_series_sends_the_single_snapshot_as_before(daemon) -> None:
+async def test_no_frame_falls_back_to_the_event_snapshot_with_one_warning(daemon, caplog) -> None:
     """
-    No series: unknown run (daemon restarted) or a payload without run_id.
+    No recording and Frigate answers nothing for frames.
 
     Expected result:
-    - one single-file upload named ..._0001.jpg per alarm; upload_many never used
+    - the event snapshot goes alone, named ..._0001.jpg with the alarm epoch
+    - exactly one WARNING for the fallback; upload_many never used
     """
-    with patch.object(daemon_module, "fetch_event_snapshot", AsyncMock(return_value=b"event")), \
-         patch.object(daemon_module, "upload_many") as many, \
-         patch.object(daemon_module, "upload_bytes") as single:
-        await _alarm(daemon)
-        await _alarm(daemon, run_id="")
-        await _drain(daemon)
-    # Assert: no series upload
-    many.assert_not_called()
-    # Assert: the 18.13 single snapshot, twice
-    assert single.call_count == 2
-    assert all(_NAME.fullmatch(c.args[1]).group(2) == "0001" for c in single.call_args_list)
-
-
-@pytest.mark.asyncio
-async def test_latest_refused_falls_back_to_the_single_snapshot(daemon) -> None:
-    """
-    latest.jpg refused: the capture held nothing.
-
-    Expected result:
-    - the event snapshot goes alone, as before
-    """
-    with patch.object(daemon_module, "capture_burst", _fake_capture([])), \
+    with patch.object(daemon_module, "fetch_event_frames",
+                      AsyncMock(return_value=EventSeries(start_time=_START, frames=[]))), \
          patch.object(daemon_module, "fetch_event_snapshot", AsyncMock(return_value=b"event")), \
          patch.object(daemon_module, "upload_many") as many, \
          patch.object(daemon_module, "upload_bytes") as single:
-        await _prefetch(daemon)
-        await _drain(daemon)
+        caplog.clear()
         await _alarm(daemon)
         await _drain(daemon)
-    # Assert: fallback single snapshot
+    # Assert: single snapshot, no series
+    many.assert_not_called()
+    single.assert_called_once()
+    name = single.call_args.args[1]
+    assert _ALARM_NAME.fullmatch(name) and int(_ALARM_NAME.fullmatch(name).group(1)) != int(_START)
+    # Assert: one WARNING
+    assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 1
+
+
+@pytest.mark.asyncio
+async def test_event_row_unreadable_also_falls_back(daemon) -> None:
+    """
+    Frigate down for the event row (fetch_event_frames returns None).
+
+    Expected result:
+    - the single event snapshot is attempted
+    """
+    with patch.object(daemon_module, "fetch_event_frames", AsyncMock(return_value=None)), \
+         patch.object(daemon_module, "fetch_event_snapshot", AsyncMock(return_value=b"e")), \
+         patch.object(daemon_module, "upload_many") as many, \
+         patch.object(daemon_module, "upload_bytes") as single:
+        await _alarm(daemon)
+        await _drain(daemon)
+    # Assert: fallback used
     many.assert_not_called()
     single.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_cancelled_in_delay_nothing_uploaded_and_series_expires(daemon) -> None:
-    """
-    Cancelled in the delay: no BA alarm follows.
-
-    Expected result:
-    - the series expires BURST_TTL_S (120 s) after the prefetch; nothing is uploaded
-    """
-    with patch.object(daemon_module, "capture_burst", _fake_capture(_photos(5))), \
-         patch.object(daemon_module, "upload_many") as many, \
-         patch.object(daemon_module, "upload_bytes") as single:
-        await _prefetch(daemon)
-        await _drain(daemon)
-        series = daemon._burst_series[_RUN]
-        loop = asyncio.get_running_loop()
-        # Assert: expiry armed at 120 s
-        assert BURST_TTL_S == 120.0
-        assert series.expiry.when() - loop.time() == pytest.approx(BURST_TTL_S, abs=1.0)
-        daemon._expire_burst(_RUN)  # what the timer runs at 120 s
-    # Assert: the series is gone
-    assert daemon._burst_series == {}
-    # Assert: nothing uploaded
-    many.assert_not_called()
-    single.assert_not_called()
-
-
-@pytest.mark.asyncio
 async def test_partial_failure_one_notification_naming_the_count(daemon, caplog) -> None:
     """
-    Partial failure: the connection drops after 3 photos of 5 (no event).
+    The connection drops after 3 photos of 30.
 
     Expected result:
-    - one notification pair saying "3 photos sur 5"; ERROR logged; no retry; no password
+    - one notification pair "3 photos sur 30"; ERROR logged; no retry; no password
     """
     err = FtpsUploadError("step upload: ConnectionResetError: reset", sent=3)
-    with patch.object(daemon_module, "capture_burst", _fake_capture(_photos(5))), \
+    with patch.object(daemon_module, "fetch_event_frames", _series(30)), \
          patch.object(daemon_module, "upload_many", side_effect=err) as many:
-        await _prefetch(daemon)
-        await _drain(daemon)
-        await _alarm(daemon, event_id="")
+        await _alarm(daemon)
         await _drain(daemon)
     sent = [c.args[0] for c in daemon._send_callback.await_args_list]
-    # Assert: a single attempt
+    # Assert: single attempt
     many.assert_called_once()
-    # Assert: one notification, naming how many photos arrived
+    # Assert: one notification, with the count
     assert [p["type"] for p in sent] == ["message_center", "notify"]
-    assert "3 photos sur 5" in sent[1]["message"]
+    assert "3 photos sur 30" in sent[1]["message"]
     # Assert: logged at ERROR
-    assert any(r.levelno == logging.ERROR and "3 photos sur 5" in r.getMessage()
+    assert any(r.levelno == logging.ERROR and "3 photos sur 30" in r.getMessage()
                for r in caplog.records)
     # Assert: password nowhere
     assert _SECRET not in caplog.text and _SECRET not in repr(sent)
 
 
 @pytest.mark.asyncio
-async def test_no_frigate_event_sends_the_series_alone(daemon, caplog) -> None:
+async def test_no_event_sends_nothing_with_one_warning(daemon, caplog) -> None:
     """
-    No Frigate event (manual create refused), series held, clip wanted too.
+    BA payload without event id.
 
     Expected result:
-    - the series is sent; no event snapshot or clip fetched; one WARNING for the missing event
+    - nothing fetched nor uploaded
     """
-    with patch.object(daemon_module, "capture_burst", _fake_capture(_photos(5))), \
-         patch.object(daemon_module, "fetch_event_snapshot", AsyncMock()) as snap, \
-         patch.object(daemon_module, "fetch_event_clip", AsyncMock()) as clip, \
-         patch.object(daemon_module, "upload_many") as many:
-        await _prefetch(daemon)
+    with patch.object(daemon_module, "fetch_event_frames", AsyncMock()) as frames, \
+         patch.object(daemon_module, "upload_many") as many, \
+         patch.object(daemon_module, "upload_bytes") as single:
+        await _alarm(daemon, event_id="")
         await _drain(daemon)
-        caplog.clear()
-        await _alarm(daemon, event_id="", clip=True)
-        await _drain(daemon)
-    # Assert: series sent, 5 files
-    assert [data for _, data in many.call_args.args[1]] == _photos(5)
-    # Assert: no event media fetched
-    snap.assert_not_awaited()
-    clip.assert_not_awaited()
-    # Assert: one warning about the missing event
-    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
-    assert len(warnings) == 1 and "no Frigate event" in warnings[0].getMessage()
+    # Assert: no request, no upload
+    frames.assert_not_awaited()
+    many.assert_not_called()
+    single.assert_not_called()
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("burst, active", [(False, True), (True, False)])
-async def test_no_burst_without_flag_or_ftps(daemon, burst: bool, active: bool) -> None:
+async def test_cancelled_in_delay_nothing_fetched_or_uploaded(daemon) -> None:
     """
-    prefetchEvent without the burst flag, or a daemon without active FTPS settings.
+    Cancelled in the delay: only the prefetch ran, no BA alarm.
 
     Expected result:
-    - no capture starts and nothing is held
+    - no frame request, no upload
     """
-    if not active:
-        daemon._ftps = FtpsSettings()
-    capture = AsyncMock()
-    with patch.object(daemon_module, "capture_burst", capture):
-        await _prefetch(daemon, burst=burst)
+    with patch.object(daemon_module, "fetch_event_frames", AsyncMock()) as frames, \
+         patch.object(daemon_module, "upload_many") as many, \
+         patch.object(daemon_module, "upload_bytes") as single:
+        await daemon.on_message("prefetchEvent", {
+            "camera_eqlogic_id": 42, "camera_name": _CAMERA, "frigate_host": _HOST,
+            "run_id": "1700000000.1-aa",
+        })
         await _drain(daemon)
-    # Assert: no capture
-    capture.assert_not_called()
-    # Assert: nothing held
-    assert daemon._burst_series == {}
+    # Assert: nothing fetched, nothing uploaded
+    frames.assert_not_awaited()
+    many.assert_not_called()
+    single.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_photo_switch_off_never_sends_the_series(daemon) -> None:
+async def test_series_and_clip_are_independent_with_their_own_epoch(daemon) -> None:
     """
-    Series held but the BA payload wants the clip only.
+    Series and clip wanted together.
 
     Expected result:
-    - no photo upload; the series is dropped from memory
+    - series named with start_time; clip named with the alarm epoch
     """
-    with patch.object(daemon_module, "capture_burst", _fake_capture(_photos(5))), \
+    clip = AsyncMock(return_value=ClipFile(path="/nonexistent/c.mp4", size=3,
+                                                         duration_s=1.0))
+    with patch.object(daemon_module, "fetch_event_frames", _series(3)), \
+         patch.object(daemon_module, "fetch_event_clip", clip), \
+         patch.object(daemon_module, "remove_clip_file"), \
+         patch.object(daemon_module, "upload_many") as many, \
+         patch.object(daemon_module, "upload_file") as file_upload:
+        await _alarm(daemon, clip=True)
+        await _drain(daemon)
+    series_epoch = {int(_NAME.fullmatch(n).group(1)) for n, _ in many.call_args.args[1]}
+    clip_match = _NAME.fullmatch(file_upload.call_args.args[1])
+    # Assert: series carries start_time
+    assert series_epoch == {int(_START)}
+    # Assert: clip carries the alarm epoch, an .mp4 name
+    assert clip_match.group(3) == "mp4" and int(clip_match.group(1)) != int(_START)
+
+
+@pytest.mark.asyncio
+async def test_photo_switch_off_never_fetches_frames(daemon) -> None:
+    """
+    BA payload wants the clip only.
+
+    Expected result:
+    - no frame fetch, no photo upload
+    """
+    with patch.object(daemon_module, "fetch_event_frames", AsyncMock()) as frames, \
          patch.object(daemon_module, "fetch_event_clip",
                       AsyncMock(side_effect=daemon_module.ClipFetchError("x"))), \
          patch.object(daemon_module, "upload_many") as many:
-        await _prefetch(daemon)
-        await _drain(daemon)
         await _alarm(daemon, snapshot=False, clip=True)
         await _drain(daemon)
-    # Assert: no photo upload
+    # Assert: nothing for the photo
+    frames.assert_not_awaited()
     many.assert_not_called()
-    # Assert: series dropped
-    assert daemon._burst_series == {}

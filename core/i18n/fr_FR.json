@@ -179,7 +179,6 @@
         "Passer en Personnalisé": "Passer en Personnalisé",
         "Personnalisé": "Personnalisé",
         "Photo": "Photo",
-        "Rafale de photos": "Rafale de photos",
         "Port": "Port",
         "Profil de la centrale": "Profil de la centrale",
         "Quand photo ET vidéo ont le même format :": "Quand photo ET vidéo ont le même format :",
@@ -230,6 +229,8 @@
     "plugins/siaDC09/desktop/js/siaDC09.js": {
         "Choisissez un équipement Alarme": "Choisissez un équipement Alarme",
         "Commandes liées au plugin Alarme": "Commandes liées au plugin Alarme",
+        "Photo": "Photo",
+        "Rafale de photos": "Rafale de photos",
         "Commandes retirées du plugin Alarme": "Commandes retirées du plugin Alarme",
         "Adresse IP de la centrale requise": "Adresse IP de la centrale requise",
         "Adresse du serveur Frigate : obligatoire quand la levée de doute est activée.": "Adresse du serveur Frigate : obligatoire quand la levée de doute est activée.",

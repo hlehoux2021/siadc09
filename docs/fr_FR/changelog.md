@@ -32,7 +32,7 @@ Version de pré-diffusion, destinée aux premiers testeurs. Ce n'est pas une ver
 
 - Capture forcée au déclenchement ; photo, vidéo, ou les deux, jointes à l'alarme. L'alarme n'attend jamais le média.
 - **Par adresse (URL)** : lien de format U (URL Multimedia Direct) ou V (Video Verification Link), une extension commune ou une par lien.
-- **Par dépôt FTP/FTPS** : serveur FTPS (certificat reconnu ou auto-signé épinglé par son empreinte), FTP sans TLS en option avec avertissement, test de connexion FTPS, fichiers nommés `compte_zone_horodatage_image`, rafale de photos. Indépendant de la trame : l'échec d'un dépôt n'empêche jamais l'alarme de partir. Voir la page [Dépôt FTP/FTPS](media-ftps.md).
+- **Par dépôt FTP/FTPS** : serveur FTPS (certificat reconnu ou auto-signé épinglé par son empreinte), FTP sans TLS en option avec avertissement, test de connexion FTPS, fichiers nommés `compte_zone_horodatage_image`, rafale de 30 photos (3 par seconde pendant 10 s) extraites des enregistrements de l'événement Frigate à l'alarme, nommées avec l'heure de début de l'événement. Indépendant de la trame : l'échec d'un dépôt n'empêche jamais l'alarme de partir. Voir la page [Dépôt FTP/FTPS](media-ftps.md).
 
 **Documentation**
 

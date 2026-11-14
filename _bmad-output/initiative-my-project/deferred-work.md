@@ -277,3 +277,7 @@ level2/level3 tests + golden fixture + harness. This closes the 4-group review o
 - source_plan: `_bmad-output/initiative-my-project/epic-13-alarm-event-vocabulary/story-13-5-automatic-wiring-of-the-siadc09-commands-into-the-alarm-plan.md`
   summary: Re-linking does not drop Alarm entries that point at siaDC09 commands deleted and recreated with new ids (only current command ids are recognised).
   evidence: `_applyAlarmWiring` collects `$this->getCmd()` ids only; ids are stable per logicalId in postSave, so only a manual command deletion triggers it, and the Alarm plugin would then flag the dead cmd. Unverified on a live host.
+
+- source_plan: `_bmad-output/initiative-my-project/epic-18-ftps-alarm-media-upload/story-18-15-photo-burst-by-ftp-and-ftps-plan.md`
+  summary: The +0.2 s retry of a refused recordings frame (18.15) was never checked on a real Frigate.
+  evidence: Unverified medium at most (an extra request per refused frame if it does nothing); run `scripts/frigate_recordings_snapshot_probe.py` on test-frigate against an event with recordings and compare the frames refused at ts with the same frames asked at ts + 0.2 s.

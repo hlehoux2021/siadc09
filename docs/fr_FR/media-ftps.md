@@ -103,7 +103,7 @@ Les fichiers sont déposés à plat, à la racine du dossier configuré :
 
 - `<compte>` : le compte SIA ; `<zone>` : le numéro de zone envoyé avec l'alarme (00 si absent).
 - `<horodatage>` : l'heure de l'alarme en **secondes depuis 1970** (epoch), indépendant du fuseau horaire.
-- La photo et la vidéo d'une même alarme ne diffèrent que par l'extension. Les photos d'une série partagent l'horodatage (celui de la première photo, jamais incrémenté, la centrale s'en sert pour reconstituer une vidéo) et diffèrent par le numéro d'image (0001 à 0030).
+- La photo et la vidéo d'une même alarme ne diffèrent que par l'extension. Les photos d'une série partagent l'horodatage (celui du début de l'événement Frigate, jamais incrémenté, la centrale s'en sert pour reconstituer une vidéo ; la vidéo garde l'heure de l'alarme) et diffèrent par le numéro d'image (0001 à 0030).
 - Deux alarmes de la même zone dans la **même seconde** portent le même nom : la seconde écrase la première.
 - Les caractères non sûrs d'un nom sont remplacés par `_`.
 
@@ -113,11 +113,12 @@ Communiquez ce schéma à la centrale.
 
 Quand la photo est cochée en FTPS, le plugin n'envoie pas la photo de l'événement Frigate mais une **série de 30 photos** :
 
-- **3 photos par seconde pendant 10 s**, soit 30 photos, prises depuis l'image courante de la caméra (`latest.jpg` de Frigate) ;
-- elle démarre **au premier capteur** (Prefetch), avant le départ de l'alarme ;
+- **3 photos par seconde pendant 10 s**, soit 30 photos, extraites des **enregistrements de l'événement Frigate**, à partir du début de l'événement (Frigate doit **enregistrer** la caméra, `record.enabled`) ;
+- elle est construite **au départ de l'alarme** : rien n'est pris au premier capteur (Prefetch) et rien n'est gardé en mémoire entre les deux ;
 - elle est envoyée **seule** : la photo de l'événement n'est pas envoyée en plus ;
-- elle n'exige ni `snapshots.enabled` ni `objects.track` côté Frigate, mais la caméra doit répondre sur `latest.jpg` ;
-- elle est conservée en mémoire **120 s** : si aucune alarme ne part dans ce délai, la série est **abandonnée** et rien n'est déposé ;
+- une image refusée par Frigate est redemandée une fois, puis ignorée (les numéros restent consécutifs) ; la série s'arrête après 3 images de suite introuvables (fin de l'enregistrement) ;
+- s'il n'y a aucune image, la **photo de l'événement** est envoyée seule et un avertissement est écrit dans le log ;
+- une alarme annulée pendant le délai ne demande rien à Frigate et ne dépose rien ;
 - le classement `person` / autre / `alarm` ne s'applique qu'à la vidéo (et à la photo en mode adresse).
 
 ## En cas d'échec
@@ -143,5 +144,5 @@ L'alarme, elle, est déjà partie. Il n'y a pas de nouvel essai automatique docu
 
 1. À l'étape 2, lancez le **Test du serveur FTPS**.
 2. Faites un essai coordonné avec la centrale : déclenchez la zone en la prévenant.
-3. Dans les logs (niveau Debug pour le détail), cherchez `photo series: frame n/30` (capture de la série) puis `FTPS upload to <serveur:port> done: <fichier>` (dépôt réussi).
+3. Dans les logs (niveau Debug pour le détail), cherchez `photo series:` (une ligne par image refusée) puis `FTPS upload to <serveur:port> done: <fichier>` (dépôt réussi).
 4. Demandez à la centrale de confirmer que les fichiers sont arrivés, avec les bons noms, et lisibles.

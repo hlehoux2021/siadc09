@@ -37,11 +37,13 @@ def _settings(**overrides: object) -> FtpsSettings:
 
 
 @pytest.fixture
-def daemon(caplog: pytest.LogCaptureFixture):
+def daemon(caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch):
     """Daemon with a complete FTPS config and a stubbed event queue."""
     caplog.set_level(logging.DEBUG)
     with patch("sys.argv", ["test"]):
         d = SIADaemon(preset=make_daemon_preset())
+    # 18.15: no recordings in these tests, the photo falls back to the event snapshot.
+    monkeypatch.setattr(daemon_module, "fetch_event_frames", AsyncMock(return_value=None))
     d._enqueue_event = AsyncMock()
     d._send_callback = AsyncMock()
     d._ftps = _settings()

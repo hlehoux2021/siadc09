@@ -168,96 +168,126 @@ async def fetch_event_snapshot(frigate_host: str, event_id: str) -> bytes | None
                                             timeout=PREFETCH_HTTP_TIMEOUT_S)
 
 
-# Photo series (ticket 18.15): taken right after the immediate action, from the camera's
-# current frame. Fixed by design, never an equipment setting.
-BURST_FPS: Final[int] = 3
-BURST_DURATION_S: Final[int] = 10
-BURST_COUNT: Final[int] = BURST_FPS * BURST_DURATION_S
-BURST_INTERVAL_S: Final[float] = 1.0 / BURST_FPS
-# Plain current frame, no overlay (same query as the Frigate plugin's own latest.jpg URL).
-_LATEST_QUERY: Final[str] = "timestamp=0&bbox=0&zones=0&mask=0&motion=0&regions=0"
+# Photo series (ticket 18.15): frames cut from the event's recordings at the alarm, from the
+# event's start_time. Fixed by design, never an equipment setting.
+SERIES_FPS: Final[int] = 3
+SERIES_DURATION_S: Final[int] = 10
+SERIES_COUNT: Final[int] = SERIES_FPS * SERIES_DURATION_S
+# A frame refused by Frigate is asked again once, this much later, then skipped.
+SERIES_RETRY_OFFSET_S: Final[float] = 0.2
+# The series stops (recording ended) after this many consecutive frames that failed twice.
+SERIES_MAX_CONSECUTIVE_FAILURES: Final[int] = 3
 
 
-async def fetch_latest_jpeg(frigate_host: str, camera: str) -> bytes | None:
-    """Download the camera's current frame (`/api/<camera>/latest.jpg`), best effort.
+@dataclass(frozen=True)
+class EventInfo:
+    """What the recordings fetch needs from a Frigate event row.
+
+    Attributes:
+        camera: Frigate-native camera name.
+        start_time: Event start (epoch seconds).
+    """
+
+    camera: str
+    start_time: float
+
+
+@dataclass(frozen=True)
+class EventSeries:
+    """The frames of an event's recordings.
+
+    Attributes:
+        start_time: Event start (epoch seconds); names the remote files.
+        frames: JPEG frames in time order (may be empty, never held on disk).
+    """
+
+    start_time: float
+    frames: list[bytes]
+
+
+async def fetch_event_info(frigate_host: str, event_id: str) -> EventInfo | None:
+    """Read the camera and start time of an event (`GET /api/events/<id>`), best effort.
+
+    Args:
+        frigate_host: Frigate "host:port".
+        event_id: Frigate event id.
+
+    Returns:
+        The camera and start time, or None when Frigate is unreachable or the row lacks them.
+        Never raises.
+    """
+    row = await _run_with_deadline_timeout(
+        _get_json, f"http://{frigate_host}/api/events/{urllib.parse.quote(event_id, safe='')}",
+        PREFETCH_HTTP_TIMEOUT_S, timeout=PREFETCH_HTTP_TIMEOUT_S,
+    )
+    if not isinstance(row, dict):
+        return None
+    camera = row.get("camera")
+    start_time = _as_epoch(row.get("start_time"))
+    if not isinstance(camera, str) or not camera or start_time is None:
+        return None
+    return EventInfo(camera=camera, start_time=start_time)
+
+
+async def fetch_recording_frame(frigate_host: str, camera: str, ts: float) -> bytes | None:
+    """Download one frame of the camera's recordings at `ts`, best effort.
 
     Args:
         frigate_host: Frigate "host:port".
         camera: Frigate-native camera name.
+        ts: Epoch seconds of the frame.
 
     Returns:
-        The JPEG bytes, or None on any HTTP/network error or timeout. Never raises.
+        The JPEG bytes, or None on any refusal or network error. Never raises.
     """
     url = (
-        f"http://{frigate_host}/api/{urllib.parse.quote(camera, safe='')}/latest.jpg"
-        f"?{_LATEST_QUERY}"
+        f"http://{frigate_host}/api/{urllib.parse.quote(camera, safe='')}"
+        f"/recordings/{ts:.3f}/snapshot.jpg"
     )
     return await _run_with_deadline_timeout(_get_bytes, url, PREFETCH_HTTP_TIMEOUT_S,
                                             timeout=PREFETCH_HTTP_TIMEOUT_S)
 
 
-@dataclass(frozen=True)
-class BurstPhoto:
-    """One frame of a photo series.
+async def fetch_event_frames(frigate_host: str, event_id: str) -> EventSeries | None:
+    """Cut the photo series of an event from its recordings (30 frames, 3 per second).
 
-    Attributes:
-        data: JPEG bytes.
-        taken_at: Unix time (seconds) when the frame was received; it names the remote file.
-    """
-
-    data: bytes
-    taken_at: float
-
-
-async def capture_burst(
-    frigate_host: str,
-    camera: str,
-    photos: list[BurstPhoto],
-    *,
-    count: int = BURST_COUNT,
-    interval_s: float = BURST_INTERVAL_S,
-) -> None:
-    """Take up to `count` current frames, one every `interval_s`, appending each to `photos`.
-
-    `photos` is filled as the frames arrive, so a caller that stops the capture early (alarm
-    before the end) keeps what was taken. The first refused or failed frame ends the series
-    with one WARNING. Identical consecutive frames (camera offline, frozen picture) are kept
-    and logged once at WARNING. Each frame logs one DEBUG line (rank, time since the first
-    request, size). Nothing is written to disk.
+    Frame n is taken at `start_time + n / 3` s. A refused frame is asked again once at
+    +`SERIES_RETRY_OFFSET_S`, then skipped (one DEBUG line per refusal). The series stops after
+    `SERIES_MAX_CONSECUTIVE_FAILURES` consecutive frames that failed twice. Nothing is
+    written to disk.
 
     Args:
         frigate_host: Frigate "host:port".
-        camera: Frigate-native camera name.
-        photos: List the frames are appended to, in order.
-        count: Number of frames wanted.
-        interval_s: Seconds between two frame starts.
+        event_id: Frigate event id.
+
+    Returns:
+        The frames obtained (possibly none), or None when the event row cannot be read.
+        Never raises.
     """
-    started = time.monotonic()
-    frozen_warned = False
-    for index in range(count):
-        photo = await fetch_latest_jpeg(frigate_host, camera)
-        if photo is None:
-            _logger.warning(
-                f"photo series: latest.jpg of camera {camera!r} refused by Frigate {frigate_host} "
-                f"(frame {index + 1}/{count}) — series stopped at {len(photos)} photo(s)"
+    info = await fetch_event_info(frigate_host, event_id)
+    if info is None:
+        return None
+    frames: list[bytes] = []
+    failures_in_a_row = 0
+    for n in range(SERIES_COUNT):
+        ts = info.start_time + n / SERIES_FPS
+        frame = await fetch_recording_frame(frigate_host, info.camera, ts)
+        if frame is None:
+            _logger.debug(f"photo series: frame {n} refused at ts={ts:.3f}, retry at +"
+                          f"{SERIES_RETRY_OFFSET_S}s")
+            frame = await fetch_recording_frame(
+                frigate_host, info.camera, ts + SERIES_RETRY_OFFSET_S
             )
-            return
-        if photos and photo == photos[-1].data and not frozen_warned:
-            _logger.warning(
-                f"photo series: camera {camera!r} returns identical frames (offline or frozen?)"
-            )
-            frozen_warned = True
-        taken_at = time.time()
-        photos.append(BurstPhoto(photo, taken_at))
-        _logger.debug(
-            f"photo series: frame {index + 1}/{count} of camera {camera!r} at "
-            f"+{time.monotonic() - started:.2f}s, {len(photo)} bytes, taken {taken_at:.3f}"
-        )
-        if index + 1 < count:
-            wait = started + (index + 1) * interval_s - time.monotonic()
-            if wait > 0:
-                await asyncio.sleep(wait)
-    _logger.debug(f"photo series: {len(photos)} photo(s) of camera {camera!r} held in memory")
+        if frame is None:
+            _logger.debug(f"photo series: frame {n} skipped (refused twice, ts={ts:.3f})")
+            failures_in_a_row += 1
+            if failures_in_a_row >= SERIES_MAX_CONSECUTIVE_FAILURES:
+                _logger.debug(f"photo series: stopped at frame {n}, recording seems to end")
+                break
+            continue
+        failures_in_a_row = 0
+        frames.append(frame)
+    return EventSeries(start_time=info.start_time, frames=frames)
 
 
 class ClipFetchError(Exception):

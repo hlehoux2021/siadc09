@@ -95,16 +95,17 @@ Files go flat at the root of the configured FTPS folder (`upload/` on the test s
 - The clip of the same alarm sits beside the snapshot with the same name and the `.mp4` extension (one epoch shared by both media).
 - The epoch is the daemon's time when the alarm is handled; it is timezone-independent.
 - The account goes through `safe_name_part()` (anything outside `A-Za-z0-9._-` becomes `_`); an empty or dots-only account becomes `noaccount`. A zone of three digits is not truncated (`..._123_...`); an absent zone number gives `00`.
-- The image part is 4 digits (`remote_location(..., image=n)`, default `0001`). A single photo is `0001`. With a photo series (ticket 18.15) the series is `0001` to `0030` (3 per second for 10 s; fewer when the alarm comes early), sent alone: the event snapshot is not sent with a series. Every file of a series carries the epoch second of the first photo (never incremented, so the receiver can rebuild a video; only the image number changes), all over one connection.
+- The image part is 4 digits (`remote_location(..., image=n)`, default `0001`). A single photo is `0001`. With a photo series (ticket 18.15) the series is `0001` to `0030` (3 per second for 10 s from the event `start_time`; fewer when frames are missing), sent alone: the event snapshot is not sent with a series. Every file of a series carries the event `start_time` epoch (never incremented, so the receiver can rebuild a video; only the image number changes), all over one connection. The clip keeps the alarm-handling epoch.
 - Same zone in the same second (two events): same name, the later file overwrites the earlier. Accepted by the user.
 - To test in the field: the `0001` clip (`.mp4`) is not yet confirmed to be accepted by the receiver.
 - Deferred, not in this version: retention, cleanup or quota on the server (files are never deleted by the plugin), and a configurable layout.
 
 ## Photo series source (ticket 18.15)
 
-The series uses Frigate's current frame, `GET http://<frigate host:port>/api/<camera>/latest.jpg?timestamp=0&bbox=0&zones=0&mask=0&motion=0&regions=0`, without login on the internal port 5000 (same URL shape the Frigate plugin itself uses, `frigate.class.php`).
 
-- Checked on test-frigate (Frigate 0.17.2) on 2026-11-14, camera `reolink`, run on the Frigate host: `200 image/jpeg 29237` (one call; the "different sizes on a second call" part not yet observed). Command: `curl -s -o /dev/null -w "%{http_code} %{content_type} %{size_download}\n" "http://192.168.100.18:5000/api/<camera>/latest.jpg?timestamp=0&bbox=0&zones=0&mask=0&motion=0&regions=0"`. Expected: `200 image/jpeg <size>`, twice in a row with different sizes while the camera is live.
+The series is cut at the BA alarm from the event recordings: `GET http://<frigate host:port>/api/events/<id>` gives `camera` and `start_time`, then `GET /api/<camera>/recordings/<start_time + n/3>/snapshot.jpg` for n = 0..29, without login on the internal port 5000.
+
+- Checked on test-frigate (Frigate 0.17.2) on 2026-11-14: 29 of 30 frames in 3.8 s from `start_time`, about 47 KB each; one 404 "Unable to parse frame" per series, 0.05 to 0.1 s before a segment end (cause not verified). Command: `python3 -I scripts/frigate_recordings_snapshot_probe.py <host:port> - 0 <event id>`; expected: about 30 frames in under 5 s on an event with recordings.
 
 ## Plain FTP mode (ticket 18.14)
 
