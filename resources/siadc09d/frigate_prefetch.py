@@ -170,8 +170,10 @@ async def fetch_event_snapshot(frigate_host: str, event_id: str) -> bytes | None
 
 # Photo series (ticket 18.15): taken right after the immediate action, from the camera's
 # current frame. Fixed by design, never an equipment setting.
-BURST_COUNT: Final[int] = 5
-BURST_INTERVAL_S: Final[float] = 1.0
+BURST_FPS: Final[int] = 3
+BURST_DURATION_S: Final[int] = 10
+BURST_COUNT: Final[int] = BURST_FPS * BURST_DURATION_S
+BURST_INTERVAL_S: Final[float] = 1.0 / BURST_FPS
 # Plain current frame, no overlay (same query as the Frigate plugin's own latest.jpg URL).
 _LATEST_QUERY: Final[str] = "timestamp=0&bbox=0&zones=0&mask=0&motion=0&regions=0"
 

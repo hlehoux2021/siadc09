@@ -16,7 +16,7 @@
 5. [FTP sans TLS](#ftp-sans-tls)
 6. [Tester le serveur](#tester-le-serveur)
 7. [Nom des fichiers](#nom-des-fichiers)
-8. [Série de 5 photos](#série-de-5-photos)
+8. [Série de photos](#série-de-photos)
 9. [En cas d'échec](#en-cas-déchec)
 10. [Secrets et sécurité du compte](#secrets-et-sécurité-du-compte)
 11. [Vérifications](#vérifications)
@@ -54,7 +54,7 @@ flowchart LR
 
 La **vidéo** : le démon attend qu'elle soit prête, jusqu'à **60 s**, puis la télécharge dans un fichier temporaire. Taille maximale : **200 Mo**. Il faut un enregistrement Frigate existant (`record.enabled`).
 
-La **photo** est, par défaut, une [série de 5 photos](#série-de-5-photos) quand la case Photo est cochée.
+La **photo** est, par défaut, une [série de photos](#série-de-photos) quand la case Photo est cochée.
 
 La conservation côté Frigate importe peu une fois le dépôt fait ; elle peut être courte. Les réglages Frigate utiles (enregistrement, objets suivis) sont dans [frigate.md](frigate.md).
 
@@ -103,17 +103,17 @@ Les fichiers sont déposés à plat, à la racine du dossier configuré :
 
 - `<compte>` : le compte SIA ; `<zone>` : le numéro de zone envoyé avec l'alarme (00 si absent).
 - `<horodatage>` : l'heure de l'alarme en **secondes depuis 1970** (epoch), indépendant du fuseau horaire.
-- La photo et la vidéo d'une même alarme ne diffèrent que par l'extension. Les photos d'une série partagent l'horodatage et diffèrent par le numéro d'image (0001 à 0005).
+- La photo et la vidéo d'une même alarme ne diffèrent que par l'extension. Les photos d'une série partagent l'horodatage (celui de la première photo, jamais incrémenté, la centrale s'en sert pour reconstituer une vidéo) et diffèrent par le numéro d'image (0001 à 0030).
 - Deux alarmes de la même zone dans la **même seconde** portent le même nom : la seconde écrase la première.
 - Les caractères non sûrs d'un nom sont remplacés par `_`.
 
 Communiquez ce schéma à la centrale.
 
-## Série de 5 photos
+## Série de photos
 
-Quand la photo est cochée en FTPS, le plugin n'envoie pas la photo de l'événement Frigate mais une **série de 5 photos** :
+Quand la photo est cochée en FTPS, le plugin n'envoie pas la photo de l'événement Frigate mais une **série de 30 photos** :
 
-- **une photo par seconde**, soit environ 4 s au total, prise depuis l'image courante de la caméra (`latest.jpg` de Frigate) ;
+- **3 photos par seconde pendant 10 s**, soit 30 photos, prises depuis l'image courante de la caméra (`latest.jpg` de Frigate) ;
 - elle démarre **au premier capteur** (Prefetch), avant le départ de l'alarme ;
 - elle est envoyée **seule** : la photo de l'événement n'est pas envoyée en plus ;
 - elle n'exige ni `snapshots.enabled` ni `objects.track` côté Frigate, mais la caméra doit répondre sur `latest.jpg` ;
@@ -143,5 +143,5 @@ L'alarme, elle, est déjà partie. Il n'y a pas de nouvel essai automatique docu
 
 1. À l'étape 2, lancez le **Test du serveur FTPS**.
 2. Faites un essai coordonné avec la centrale : déclenchez la zone en la prévenant.
-3. Dans les logs (niveau Debug pour le détail), cherchez `photo series: frame n/5` (capture de la série) puis `FTPS upload to <serveur:port> done: <fichier>` (dépôt réussi).
+3. Dans les logs (niveau Debug pour le détail), cherchez `photo series: frame n/30` (capture de la série) puis `FTPS upload to <serveur:port> done: <fichier>` (dépôt réussi).
 4. Demandez à la centrale de confirmer que les fichiers sont arrivés, avec les bons noms, et lisibles.

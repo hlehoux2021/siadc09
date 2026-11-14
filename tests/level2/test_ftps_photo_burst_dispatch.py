@@ -89,12 +89,12 @@ async def _alarm(d: SIADaemon, event_id: str = _EVENT, run_id: str = _RUN, **fla
 
 
 @pytest.mark.asyncio
-async def test_capture_takes_five_frames_one_per_second(caplog) -> None:
+async def test_capture_takes_thirty_frames_three_per_second(caplog) -> None:
     """
     Frigate serves every frame.
 
     Expected result:
-    - 5 frames in order; 4 waits of about 1 s between frame starts; latest.jpg URL plain
+    - 30 frames in order; 29 waits of 1/3 s between frame starts; latest.jpg URL plain
     - one DEBUG line per frame (rank, elapsed, size); each frame stamped with its capture time
     """
     urls: list[str] = []
@@ -115,16 +115,17 @@ async def test_capture_takes_five_frames_one_per_second(caplog) -> None:
          patch.object(frigate_prefetch.time, "time", lambda: _BASE_TIME + clock[0] - 1000.0), \
          patch.object(frigate_prefetch.asyncio, "sleep", AsyncMock(side_effect=fake_sleep)) as sleep:
         await capture_burst(_HOST, _CAMERA, photos)
-    # Assert: five frames, in order
-    assert [p.data for p in photos] == [b"f1", b"f2", b"f3", b"f4", b"f5"] and BURST_COUNT == 5
-    # Assert: each frame is stamped with its own capture time, one second apart
-    assert [p.taken_at for p in photos] == pytest.approx([_BASE_TIME + i for i in range(5)])
+    # Assert: thirty frames (3 per second for 10 s), in order
+    assert [p.data for p in photos] == [f"f{i}".encode() for i in range(1, 31)]
+    assert BURST_COUNT == 30
+    # Assert: each frame is stamped with its own capture time, a third of a second apart
+    assert [p.taken_at for p in photos] == pytest.approx([_BASE_TIME + i / 3 for i in range(30)])
     # Assert: one DEBUG line per frame with rank, elapsed time and size
     lines = [r.getMessage() for r in caplog.records if "frame " in r.getMessage()]
-    assert len(lines) == 5
-    assert "frame 3/5" in lines[2] and "+2.00s" in lines[2] and "2 bytes" in lines[2]
-    # Assert: one wait of 1 s between two frames, none after the last
-    assert [c.args[0] for c in sleep.await_args_list] == pytest.approx([1.0] * 4)
+    assert len(lines) == 30
+    assert "frame 4/30" in lines[3] and "+1.00s" in lines[3] and "2 bytes" in lines[3]
+    # Assert: one wait of 1/3 s between two frames, none after the last
+    assert [c.args[0] for c in sleep.await_args_list] == pytest.approx([1 / 3] * 29)
     # Assert: the camera's current frame, no overlay
     assert urls[0] == (f"http://{_HOST}/api/{_CAMERA}/latest.jpg"
                        "?timestamp=0&bbox=0&zones=0&mask=0&motion=0&regions=0")
@@ -169,7 +170,7 @@ async def test_identical_frames_are_kept_with_one_warning(caplog) -> None:
          patch.object(frigate_prefetch.asyncio, "sleep", AsyncMock()):
         await capture_burst(_HOST, _CAMERA, photos)
     # Assert: series kept
-    assert [p.data for p in photos] == [b"same"] * 5
+    assert [p.data for p in photos] == [b"same"] * BURST_COUNT
     # Assert: one warning for the frozen camera
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1 and "identical" in warnings[0].getMessage()
@@ -185,7 +186,7 @@ async def test_full_series_alone_on_one_connection_each_named_by_its_time(daemon
 
     Expected result:
     - one upload_many call: 0001..0005, the event snapshot is not fetched nor sent
-    - each name carries the epoch second its photo was taken (one second apart)
+    - every name carries the epoch second of the first photo (same on all files)
     - no single-file upload; frame enqueued; series gone from memory
     """
     with patch.object(daemon_module, "capture_burst", _fake_capture(_photos(5))), \
@@ -206,8 +207,8 @@ async def test_full_series_alone_on_one_connection_each_named_by_its_time(daemon
     assert [data for _, data in files] == _photos(5)
     # Assert: the event snapshot is left out when a series exists
     snap.assert_not_awaited()
-    # Assert: each file is stamped with the capture second of its own photo
-    assert [int(ts) for ts, _ in parts] == [int(_BASE_TIME) + i for i in range(5)]
+    # Assert: every file carries the first photo's epoch, never incremented
+    assert {int(ts) for ts, _ in parts} == {int(_BASE_TIME)}
     # Assert: the frame went out, and the series is no longer held
     daemon._enqueue_event.assert_awaited_once()
     assert daemon._burst_series == {}

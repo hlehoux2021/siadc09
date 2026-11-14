@@ -334,7 +334,7 @@ FTPS_OUTER_GRACE_S: Final[float] = 2.0
 # Photo series (18.15): dropped from memory when no BA alarm took it within this time.
 BURST_TTL_S: Final[float] = 120.0
 # Series upload deadline: the single-file deadline plus this per extra file.
-FTPS_SERIES_PER_FILE_S: Final[float] = FTPS_TIMEOUT_S
+FTPS_SERIES_PER_FILE_S: Final[float] = 2.0
 
 
 class OnMessageParams(TypedDict, total=False):
@@ -699,9 +699,9 @@ class SIADaemon(BaseDaemon):
     async def _upload_series(self, media: FtpsAlarmMedia, photos: list[BurstPhoto]) -> None:
         """Upload the photo series over one connection (18.15).
 
-        Files are `<account>_<zone>_<epoch of the photo>_0001.jpg` to `..._000N.jpg`: the
-        epoch is the second the frame was taken, so each name tells when its photo was
-        shot. The event snapshot is not sent with a series. A failure is reported once,
+        Files are `<account>_<zone>_<epoch>_0001.jpg` to `..._00NN.jpg`: the epoch is the
+        second the first frame was taken, identical on every file; the image number gives
+        the order. The event snapshot is not sent with a series. A failure is reported once,
         naming how many photos reached the server; no retry.
 
         Args:
@@ -711,12 +711,12 @@ class SIADaemon(BaseDaemon):
         zone = media.zone
         target = f"{self._ftps.host}:{self._ftps.port}"
         started = time.monotonic()
+        # One epoch for the whole series (the first photo's): the receiver rebuilds a video
+        # from the image numbers, so only those increase.
+        series_time = datetime.fromtimestamp(photos[0].taken_at, tz=timezone.utc)
         files = [
             (
-                remote_location(
-                    self._account, media.zone_number,
-                    datetime.fromtimestamp(photo.taken_at, tz=timezone.utc), "jpg", image=i,
-                ),
+                remote_location(self._account, media.zone_number, series_time, "jpg", image=i),
                 photo.data,
             )
             for i, photo in enumerate(photos, start=1)
