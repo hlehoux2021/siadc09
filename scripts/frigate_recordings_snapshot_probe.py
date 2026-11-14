@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Probe Frigate recordings/<ts>/snapshot.jpg over the window of a recent event (read-only).
 
-Usage: python3 scripts/frigate_recordings_snapshot_probe.py HOST:PORT CAMERA [OFFSET_S]
-OFFSET_S shifts the first frame relative to the event start (default 0).
+Usage: python3 scripts/frigate_recordings_snapshot_probe.py HOST:PORT|BASE_URL CAMERA [OFFSET_S [EVENT_ID]]
+OFFSET_S shifts the first frame relative to the event start (default 0). With EVENT_ID (CAMERA "-"), that event is probed.
 """
 import hashlib
 import json
@@ -31,13 +31,20 @@ def get(url: str) -> tuple[int, bytes, float]:
 def main() -> None:
     host, camera = sys.argv[1], sys.argv[2]
     offset = float(sys.argv[3]) if len(sys.argv) > 3 else 0.0
-    query = urllib.parse.urlencode({"cameras": camera, "limit": 5, "has_clip": 1})
-    status, body, _ = get(f"http://{host}/api/events?{query}")
-    print(f"events list: HTTP {status}")
+    event_id = sys.argv[4] if len(sys.argv) > 4 else ""
+    base = host.rstrip("/") if host.startswith("http") else f"http://{host}"
+    if event_id:
+        status, body, _ = get(f"{base}/api/events/{urllib.parse.quote(event_id, safe='')}")
+    else:
+        query = urllib.parse.urlencode({"cameras": camera, "limit": 5, "has_clip": 1})
+        status, body, _ = get(f"{base}/api/events?{query}")
+    print(f"events: HTTP {status}")
     if status != 200:
         print(body[:200])
         return
-    events = json.loads(body)
+    events = [json.loads(body)] if event_id else json.loads(body)
+    if event_id and events:
+        camera = events[0]["camera"]
     for ev in events:
         print(f"  {ev['id']} label={ev.get('label')} start={ev['start_time']:.1f} "
               f"end={ev.get('end_time')} age={time.time() - ev['start_time']:.0f}s")
@@ -53,7 +60,7 @@ def main() -> None:
     total_started = time.monotonic()
     for i in range(FRAMES):
         ts = first + i * STEP_S
-        status, data, took = get(f"http://{host}/api/{camera}/recordings/{ts:.3f}/snapshot.jpg")
+        status, data, took = get(f"{base}/api/{camera}/recordings/{ts:.3f}/snapshot.jpg")
         ok = status == 200 and data[:2] == b"\xff\xd8"
         if ok:
             digests.append(hashlib.md5(data).hexdigest())
