@@ -59,3 +59,14 @@ covers = []
 after = [1, 4]
 hitl = true
 risk = "high"
+
+[[entry]]
+id = 6
+type = "story"
+title = "13.6 — Remove the fire and panic commands (intrusion only)"
+description = "The plugin handles intrusion only, so the fireAlarm and panicAlarm commands (SIA codes FA and PA) are removed from the equipment, the daemon, the wiring into the Alarm plugin and the tests. Public documentation no longer mentions them (docs review of 2026-11-14). Deferred by the user, low priority: not in the current sprint. When it lands, story 13.3 (FC / PC cancels) is dropped, since it only exists for fire and panic."
+verify = "A new or existing equipment has no fire or panic command, linking the Alarm plugin wires only the intrusion commands, and the Python and PHP tests pass with the fire and panic cases removed."
+covers = []
+after = []
+hitl = false
+risk = "low"
