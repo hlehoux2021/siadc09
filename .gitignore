@@ -35,5 +35,7 @@ node_modules/
 .claude/worktrees/
 # Upstream reference sources (Jeedom core, plugins, models) — local only, see CLAUDE.md
 helpers/
+# Drafts, reports and subagent proposals — local only, never committed
+.cleanup/
 # Real CSR endpoints and account numbers — local only, never committed
 internal-docs/telesurveillances.txt
