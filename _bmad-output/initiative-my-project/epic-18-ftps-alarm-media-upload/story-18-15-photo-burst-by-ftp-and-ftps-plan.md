@@ -25,7 +25,7 @@ context: []
 
 ## Boundaries & Constraints
 
-**Always:** FTP/FTPS only, only when the photo is wanted; nothing captured at the prefetch and nothing held between prefetch and alarm; frame `GET /api/<camera>/recordings/<ts>/snapshot.jpg`, `ts` = `start_time` + n/3 s, n = 0..29; a failed frame is retried once at `ts` + 0.2 s then skipped, image numbers consecutive over the frames obtained; the series stops after 3 consecutive frames that failed twice; the clip keeps the alarm-handling epoch (18.13); the SIA frame never waits; one notification for a partial failure ("N photos sur M"); password never logged; no event snapshot sent with a series; one WARNING when the series falls back to the snapshot.
+**Always:** FTP/FTPS only, only when the photo is wanted; nothing captured at the prefetch and nothing held between prefetch and alarm; frame `GET /api/<camera>/recordings/<ts>/snapshot.jpg`, `ts` = `start_time` + n s, n = 0..29; a failed frame is retried once at `ts` + 0.2 s then skipped, image numbers consecutive over the frames obtained; the series stops after 3 consecutive frames that failed twice; the clip keeps the alarm-handling epoch (18.13); the SIA frame never waits; one notification for a partial failure ("N photos sur M"); password never logged; no event snapshot sent with a series; one WARNING when the series falls back to the snapshot.
 
 **Never:** a `latest.jpg` capture, in parallel or as a fallback; equipment setting or wizard field for count or rate; changing the SIA URL transport and its `[V...]` tag; writing photos to disk; one connection per photo; changing the clip, or `prefetch_alarm_media`.
 
@@ -76,6 +76,8 @@ House rules (read before coding): `.claude/rules/python-style.md`, `.claude/rule
 ## Plan Change Log
 
 - 2026-11-14 (user renegotiated the intent): source changed from `latest.jpg` captured at the prefetch to the event recordings fetched at the alarm; epoch changed to the event `start_time`; fallback changed to the single event snapshot; memory, timer and `burst` flag removed. KEEP: `upload_many` (one login), `remote_location(image=)`, the partial-failure notification, `FTPS_SERIES_PER_FILE_S = 2`, the 30-photo count, the "Rafale de photos" label, the docs structure.
+
+- 2026-11-15 (user): rate changed from 3 per second over 10 s to 1 per second over 30 s (still 30 frames), from `start_time` for every event, existing or created by the plugin (no `start_time` - 5 s offset, no distinction needed: a created event already starts 5 s before its creation). A window not yet recorded at upload time gives a shorter series, no waiting. KEEP: everything else.
 
 ## Review Triage Log
 

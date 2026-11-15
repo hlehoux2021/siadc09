@@ -170,8 +170,8 @@ async def fetch_event_snapshot(frigate_host: str, event_id: str) -> bytes | None
 
 # Photo series (ticket 18.15): frames cut from the event's recordings at the alarm, from the
 # event's start_time. Fixed by design, never an equipment setting.
-SERIES_FPS: Final[int] = 3
-SERIES_DURATION_S: Final[int] = 10
+SERIES_FPS: Final[int] = 1
+SERIES_DURATION_S: Final[int] = 30
 SERIES_COUNT: Final[int] = SERIES_FPS * SERIES_DURATION_S
 # A frame refused by Frigate is asked again once, this much later, then skipped.
 SERIES_RETRY_OFFSET_S: Final[float] = 0.2
@@ -249,9 +249,9 @@ async def fetch_recording_frame(frigate_host: str, camera: str, ts: float) -> by
 
 
 async def fetch_event_frames(frigate_host: str, event_id: str) -> EventSeries | None:
-    """Cut the photo series of an event from its recordings (30 frames, 3 per second).
+    """Cut the photo series of an event from its recordings (30 frames, 1 per second).
 
-    Frame n is taken at `start_time + n / 3` s. A refused frame is asked again once at
+    Frame n is taken at `start_time + n` s. A refused frame is asked again once at
     +`SERIES_RETRY_OFFSET_S`, then skipped (one DEBUG line per refusal). The series stops after
     `SERIES_MAX_CONSECUTIVE_FAILURES` consecutive frames that failed twice. Nothing is
     written to disk.

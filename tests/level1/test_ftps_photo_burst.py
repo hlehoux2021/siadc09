@@ -105,7 +105,7 @@ def test_full_series_is_thirty_frames_three_per_second_from_start_time() -> None
     Full series: Frigate serves every frame.
 
     Expected result:
-    - 30 frames in order; URLs are recordings/<start_time + n/3>/snapshot.jpg; no latest.jpg
+    - 30 frames in order; URLs are recordings/<start_time + n>/snapshot.jpg; no latest.jpg
     """
     urls: list[str] = []
 
@@ -117,9 +117,9 @@ def test_full_series_is_thirty_frames_three_per_second_from_start_time() -> None
     # Assert: thirty frames in order, start_time kept for the file names
     assert series.start_time == _START
     assert series.frames == [f"f{i}".encode() for i in range(1, 31)]
-    # Assert: timestamps from start_time, a third of a second apart, recordings API only
+    # Assert: timestamps from start_time, one second apart, recordings API only
     stamps = [float(re.search(r"/recordings/([\d.]+)/snapshot\.jpg", u).group(1)) for u in urls]
-    assert stamps == pytest.approx([_START + n / 3 for n in range(30)], abs=0.001)
+    assert stamps == pytest.approx([_START + n for n in range(30)], abs=0.001)
     assert all("latest.jpg" not in u for u in urls)
 
 
@@ -130,7 +130,7 @@ def test_frame_refused_twice_is_skipped_and_numbers_stay_consecutive() -> None:
     Expected result:
     - 29 frames kept in order; one DEBUG line per refusal
     """
-    bad = {f"{_START + 4 / 3:.3f}", f"{_START + 4 / 3 + 0.2:.3f}"}
+    bad = {f"{_START + 4:.3f}", f"{_START + 4 + 0.2:.3f}"}
 
     def get_bytes(url: str, _timeout: float) -> bytes | None:
         stamp = re.search(r"/recordings/([\d.]+)/", url).group(1)
@@ -149,7 +149,7 @@ def test_frame_refused_once_is_kept_in_its_place() -> None:
     Expected result:
     - 30 frames; the retried frame sits at index 2
     """
-    first = f"{_START + 2 / 3:.3f}"
+    first = f"{_START + 2:.3f}"
 
     def get_bytes(url: str, _timeout: float) -> bytes | None:
         stamp = re.search(r"/recordings/([\d.]+)/", url).group(1)
@@ -158,7 +158,7 @@ def test_frame_refused_once_is_kept_in_its_place() -> None:
     series = _fetch(get_bytes)
     # Assert: nothing lost, order kept
     assert len(series.frames) == 30
-    assert series.frames[2].decode() == f"{_START + 2 / 3 + 0.2:.3f}"
+    assert series.frames[2].decode() == f"{_START + 2 + 0.2:.3f}"
 
 
 def test_three_consecutive_double_failures_stop_the_series() -> None:

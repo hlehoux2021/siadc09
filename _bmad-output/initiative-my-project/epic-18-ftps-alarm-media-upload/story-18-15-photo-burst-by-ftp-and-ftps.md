@@ -13,7 +13,7 @@ risk: medium
 
 ## Description
 
-Uploads a series of 30 photos instead of one, for the verification of a BA alarm sent by FTP or FTPS. The photos are frames cut from the recordings of the Frigate event of the alarm, fetched when the effective alarm arrives. They cover 10 seconds at 3 frames per second, from the start of the event. Both values are fixed. They are named {UID}_{zone}_{timestamp}_{image}. The timestamp is the start time of the Frigate event, the same on every file of the series. The image number is 0001, 0002 and so on, so the receiver can rebuild a video from them. When no frame can be taken from the recordings, the single event snapshot is sent alone, as before the series. The clip keeps its own name, built from the time the alarm is handled, so its timestamp is not the series timestamp. Applies to the FTP and FTPS transports only, and only when the equipment sends the photo; the SIA URL transport keeps its [V...] video tag unchanged.
+Uploads a series of 30 photos instead of one, for the verification of a BA alarm sent by FTP or FTPS. The photos are frames cut from the recordings of the Frigate event of the alarm, fetched when the effective alarm arrives. They cover 30 seconds at 1 frame per second, from the start of the event. Both values are fixed. They are named {UID}_{zone}_{timestamp}_{image}. The timestamp is the start time of the Frigate event, the same on every file of the series. The image number is 0001, 0002 and so on, so the receiver can rebuild a video from them. When no frame can be taken from the recordings, the single event snapshot is sent alone, as before the series. The clip keeps its own name, built from the time the alarm is handled, so its timestamp is not the series timestamp. Applies to the FTP and FTPS transports only, and only when the equipment sends the photo; the SIA URL transport keeps its [V...] video tag unchanged.
 
 ## Acceptance Criteria
 
@@ -27,11 +27,12 @@ Verify: An alarm on a zone with a trigger delay, with the photo on and the FTPS 
 ## Notes
 
 - Decision (2026-11-14, user): the photos come from the recordings of the Frigate event, `GET /api/<camera>/recordings/<ts>/snapshot.jpg`, fetched after the effective alarm arrives. Nothing is captured at the prefetch and nothing is held in memory between the prefetch and the alarm.
-- Decision (2026-11-14, user): 30 frames, one every third of a second, from the event `start_time`, no further offset. An event created on demand already starts 5 seconds before its creation, so those 5 seconds are covered.
+- Decision (2026-11-14, user): 30 frames, one per second over 30 s (decision 2026-11-15, was 3 per second over 10 s), from the event `start_time`, no further offset. An event created on demand already starts 5 seconds before its creation, so those 5 seconds are covered.
 - Decision (2026-11-14, user): the timestamp in the file names is the event `start_time`, as whole seconds, on every file of the series. Only the image number changes.
 - Decision (2026-11-14, user): the clip does not change. It keeps the epoch of the moment the alarm is handled (18.13). The series and the clip no longer share one timestamp.
 - Decision (2026-11-14, user): when no frame can be obtained (no event, no recording, every frame refused), the single event snapshot is sent alone through the existing single-photo path, with one warning in the log. There is no parallel capture of the camera's current image.
 - Decision (2026-11-14, user): a frame refused by Frigate with a 404 is retried once 0.2 second later, then skipped. The series never stops at one failed frame. Image numbers stay consecutive over the frames obtained.
+- Decision (2026-11-15, user): the series starts at the event `start_time` for every event, existing or created by the plugin; no extra offset, since a created event already starts 5 seconds before its creation. If the recordings do not yet cover 30 seconds when the alarm is handled, the series is shorter (stops after 3 failed frames in a row); the daemon does not wait.
 - Decision: the whole series goes through one FTP connection (user, 2026-11-13). Each upload budget stays at 2 seconds per file after the first (user, 2026-11-14).
 - Decision: FTP and FTPS only; in SIA mode the [V...] video tag covers the need and does not change (user, 2026-11-13).
 - Decision: image numbers 0001, 0002... are valid, the receiver is built for a burst (user, 2026-11-13). Follows the 18.13 decision that the image number is the rank in a series.

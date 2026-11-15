@@ -113,7 +113,7 @@ Communiquez ce schéma à la centrale.
 
 Quand la photo est cochée en FTPS, le plugin n'envoie pas la photo de l'événement Frigate mais une **série de 30 photos** :
 
-- **3 photos par seconde pendant 10 s**, soit 30 photos, extraites des **enregistrements de l'événement Frigate**, à partir du début de l'événement (Frigate doit **enregistrer** la caméra, `record.enabled`) ;
+- **1 photo par seconde pendant 30 s**, soit 30 photos, extraites des **enregistrements de l'événement Frigate**, à partir du début de l'événement (Frigate doit **enregistrer** la caméra, `record.enabled`) ;
 - elle est construite **au départ de l'alarme** : rien n'est pris au premier capteur (Prefetch) et rien n'est gardé en mémoire entre les deux ;
 - elle est envoyée **seule** : la photo de l'événement n'est pas envoyée en plus ;
 - une image refusée par Frigate est redemandée une fois, puis ignorée (les numéros restent consécutifs) ; la série s'arrête après 3 images de suite introuvables (fin de l'enregistrement) ;
