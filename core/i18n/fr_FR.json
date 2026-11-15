@@ -152,7 +152,8 @@
         "La centrale va chercher le média sur votre serveur Frigate.": "La centrale va chercher le média sur votre serveur Frigate.",
         "La liste ne propose que les commandes de type « action » et de sous-type « message », c'est-à-dire celles qui acceptent un titre et un texte : SMS, Telegram, notification mobile, e-mail. Les interrupteurs, curseurs et informations n'y apparaissent pas.": "La liste ne propose que les commandes de type « action » et de sous-type « message », c'est-à-dire celles qui acceptent un titre et un texte : SMS, Telegram, notification mobile, e-mail. Les interrupteurs, curseurs et informations n'y apparaissent pas.",
         "Le plugin dépose le média sur votre serveur ; le message d'alarme ne contient pas d'adresse.": "Le plugin dépose le média sur votre serveur ; le message d'alarme ne contient pas d'adresse.",
-        "Le profil règle pour vous les options de votre centrale. « Personnalisé » = mode expert : vous réglez tout.": "Le profil règle pour vous les options de votre centrale. « Personnalisé » = mode expert : vous réglez tout.",
+        "Le profil règle pour vous les options de votre centrale.": "Le profil règle pour vous les options de votre centrale.",
+        "« Personnalisé » = mode expert : vous réglez tout.": "« Personnalisé » = mode expert : vous réglez tout.",
         "Le scénario est lancé avec « siaDC09 » comme déclencheur ; le texte de l'alerte est inscrit dans son historique.": "Le scénario est lancé avec « siaDC09 » comme déclencheur ; le texte de l'alerte est inscrit dans son historique.",
         "Le télésurveilleur peut ainsi voir ce qui a déclenché l'alarme.": "Le télésurveilleur peut ainsi voir ce qui a déclenché l'alarme.",
         "Les réglages du serveur FTPS se font à l'étape suivante, dans les options avancées.": "Les réglages du serveur FTPS se font à l'étape suivante, dans les options avancées.",
@@ -227,6 +228,7 @@
         "Test du serveur FTPS": "Test du serveur FTPS"
     },
     "plugins/siaDC09/desktop/js/siaDC09.js": {
+        "« Personnalisé » = mode expert : vous réglez tout.": "« Personnalisé » = mode expert : vous réglez tout.",
         "Choisissez un équipement Alarme": "Choisissez un équipement Alarme",
         "Commandes liées au plugin Alarme": "Commandes liées au plugin Alarme",
         "Photo": "Photo",

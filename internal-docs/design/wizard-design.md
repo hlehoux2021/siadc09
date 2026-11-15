@@ -94,7 +94,7 @@ colors with id selectors.
 ### Profile selection
 
 A `csr_profile` select (`data-l2key="csr_profile"`) offers the profiles of
-`core/config/csr_presets.json` (Ajax, Vesta, FoxStream; Scutum was retired, see "Retired profile: Scutum") plus **Personnalisé** (empty value). The options
+`core/config/csr_presets.json` (Maday, Cors Online, Ajax Hub simulé; Vesta, FoxStream and Scutum were retired, see "Retired profile: Scutum") plus **Personnalisé** (empty value). The options
 are built server-side from `siaDC09::getCsrProfiles()`, and the same array is handed to JS with
 `sendVarToJS('siaDC09_csrProfiles', ...)`. Profile names stay PHP/JS-side (ADR-22): the daemon
 only receives the resolved values through `deamon_start()`.
@@ -847,7 +847,7 @@ Both are rendered server-side. JS controls visibility on `printEqLogic()`.
 
 ### Task 3.2 — Step 1 HTML + JS: CSR profile & credentials
 
-**What:** Profile selector (Ajax / Vesta / FoxStream / Personnalisé), connection fields, collapsed "Options avancées" panel (always rendered).
+**What:** Profile selector (Maday / Cors Online / Ajax Hub simulé / Personnalisé), connection fields, collapsed "Options avancées" panel (always rendered).
 
 **HTML fields** use `class="eqLogicAttr" data-l1key="configuration" data-l2key="..."`.
 
@@ -1194,7 +1194,7 @@ profile name: `deamon_start` passes the resolved `supervision_format`, `supervis
 {
   "schema_version": 1,
   "profiles": {
-    "ajax": { "label": "Ajax", "supervision_format": "none", "rp_enabled": 1, "rp_interval": 60 }
+    "ajax": { "label": "Ajax Hub simulé", "description": "Profil simulation Ajax Hub, avec alarme intrusion, sans levée de doute photo/vidéo.", "supervision_format": "none", "rp_enabled": 1, "rp_interval": 60 }
   }
 }
 ```
@@ -1206,17 +1206,23 @@ A profile may omit a key (e.g. `supervision_interval`); the wizard then leaves t
 A profile may also carry the story 17.7 media keys: `media_snapshot_enabled`, `media_clip_enabled`
 (0/1), `media_snapshot_format`, `media_clip_format` (`U` or `V`) and `media_single_tag` (0/1).
 The wizard fills them **and locks them** (Story 17.10, ADR-22 amendment), and the media URL template is never a profile key (the transport `media_transport` is one since 18.4).
-A profile may also declare `media_enabled` (0/1), the default of the photo/video box on step 1: Vesta and FoxStream 1
+A profile may also declare `media_enabled` (0/1), the default of the photo/video box on step 1: Maday and Cors Online 1
 (the retired Scutum preset used 0, see "Retired profile: Scutum"). The box itself is never
 locked. A profile that declares no media key (Ajax) leaves the box greyed and unchecked, with the caption
 « Cette centrale ne reçoit ni photo ni vidéo. ».
 
 | Profile | Media | Supervision | RP |
 |---|---|---|---|
-| `vesta` (Vesta, Climax) | snapshot + clip, `U`, one tag | `sia-dcs` every 30 s | every 120 s |
-| `foxstream` (FoxStream, FoxBox) | snapshot + clip, `V`, one tag | `null` (DC-09 NULL frame) every 30 s | every 120 s |
+| `maday` (Maday Sécurité) | photo burst, no clip, transport `ftps`, `ftps_plain` 1 (default, not locked) | `null` (DC-09 NULL frame) every 300 s | every 86400 s |
+| `cors` (Cors Online) | clip only, `V`, one tag, transport `url` | `null` every 300 s | every 7200 s |
+| `ajax` (Ajax Hub simulé) | none | `null` every 300 s | every 3600 s |
 
-The 30 s and 120 s values are test values.
+Vesta and FoxStream were removed on 2026-11-15 (story 17.8 amendment).
+
+**Profile description (2026-11-15).** Each profile carries a `description` (French text). Step 1 shows
+« Le profil règle pour vous les options de votre centrale. » above the selector, and under it the description of
+the chosen profile (`#siaDC09-profile-description`, set by `siaDC09_applyProfile`); « Personnalisé » shows
+« « Personnalisé » = mode expert : vous réglez tout. ».
 
 ### Adding a profile
 
@@ -1297,7 +1303,7 @@ Spec source: `_bmad-output/initiative-my-project/epic-18-ftps-alarm-media-upload
 
 **Card layout (user render review, 2026-11-09; mockup `_bmad-output/initiative-my-project/epic-18-ftps-alarm-media-upload/ux-18-wizard-media-block/.working/flow-media-block-2026-11-09.excalidraw`, screens A, A2, B, D).** The media checkbox and its help stay at the top of the card, outside any frame. One dashed group `#siaDC09-media-profile-group` titled « Contenu et mode d'envoi » holds everything a profile sets: « Que joindre ? » (Photo, Vidéo) and the transport question with its radios. While a profile locks them the group is grey (`.siaDC09-subzone-locked`) and the single caption `#siaDC09-media-lock-note` « Fixé par le profil « {nom} ». Choisissez « Personnalisé » pour le modifier. » sits inside it, at the bottom; in Personnalisé the group is white and editable. The dashed card « Adresse pour la centrale » (`#siaDC09-media-url-group`, Frigate address, only under « adresse ») is a separate card below, always editable. Both use `.siaDC09-subzone`.
 
-**The transport is a profile key (user decision 2026-11-09).** `media_transport` (`url` | `ftps`) is carried by a profile like the Photo / Vidéo keys: Vesta and FoxStream declare `"media_transport": "url"`. Choosing such a profile sets the radios and the hidden field to that value and locks the radios (`siaDC09-profile-field`, `aria-disabled`, no click); the single caption `#siaDC09-media-lock-note` (inside the profile group) covers Photo, Vidéo and the transport. Personnalisé, and a profile that does not declare the key, leave the radios free. Consequence: with a profile declaring `media_transport=url`, FTPS is reachable only in « Personnalisé ». The FTPS settings are never profile fields and are never locked. A value other than `url` / `ftps` in a preset is ignored by the wizard.
+**The transport is a profile key (user decision 2026-11-09).** `media_transport` (`url` | `ftps`) is carried by a profile like the Photo / Vidéo keys: Cors Online declares `"media_transport": "url"`, Maday `"ftps"`. Choosing such a profile sets the radios and the hidden field to that value and locks the radios (`siaDC09-profile-field`, `aria-disabled`, no click); the single caption `#siaDC09-media-lock-note` (inside the profile group) covers Photo, Vidéo and the transport. Personnalisé, and a profile that does not declare the key, leave the radios free. Consequence: with a profile declaring `media_transport=url`, FTPS is reachable only in « Personnalisé ». The FTPS settings are never profile fields and are never locked. A value other than `url` / `ftps` in a preset is ignored by the wizard.
 
 **`ftps_enabled` is derived.** It is no longer stored or shown: the FTPS upload is on exactly when `media_transport == ftps`, decided in one place, `siaDC09::isFtpsTransport()`, used by `deamon_start()` and `siaDC09Cmd::_ftpsTransportActive()`.
 

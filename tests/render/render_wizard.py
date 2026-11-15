@@ -20,7 +20,7 @@ JEEDOM = ROOT.parents[2] / "helpers" / "jeedom" / "core"  # .claude/worktrees/<x
 I18N = re.compile(r"\{\{(.*?)\}\}", re.S)
 
 SCREENS = {
-    "A": "step 1, FoxStream, Frigate address missing (error shown)",
+    "A": "step 1, Cors Online, Frigate address missing (error shown)",
     "B": "step 2, test OK, Options avancées unfolded, profile locked",
     "C": "step 2, test refused (DUH), Options avancées folded",
     "D": "step 3, zones and alertes",
@@ -35,7 +35,7 @@ $.fn.showAlert = function() {}
 $.fn.getValues = function() { return [{ id: '1' }] }
 $('.eqLogicThumbnailDisplay').hide(); $('.eqLogic').show(); $('#siaDC09-wizard').show()
 var screen = '%(screen)s'
-var cfg = { csr_profile: 'foxstream', csr_ip: '194.51.213.114', csr_port: '5394', transport: 'tcp',
+var cfg = { csr_profile: 'cors', csr_ip: '194.51.213.114', csr_port: '5394', transport: 'tcp',
   account_number: '4596', media_enabled: 1, frigate_media_url_template: screen === 'A' ? '' : 'https://frigate.maison.fr',
   supervision_format: 'sia-dcs', supervision_interval: 30, rp_enabled: 1, rp_interval: 120, sia_wizard_step: 1 }
 $('.eqLogicAttr').each(function() {

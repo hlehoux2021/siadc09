@@ -269,6 +269,11 @@ function siaDC09_applyProfileMedia(preset) {
   if (siaDC09_profileDeclaresTransport(preset)) {
     $('.eqLogicAttr[data-l2key="media_transport"]').val(preset.media_transport)
   }
+  // Maday: plain FTP by default. Like media_enabled this is a default the user can change, never a lock.
+  if (preset.ftps_plain !== undefined) {
+    $('.eqLogicAttr[data-l2key="ftps_plain"]').prop('checked', !!parseInt(preset.ftps_plain, 10))
+    siaDC09_updateFtpsPlain()
+  }
   if (preset.media_enabled !== undefined) {
     $('.eqLogicAttr[data-l2key="media_enabled"]').prop('checked', !!parseInt(preset.media_enabled, 10))
   } else if (siaDC09_profileDeclaresMedia(preset)) {
@@ -293,6 +298,9 @@ function siaDC09_setMediaCardAvailable(available) {
 function siaDC09_applyProfile(profileId, fill) {
   var profiles = (typeof siaDC09_csrProfiles === 'object' && siaDC09_csrProfiles) || {}
   var preset = profileId ? profiles[profileId] : null
+  // The text under the selector: the profile's own description, the expert-mode text for Personnalisé.
+  $('#siaDC09-profile-description').text(
+    preset && preset.description ? preset.description : '{{« Personnalisé » = mode expert : vous réglez tout.}}')
   if (!preset) {
     siaDC09_lockProfileFields(false)
     siaDC09_setMediaCardAvailable(true)

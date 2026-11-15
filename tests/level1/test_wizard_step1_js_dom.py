@@ -1170,7 +1170,41 @@ def test_ajax_greys_box_unchecked_with_caption() -> None:
     assert out["nomediaVisible"] is True
 
 
-def test_custom_profile_unlocks_media_and_box_after_ajax() -> None:
+def test_profile_description_follows_the_selection() -> None:
+    """
+    The text under the selector is the chosen profile's description, the expert-mode text for Personnalisé.
+
+    Expected result:
+    - choosing a profile shows its own description
+    - going back to Personnalisé shows the expert-mode text
+    """
+    profiles = {"ajax": {**_AJAX, "label": "Ajax Hub simulé", "description": "Profil simulation Ajax Hub."}}
+    chosen = _run({"profiles": profiles, "actions": [{"op": "apply", "profile": "ajax", "fill": True}]})
+    custom = _run({"profiles": profiles, "actions": [{"op": "apply", "profile": "ajax", "fill": True},
+                                                      {"op": "apply", "profile": "", "fill": True}]})
+
+    # Assert: the profile's description
+    assert chosen["profileDescription"] == "Profil simulation Ajax Hub."
+    # Assert: Personnalisé text
+    assert "mode expert" in custom["profileDescription"]
+
+
+def test_profile_ftps_plain_is_a_default_not_a_lock() -> None:
+    """
+    A profile declaring ftps_plain ticks « FTP sans TLS » without locking it.
+
+    Expected result:
+    - choosing the profile ticks the box
+    - the box carries no profile lock
+    """
+    profile = {"supervision_format": "null", "rp_enabled": 1, "rp_interval": 90, "media_transport": "ftps", "ftps_plain": 1}
+    out = _run({"profiles": {"maday": profile}, "actions": [{"op": "apply", "profile": "maday", "fill": True}]})
+
+    # Assert: plain FTP ticked by the profile, certificate block hidden
+    assert out["ftps"]["plainChecked"] is True
+    assert out["ftps"]["certBlockVisible"] is False
+    # Assert: nothing in the FTPS card is locked by the profile
+    assert out["ftps"]["lockedOrReadonly"] == 0
     """
     Personnalisé (empty profile) unlocks everything and makes the box available again.
 

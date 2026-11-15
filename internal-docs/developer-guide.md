@@ -26,7 +26,7 @@ The plugin covers intrusion reporting only (burglary alarm, arm/disarm). It is c
 | `core/class/siaDC09Cmd.class.php` | cmd `execute()`: zone and user resolution, Frigate media resolution, BC/OP decisions for disarm/alarmReset, prefetch dispatch |
 | `core/ajax/siaDC09.ajax.php` | AJAX endpoints: `getWidgetDates`, `testConnection` (spawns `siadc09d.py --test-only`), `testFtps` (spawns `siadc09d.py --test-ftps`), `getZones`, `linkAlarm` / `getAlarmLinkState` / `unlinkAlarm` (automatic wiring with the Alarm plugin), `getFrigateCameras`, `getDiagnosticData`, `decodeFrame`, `clearDiagnosticData` |
 | `core/php/jeesiaDC09.php` | Daemon → PHP HTTP callback entry point (API-key checked) |
-| `core/config/csr_presets.json` | CSR behaviour profiles (Ajax, Vesta, FoxStream); read by PHP only. See [Adding a CSR profile](#adding-a-csr-profile) |
+| `core/config/csr_presets.json` | CSR behaviour profiles (Maday, Cors Online, Ajax Hub simulé); read by PHP only. See [Adding a CSR profile](#adding-a-csr-profile) |
 | `core/template/` | Dashboard/mobile widget |
 | `desktop/php/siaDC09.php`, `desktop/js/siaDC09.js` | Equipment page: wizard, profile select, Configuration active panel, diagnostic tab |
 | `core/i18n/*.json` | Translations of `__()` / `{{…}}` strings, see [below](#internationalisation) |
@@ -49,7 +49,7 @@ The plugin covers intrusion reporting only (burglary alarm, arm/disarm). It is c
 ## Runtime flow
 
 1. **Start.** PHP `deamon_start()` passes the whole configuration as CLI arguments (see the [configuration keys table](#configuration-keys); CLI arguments are listed under [IPC contracts](#ipc-contracts)). `siadc09d.py` builds a frozen `CSRPreset` and runs `SIADaemon`. `on_start()` logs `Démon SIA DC-09 version <DAEMON_VERSION>`, opens the transport and starts the supervision loop, the RP loop (if enabled) and the queue consumer.
-2. **Supervision (SM1) and RP cyclic test.** At least one periodic frame must be configured. The periodic frame has three formats (`--supervision-format`): `sia-dcs` (default, a SIA-DCS NULL-style frame), `null` (a plain NULL frame, used by the FoxStream profile) and `none` (no supervision frame, used by the Ajax profile together with RP). Independently, the RP cyclic test (`--rp-enabled`, `--rp-interval`, 60-86400 s) sends the cyclic test event; a DUH answer is handled as a receiver refusal. States (`SM1State`): INITIALIZING → HEALTHY ⇄ DEGRADED (strikes 1-3; the third is "Connexion perdue"); in TCP also TCP_RECONNECTING → NO_NETWORK ("Hors Réseau", terminal: the daemon exits and Jeedom's watchdog restarts it). Each transition sends `info_update`. The daemon opens the connection per exchange or keeps it as the transport requires; a permanent TCP mode is not implemented (see gaps).
+2. **Supervision (SM1) and RP cyclic test.** At least one periodic frame must be configured. The periodic frame has three formats (`--supervision-format`): `sia-dcs` (default, a SIA-DCS NULL-style frame), `null` (a plain NULL frame, used by the Maday and Cors Online profiles) and `none` (no supervision frame, used by the Ajax profile together with RP). Independently, the RP cyclic test (`--rp-enabled`, `--rp-interval`, 60-86400 s) sends the cyclic test event; a DUH answer is handled as a receiver refusal. States (`SM1State`): INITIALIZING → HEALTHY ⇄ DEGRADED (strikes 1-3; the third is "Connexion perdue"); in TCP also TCP_RECONNECTING → NO_NETWORK ("Hors Réseau", terminal: the daemon exits and Jeedom's watchdog restarts it). Each transition sends `info_update`. The daemon opens the connection per exchange or keeps it as the transport requires; a permanent TCP mode is not implemented (see gaps).
 3. **Events (SM2).** The Alarm plugin runs a siaDC09 action command → `siaDC09Cmd::execute()` resolves the zone number (from `#zone#` via `sia_zone_mappings`), the user number and the media, then calls `sendToDaemon()`. The daemon queues the event with priority over supervision, frames it, sends it, and waits up to 10 s for the ACK, with 3 retries 1 s apart (`MAX_RETRY_DEFAULT`). Each state (PENDING / ACK / NAK / FAILED) is reported through `info_update` and `message_trace`; failures go through the error handler.
 4. **Media.** An alarm frame can carry media links: snapshot and/or clip, as `U` (direct multimedia URL) or `V` (video verification link) blocks. `media` is a list of such entries; `media_single_tag` groups all URLs in one tag instead of one tag each (profile-dependent). The transport of the media is either `url` (links to the Frigate host) or FTP/FTPS: the daemon downloads the snapshot or clip from Frigate and uploads it (`ftps_upload`), then the frame carries the resulting location. Upload progress and failures are reported with `message_center` / `notify` callbacks tagged with a `logical_id`. `media_url` is the older single-URL mechanism, kept for compatibility.
 5. **Errors.** `error_handler.py` maps each failure to T1/T2/T3 and emits `message_center`, `notify` and `error_update` callbacks. PHP routes `notify` to the configured target.
@@ -90,7 +90,7 @@ The contract is enforced on both sides by `tests/level2_5/test_callback_schema.p
 
 ## Adding a CSR profile
 
-A CSR profile pre-fills and locks a set of behaviour settings for a known receiver family. Profiles live in `core/config/csr_presets.json` (despite the file name these are behaviour profiles, not connection presets: no host, port or account). Shipped profiles: `ajax`, `vesta`, `foxstream`; an empty choice means "Custom" (nothing locked).
+A CSR profile pre-fills and locks a set of behaviour settings for a known receiver family. Profiles live in `core/config/csr_presets.json` (despite the file name these are behaviour profiles, not connection presets: no host, port or account). Shipped profiles: `maday`, `cors`, `ajax` (labelled "Ajax Hub simulé"); each has a `description` shown under the selector; an empty choice means "Custom" (nothing locked).
 
 Key points:
 
@@ -190,7 +190,7 @@ All set by the wizard (three steps: 1 Centrale, 2 Test, 3 Zones et alertes); sto
 
 | Key | Default | Wizard step | Meaning | Passed to daemon as |
 |-----|---------|-------------|---------|---------------------|
-| `csr_profile` | — | 1 | Receiver profile (Ajax, Vesta, FoxStream, or custom). Selecting one pre-fills supervision, periodic test and media settings. PHP only: the daemon receives the resolved values | — |
+| `csr_profile` | — | 1 | Receiver profile (Maday, Cors Online, Ajax Hub simulé, or custom). Selecting one pre-fills supervision, periodic test and media settings. PHP only: the daemon receives the resolved values | — |
 | `csr_ip` | `''` | 1 | Receiver IP. Must not be empty or `TBD` | `--host` |
 | `csr_port` | `0` | 1 | Receiver port, 1-65535 | `--port` |
 | `transport` | `udp` | 1 | `udp` or `tcp` | `--transport` |
@@ -212,7 +212,7 @@ All set by the wizard (three steps: 1 Centrale, 2 Test, 3 Zones et alertes); sto
 | `media_transport` | `url` | 1 | `url` (U/V tag with a Frigate link in the frame) or `ftps` (no tag; the daemon uploads the Frigate snapshot to an FTP(S) server) | selects the `--ftps-*` options |
 | `frigate_media_url_template` | `''` | 1 | Public Frigate URL **with literal placeholders** (`<user>`, `<pass>`, `<token>`) — never a real credential. Required only with the `url` transport | resolved by PHP, sent with each command |
 | `media_snapshot_enabled` / `media_clip_enabled` | `1` / `1` | 1 | Send the snapshot / clip URL in intrusion alarm frames. Both off: no media tag | `media` list in the command payload |
-| `media_snapshot_format` / `media_clip_format` | `V` / `V` | 2 (advanced) | Tag letter per media, `U` or `V` (Vesta profile uses U, FoxStream V). Only for the `url` transport | `media[].format` |
+| `media_snapshot_format` / `media_clip_format` | `V` / `V` | 2 (advanced) | Tag letter per media, `U` or `V` (Cors Online uses V). Only for the `url` transport | `media[].format` |
 | `media_single_tag` | `1` | 2 (advanced) | One tag with both URLs space-separated (only when both formats are equal) or one tag per URL | `media_single_tag` |
 | `ftps_host` | `''` | 2 (advanced) | FTP(S) server, `ftps` transport only | `--ftps-host` |
 | `ftps_port` | `21` | 2 (advanced) | FTP(S) port | `--ftps-port` |

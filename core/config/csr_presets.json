@@ -1,10 +1,16 @@
 {
   "schema_version": 1,
   "profiles": {
-    "ajax":   { "label": "Ajax",   "supervision_format": "none", "rp_enabled": 1, "rp_interval": 60 },
-    "vesta":  { "label": "Vesta (Climax)", "supervision_format": "sia-dcs", "supervision_interval": 30, "rp_enabled": 1, "rp_interval": 120,
-                "media_enabled": 1, "media_snapshot_enabled": 1, "media_clip_enabled": 1, "media_snapshot_format": "U", "media_clip_format": "U", "media_single_tag": 1, "media_transport": "url" },
-    "foxstream": { "label": "FoxStream (FoxBox)", "supervision_format": "null", "supervision_interval": 30, "rp_enabled": 1, "rp_interval": 120,
-                "media_enabled": 1, "media_snapshot_enabled": 1, "media_clip_enabled": 1, "media_snapshot_format": "V", "media_clip_format": "V", "media_single_tag": 1, "media_transport": "url" }
+    "maday": { "label": "Maday Sécurité (www.maday.fr)",
+               "description": "Profil Maday Sécurité, protocole type FoxStream, avec alarme intrusion SIA et levée de doute par envoi d'une rafale de photos sur serveur FTP.",
+               "supervision_format": "null", "supervision_interval": 300, "rp_enabled": 1, "rp_interval": 86400,
+               "media_enabled": 1, "media_snapshot_enabled": 1, "media_clip_enabled": 0, "media_transport": "ftps", "ftps_plain": 1 },
+    "cors":   { "label": "Cors Online (www.cors-online.com)",
+                "description": "Profil Cors Online, protocole SIA-DC09 avec alarme intrusion SIA et levée de doute par envoi de l'URL d'un clip vidéo pris par vos caméras.",
+                "supervision_format": "null", "supervision_interval": 300, "rp_enabled": 1, "rp_interval": 7200,
+                "media_enabled": 1, "media_snapshot_enabled": 0, "media_clip_enabled": 1, "media_clip_format": "V", "media_single_tag": 1, "media_transport": "url" },
+    "ajax":   { "label": "Ajax Hub simulé",
+                "description": "Profil simulation Ajax Hub, avec alarme intrusion, sans levée de doute photo/vidéo.",
+                "supervision_format": "null", "supervision_interval": 300, "rp_enabled": 1, "rp_interval": 3600 }
   }
 }

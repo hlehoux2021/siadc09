@@ -89,6 +89,7 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
     <div id="siaDC09-ftps-fingerprint-group" class="siaDC09-field" style="display:none"><input class="eqLogicAttr" data-l2key="ftps_cert_fingerprint"></div>
     </div>
   </div>
+  <p id="siaDC09-profile-description"></p>
   <p id="siaDC09-lock-caption" style="display:none"><span></span><a id="bt_siaDC09_goCustom"></a></p>
   </div>
   <div id="siaDC09-step2-errors" style="display:none"></div>
@@ -225,6 +226,7 @@ out.extChoice = {
   exampleSingle: $('#siaDC09-ext-example-single').text(),
   exampleMulti: $('#siaDC09-ext-example-multi').text()
 }
+out.profileDescription = $('#siaDC09-profile-description').text()
 out.caption = $('#siaDC09-lock-caption').css('display') !== 'none' ? $('#siaDC09-lock-caption > span').text() : null
 out.advancedBar = { expanded: $('#bt_siaDC09_toggleAdvanced').attr('aria-expanded') || null, title: $('#siaDC09-advbar-title-text').text() }
 out.step2Errors = $('#siaDC09-step2-errors').html()

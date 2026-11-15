@@ -20,7 +20,7 @@ _PROFILES_FILE = _PROJECT_ROOT / "core/config/csr_presets.json"
 _DAEMON_DIR = _PROJECT_ROOT / "resources/siadc09d"
 
 _ALLOWED_PROFILE_KEYS = {
-    "label", "supervision_format", "supervision_interval", "rp_enabled", "rp_interval",
+    "label", "description", "ftps_plain", "supervision_format", "supervision_interval", "rp_enabled", "rp_interval",
     # Alarm media (story 17.7 keys, carried by profiles from 17.8). The URL template is never a profile key.
     "media_snapshot_enabled", "media_clip_enabled", "media_snapshot_format",
     "media_clip_format", "media_single_tag",
@@ -30,22 +30,30 @@ _ALLOWED_PROFILE_KEYS = {
     "media_transport",
 }
 
-_MEDIA_PROFILE = {
-    "media_enabled": 1, "media_snapshot_enabled": 1, "media_clip_enabled": 1, "media_single_tag": 1,
-    "supervision_format": "sia-dcs", "supervision_interval": 30, "rp_enabled": 1, "rp_interval": 120,
-}
-
 # Epic 17 table: Ajax is on-demand, no supervision frame, RP every 60 s.
 # The Scutum preset was retired from this file: its configuration is kept in
 # internal-docs/design/wizard-design.md ("Retired profile: Scutum"); use Personnalisé.
+# Story 17.8 (amended 2026-11-15): Vesta and FoxStream are gone; Maday and Cors Online replace them,
+# and every profile carries a `description` shown under the selector.
 _EXPECTED_PROFILES = {
-    "ajax": {"label": "Ajax", "supervision_format": "none", "rp_enabled": 1, "rp_interval": 60},
-    # Story 17.8: snapshot + clip, one tag; SIA-DCS every 30 s and RP every 120 s (test values).
-    "vesta": {"label": "Vesta (Climax)", **_MEDIA_PROFILE,
-              "media_snapshot_format": "U", "media_clip_format": "U", "media_transport": "url"},
-    # FoxBox supervision is the DC-09 NULL frame (not SIA-DCS).
-    "foxstream": {"label": "FoxStream (FoxBox)", **_MEDIA_PROFILE, "supervision_format": "null",
-                  "media_snapshot_format": "V", "media_clip_format": "V", "media_transport": "url"},
+    "maday": {
+        "label": "Maday Sécurité (www.maday.fr)",
+        "description": "Profil Maday Sécurité, protocole type FoxStream, avec alarme intrusion SIA et levée de doute par envoi d'une rafale de photos sur serveur FTP.",
+        "supervision_format": "null", "supervision_interval": 300, "rp_enabled": 1, "rp_interval": 86400,
+        "media_enabled": 1, "media_snapshot_enabled": 1, "media_clip_enabled": 0, "media_transport": "ftps", "ftps_plain": 1,
+    },
+    "cors": {
+        "label": "Cors Online (www.cors-online.com)",
+        "description": "Profil Cors Online, protocole SIA-DC09 avec alarme intrusion SIA et levée de doute par envoi de l'URL d'un clip vidéo pris par vos caméras.",
+        "supervision_format": "null", "supervision_interval": 300, "rp_enabled": 1, "rp_interval": 7200,
+        "media_enabled": 1, "media_snapshot_enabled": 0, "media_clip_enabled": 1, "media_clip_format": "V",
+        "media_single_tag": 1, "media_transport": "url",
+    },
+    "ajax": {
+        "label": "Ajax Hub simulé",
+        "description": "Profil simulation Ajax Hub, avec alarme intrusion, sans levée de doute photo/vidéo.",
+        "supervision_format": "null", "supervision_interval": 300, "rp_enabled": 1, "rp_interval": 3600,
+    },
 }
 
 
@@ -188,6 +196,25 @@ def test_media_transport_values_are_url_or_ftps(profiles_doc: dict) -> None:
         if "media_transport" in profile:
             # Assert: only the two known transports
             assert profile["media_transport"] in ("url", "ftps"), name
-    # Assert: the profiles with media keys lock the address way
-    assert profiles_doc["profiles"]["vesta"]["media_transport"] == "url"
-    assert profiles_doc["profiles"]["foxstream"]["media_transport"] == "url"
+    # Assert: Cors Online sends a URL, Maday uploads to the FTP server
+    assert profiles_doc["profiles"]["cors"]["media_transport"] == "url"
+    assert profiles_doc["profiles"]["maday"]["media_transport"] == "ftps"
+
+
+def test_profile_order_and_removed_profiles(profiles_doc: dict) -> None:
+    """
+    The selector lists Maday, Cors Online, then Ajax Hub simulé; Vesta and FoxStream are gone.
+
+    Expected result:
+    - profile order in the file is maday, cors, ajax (the selector keeps file order)
+    - no vesta / foxstream entry
+    - every profile has a non-empty description
+    """
+    names = list(profiles_doc["profiles"])
+    # Assert: selector order
+    assert names == ["maday", "cors", "ajax"]
+    # Assert: retired profiles
+    assert not {"vesta", "foxstream"} & set(names)
+    for name, profile in profiles_doc["profiles"].items():
+        # Assert: description shown under the selector
+        assert profile.get("description"), f"profile {name!r} has no description"

@@ -144,6 +144,7 @@ $scenarios = scenario::all();
 										<h4 class="siaDC09-zone-title">{{Votre centrale de télésurveillance}}</h4>
 
 										<!-- Profile first: it presets the periodic-frame options (ADR-22) -->
+										<p class="siaDC09-help" id="siaDC09-profile-intro">{{Le profil règle pour vous les options de votre centrale.}}</p>
 										<div class="siaDC09-row">
 											<div class="siaDC09-field siaDC09-w-input">
 												<label class="siaDC09-label" for="siaDC09-csr-profile">{{Profil de la centrale}}</label>
@@ -156,8 +157,8 @@ $scenarios = scenario::all();
 													<option value="">{{Personnalisé}}</option>
 												</select>
 											</div>
-											<p class="siaDC09-help siaDC09-help-side">{{Le profil règle pour vous les options de votre centrale. « Personnalisé » = mode expert : vous réglez tout.}}</p>
 										</div>
+										<p class="siaDC09-help" id="siaDC09-profile-description">{{« Personnalisé » = mode expert : vous réglez tout.}}</p>
 
 										<div class="siaDC09-row">
 											<div class="siaDC09-field siaDC09-w-wide">
