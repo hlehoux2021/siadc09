@@ -30,7 +30,10 @@ resources/python_venv/
 _bmad/
 .claude/commands/bmad-*
 .claude/commands/bmad_*
-.claude/skills/bmad-*/
+.claude/skills/bmad
+.claude/skills/bmad-*
+.claude/skills/bmod-*
+.agents/
 node_modules/
 .claude/worktrees/
 # Upstream reference sources (Jeedom core, plugins, models) — local only, see CLAUDE.md
