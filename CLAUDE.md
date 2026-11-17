@@ -12,17 +12,8 @@ SIA DC-09-2021.17 protocol implementation (Internet Protocol Event Reporting).
 - Daemon: `resources/siadc09d/` (Python async)
 - Plugin: `core/` + `desktop/` (PHP/JS, Jeedom framework)
 
-## Branches & Beta publication
-- `dev`: working branch, contains everything. `master`: fast-forwarded from `dev`.
-- `beta` (published on the Jeedom Market) is **generated, never edited or merged by hand**: run
-  `gh workflow run publish-beta.yml -R hlehoux2021/siadc09` (workflow `.github/workflows/publish-beta.yml`,
-  manual only, force-pushes `beta` from `dev` minus dev-only files).
-- Dev-only files removed from `beta`: `.agents`, `.claude`, `_bmad-output`, `internal-docs`, `scripts`, `tests`,
-  `CLAUDE.md`, `package.json`, `package-lock.json`, `pytest.ini`, `skills-lock.json`.
-- New dev-only dir/file at the repo root: add it to the `git rm` list of the workflow, else it reaches `beta`.
-- `gh` needs `-R hlehoux2021/siadc09` (remotes `origin` and `upstream` are ambiguous).
-
 ## Key References (read on demand, not pre-loaded)
+- Release process (branches, `beta` is generated, version, changelog): `internal-docs/release-process.md`
 - Protocol spec: `internal-docs/SIA-DC-09-Internet-Protocol-Event-Reporting-2021.md`
 - Architecture decisions: `_bmad-output/planning-artifacts/architecture.md`
 - PRD (product goals): `_bmad-output/planning-artifacts/prd.md`
