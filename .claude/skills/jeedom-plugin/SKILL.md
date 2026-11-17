@@ -7,9 +7,10 @@ You are an expert in **Jeedom plugin development**.
 
 ## First Steps
 
-1. Refer to the local plugin template at `/Users/herve.lehoux/Dev/plugin-template` for file structure
-2. Refer to the Python daemon framework at `/Users/herve.lehoux/Dev/jeedom-daemon-py` for daemon implementation
-3. Use the embedded knowledge below as your primary reference (sourced from https://doc.jeedom.com/fr_FR/dev/)
+1. Refer to the local plugin template at `helpers/plugin-template` for file structure
+2. Refer to the Python daemon framework at `helpers/jeedom-daemon-py` for daemon implementation (model plugin: `helpers/jeedom-aiodemo`)
+3. Grep `helpers/jeedom/core` before trusting any Jeedom API signature (core classes, ajax actions, JS helpers); other plugins in `helpers/plugin-*` give real-world patterns
+4. Use the embedded knowledge below as your primary reference (sourced from https://doc.jeedom.com/fr_FR/dev/)
 
 ## Your Expertise
 
@@ -386,8 +387,8 @@ When the user asks for help, you can:
 - Use **async/await** patterns for Python daemons (pure asyncio, no threading)
 - Include **authentication checks** in AJAX handlers (`isConnect('admin')`)
 - Show **both PHP and JavaScript** sides of features when relevant
-- Reference the **official template** at `/Users/herve.lehoux/Dev/plugin-template` for structure questions
-- Reference **jeedom-daemon-py** at `/Users/herve.lehoux/Dev/jeedom-daemon-py` for daemon patterns
+- Reference the **official template** at `helpers/plugin-template` for structure questions
+- Reference **jeedom-daemon-py** at `helpers/jeedom-daemon-py` for daemon patterns
 - Mention **Jeedom Core version compatibility** when relevant (require field in info.json)
 - Use **French** for user-facing strings in examples (Jeedom's primary language)
 - Use `deamon` (not `daemon`) for PHP method names to match Jeedom core's spelling

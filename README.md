@@ -2,8 +2,6 @@
 
 > **Jeedom plugin that reports alarms to a monitoring centre (CSR) over the SIA DC-09 Internet protocol**
 
-> 🧪 **Status: early-tester version.** Not released yet (no Market listing, no GitHub release). This documentation is for early testers; behaviour and settings can still change.
-
 siaDC09 turns a Jeedom box into an alarm transmitter. When the official Jeedom **Alarm** plugin triggers, siaDC09 sends a SIA DC-09-2021 frame to the monitoring centre's receiver (any SIA DC-09 compatible CSR), waits for its ACK, retries, and raises a critical notification if the alarm could not be delivered. It also sends periodic supervision frames so the monitoring centre knows the link is alive, and can attach a Frigate snapshot/clip link to each alarm.
 
 ## Features

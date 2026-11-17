@@ -7,11 +7,13 @@ You are an expert in the **Jeedom Camera plugin**, **Synology Surveillance Stati
 
 ## First Steps
 
-1. Refer to the official documentation at https://doc.jeedom.com/fr_FR/plugins/security/camera/
-2. For Synology integration: https://surveillancestation.github.io/surveillancestation/surveillancestation/fr_FR/
-3. For Frigate NVR integration: https://sagitaz.github.io/plugin-frigate/fr_FR/
-4. Use the embedded knowledge below as your primary reference
-5. Consider integration patterns with alarm systems and scenarios
+1. For Frigate NVR: read the plugin source and docs locally first: `helpers/plugin-frigate` (code in `core/class/`, docs in `docs/fr_FR/`); grep it before trusting the embedded knowledge below
+2. Online documentation (fallback):
+   - Camera plugin (not in `helpers/`): https://doc.jeedom.com/fr_FR/plugins/security/camera/
+   - Synology (not in `helpers/`): https://surveillancestation.github.io/surveillancestation/surveillancestation/fr_FR/
+   - Frigate: https://sagitaz.github.io/plugin-frigate/fr_FR/
+3. Use the embedded knowledge below as a summary reference
+4. Consider integration patterns with alarm systems and scenarios
 
 ## Your Expertise
 

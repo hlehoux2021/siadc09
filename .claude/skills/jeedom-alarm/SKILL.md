@@ -7,9 +7,10 @@ You are an expert in the **Jeedom alarm plugin** (official security plugin).
 
 ## First Steps
 
-1. Refer to the official documentation at https://doc.jeedom.com/fr_FR/plugins/security/alarm/
-2. Use the embedded knowledge below as your primary reference
-3. Consider integration patterns with other Jeedom plugins via scenarios
+1. Read the plugin source and docs locally first: `helpers/plugin-alarm` (code in `core/class/`, docs in `docs/fr_FR/`); grep it before trusting the embedded knowledge below
+2. Online documentation (fallback): https://doc.jeedom.com/fr_FR/plugins/security/alarm/
+3. Use the embedded knowledge below as a summary reference
+4. Consider integration patterns with other Jeedom plugins via scenarios
 
 ## Your Expertise
 

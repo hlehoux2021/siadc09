@@ -3,7 +3,7 @@
 SIA DC-09-2021.17 protocol implementation (Internet Protocol Event Reporting).
 
 ## Commands
-- Test (Python): `python3 -m pytest tests/level1/`
+- Test (Python): `python3 -m pytest tests/level1/ tests/level2/ tests/level2_5/` (level3 needs a live Jeedom; levels detailed in `internal-docs/developer-guide.md`)
 - Lint (Python): `python3 -m pylint resources/siadc09d/`
 - Syntax check (PHP): `php -l core/class/siaDC09.class.php`
 - Syntax check all PHP: `find core/ desktop/ -name "*.php" | xargs -n1 php -l`
