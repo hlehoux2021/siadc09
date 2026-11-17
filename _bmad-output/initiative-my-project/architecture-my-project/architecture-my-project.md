@@ -984,16 +984,15 @@ Tagged `@pytest.mark.requires_jeedom`. `jeedom_client` pytest fixture creates an
 
 **Decision:** Single `info.json` version — no PHP/daemon runtime version handshake. Plugin PHP and daemon deploy as an atomic unit via Jeedom Market. The only realistic mismatch path (partial update) is caught by Jeedom's update integrity and Python/PHP import failures before the daemon starts.
 
-**`DAEMON_VERSION` constant:** Manually-maintained string at the top of the daemon main file (e.g., `DAEMON_VERSION = "1.0.0"`). Must be updated alongside `info.json` before every Market publish (pre-release checklist item).
+**`DAEMON_VERSION` constant:** Manually-maintained string in `resources/siadc09d/__init__.py` (e.g., `DAEMON_VERSION: str = "0.1.0"`). It mirrors `pluginVersion` in `plugin_info/info.json` and must be updated alongside it before every Market publish (pre-release checklist item).
 
 **Observability:**
-- `on_start()` emits `INFO: Starting daemon version {DAEMON_VERSION}`
-- `deamon_info()` response includes a `daemon_version` string field
-- `getDiagnosticData` includes `daemon_version`
+- The daemon logs `Démon SIA DC-09 version {version}` at startup (`DAEMON_VERSION_INFO` in `messages.py`, emitted from `daemon.py`). The changelog tells users to check this line after each update.
+- Not implemented: exposing `daemon_version` through `deamon_info()` or `getDiagnosticData`.
 
 **IPC contract tracking:** `# schema_version` comment in `tests/fixtures/ipc_schema.py` tracks callback contract changes for developers and CI. Not enforced at runtime — developer-facing only.
 
-**Level 1 test:** Assert `DAEMON_VERSION == json.load(open("plugin_info/info.json"))["version"]` — catches manual sync drift in CI before it reaches users.
+**Level 1 test:** `tests/level1/test_daemon_version.py` asserts `DAEMON_VERSION == json.load(open("plugin_info/info.json"))["pluginVersion"]` (and that the value is semver) — catches manual sync drift in CI before it reaches users.
 
 | Option | Pro | Con |
 |--------|-----|-----|
