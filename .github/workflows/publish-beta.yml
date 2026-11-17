@@ -1,0 +1,29 @@
+name: publish-beta
+
+# Manual only: rebuilds the `beta` branch from `dev`, minus dev-only directories.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  beta:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: Strip dev-only directories
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git rm -r --quiet --ignore-unmatch \
+            .agents .claude _bmad-output internal-docs scripts tests \
+            CLAUDE.md package.json package-lock.json pytest.ini skills-lock.json
+          git commit -m "beta: publish dev@$(git rev-parse --short HEAD) without dev-only dirs"
+
+      - name: Push to beta
+        run: git push --force origin HEAD:beta
