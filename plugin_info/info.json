@@ -1,9 +1,9 @@
 {
 	"id": "siaDC09",
 	"name": "Télésurveillance SIA DC-09",
-	"pluginVersion": "0.1.0",
+	"pluginVersion": "0.1.1",
 	"description": {
-		"fr_FR": "Transmission d'alarmes vers centrale de télésurveillance via protocole SIA DC-09"
+		"fr_FR": "Transmettez les alarmes de votre plugin Alarme Jeedom à une centrale de télésurveillance, avec le protocole normalisé SIA DC-09.\n\nQuand le plugin Alarme se déclenche, siaDC09 envoie une trame SIA DC-09 à la centrale de télésurveillance (toute centrale compatible SIA DC-09), attend son accusé de réception et vous prévient si la transmission échoue.\n\nEn continu, il envoie aussi des trames de supervision pour que la centrale sache que le lien est vivant."
 	},
 	"licence": "GPL",
 	"author": "hlehoux2021",

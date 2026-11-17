@@ -1,10 +1,13 @@
 # Changelog plugin Télésurveillance SIA DC-09
 
-> **IMPORTANT**
->
-> Après chaque mise à jour, vérifiez dans le log `siaDC09_daemon` la ligne `Démon SIA DC-09 version X.Y.Z` : elle confirme que le démon qui tourne est bien celui de la version installée. Pensez à redémarrer le démon si ce n'est pas le cas.
 
-# Version de test — premiers testeurs (non publiée)
+# Version 0.1.1 (beta)
+
+- Nouvelle icône du plugin, conforme aux recommandations Jeedom (sans texte sous l'image).
+- Nettoyage du dépot sur le market pour exclure les fichiers de dev et de doc interne au projet.
+- Aucun changement de fonctionnement : pas de migration, le démon n'a pas besoin d'être reconfiguré.
+
+# Version de test alpha — (non publiée)
 
 Version de pré-diffusion, destinée aux premiers testeurs. Ce n'est pas une version publiée : elle n'est disponible ni sur le Market ni comme release GitHub, et son contenu peut encore changer. Pas de version antérieure : il n'y a rien à migrer.
 

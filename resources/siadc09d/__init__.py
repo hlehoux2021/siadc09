@@ -8,4 +8,4 @@ Versioning (architecture.md § Versioning Strategy):
   (enforced by tests/level1/test_daemon_version.py)
 """
 
-DAEMON_VERSION: str = "0.1.0"
+DAEMON_VERSION: str = "0.1.1"

@@ -2,8 +2,6 @@
 
 > Transmettez les alarmes de votre plugin Alarme Jeedom à une centrale de télésurveillance, avec le protocole normalisé SIA DC-09.
 
-> 🧪 **Version de test pour les premiers testeurs** — le plugin n'est pas encore publié (ni sur le Market, ni en release GitHub). Son fonctionnement et ses réglages peuvent encore évoluer.
-
 Ce plugin fait de Jeedom un transmetteur d'alarme : quand le plugin **Alarme** de Jeedom se déclenche, siaDC09 envoie une trame SIA DC-09 à la centrale de télésurveillance (toute centrale compatible SIA DC-09), attend son accusé de réception et vous prévient si la transmission échoue. En continu, il envoie aussi des trames de supervision pour que la centrale sache que le lien est vivant.
 
 **Sommaire**
