@@ -1,6 +1,11 @@
 # Changelog plugin Télésurveillance SIA DC-09
 
 
+# Version 0.1.2 (beta)
+
+- Icône du plugin ajustée sur le gabarit Jeedom (vignette 309x309, bandeau inférieur transparent).
+- Aucun changement de fonctionnement : pas de migration, le démon n'a pas besoin d'être reconfiguré.
+
 # Version 0.1.1 (beta)
 
 - Nouvelle icône du plugin, conforme aux recommandations Jeedom (sans texte sous l'image).
