@@ -570,6 +570,34 @@ class TestGetFrigateCamerasAction:
         assert "camera_take" not in get_frigate_cameras_body
         assert "camera_url" not in get_frigate_cameras_body
 
+    def test_discovers_frigate_cameras_beyond_camera_take(self, get_frigate_cameras_body: str) -> None:
+        """
+        Wizard step 3 info box: cameras lacking the CAMERA_TAKE generic type must still be listed.
+
+        Expected result:
+        - candidates also come from the 'frigate' plugin equipments, restricted to cameras
+          by their eqFrigateCamera_ logicalId (Events / Statistiques equipments are excluded)
+        """
+        # Assert: Frigate equipments are enumerated, not only CAMERA_TAKE commands
+        assert re.search(r"eqLogic::byType\(\s*['\"]frigate['\"]", get_frigate_cameras_body)
+        # Assert: only camera equipments are kept
+        assert "eqFrigateCamera_" in get_frigate_cameras_body
+
+    def test_returns_availability_and_reasons_per_camera(self, get_frigate_cameras_body: str) -> None:
+        """
+        Expected result:
+        - each camera carries 'available' and 'reasons' instead of being silently dropped
+        - the 3 reasons are reported: missing generic type, missing info_detect_person,
+          missing info_id
+        """
+        # Assert: availability flag and reasons list are part of the response shape
+        assert "'available'" in get_frigate_cameras_body
+        assert "'reasons'" in get_frigate_cameras_body
+        # Assert: one reason code per unmet condition
+        assert "'generic_type_missing'" in get_frigate_cameras_body
+        assert "'cmd_info_detect_person'" in get_frigate_cameras_body
+        assert "'cmd_info_id'" in get_frigate_cameras_body
+
 
 class TestExecuteWiresMediaUrlConditionally:
     """execute() attaches media_url to the daemon payload only when resolution succeeds."""

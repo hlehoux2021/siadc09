@@ -76,6 +76,9 @@
         "Suppression du plugin — démon arrêté": "Suppression du plugin — démon arrêté"
     },
     "plugins/siaDC09/desktop/php/siaDC09.php": {
+        "Caméras détectées": "Caméras détectées",
+        "disponibles": "disponibles",
+        "Une caméra est disponible si elle porte le type générique CAMERA_TAKE et les commandes info_detect_person et info_id.": "Une caméra est disponible si elle porte le type générique CAMERA_TAKE et les commandes info_detect_person et info_id.",
         "(choisir)": "(choisir)",
         "Délier du plugin Alarme": "Délier du plugin Alarme",
         "Fermez la page de cet équipement Alarme avant de lier : un enregistrement depuis cette page écraserait le résultat.": "Fermez la page de cet équipement Alarme avant de lier : un enregistrement depuis cette page écraserait le résultat.",
@@ -228,6 +231,11 @@
         "Test du serveur FTPS": "Test du serveur FTPS"
     },
     "plugins/siaDC09/desktop/js/siaDC09.js": {
+        "type générique CAMERA_TAKE absent": "type générique CAMERA_TAKE absent",
+        "commande info_detect_person absente": "commande info_detect_person absente",
+        "commande info_id absente": "commande info_id absente",
+        "disponible": "disponible",
+        "indisponible": "indisponible",
         "« Personnalisé » = mode expert : vous réglez tout.": "« Personnalisé » = mode expert : vous réglez tout.",
         "Choisissez un équipement Alarme": "Choisissez un équipement Alarme",
         "Commandes liées au plugin Alarme": "Commandes liées au plugin Alarme",

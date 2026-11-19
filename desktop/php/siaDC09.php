@@ -419,7 +419,12 @@ $scenarios = scenario::all();
 										<div id="siaDC09-step3-nocamera" class="alert alert-warning siaDC09-test-warning" style="display:none;">
 											<i class="fas fa-exclamation-triangle"></i> {{Aucune caméra Frigate détectée — installez et configurez le plugin Frigate NVR pour rattacher un aperçu aux alarmes.}}
 										</div>
-										<div id="siaDC09-step3-errors" class="alert alert-danger siaDC09-banner-error" role="alert" style="display:none;"></div>
+										<details id="siaDC09-camera-info" style="display:none;margin-bottom:10px;">
+												<summary><i class="fas fa-camera"></i> {{Caméras détectées}} (<span id="siaDC09-camera-info-count"></span> {{disponibles}})</summary>
+												<ul id="siaDC09-camera-info-list" style="margin-top:6px;"></ul>
+												<p class="siaDC09-help">{{Une caméra est disponible si elle porte le type générique CAMERA_TAKE et les commandes info_detect_person et info_id.}}</p>
+											</details>
+											<div id="siaDC09-step3-errors"class="alert alert-danger siaDC09-banner-error" role="alert" style="display:none;"></div>
 											<div class="siaDC09-row" style="margin-bottom:10px;">
 												<div class="siaDC09-field siaDC09-w-wide">
 													<label class="siaDC09-label" for="siaDC09-alarm-select">{{Équipement Alarme}}</label>

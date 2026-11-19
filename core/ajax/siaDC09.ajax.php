@@ -288,26 +288,42 @@ try {
         // info_id (Task 6 swap, away from the Jeedom-cached snapshot path): same
         // majEventsCmds() sweep, and this filter must stay consistent with what
         // _resolveFrigateSnapshotUrl() actually reads.
-        $cameras = [];
-        $seenEqLogicIds = [];
+        // Wizard step 3 info box: every candidate is returned with available + reasons, so the
+        // user sees why a camera cannot be mapped. Candidates = Frigate camera equipments
+        // (logicalId eqFrigateCamera_*, found even when CAMERA_TAKE is missing) plus any
+        // equipment exposing CAMERA_TAKE (plugin-agnostic, as before).
+        $candidates = [];
+        foreach (eqLogic::byType('frigate') ?: [] as $frigateEq) {
+            if (strpos((string) $frigateEq->getLogicalId(), 'eqFrigateCamera_') === 0) {
+                $candidates[(int) $frigateEq->getId()] = $frigateEq;
+            }
+        }
+        $takeEqLogicIds = [];
         foreach (cmd::byGenericType('CAMERA_TAKE') ?? [] as $takeCmd) {
             $eqLogic = $takeCmd->getEqLogic();
             if (!is_object($eqLogic)) {
                 continue;
             }
-            $eqLogicId = $eqLogic->getId();
-            if (isset($seenEqLogicIds[$eqLogicId])) {
-                continue;
+            $takeEqLogicIds[(int) $eqLogic->getId()] = true;
+            $candidates[(int) $eqLogic->getId()] = $eqLogic;
+        }
+        $cameras = [];
+        foreach ($candidates as $eqLogicId => $eqLogic) {
+            $reasons = [];
+            if (!isset($takeEqLogicIds[$eqLogicId])) {
+                $reasons[] = 'generic_type_missing';
             }
-            $seenEqLogicIds[$eqLogicId] = true;
-            $detectCmd = cmd::byEqLogicIdAndLogicalId((int) $eqLogicId, 'info_detect_person');
-            $idCmd = cmd::byEqLogicIdAndLogicalId((int) $eqLogicId, 'info_id');
-            if (!is_object($detectCmd) || !is_object($idCmd)) {
-                continue;
+            if (!is_object(cmd::byEqLogicIdAndLogicalId($eqLogicId, 'info_detect_person'))) {
+                $reasons[] = 'cmd_info_detect_person';
+            }
+            if (!is_object(cmd::byEqLogicIdAndLogicalId($eqLogicId, 'info_id'))) {
+                $reasons[] = 'cmd_info_id';
             }
             $cameras[] = [
-                'id'    => (int) $eqLogicId,
-                'label' => $eqLogic->getName(),
+                'id'        => $eqLogicId,
+                'label'     => $eqLogic->getName(),
+                'available' => count($reasons) === 0,
+                'reasons'   => $reasons,
             ];
         }
         ajax::success(['cameras' => $cameras]);

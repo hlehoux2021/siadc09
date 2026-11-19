@@ -1276,8 +1276,11 @@ function siaDC09_loadZoneData(eqLogic) {
     dataType: 'json',
     global: false,
     success: function(data) {
-      var cameras = (data.result || {}).cameras || []
-      $('#siaDC09-step3-nocamera').toggle(cameras.length === 0)
+      var allCameras = (data.result || {}).cameras || []
+      // Only fully equipped cameras can be mapped to a zone; the info box lists all of them.
+      var cameras = allCameras.filter(function(cam) { return cam.available })
+      $('#siaDC09-step3-nocamera').toggle(allCameras.length === 0)
+      siaDC09_renderCameraInfo(allCameras)
       $.ajax({
         type: 'POST',
         url: 'plugins/siaDC09/core/ajax/siaDC09.ajax.php',
@@ -1345,6 +1348,39 @@ function siaDC09_loadZoneTable(zones, zoneMapping, cameras) {
     }
     $tbody.append(siaDC09_buildZoneRow(zoneNumber, zoneName, saved, cameras))
   })
+}
+
+// Reason code (from getFrigateCameras) -> user-facing text
+function siaDC09_cameraReasonLabel(reason) {
+  var labels = {
+    generic_type_missing: '{{type générique CAMERA_TAKE absent}}',
+    cmd_info_detect_person: '{{commande info_detect_person absente}}',
+    cmd_info_id: '{{commande info_id absente}}'
+  }
+  return labels[reason] || reason
+}
+
+// Collapsible info box: one line per camera, available or not (with the reasons).
+function siaDC09_renderCameraInfo(allCameras) {
+  var $box = $('#siaDC09-camera-info')
+  var $list = $('#siaDC09-camera-info-list').empty()
+  $box.toggle(allCameras.length > 0)
+  var availableCount = 0
+  allCameras.forEach(function(cam) {
+    var $li = $('<li>')
+    if (cam.available) {
+      availableCount++
+      $li.append($('<i class="fas fa-check-circle" style="color:#5cb85c;margin-right:4px;">'))
+      $li.append($('<span>').text(cam.label + ' — '))
+      $li.append($('<span>').text('{{disponible}}'))
+    } else {
+      $li.append($('<i class="fas fa-exclamation-triangle" style="color:#f0ad4e;margin-right:4px;">'))
+      $li.append($('<span>').text(cam.label + ' — '))
+      $li.append($('<span>').text('{{indisponible}} : ' + (cam.reasons || []).map(siaDC09_cameraReasonLabel).join(', ')))
+    }
+    $list.append($li)
+  })
+  $('#siaDC09-camera-info-count').text(availableCount + ' / ' + allCameras.length)
 }
 
 function siaDC09_buildZoneRow(zoneNumber, zoneName, saved, cameras) {
